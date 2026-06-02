@@ -28,7 +28,7 @@ from industry_chain import find_matching_chains
 
 def _dfcf_req(params, retries=3):
     """封装东财API请求——用curl绕过macOS系统代理，带重试"""
-    import subprocess, json, urllib.parse, time
+    import json, urllib.parse, urllib.request, time
     
     url = "https://push2.eastmoney.com/api/qt/clist/get"
     params.setdefault("ut", "bd1d9ddb04089700cf9c27f6f7426281")
@@ -37,17 +37,16 @@ def _dfcf_req(params, retries=3):
     
     qs = urllib.parse.urlencode(params)
     full_url = f"{url}?{qs}"
-    
+
     for attempt in range(retries):
-        result = subprocess.run(
-            ["curl", "-s", "--noproxy", "*", "-H", "User-Agent: Mozilla/5.0", full_url],
-            capture_output=True, text=True, timeout=20
-        )
-        if result.stdout.strip():
-            try:
-                return json.loads(result.stdout)
-            except json.JSONDecodeError:
-                pass
+        try:
+            req = urllib.request.Request(full_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode())
+                if data.get("data", {}).get("diff") is not None:
+                    return data
+        except Exception:
+            pass
         if attempt < retries - 1:
             time.sleep(1.5)
     return {"data": {"diff": []}}

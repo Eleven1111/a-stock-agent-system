@@ -54,16 +54,13 @@ def get_all_stocks():
 
 def _tencent_market_fallback():
     """Tencent API 降级获取大盘数据（GBK编码）"""
-    import subprocess, json
+    import urllib.request
+
     try:
-        r = subprocess.run(
-            ['curl', '-s', 'http://qt.gtimg.cn/q=sh000001,sz399001,sz399006',
-             '--noproxy', '*'],
-            capture_output=True, timeout=10
-        )
-        if not r.stdout.strip():
-            return pd.DataFrame()
-        text = r.stdout.decode('gbk', errors='ignore')
+        url = 'http://qt.gtimg.cn/q=sh000001,sz399001,sz399006'
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            text = resp.read().decode('gbk', errors='ignore')
         lines = text.strip().split('\n')
         rows = []
         for line in lines:
