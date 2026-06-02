@@ -1,0 +1,294 @@
+---
+name: stock-triage
+description: >-
+  A股全栈分析编排器。接收来自 cron job 的信号或用户指令，自动判断是否升级到深度分析，
+  通过四维打分引擎(four_dim_scorer.py)自动评分，支持港A联动监控、资讯触发检测、
+  Serenity报告飞书存档。Kanban 分发给 stock-data / stock-analyst / hotmoney-worker /
+  serenity-worker 四个 worker profile，输出 S/A/B/C 分级的买卖建议报告。
+version: 1.1.0
+author: Luna
+metadata:
+  hermes:
+    tags: [A股, 编排, 多agent, 分析, 投资]
+    category: finance
+    profiles:
+      stock-data: 数据采集（a-stock-data + a-stock-daily-report）
+      stock-analyst: 技术分析（stock-analyst + a-stock-data）
+      hotmoney-worker: 游资情绪（hot-money-tactics + news-to-sector）
+      serenity-worker: 深度投研（serenity-investment-research / deepseek-v4-pro）
+      stock-triage: 编排中枢（本 profile）
+---
+
+# A股全栈分析编排器
+
+这是一个**决策中枢**，不会自己执行分析，而是判断 → 分发 → 汇总。
+它相当于整个 A股 Agent 系统的大脑。
+
+## 核心逻辑
+
+```
+信号输入 → 信号评分 → 决策：
+  ├─ ≥8分 (S级) → 启动完整 4-worker 深度分析 + Serenity + 推送
+  ├─ 6-7分 (A级) → 3-worker 技术+情绪+催化 + 每日简报
+  ├─ 4-5分 (B级) → 单 worker 快扫 + 加入观察池
+  └─ <4分 → 记录信号，不执行
+```
+
+## 信号检测规则
+
+### 自动升级信号（触发 ≥ 后自动启动深度分析）
+
+| 信号类型 | 检测条件 | 分值 | 优先级 |
+|---------|---------|------|--------|
+| 板块爆发 | 板块热度 > 10 且 涨停 ≥ 3家 | 7 | 高 |
+| 连板加速 | 连板 ≥ 3 且 封板资金 ≥ 1亿 | 8 | 最高 |
+| 资金异动 | 封板资金 ≥ 5亿（首板） | 6 | 中 |
+| 用户标的技术触发 | 用户关注列表 + 技术金叉/突破 | 9 | 最高 |
+| 用户标的超跌 | 用户关注列表 + 跌超 15% | 7 | 高 |
+| 政策催化 | 政策/资讯命中跟踪板块 | 10 | 最高 |
+| 板块轮动 | 资金净流入/流出 > 50亿切换 | 6 | 中 |
+| 北向持续加仓 | 北向资金连续3日加仓 TOP5 | 5 | 中 |
+| 异常放量 | 换手 > 20% + 涨 > 5% | 4 | 低 |
+| 研报密集 | 3家以上券商同日覆盖 | 5 | 中 |
+
+### 🌍 全球市场信号（新增，来自 global-market-monitor）
+
+| 信号类型 | 检测条件 | 分值 | 优先级 | 影响板块 |
+|---------|---------|------|--------|---------|
+| 全球恐慌 | VIX ≥ 30 | 8 | 最高 | 全市场（外资流出，降低仓位） |
+| 美股科技暴跌 | 纳斯达克跌幅 ≥ 2% | 7 | 高 | AI算力、半导体、消费电子 |
+| 美股全面暴跌 | 标普500跌幅 ≥ 2% | 7 | 高 | 全市场（跟跌风险） |
+| 中概股集体崩跌 | ≥3只ADR跌>5% | 6 | 中 | 互联网、电商、新能源车 |
+| 关键科技股异动 | NVDA/AAPL涨跌>5% | 5 | 中 | 对应A股产业链 |
+| 原油暴涨 | WTI +5% | 6 | 中 | 石油/石化利好，航空/交运利空 |
+| 人民币异动 | USD/CNY波动>1% | 5 | 中 | 外贸/家电（贬利好），航空/造纸（贬利空） |
+| 美债异动 | 10Y变动>10bp | 5 | 中 | 科技/成长（↑利空），银行（↑利好） |
+| 地缘政治升级 | 重大冲突/制裁 | 10 | 最高 | 军工/黄金利好，相关产业链 |
+
+全球信号通过 `global-market-monitor/scripts/monitor.py` 的 `assess_impact()` 自动检测，
+盘前（08:15）和晚间（22:30）两次 cron 扫描输出后，作为 Triage 的附加输入。
+
+### 用户指令（直接触发）
+
+| 指令 | 语法 | 行为 |
+|------|------|------|
+| 深度分析 | `/deep 002156` | 启动 4-worker 全链 → S级报告 |
+| 快速扫板块 | `/scan 军工` | stock-analyst 板块扫 + 识别候选 |
+| 设置提醒 | `/alert 600011 止损8.0` | 添加到监控 + 价格触发 |
+| 周报 | `/report 封测 本周` | 汇总该板块本周表现 + 展望 |
+| 对比 | `/compare 通富微电 长电科技 华天科技` | 3只横向对比 |
+| 紧急推送 | `/push` | 立即推送当前待发的所有报告 |
+
+## 输出格式
+
+### S级标的报告模板
+
+```markdown
+🏆 **S级深度分析：{股票名}({代码})**
+**评分：{X.X}/10 | 等级：S | 建议：🟢🟢🟢 {买入/卖出}**
+
+**买入区间：** {价} - {价}
+**止损位：** {价} （跌破 {百分比}%）
+**目标位：** {价} （{天数}天 / 涨幅{百分比}%）
+**仓位：** {百分比}%
+
+---
+
+## 四维评分卡
+| 维度 | 评分 | 关键发现 |
+|------|------|---------|
+| 技术面 (30%) | {X}/10 | ... |
+| 情绪面 (25%) | {X}/10 | ... |
+| 催化面 (25%) | {X}/10 | ... |
+| 深度面 (20%) | {X}/10 | ... |
+| **加权总分** | **{X.X}** | |
+
+## 供应链位置
+{serenity-worker 输出}
+
+## 财务快照
+| 指标 | 当前值 | 行业均值 | 判断 |
+...
+
+## 催化剂日历
+...
+
+## 风险清单
+...
+
+## 操作建议
+明确买入价/止损价/目标价/持有周期
+```
+
+## Kanban 调用模式
+
+```python
+# 场景：S级信号触发 → 启动全链分析
+
+# Step 1: 创建 3 个并行分析任务
+t1 = kanban_create(
+    title="技术分析: {code} {name}",
+    assignee="stock-analyst",
+    body="用 stock-analyst 分析 {code} {name}。获取日线/周线技术指标，输出评分、支撑/阻力位、止损建议。"
+)
+
+t2 = kanban_create(
+    title="游资情绪: {code} {name}",
+    assignee="hotmoney-worker",
+    body="用 hot-money-tactics 分析 {code} 所在板块的热度、连板梯队、封板质量、资金流向。输出板块情绪周期判断。"
+)
+
+t3 = kanban_create(
+    title="催化分析: {code} {name}",
+    assignee="hotmoney-worker",
+    body="用 news-to-sector 搜索最新资讯/政策/研报催化。判断催化剂新鲜度和持续周期。"
+)
+
+# Step 2: 评分 + 深度研究（等上面 3 个完成）
+t4 = kanban_create(
+    title="四维评分: {code} {name}",
+    assignee="stock-analyst",
+    parents=[t1, t2, t3],
+    body="综合技术面/情绪面/催化面分析结果，给出四维评分。若总分 ≥ 6，标注'建议升级深度研究'。"
+)
+
+# Step 3: Serenity 深度研究（仅 S/A 级）
+t5 = kanban_create(
+    title="🎓 Serenity深度: {code} {name}",
+    assignee="serenity-worker",
+    parents=[t4],
+    body="启动 serenity-investment-research 深度分析。包含：供应链位置、财务拆解、估值赔率、熊市审计、完整报告。"
+)
+
+# Step 4: 汇总报告
+t6 = kanban_create(
+    title="汇总报告: {code} {name}",
+    assignee="stock-analyst",
+    parents=[t5],
+    body="合并所有分析结果，输出 S/A/B/C 分级 + 买入区间/止损/目标/仓位建议，按模板格式。"
+)
+```
+
+## 配置信息
+
+- **Kanban dispatcher**: 运行在 default gateway，间隔 60s
+- **Worker 模型**: stock-data/analyst/hotmoney → deepseek-v4-flash (便宜), serenity → deepseek/deepseek-v4-pro (深度)
+- **用户关注标的**: 华能国际(600011)、通富微电(002156)、长电科技(600584)、华天科技(002185)、深科技(000021)、太极实业(600667)
+- **跟踪板块**: 封测、高温主题(电力/电网/空调)、AI算力、军工航天、煤炭
+
+## Cron 流水线时间表（21 jobs，工作日核心15个）
+
+> 设计原则详见 `references/cron-scheduling-principles.md`：时间分散、上下文链路、静默式vs定时式、推送分层、数据采集模式。
+
+推送层级：🔴紧急 > 🟡重要 > 🟢常规 > ⚪数据
+
+| 时间 | 任务 | 层级 | 来源 |
+|------|------|------|------|
+| 08:00 Mon | 📅 事件日历提醒 | ⚪ | event_calendar.py |
+| 08:15 | 🌍 全球市场盘前扫描 | 🟢 | global-market-monitor |
+| 08:30 | BuilderPulse → 飞书 | 🟢 | — |
+| 08:55 | PulseEngine 日报 | 🟢 | — |
+| 09:00 | 📡 资讯监控(政策/产业/地缘) | 🟡 | SerpAPI 4组关键词 |
+| 09:00-15:00 | ⚡ 盘中异动（每5分钟） | 🔴 | intraday_monitor.py |
+| 09:45 | 🇭🇰 港A联动 | 🟢 | hk_a_linkage.py |
+| 10:00 | 高温主题开盘跟踪 | 🟢 | stock-analyst |
+| 10:30 | 💰 资金流向 | 🟡 | capital_flow_monitor.py |
+| 11:00 | 📡 资讯监控 | 🟡 | SerpAPI |
+| 11:35 | 午盘热门板块复盘 | 🟢 | stock-analyst |
+| 11:40 | 🧠 午盘Triage快速扫描 | 🟡 | stock-triage |
+| 13:00 | 📡 资讯监控 | 🟡 | SerpAPI |
+| 13:45 | 🇭🇰 港A联动 | 🟢 | hk_a_linkage.py |
+| 14:00 | 📡 资讯监控 | 🟡 | SerpAPI |
+| 14:30 | 💰 资金流向 | 🟡 | capital_flow_monitor.py |
+| 14:45 | 🇭🇰 港A联动 | 🟢 | hk_a_linkage.py |
+| 15:05 | 封测核心标的跟踪 | 🟢 | stock-analyst |
+| 15:08 | 📊 四维打分（6只跟踪标的） | 🟡 | four_dim_scorer.py |
+| 15:10 | 🛡️ 持仓风控检查 | 🔴 | portfolio_manager.py |
+| 15:15 | 收板热门板块复盘 | 🟢 | stock-analyst |
+| 15:20 | 📡 资讯监控 | 🟡 | SerpAPI |
+| 15:25 | 🧠 收盘Triage→Kanban派发 | 🟡 | stock-triage |
+| 20:00 | 📡 资讯监控 | 🟡 | SerpAPI |
+| 22:00 | 📡 资讯监控 | 🟡 | SerpAPI |
+| 22:30 | 🌙 全球市场晚间扫描 | 🟢 | global-market-monitor |
+| Sat 10:00 | 🏛️ 机构行为周报 | ⚪ | institution_tracker.py |
+| Sun 10:00 | 📈 信号胜率统计周报 | ⚪ | performance_tracker.py |
+
+收盘 Triage（15:25）的 `context_from` 链：[封测跟踪(15:05), 四维打分(15:08)] → 两份输入合并判断。
+
+**推送分层策略：**
+- 🔴 紧急：止损触发、跌停、地缘冲突 — 立即推送
+- 🟡 重要：S/A级信号、北向异动、政策催化 — 推送摘要
+- 🟢 常规：每日复盘、盘前扫描 — 静默存档，主动查看
+- ⚪ 数据：周报、无触发监控 — 不推送，存档备查
+
+## 可执行脚本
+
+| 脚本 | 用途 |
+|------|------|
+| `four_dim_scorer.py` | 四维打分引擎：技术(30%)×情绪(25%)×催化(25%)×深度(20%)→ S/A/B/C/D；支持 `--timeframe 60/30` 短线入场 |
+| `capital_flow_monitor.py` | 资金流向：北向资金 + 主力/散户净流 + 板块资金（东财API，需NO_PROXY） |
+| `portfolio_manager.py` | 持仓风控：`--add`开仓、`--close`清仓、`--check`止损止盈/仓位集中度 |
+| `intraday_monitor.py` | 盘中异动：涨跌停/放量>10%/急涨急跌>5%（5分钟静默式，无触发不输出） |
+| `hk_a_linkage.py` | 港A联动：AH溢价率 + 恒生vs上证背离 + 港股通权重异动检测 |
+| `institution_tracker.py` | 机构行为：调研/研报/增减持（东财数据中心+SerpAPI） |
+| `event_calendar.py` | 事件日历：限售解禁/分红/政策窗口（东财+固定日期库） |
+| `performance_tracker.py` | 胜率统计：`--record`记录信号→自动跟踪表现→分S/A/B/C统计命中率 |
+| `serenity_to_feishu.py` | 飞书存档：接收 markdown 报告 → lark-cli docs +create → 本地双份存档 |
+
+快速命令：
+
+```bash
+PY=~/.hermes/hermes-agent/venv/bin/python3
+SDIR=~/.hermes/skills/stock-triage/scripts
+
+# 评分 — 支持 --timeframe 60/30 短线入场判断
+$PY $SDIR/four_dim_scorer.py 600011 华能国际
+$PY $SDIR/four_dim_scorer.py 600011 华能国际 --timeframe 60
+
+# 监控 — 均支持 --json 输出
+$PY $SDIR/intraday_monitor.py          # 盘中异动（无触发静默）
+$PY $SDIR/capital_flow_monitor.py      # 资金流向
+$PY $SDIR/hk_a_linkage.py              # 港A联动
+
+# 持仓
+$PY $SDIR/portfolio_manager.py --add 600011 华能国际 9.10 --shares 2000
+$PY $SDIR/portfolio_manager.py --check
+$PY $SDIR/portfolio_manager.py --close 600011 8.50
+
+# 追踪
+$PY $SDIR/institution_tracker.py       # 机构行为
+$PY $SDIR/event_calendar.py            # 事件日历
+$PY $SDIR/performance_tracker.py --record 600011 华能国际 A 9.10
+$PY $SDIR/performance_tracker.py       # 查看胜率
+
+# 存档 — 从 stdin 读取 markdown
+echo "# 深度报告..." | $PY $SDIR/serenity_to_feishu.py "通富微电"
+```
+
+## 相关技能
+
+- `stock-analyst` — 技术分析引擎（被 Triage 分派的主要 worker）
+- `hot-money-tactics` — 游资情绪（hotmoney-worker 的 skill）
+- `news-to-sector` — 资讯驱动催化分析（hotmoney-worker 的 skill）
+- `serenity-investment-research` — Serenity 深度投研（serenity-worker 的 skill）
+- `global-market-monitor` — 🆕 全球市场监控（外围输入，信号升级入口）
+- `a-stock-commands` — 快捷指令（/deep /scan /alert /report /compare /global）
+
+## 8个拓展场景
+
+已在 `references/8-expansion-scenarios.md` 中定义了 8 个可插拔的拓展场景，优先级 P0→P3：
+
+| 优先级 | 场景 | 关键数据 |
+|--------|------|---------|
+| P0 | 连板追击 | hot-money-tactics 连板≥3 + 封板资金 |
+| P0 | 技术突破 | stock-analyst screener 突破阻力+放量 |
+| P1 | 板块轮动 | --rotation 退潮检测 + 新热点识别 |
+| P1 | 政策驱动 | 资讯监控触发词 + news-to-sector 映射 |
+| P2 | 抄底策略 | RSI<25 + 跌破布林+缩量 |
+| P2 | 北向跟踪 | 北向资金端点（需NO_PROXY） |
+| P2 | 事件驱动 | 财报/产品发布/行业展会日历 |
+| P3 | 估值修复 | PE历史分位 + 业绩增长 + 横盘确认 |
+
+## ⚠️ 构建原则
+
+**设计即构建**：在 SKILL.md 中描述的任何模块（脚本、cron job、集成管道），必须在同一次交付中建成可运行的实现。不允许出现"设计完成但未实现"的半成品——这会导致用户追问和重复工作。本 skill 中的所有脚本、cron 和管道均已完成并验证。

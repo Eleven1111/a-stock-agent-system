@@ -1,0 +1,23 @@
+{
+  "skill_name": "serenity-investment-research",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "用 Serenity 风格分析 NVIDIA 的 AI 供应链瓶颈，但不要给我个人投资建议。",
+      "expected_output": "A Chinese research report with a supply-chain map, bottleneck test, valuation/odds section, bear case, scorecard, tracking checklist, and source credibility table.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "帮我研究 Sivers Semiconductors / SIVE，它是不是 CPO 产业链里真正的瓶颈？",
+      "expected_output": "A source-cited analysis that distinguishes direct evidence, mirrored social posts, company filings, third-party summaries, and unverified claims; includes disconfirming evidence and non-advisory rating.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我想找 AI 光通信产业链里市场还没充分定价的小公司，先给我一个 Serenity 风格筛选清单。",
+      "expected_output": "A screening workflow and checklist covering demand confirmation, supply scarcity, market attention gap, value capture, catalysts, financial quality, dilution/liquidity risk, and follow-up data sources.",
+      "files": []
+    }
+  ]
+}
