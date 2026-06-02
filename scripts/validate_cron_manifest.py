@@ -38,8 +38,8 @@ def validate(filepath):
             if len(parts) != 5:
                 errors.append(f"job[{i}] ({jid}) invalid cron schedule: {job['schedule']}")
 
-        if job.get("timezone") != "Asia/Shanghai":
-            errors.append(f"job[{i}] ({jid}) timezone not Asia/Shanghai: {job['timezone']}")
+        if job.get("timezone", "") != "Asia/Shanghai":
+            errors.append(f"job[{i}] ({jid}) timezone not Asia/Shanghai: {job.get('timezone', 'missing')}")
 
         if not isinstance(job.get("enabled"), bool):
             errors.append(f"job[{i}] ({jid}) enabled must be boolean")

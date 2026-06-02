@@ -454,11 +454,33 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
     )
 
     g, emoji, advice = grade(weighted)
+    # 汇总
+    # 计算置信度和数据覆盖率
+    data_coverage = {
+        "realtime": technical["price"] is not None,
+        "kline": technical["ma5"] is not None,
+        "news": catalyst["news_count"] > 0,
+        "valuation": deep["pe"] is not None,
+    }
+    covered = sum(data_coverage.values())
+    if covered >= 3:
+        confidence = "high"
+    elif covered >= 2:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    # 低置信度时不给强烈买卖建议
+    if confidence == "low":
+        advice = "数据不足，无法给出方向性判断"
+        emoji = "⚪"
 
     return {
         "code": code,
         "name": name,
         "timestamp": datetime.now().isoformat(),
+        "confidence": confidence,
+        "data_coverage": data_coverage,
         "scores": {
             "technical": technical,
             "sentiment": sentiment,
