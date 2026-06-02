@@ -1,0 +1,40 @@
+[project]
+name = "a-stock-agent-system"
+version = "1.0.1"
+description = "A股全栈Agent系统 — 10个Skill × 完整投资决策闭环"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Eleven1111"}]
+
+dependencies = [
+    "yfinance>=0.2.0",
+    "akshare>=1.18.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+charts = ["matplotlib>=3.7"]
+fundamentals = ["baostock>=0.9"]
+research = ["pypdf>=3.0"]
+dev = ["pytest>=7.0", "ruff>=0.1"]
+
+[project.scripts]
+four-dim-scorer = "skills.stock_triage.scripts.four_dim_scorer:main"
+global-monitor = "skills.global_market_monitor.scripts.monitor:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

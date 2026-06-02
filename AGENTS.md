@@ -42,7 +42,7 @@
 | a-stock-data | `~/.hermes/skills/a-stock-data/` | 📦 数据源参考 |
 | a-stock-daily-report | `~/.hermes/skills/a-stock-daily-report/` | 📋 每日简报 |
 | a-stock-commands | `~/.hermes/skills/a-stock-commands/` | ⌨️ 快捷指令 |
-| pulse-engine | `~/.hermes/skills/pulse-engine/` | 📡 社会情绪 |
+| pulse-engine | 外部项目 | 📡 社会情绪（不在本仓库） |
 
 ## 数据源铁律
 
@@ -100,12 +100,12 @@ cron 任务中所有数据抓取**必须用 `execute_code` + Python `urllib`**�
 参考：`sector_scan.py` 遍历所有行业板块。
 
 ### 4. 分析输出
-任何个股分析必须包含：
+当置信度为"高"或"中"时，个股分析必须包含：
 - 具体买入价 / 止损位 / 目标位
 - 持有周期
 - S/A/B/C 分级 + 仓位建议
 
-只给数据和判断依据，不给"可能/或许/建议关注"等模糊词。
+置信度为"低"或数据不足时，禁止输出方向性投资判断。
 
 ### 5. 网络故障处理
 遇到 502 / DNS 劫持 / 连接拒绝等报错时：

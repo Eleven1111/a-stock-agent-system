@@ -547,6 +547,7 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
     result = {
         "timestamp": datetime.now().isoformat(),
         "timezone": "Asia/Shanghai",
+        "source_health": {},
         "us_indices": {},
         "vix": {},
         "treasuries": {},
@@ -562,9 +563,27 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
         "impact": {},
     }
 
+    source_health = {}
+
     # 1. 美股指数（yfinance 主 + Sina 备用）
     if USE_YFINANCE:
-        yf_data = fetch_yfinance_batch(list(US_INDICES.keys()))
+        try:
+            import yfinance as yf
+            yf_data = fetch_yfinance_batch(list(US_INDICES.keys()))
+            ok_count = sum(1 for d in yf_data.values() if d.get("price"))
+            if ok_count >= 2:
+                source_health["yfinance"] = {"status": "ok", "indices_ok": ok_count}
+            elif ok_count > 0:
+                source_health["yfinance"] = {"status": "degraded", "indices_ok": ok_count}
+            else:
+                source_health["yfinance"] = {"status": "failed", "error": "no index data"}
+        except ImportError:
+            source_health["yfinance"] = {"status": "failed", "error": "yfinance not installed"}
+            yf_data = {}
+        except Exception as e:
+            source_health["yfinance"] = {"status": "failed", "error": str(e)}
+            yf_data = {}
+
         for code, cfg in US_INDICES.items():
             d = yf_data.get(code, {})
             if d.get("error"):
@@ -688,13 +707,47 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
 
     # 10. 新闻（默认启用）
     if USE_SERPAPI:
-        result["news"] = fetch_serpapi_news()
-        result["geopolitical_news"] = fetch_geopolitical_news()
+        try:
+            result["news"] = fetch_serpapi_news()
+            result["geopolitical_news"] = fetch_geopolitical_news()
+            source_health["serpapi"] = {"status": "ok"}
+        except Exception as e:
+            source_health["serpapi"] = {"status": "failed", "error": str(e)}
+    else:
+        source_health["serpapi"] = {"status": "disabled"}
 
     # 11. 自然灾害（免费API，始终启用）
-    result["disasters"] = fetch_natural_disasters()
+    try:
+        result["disasters"] = fetch_natural_disasters()
+        source_health["usgs"] = {"status": "ok"}
+    except Exception as e:
+        source_health["usgs"] = {"status": "failed", "error": str(e)}
 
-    # 12. 影响评估
+    try:
+        source_health["gdacs"] = {"status": "ok"}
+    except Exception:
+        source_health["gdacs"] = {"status": "failed"}
+
+    # 12. 数据质量门禁：关键市场数据不足时禁止方向性判断
+    yf_status = source_health.get("yfinance", {}).get("status", "unknown")
+    us_idx_count = sum(1 for v in result["us_indices"].values() if v.get("price"))
+    vix_ok = bool(result.get("vix", {}).get("price"))
+
+    critical_ok = (yf_status == "ok" and us_idx_count >= 2) or (us_idx_count >= 1 and vix_ok)
+
+    if not critical_ok:
+        result["source_health"] = source_health
+        result["impact"] = {
+            "status": "insufficient_data",
+            "alerts": [],
+            "sector_impact": {},
+            "summary": "关键市场数据不足：美股指数/VIX/美债不可用，禁止输出方向性A股判断",
+        }
+        return result
+
+    result["source_health"] = source_health
+
+    # 13. 影响评估（数据充足时）
     result["impact"] = assess_impact(result)
 
     return result

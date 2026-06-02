@@ -120,17 +120,31 @@ def collect_hk_a_data() -> Dict[str, Any]:
         "summary": "",
     }
 
-    # 1. 获取指数（yfinance 或腾讯降级）
-    import yfinance as yf
+    # 1. 获取指数（yfinance 主，腾讯降级）
+    hsi_price = None
+    hsi_pct = None
+
     try:
-        hsi_tk = yf.Ticker("^HSI")
-        hsi_info = hsi_tk.info
-        hsi_price = hsi_info.get("regularMarketPrice") or hsi_info.get("previousClose")
-        hsi_pct = hsi_info.get("regularMarketChangePercent")
-    except Exception:
-        hk_raw = fetch_tencent_hk("hkHSI")
-        hsi_price = hk_raw.get("price")
-        hsi_pct = hk_raw.get("change_pct")
+        import yfinance as yf
+    except ImportError:
+        yf = None
+
+    if yf:
+        try:
+            hsi_tk = yf.Ticker("^HSI")
+            hsi_info = hsi_tk.info
+            hsi_price = hsi_info.get("regularMarketPrice") or hsi_info.get("previousClose")
+            hsi_pct = hsi_info.get("regularMarketChangePercent")
+        except Exception:
+            pass
+
+    if hsi_price is None:
+        try:
+            hk_raw = fetch_tencent_hk("hkHSI")
+            hsi_price = hk_raw.get("price")
+            hsi_pct = hk_raw.get("change_pct")
+        except Exception:
+            pass
 
     sse = fetch_tencent_realtime("000001", "sh")
 
