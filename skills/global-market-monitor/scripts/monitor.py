@@ -710,7 +710,16 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
         try:
             result["news"] = fetch_serpapi_news()
             result["geopolitical_news"] = fetch_geopolitical_news()
-            source_health["serpapi"] = {"status": "ok"}
+            # 检测 SerpAPI 是否真正可用（返回 error 或空列表不是 ok）
+            news_ok = bool(result["news"]) and not any(
+                isinstance(n, dict) and "error" in n for n in result["news"]
+            )
+            if news_ok:
+                source_health["serpapi"] = {"status": "ok"}
+            elif not os.environ.get("SERPAPI_API_KEY"):
+                source_health["serpapi"] = {"status": "failed", "error": "SERPAPI_API_KEY not set"}
+            else:
+                source_health["serpapi"] = {"status": "failed", "error": "no news results"}
         except Exception as e:
             source_health["serpapi"] = {"status": "failed", "error": str(e)}
     else:

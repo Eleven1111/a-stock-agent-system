@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Cron Manifest 校验器"""
+"""Cron Manifest 校验器 — 严格模式"""
 
-import json, sys, os
+import json, sys, os, re
 
-REQUIRED = ["id", "name", "schedule", "timezone", "enabled", "external"]
+REQUIRED = ["id", "name", "schedule", "timezone", "command", "cwd",
+            "enabled", "external", "expected_output", "silent_when_no_signal"]
+VALID_OUTPUTS = {"json", "text", "none"}
+PLACEHOLDER_RE = re.compile(r'\{(\w+)\}')
+
 
 def validate(filepath):
     if not os.path.exists(filepath):
@@ -24,11 +28,12 @@ def validate(filepath):
 
     ids = set()
     for i, job in enumerate(jobs):
+        jid = job.get("id", f"#{i}")
+
         for field in REQUIRED:
             if field not in job:
-                errors.append(f"job[{i}] missing required field: {field}")
+                errors.append(f"job[{i}] ({jid}) missing required: {field}")
 
-        jid = job.get("id", f"#{i}")
         if jid in ids:
             errors.append(f"job[{i}] duplicate id: {jid}")
         ids.add(jid)
@@ -36,10 +41,10 @@ def validate(filepath):
         if job.get("schedule"):
             parts = job["schedule"].split()
             if len(parts) != 5:
-                errors.append(f"job[{i}] ({jid}) invalid cron schedule: {job['schedule']}")
+                errors.append(f"job[{i}] ({jid}) invalid cron: {job['schedule']}")
 
-        if job.get("timezone", "") != "Asia/Shanghai":
-            errors.append(f"job[{i}] ({jid}) timezone not Asia/Shanghai: {job.get('timezone', 'missing')}")
+        if job.get("timezone") != "Asia/Shanghai":
+            errors.append(f"job[{i}] ({jid}) timezone: {job.get('timezone', 'missing')}")
 
         if not isinstance(job.get("enabled"), bool):
             errors.append(f"job[{i}] ({jid}) enabled must be boolean")
@@ -47,14 +52,35 @@ def validate(filepath):
         if not isinstance(job.get("external"), bool):
             errors.append(f"job[{i}] ({jid}) external must be boolean")
 
+        output = job.get("expected_output")
+        if output and output not in VALID_OUTPUTS:
+            errors.append(f"job[{i}] ({jid}) invalid expected_output: {output}")
+
+        silent = job.get("silent_when_no_signal")
+        if silent is not None and not isinstance(silent, bool):
+            errors.append(f"job[{i}] ({jid}) silent_when_no_signal must be boolean")
+
+        # 占位符检测：command 中有占位符但没有 template_vars 声明 → 警告
+        cmd = job.get("command", "")
+        placeholders = PLACEHOLDER_RE.findall(cmd)
+        if placeholders:
+            template_vars = job.get("template_vars")
+            if not template_vars:
+                errors.append(
+                    f"job[{i}] ({jid}) command has placeholders {placeholders} "
+                    f"but no template_vars defined"
+                )
+
     if errors:
         for e in errors:
             print(f"  FAIL: {e}")
         return False
 
     external_count = sum(1 for j in jobs if j.get("external"))
-    print(f"OK: {len(jobs)} jobs, {external_count} external, {len(jobs) - external_count} local")
+    local_count = len(jobs) - external_count
+    print(f"OK: {len(jobs)} jobs ({local_count} local, {external_count} external)")
     return True
+
 
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "cron/hermes-cron-manifest.json"

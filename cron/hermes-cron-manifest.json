@@ -78,6 +78,7 @@
       "enabled": true,
       "silent_when_no_signal": false,
       "expected_output": "json",
+      "template_vars": ["code", "name"],
       "external": true,
       "external_note": "需 Hermes Agent cron 运行时；{code} {name} 由 cron prompt 动态替换"
     },
@@ -104,6 +105,7 @@
       "enabled": true,
       "silent_when_no_signal": true,
       "expected_output": "text",
+      "template_vars": ["query"],
       "external": true,
       "external_note": "需 Hermes Agent + SerpAPI；无触发静默"
     },

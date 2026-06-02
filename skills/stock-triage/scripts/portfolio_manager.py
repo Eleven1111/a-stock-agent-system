@@ -19,6 +19,10 @@ import urllib.request
 from datetime import datetime, date
 from typing import Dict, Any, List, Optional
 
+# 共享状态存储
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from state_store import read_json, atomic_write_json, file_lock
+
 PORTFOLIO_FILE = os.path.expanduser("~/.hermes/skills/stock-triage/data/portfolio.json")
 HISTORY_FILE = os.path.expanduser("~/.hermes/skills/stock-triage/data/trade_history.json")
 os.makedirs(os.path.dirname(PORTFOLIO_FILE), exist_ok=True)
@@ -33,29 +37,21 @@ PORTFOLIO_SIZE = 100000   # 默认总资金（用户应修改）
 
 
 def load_portfolio() -> Dict:
-    if os.path.exists(PORTFOLIO_FILE):
-        with open(PORTFOLIO_FILE) as f:
-            return json.load(f)
-    return {"cash": PORTFOLIO_SIZE, "positions": [], "total_cost": 0}
+    return read_json(PORTFOLIO_FILE, {"cash": PORTFOLIO_SIZE, "positions": [], "total_cost": 0})
 
 
 def save_portfolio(data: Dict):
-    with open(PORTFOLIO_FILE, "w") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    atomic_write_json(PORTFOLIO_FILE, data)
 
 
 def load_history() -> List:
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE) as f:
-            return json.load(f)
-    return []
+    return read_json(HISTORY_FILE, [])
 
 
 def save_history(record: Dict):
     history = load_history()
     history.append(record)
-    with open(HISTORY_FILE, "w") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+    atomic_write_json(HISTORY_FILE, history)
 
 
 def fetch_price(code: str) -> Optional[Dict]:

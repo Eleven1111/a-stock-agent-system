@@ -18,21 +18,19 @@ import urllib.request
 from datetime import datetime, date, timedelta
 from typing import Dict, Any, List, Optional
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from state_store import read_json, atomic_write_json
+
 HISTORY_FILE = os.path.expanduser("~/.hermes/skills/stock-triage/data/signal_history.json")
-STATS_FILE = os.path.expanduser("~/.hermes/skills/stock-triage/data/signal_stats.json")
 os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
 
 
 def load_history() -> List[Dict]:
-    if os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE) as f:
-            return json.load(f)
-    return []
+    return read_json(HISTORY_FILE, [])
 
 
 def save_history(records: List[Dict]):
-    with open(HISTORY_FILE, "w") as f:
-        json.dump(records, f, ensure_ascii=False, indent=2)
+    atomic_write_json(HISTORY_FILE, records)
 
 
 def fetch_price(code: str) -> Optional[float]:

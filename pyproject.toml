@@ -1,7 +1,7 @@
 [project]
 name = "a-stock-agent-system"
 version = "1.0.1"
-description = "A股全栈Agent系统 — 10个Skill × 完整投资决策闭环"
+description = "A股全栈Agent系统 — 9个Skill × 完整投资决策闭环"
 requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "MIT"}
@@ -12,6 +12,7 @@ dependencies = [
     "akshare>=1.18.0",
     "pandas>=2.0.0",
     "numpy>=1.24.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -20,13 +21,12 @@ fundamentals = ["baostock>=0.9"]
 research = ["pypdf>=3.0"]
 dev = ["pytest>=7.0", "ruff>=0.1"]
 
-[project.scripts]
-four-dim-scorer = "skills.stock_triage.scripts.four_dim_scorer:main"
-global-monitor = "skills.global_market_monitor.scripts.monitor:main"
-
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["skills*"]
 
 [tool.ruff]
 line-length = 120

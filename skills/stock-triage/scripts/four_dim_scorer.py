@@ -408,11 +408,30 @@ def score_deep(code: str, name: str) -> Dict[str, Any]:
 
 # ========== 汇总 ==========
 
-WEIGHTS = {
-    "technical": 0.30,
-    "sentiment": 0.25,
-    "catalyst": 0.25,
-    "deep": 0.20,
+# ========== 配置 ==========
+import yaml
+
+def _load_scoring_config():
+    config_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'config', 'scoring.yaml')
+    try:
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+    except Exception:
+        return None
+
+_scoring_cfg = _load_scoring_config()
+
+if _scoring_cfg:
+    WEIGHTS = _scoring_cfg.get("scoring", {}).get("weights", {})
+    RISK = _scoring_cfg.get("risk", {})
+else:
+    WEIGHTS = {"technical": 0.30, "sentiment": 0.25, "catalyst": 0.25, "deep": 0.20}
+    RISK = {}
+
+CONFIDENCE_RULES = {
+    "high": {"requires": ["realtime", "kline", "news", "valuation"]},
+    "medium": {"requires": ["realtime", "kline"]},
+    "low": {"requires": ["realtime"]},
 }
 
 
@@ -462,13 +481,14 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
         "news": catalyst["news_count"] > 0,
         "valuation": deep["pe"] is not None,
     }
-    covered = sum(data_coverage.values())
-    if covered >= 3:
-        confidence = "high"
-    elif covered >= 2:
-        confidence = "medium"
-    else:
-        confidence = "low"
+
+    # 按配置规则判定置信度（从高到低匹配）
+    confidence = "low"
+    for level in ["high", "medium", "low"]:
+        required = CONFIDENCE_RULES[level]["requires"]
+        if all(data_coverage.get(r, False) for r in required):
+            confidence = level
+            break
 
     # 低置信度时不给强烈买卖建议
     if confidence == "low":

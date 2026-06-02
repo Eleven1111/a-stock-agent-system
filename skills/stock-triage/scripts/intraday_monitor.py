@@ -17,6 +17,9 @@ import urllib.request
 from datetime import datetime
 from typing import Dict, Any, List
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from state_store import read_json, atomic_write_json
+
 TRACKED_CODES = ["600011", "002156", "600584", "002185", "000021", "600667"]
 TRACKED_NAMES = {"600011": "华能国际", "002156": "通富微电", "600584": "长电科技",
                  "002185": "华天科技", "000021": "深科技", "600667": "太极实业"}
@@ -47,18 +50,15 @@ def fetch_realtime(code: str) -> Dict:
     except Exception:
         return {}
 
+ALERT_CACHE = os.path.expanduser("~/.hermes/skills/stock-triage/data/intraday_alerts.json")
+
 
 def load_alert_cache() -> Dict:
-    if os.path.exists(ALERT_CACHE):
-        with open(ALERT_CACHE) as f:
-            return json.load(f)
-    return {}
+    return read_json(ALERT_CACHE, {})
 
 
 def save_alert_cache(cache: Dict):
-    os.makedirs(os.path.dirname(ALERT_CACHE), exist_ok=True)
-    with open(ALERT_CACHE, "w") as f:
-        json.dump(cache, f)
+    atomic_write_json(ALERT_CACHE, cache)
 
 
 def check_intraday() -> Dict:
