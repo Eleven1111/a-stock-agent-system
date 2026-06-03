@@ -34,6 +34,10 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W"]
+ignore = [
+    "E501",   # 长行（中文字符串多，不强制折行）
+    "F841",   # 未使用变量（脚本中临时变量难免）
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

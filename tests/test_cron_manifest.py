@@ -77,3 +77,33 @@ def test_placeholder_with_vars():
         assert validate(path) is True
     finally:
         os.unlink(path)
+
+
+def test_placeholder_partial_cover():
+    """占位符 {code} {name} 但 template_vars=["code"] → 应拒绝"""
+    j = dict(VALID_JOB)
+    j["command"] = "python script.py {code} {name}"
+    j["template_vars"] = ["code"]
+    manifest = {"jobs": [j]}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
+def test_placeholder_extra_var_warns():
+    """template_vars=["code","name"] 但 command 只用了 {code} → 应通过但有警告"""
+    j = dict(VALID_JOB)
+    j["command"] = "python script.py {code}"
+    j["template_vars"] = ["code", "name"]
+    manifest = {"jobs": [j]}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is True
+    finally:
+        os.unlink(path)

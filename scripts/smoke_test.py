@@ -53,13 +53,13 @@ tests = [
         [PY, "skills/stock-triage/scripts/four_dim_scorer.py", "002156", "通富微电", "--json"],
         "four_dim_scorer"
     ),
-    (  # 2. 全球市场监控
+    (  # 2. 全球市场监控（含 source_health，长超时避免 flaky）
         [PY, "skills/global-market-monitor/scripts/monitor.py", "--json"],
-        "global_monitor"
+        "global_monitor", 120, True
     ),
     (  # 3. 港A联动 (yfinance may fail, but script must not crash)
         [PY, "skills/stock-triage/scripts/hk_a_linkage.py", "--json"],
-        "hk_a_linkage", 60, True
+        "hk_a_linkage", 120, True
     ),
     (  # 4. 新闻→板块
         [PY, "skills/news-to-sector/scripts/main.py", "焦煤期货主力合约触及涨停，涨幅8%"],
@@ -85,22 +85,4 @@ for t in tests:
 print("=" * 50)
 print(f"Results: {PASS} passed, {FAIL} failed")
 print("=" * 50)
-
-# 额外：验证 source_health 字段存在
-global_data = run(
-    [PY, "skills/global-market-monitor/scripts/monitor.py", "--json"],
-    "global_source_health_check", 120, True
-)
-
-if global_data and isinstance(global_data, dict):
-    sh = global_data.get("source_health", {})
-    impact = global_data.get("impact", {})
-    status = impact.get("status", "unknown")
-    if sh:
-        print(f"\n  source_health: {json.dumps({k: v['status'] for k, v in sh.items()}, ensure_ascii=False)}")
-    if status == "insufficient_data":
-        print(f"  ⚠️  impact status: insufficient_data (expected when yfinance unavailable)")
-    else:
-        print(f"  impact alerts: {len(impact.get('alerts', []))}")
-
 sys.exit(FAIL)

@@ -1,4 +1,7 @@
 import sys, os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'skills', 'stock-triage', 'scripts'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+BASE = os.path.dirname(__file__)
+PROJ = os.path.abspath(os.path.join(BASE, '..'))
+sys.path.insert(0, os.path.join(PROJ, 'skills', 'stock-triage', 'scripts'))
+sys.path.insert(0, os.path.join(PROJ, 'skills', 'common'))
+sys.path.insert(0, PROJ)

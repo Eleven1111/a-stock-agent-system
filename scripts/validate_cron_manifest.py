@@ -60,16 +60,31 @@ def validate(filepath):
         if silent is not None and not isinstance(silent, bool):
             errors.append(f"job[{i}] ({jid}) silent_when_no_signal must be boolean")
 
-        # 占位符检测：command 中有占位符但没有 template_vars 声明 → 警告
+        # 占位符检测：command 中有占位符但没有 template_vars 声明 → 错误
         cmd = job.get("command", "")
         placeholders = PLACEHOLDER_RE.findall(cmd)
+        template_vars = job.get("template_vars")
+
         if placeholders:
-            template_vars = job.get("template_vars")
             if not template_vars:
                 errors.append(
                     f"job[{i}] ({jid}) command has placeholders {placeholders} "
                     f"but no template_vars defined"
                 )
+            else:
+                # 严格校验：占位符集合必须是 template_vars 的子集
+                placeholder_set = set(placeholders)
+                vars_set = set(template_vars)
+                missing = placeholder_set - vars_set
+                if missing:
+                    errors.append(
+                        f"job[{i}] ({jid}) placeholders {sorted(missing)} "
+                        f"not covered by template_vars={template_vars}"
+                    )
+                # 警告未使用的 template var（不阻断，仅输出）
+                unused = vars_set - placeholder_set
+                if unused:
+                    print(f"  WARN: job[{i}] ({jid}) unused template_vars={sorted(unused)}")
 
     if errors:
         for e in errors:
