@@ -229,7 +229,7 @@ else:
             return None
         data = json.loads(result.stdout.strip())
         return data if data else None
-    except:
+    except Exception:
         return None
 
 def fetch_kline(code: str, days=120, force_refresh=False, period="day") -> List[Dict]:
@@ -279,7 +279,7 @@ def fetch_realtime(codes: List[str]) -> Dict:
     # GBK解码
     try:
         text = raw.decode('gbk')
-    except:
+    except Exception:
         text = raw.decode('utf-8', errors='replace')
 
     results = {}
@@ -348,7 +348,7 @@ else:
     try:
         out = _run_python(code)
         return json.loads(out) if out else []
-    except:
+    except Exception:
         return []
 
 

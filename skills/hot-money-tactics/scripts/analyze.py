@@ -49,7 +49,7 @@ def get_all_stocks():
         df = ak.stock_zh_a_spot_em()
         if not df.empty:
             return df
-    except:
+    except Exception:
         pass
     # 降级：用腾讯API获取大盤指数
     return _tencent_market_fallback()
@@ -86,7 +86,7 @@ def _tencent_market_fallback():
                 '昨收': float(parts[4]) if parts[4] else 0,
             })
         return pd.DataFrame(rows)
-    except:
+    except Exception:
         return pd.DataFrame()
 
 # ======================== 分析函数 ========================

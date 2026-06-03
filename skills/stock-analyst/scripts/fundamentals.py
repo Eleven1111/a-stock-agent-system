@@ -44,7 +44,7 @@ def _extract_json(text):
         return None
     try:
         return json.loads(text[start:end+1])
-    except:
+    except Exception:
         return None
 
 
@@ -84,7 +84,7 @@ except Exception as e:
         if result.returncode != 0 or result.stdout.startswith("ERROR"):
             return None
         return _extract_json(result.stdout)
-    except:
+    except Exception:
         return None
 
 
@@ -127,7 +127,7 @@ except Exception as e:
                 "status": d[3] if len(d) > 3 else "",
             }
         return None
-    except:
+    except Exception:
         return None
 
 
@@ -178,7 +178,7 @@ except Exception as e:
                 "date": d.get('date', ''),
             }
         return None
-    except:
+    except Exception:
         return None
 
 
@@ -220,7 +220,7 @@ except Exception as e:
                 "period": f"{year}Q{quarter}",
             }
         return None
-    except:
+    except Exception:
         return None
 
 
@@ -295,7 +295,7 @@ def get_full_analysis(code: str, name: str = "") -> Dict:
         rt = fetch_realtime([code])
         tech = analyze_stock(code, name, realtime=rt.get(code))
         result['technical'] = tech
-    except:
+    except Exception:
         result['technical'] = None
 
     return result

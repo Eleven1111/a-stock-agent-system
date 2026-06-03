@@ -273,7 +273,7 @@ def screen_by_conditions(conditions, logic="AND", max_results=50, industry_filte
         try:
             rt = fetch_realtime([code])
             result = analyze_stock(code, name, kline_data=kline, realtime=rt.get(code))
-        except:
+        except Exception:
             continue
 
         if 'error' in result:
@@ -303,10 +303,14 @@ def format_output(results, format_type="table"):
                 rsi_str = v.split('(')[1].split(')')[0] if '(' in v else ""
 
         sigs = []
-        if 'ma_golden_cross' in r.get('signals', {}): sigs.append("金叉")
-        if 'macd_golden' in r.get('signals', {}): sigs.append("MACD金叉")
-        if 'kdj_golden' in r.get('signals', {}): sigs.append("KDJ金叉")
-        if 'boll' in r.get('signals', {}): sigs.append(r['signals']['boll'][:8])
+        if 'ma_golden_cross' in r.get('signals', {}):
+            sigs.append("金叉")
+        if 'macd_golden' in r.get('signals', {}):
+            sigs.append("MACD金叉")
+        if 'kdj_golden' in r.get('signals', {}):
+            sigs.append("KDJ金叉")
+        if 'boll' in r.get('signals', {}):
+            sigs.append(r['signals']['boll'][:8])
 
         arrow = "🟢" if r.get('pct_change', 0) >= 0 else "🔴"
         lines.append(

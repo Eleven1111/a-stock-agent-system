@@ -43,7 +43,7 @@ def scan_sectors(dates=None):
                     lb = r.get('连板数', 0)
                     try:
                         lb = int(lb)
-                    except:
+                    except Exception:
                         lb = 0
                     if lb > industry_data[ind]['max_lianban']:
                         industry_data[ind]['max_lianban'] = lb
@@ -73,11 +73,16 @@ def scan_sectors(dates=None):
 
     for i, (total, ind, cnt, days, max_lb, stocks) in enumerate(ranked):
         # 热度等级
-        if total >= 14: level = "🔥🔥🔥"
-        elif total >= 10: level = "🔥🔥"
-        elif total >= 6: level = "🔥"
-        elif total >= 3: level = "🌤"
-        else: level = "❄️"
+        if total >= 14:
+            level = "🔥🔥🔥"
+        elif total >= 10:
+            level = "🔥🔥"
+        elif total >= 6:
+            level = "🔥"
+        elif total >= 3:
+            level = "🌤"
+        else:
+            level = "❄️"
 
         print(f"{level} {ind:<14s} {cnt:>4d} {days:>3d}天 {max_lb:>3d}板 {total:>5.1f}  {stocks[0] if stocks else ''}")
         if len(stocks) > 1:

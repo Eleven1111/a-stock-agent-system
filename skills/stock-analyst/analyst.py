@@ -63,16 +63,22 @@ def cmd_analyze(code, name=""):
     print(f" {result['name']}({result['code']}) 技术分析")
     print(f"{'='*60}")
     print(f" 现价: {result['price']:.2f} | 今日: {result['pct_change']:+.2f}%")
-    if result.get('pct_5d'): print(f" 近5日: {result['pct_5d']:+.2f}% | 近10日: {result['pct_10d']:+.2f}%")
+    if result.get('pct_5d'):
+        print(f" 近5日: {result['pct_5d']:+.2f}% | 近10日: {result['pct_10d']:+.2f}%")
     print(f"\n 评级: {result['rating']} (综合分: {result['score']:+})")
     print("\n 关键位置:")
-    if result.get('ma5'): print(f"   MA5: {result['ma5']}  MA10: {result['ma10']}  MA20: {result['ma20']}")
-    if result.get('ma60'): print(f"   MA60(趋势线): {result['ma60']}")
-    if result.get('support'): print(f"   布林下轨(支撑): {result['support']}")
-    if result.get('resistance'): print(f"   布林上轨(阻力): {result['resistance']}")
+    if result.get('ma5'):
+        print(f"   MA5: {result['ma5']}  MA10: {result['ma10']}  MA20: {result['ma20']}")
+    if result.get('ma60'):
+        print(f"   MA60(趋势线): {result['ma60']}")
+    if result.get('support'):
+        print(f"   布林下轨(支撑): {result['support']}")
+    if result.get('resistance'):
+        print(f"   布林上轨(阻力): {result['resistance']}")
     print("\n 技术信号:")
     for k, v in result['signals'].items():
-        if k != 'score': print(f"   {v}")
+        if k != 'score':
+            print(f"   {v}")
     print(f" 数据: {result['data_points']}个交易日")
 
 def cmd_screen(sector_name=None):
@@ -147,7 +153,7 @@ def cmd_compare(sector_name=None):
         try:
             r = get_full_analysis(code, name)
             results.append(r)
-        except:
+        except Exception:
             pass
 
     print(format_brief(results))
@@ -172,13 +178,18 @@ def cmd_weekly(code, name=""):
     print(f" 现价: {result['price']:.2f}")
     print(f" 周线评分: {result['rating']} ({result['score']:+})")
     print("\n 关键位置:")
-    if result.get('ma5'): print(f"   周MA5: {result['ma5']}")
-    if result.get('ma10'): print(f"   周MA10: {result['ma10']}")
-    if result.get('ma20'): print(f"   周MA20: {result['ma20']}")
-    if result.get('ma60'): print(f"   周MA60(趋势线): {result['ma60']}")
+    if result.get('ma5'):
+        print(f"   周MA5: {result['ma5']}")
+    if result.get('ma10'):
+        print(f"   周MA10: {result['ma10']}")
+    if result.get('ma20'):
+        print(f"   周MA20: {result['ma20']}")
+    if result.get('ma60'):
+        print(f"   周MA60(趋势线): {result['ma60']}")
     print("\n 信号:")
     for k, v in result['signals'].items():
-        if k != 'score': print(f"   {v}")
+        if k != 'score':
+            print(f"   {v}")
 
 def cmd_screener(query_str=None):
     """条件筛选引擎"""

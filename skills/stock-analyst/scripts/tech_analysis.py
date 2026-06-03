@@ -383,10 +383,14 @@ if __name__ == "__main__":
             print(f" 近5日: {result['pct_5d']:+.2f}% | 近10日: {result['pct_10d']:+.2f}%")
         print(f"\n 评级: {result['rating']} (综合分: {result['score']:+d})")
         print("\n 关键位置:")
-        if result.get('ma5'): print(f"   MA5: {result['ma5']}  MA10: {result['ma10']}  MA20: {result['ma20']}")
-        if result.get('ma60'): print(f"   MA60(趋势线): {result['ma60']}")
-        if result.get('support'): print(f"   布林下轨(支撑): {result['support']}")
-        if result.get('resistance'): print(f"   布林上轨(阻力): {result['resistance']}")
+        if result.get('ma5'):
+            print(f"   MA5: {result['ma5']}  MA10: {result['ma10']}  MA20: {result['ma20']}")
+        if result.get('ma60'):
+            print(f"   MA60(趋势线): {result['ma60']}")
+        if result.get('support'):
+            print(f"   布林下轨(支撑): {result['support']}")
+        if result.get('resistance'):
+            print(f"   布林上轨(阻力): {result['resistance']}")
         print("\n 技术信号:")
         for k, v in result['signals'].items():
             if k != 'score':

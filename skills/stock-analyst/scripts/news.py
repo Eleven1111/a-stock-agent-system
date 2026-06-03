@@ -24,7 +24,7 @@ if not SERPAPI_KEYS:
                     _keys_str = line.split("=", 1)[1].strip().strip("'").strip('"')
                     SERPAPI_KEYS = [k.strip() for k in _keys_str.split(",") if k.strip()]
                     break
-    except:
+    except Exception:
         pass
 
 _KEY_INDEX = 0
@@ -37,7 +37,7 @@ if not os.environ.get("NO_PROXY"):
                 if line.startswith("NO_PROXY="):
                     os.environ["NO_PROXY"] = line.split("=", 1)[1].strip().strip("'").strip('"')
                     break
-    except:
+    except Exception:
         pass
 
 

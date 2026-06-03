@@ -39,8 +39,6 @@ ignore = [
     "F841",   # 未使用变量（脚本中临时变量难免）
     "E402",   # 模块级导入不在顶部（skills 间动态 sys.path 插入的常见模式）
     "E266",   # 过多 # 号（中英文文档注释的合理用法）
-    "E701",   # 单行多语句（sector_scan.py 快捷 if 样式）
-    "E722",   # 裸 except（数据抓取降级链的合理用法）
 ]
 
 [tool.pytest.ini_options]
