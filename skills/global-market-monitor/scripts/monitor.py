@@ -17,13 +17,17 @@ Cron-safe: 使用 urllib / yfinance（requests），不依赖 shell 命令。
 
 import json
 import os
+import sys
 import urllib.request
 import urllib.error
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 # ========== 配置 ==========
-CACHE_DIR = os.path.expanduser("~/.hermes/skills/global-market-monitor/cache")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from paths import cache_dir as _cache_dir
+
+CACHE_DIR = _cache_dir("global-market-monitor")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # 数据源开关

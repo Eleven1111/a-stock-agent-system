@@ -12,9 +12,13 @@
 
 import json
 import os
+import sys
 import urllib.request
 import urllib.error
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from paths import env_file as _env_file
 
 
 class DataSourceError(Exception):
@@ -27,8 +31,8 @@ class DataSourceError(Exception):
 
 
 def load_hermes_env() -> Dict[str, str]:
-    """加载 ~/.hermes/.env 到 os.environ"""
-    env_file = os.path.expanduser("~/.hermes/.env")
+    """加载 $HERMES_HOME/.env（默认 ~/.hermes/.env）到 os.environ"""
+    env_file = _env_file()
     if os.path.exists(env_file):
         with open(env_file) as f:
             for line in f:
@@ -65,6 +69,48 @@ def http_get_json(url: str, headers: Dict = None, timeout: int = 10,
         raise DataSourceError(url, str(e), e)
 
 
+# 腾讯行情字段下标（GBK，~ 分隔）。集中定义，便于在腾讯改版时单点维护。
+# 测试 test_a_stock_http_parse.py 用合成报文锁定这些下标，防止静默漂移。
+_TENCENT_FIELDS = {
+    "name": 1, "price": 3, "prev_close": 4, "open": 5, "volume": 6,
+    "change_pct": 32, "high": 33, "low": 34, "amount": 37,
+    "turnover": 38, "pe": 39, "market_cap": 45,
+}
+_TENCENT_SCALE = {"amount": 10000}  # 成交额单位：万元 → 元
+
+
+def _f(parts: List[str], idx: int) -> Optional[float]:
+    """安全取 float，越界/空值返回 None。"""
+    if idx >= len(parts) or parts[idx] == "":
+        return None
+    try:
+        return float(parts[idx])
+    except ValueError:
+        return None
+
+
+def parse_tencent_quote_line(line: str) -> Optional[Dict[str, Any]]:
+    """
+    解析单行腾讯行情报文（纯函数，不触网，可单测）。
+    形如: v_sz002156="1~通富微电~002156~...~"
+    返回 (code, fields) 失败返回 None。
+    """
+    if "=" not in line:
+        return None
+    code_raw, data = line.split("=", 1)
+    code = code_raw.replace("v_", "").strip()
+    parts = data.strip().strip('"').split("~")
+    if len(parts) < 40:
+        return None
+    fields: Dict[str, Any] = {}
+    for key, idx in _TENCENT_FIELDS.items():
+        val = parts[idx] if (key == "name" and idx < len(parts)) else _f(parts, idx)
+        if key in _TENCENT_SCALE and val is not None:
+            val = val * _TENCENT_SCALE[key]
+        fields[key] = val
+    return {"code": code, "fields": fields}
+
+
 def fetch_tencent_quote(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     """
     腾讯实时行情
@@ -81,27 +127,9 @@ def fetch_tencent_quote(codes: List[str]) -> Dict[str, Dict[str, Any]]:
 
     results = {}
     for line in raw.strip().split("\n"):
-        if "=" not in line:
-            continue
-        code_raw, data = line.split("=", 1)
-        code = code_raw.replace("v_", "").strip()
-        parts = data.strip().strip('"').split("~")
-        if len(parts) < 40:
-            continue
-        results[code] = {
-            "name": parts[1],
-            "price": float(parts[3]) if parts[3] else None,
-            "prev_close": float(parts[4]) if parts[4] else None,
-            "open": float(parts[5]) if parts[5] else None,
-            "change_pct": float(parts[32]) if parts[32] else None,
-            "high": float(parts[33]) if parts[33] else None,
-            "low": float(parts[34]) if parts[34] else None,
-            "volume": float(parts[6]) if parts[6] else None,
-            "amount": (float(parts[37]) * 10000) if parts[37] else None,
-            "turnover": float(parts[38]) if parts[38] else None,
-            "pe": float(parts[39]) if parts[39] else None,
-            "market_cap": float(parts[45]) if parts[45] else None,
-        }
+        parsed = parse_tencent_quote_line(line)
+        if parsed:
+            results[parsed["code"]] = parsed["fields"]
     return results
 
 
