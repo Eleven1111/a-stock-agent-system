@@ -151,6 +151,20 @@ def update_json_list(filepath: str, item: Any,
     return existing
 
 
+def mutate_json(filepath: str, mutator, default: Any = None) -> Any:
+    """
+    事务式读-改-写（读取、mutator 变更、写回全程在同一把锁内）。
+    mutator: 接收当前数据（损坏/缺失时为 default），返回写回的新数据。
+    用于"读改写"事务——例如批量结算 pending 记录——避免读与写分两次独立加锁
+    时被并发追加/写回覆盖丢失。返回 mutator 产出的新数据。
+    """
+    with file_lock(filepath):
+        current = _read_json_unlocked(filepath, default)
+        updated = mutator(current)
+        _write_json_unlocked(filepath, updated)
+        return updated
+
+
 def mark_failed(filepath: str, error: str) -> None:
     """标记最后一次操作为失败状态"""
     atomic_write_json(filepath, {

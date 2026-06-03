@@ -77,6 +77,11 @@ def check_intraday() -> Dict:
     now = datetime.now()
     now_str = now.strftime("%H:%M")
 
+    # 新的一天：进入检测前先清空昨日缓存，否则会在循环后把当天刚生成的告警一并清掉
+    today = now.strftime("%Y%m%d")
+    if cache.get("_date", "") != today:
+        cache = {"_date": today}
+
     for code in TRACKED_CODES:
         data = fetch_realtime(code)
         if not data.get("price"):
@@ -118,13 +123,6 @@ def check_intraday() -> Dict:
                 alerts.append({"level": "🟡", "type": direction,
                                "msg": f"{name} {direction}{abs(pct):.1f}%，现价{price}"})
                 cache[key] = now_str
-
-    # 清理过期缓存（新的一天）
-    today = now.strftime("%Y%m%d")
-    cache_date = cache.get("_date", "")
-    if cache_date != today:
-        cache = {"_date": today}
-        alerts = []  # 新的一天重新检测
 
     save_alert_cache(cache)
 

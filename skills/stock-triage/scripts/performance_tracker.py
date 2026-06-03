@@ -32,7 +32,7 @@ from datetime import datetime, date
 from typing import Dict, List, Optional, Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from state_store import read_json, atomic_write_json
+from state_store import read_json, atomic_write_json, update_json_list, mutate_json
 from paths import data_file
 from tradeability import limit_pct, round_limit
 from a_stock_http import fetch_tencent_kline, DataSourceError
@@ -120,15 +120,16 @@ def save_history(records: List[Dict]):
 
 
 def record_signal(code: str, name: str, grade: str, score: float, price: float) -> Dict:
-    """记录一个新信号。price 为信号日收盘价（仅留档；结算以前复权 K 线为准）。"""
-    records = load_history()
-    records.append({
+    """记录一个新信号。price 为信号日收盘价（仅留档；结算以前复权 K 线为准）。
+
+    用 update_json_list 在单锁内完成"读-追加-写回"，避免并发 --record 互相覆盖丢记录。
+    """
+    update_json_list(HISTORY_FILE, {
         "code": code, "name": name, "grade": grade, "score": score,
         "signal_date": date.today().isoformat(),
         "signal_price": price,
         "outcome": "pending",
     })
-    save_history(records)
     return {"ok": True, "recorded": f"{name}({code}) {grade}级 @ {price}"}
 
 
@@ -151,12 +152,17 @@ def _fetch_future_bars(code: str, signal_date: str, market: str) -> Optional[Dic
 
 
 def update_outcomes() -> List[Dict]:
-    """重新结算所有 pending 信号（已结算的不再改动）。"""
-    records = load_history()
-    bench_cache: Dict[str, Optional[Dict[str, Any]]] = {}
-    changed = False
+    """重新结算所有 pending 信号（已结算的不再改动）。
 
-    for r in records:
+    并发安全：网络抓取/结算在锁外完成，仅把结果按 (code, signal_date) 收集；
+    最终用 mutate_json 在单锁内重新读取最新历史并就地结算回写。这样既不长时间
+    持锁等网络，也不会因"读快照→结算→写回"覆盖掉期间并发追加/结算的记录。
+    """
+    snapshot = load_history()
+    bench_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    resolutions: Dict[tuple, Dict[str, Any]] = {}
+
+    for r in snapshot:
         if r.get("outcome") != "pending":
             continue
 
@@ -179,12 +185,21 @@ def update_outcomes() -> List[Dict]:
             index_future_bars=bench["future"] if bench else None,
         )
         if result:
-            r.update(result)
-            changed = True
+            resolutions[(code, sdate)] = result
 
-    if changed:
-        save_history(records)
-    return records
+    if not resolutions:
+        return snapshot
+
+    def _apply(records: List[Dict]) -> List[Dict]:
+        for r in records:
+            if r.get("outcome") != "pending":
+                continue
+            res = resolutions.get((r["code"], r["signal_date"]))
+            if res:
+                r.update(res)
+        return records
+
+    return mutate_json(HISTORY_FILE, _apply, [])
 
 
 # ========== 统计 ==========
