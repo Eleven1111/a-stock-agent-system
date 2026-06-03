@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-12%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-22%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-6%2F6%20passed-brightgreen)](scripts/smoke_test.py)
 
 A multi-agent research system for China's A-share market. Nine specialized skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management.

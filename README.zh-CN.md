@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-12%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-22%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-6%2F6%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。9 个专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控的完整决策链路。
@@ -51,19 +51,37 @@ graph TD
 
 ## 快速开始
 
+### 前置条件
+
+需要 **Python 3.10 或更高版本**（macOS 默认 Python 3.9 不可用）。
+
+```bash
+# 检查 Python 版本
+python3 --version   # 必须是 3.10+
+```
+
 ### 安装
 
 ```bash
 git clone https://github.com/Eleven1111/a-stock-agent-system.git
 cd a-stock-agent-system
-pip install -e ".[charts,fundamentals,research,dev]"
+
+# 创建并激活 Python 3.10+ 虚拟环境
+python3.12 -m venv .venv        # 或 python3.10 / python3.11
+source .venv/bin/activate
+
+# 安装全部依赖
+python -m pip install -e ".[charts,fundamentals,research,dev]"
 ```
+
+> **macOS 用户**：如果系统 `python3` 仍是 3.9，请通过
+> `brew install python@3.12` 安装新版本，然后使用 `python3.12`。
 
 ### 验证
 
 ```bash
-python scripts/smoke_test.py
-python -m pytest -q tests/
+python scripts/smoke_test.py      # 6项集成检查
+python -m pytest -q tests/        # 22项测试全部通过
 ```
 
 ### 运行
@@ -231,7 +249,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 12项测试
+python -m pytest -q tests/        # 22项测试
 python scripts/smoke_test.py      # 6项集成检查
 python scripts/validate_cron_manifest.py
 ```

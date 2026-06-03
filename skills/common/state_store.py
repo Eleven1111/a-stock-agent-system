@@ -20,8 +20,9 @@ import fcntl
 import tempfile
 import shutil
 import threading
+import time
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 
 def _ensure_dir(path: str):
@@ -31,14 +32,35 @@ def _ensure_dir(path: str):
 @contextmanager
 def file_lock(filepath: str, timeout: float = 10.0):
     """
-    文件锁上下文管理器（阻塞等待，超时抛异常）。
+    文件锁上下文管理器（非阻塞轮询，超时抛 TimeoutError）。
     锁文件创建后永不被删除，避免旧 inode 和新建 lockfile 的竞态。
+    timeout <= 0 时回退到阻塞等待（兼容旧调用方）。
     """
     _ensure_dir(filepath)
     lockfile = filepath + ".lock"
     fd = os.open(lockfile, os.O_CREAT | os.O_RDWR)
-    try:
+
+    if timeout > 0:
+        # 非阻塞轮询 + deadline
+        deadline = time.monotonic() + timeout
+        acquired = False
+        while time.monotonic() < deadline:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except BlockingIOError:
+                time.sleep(0.05)
+        if not acquired:
+            os.close(fd)
+            raise TimeoutError(
+                f"file_lock({filepath}) timeout after {timeout}s"
+            )
+    else:
+        # timeout <= 0 → 无限阻塞（兼容旧调用）
         fcntl.flock(fd, fcntl.LOCK_EX)
+
+    try:
         yield
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
