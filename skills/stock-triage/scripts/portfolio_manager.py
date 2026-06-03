@@ -415,15 +415,15 @@ def format_balance(pf: Dict) -> str:
     lines = [
         "💰 **资金快照**",
         "",
-        f"💵 可用现金: **{cash:,.0f}**",
-        f"📦 持仓成本: {total_cost:,.0f}",
+        f"💵 可用现金: **{cash:,.2f}**",
+        f"📦 持仓成本: {total_cost:,.2f}",
     ]
     if pf["positions"]:
         total_mv = sum(p.get("market_value", p["cost"] * p["shares"]) for p in pf["positions"])
         lines.append(f"📊 持仓市值: {total_mv:,.0f}")
-        lines.append(f"💰 总资产: **{cash + total_mv:,.0f}**")
+        lines.append(f"💰 总资产: **{cash + total_mv:,.2f}**")
     else:
-        lines.append(f"💰 总资产: **{cash:,.0f}** (全部现金)")
+        lines.append(f"💰 总资产: **{cash:,.2f}** (全部现金)")
     return "\n".join(lines)
 
 
