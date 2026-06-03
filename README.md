@@ -51,13 +51,31 @@ graph TD
 
 ## Quick Start
 
+### Prerequisites
+
+Python **3.10 or higher** is required (macOS default Python 3.9 won't work).
+
+```bash
+# Check your Python version
+python3 --version   # must be 3.10+
+```
+
 ### Install
 
 ```bash
 git clone https://github.com/Eleven1111/a-stock-agent-system.git
 cd a-stock-agent-system
-pip install -e ".[charts,fundamentals,research,dev]"
+
+# Create and activate a virtual environment with Python 3.10+
+python3.12 -m venv .venv        # or python3.10 / python3.11
+source .venv/bin/activate
+
+# Install the package with all extras
+python -m pip install -e ".[charts,fundamentals,research,dev]"
 ```
+
+> **macOS users**: If your system `python3` is still 3.9, install a newer version via
+> `brew install python@3.12`, then use `python3.12` explicitly as shown above.
 
 ### Verify
 
