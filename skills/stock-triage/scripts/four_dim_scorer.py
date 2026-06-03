@@ -27,7 +27,7 @@ import os
 import urllib.request
 import urllib.parse
 from datetime import datetime
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 # ========== 路径 ==========
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -71,11 +71,17 @@ def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60, ktype: st
         return []
 
 
-def fetch_serpapi_news(query: str, num: int = 5) -> List[Dict]:
-    """SerpAPI新闻"""
+def fetch_serpapi_news(query: str, num: int = 5) -> Optional[List[Dict]]:
+    """SerpAPI新闻。
+
+    返回值区分"数据源不可用"与"可用但无新闻"：
+      · None  → 无 API key 或请求出错（数据源不可用，不应据此判定"无催化"）
+      · []    → 数据源可用但确实没有命中新闻（属于中性信息）
+      · list  → 命中的新闻条目
+    """
     api_key = os.environ.get("SERPAPI_API_KEY")
     if not api_key:
-        return []
+        return None
     url = f"https://serpapi.com/search?engine=google_news&q={urllib.parse.quote(query)}&num={num}&api_key={api_key}&gl=cn&hl=zh-cn"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
@@ -83,7 +89,7 @@ def fetch_serpapi_news(query: str, num: int = 5) -> List[Dict]:
             data = json.loads(resp.read().decode())
         return data.get("news_results", [])[:num]
     except Exception:
-        return []
+        return None
 
 
 # ========== 技术指标（纯numpy） ==========
@@ -321,7 +327,9 @@ def score_sentiment(code: str, name: str) -> Dict[str, Any]:
 
 def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     """催化面评分（0-10）——基于新闻和政策"""
-    news = fetch_serpapi_news(f"{name} {code} 政策 业绩 公告", num=5)
+    raw_news = fetch_serpapi_news(f"{name} {code} 政策 业绩 公告", num=5)
+    source_available = raw_news is not None   # None=数据源不可用；[]=可用但无新闻
+    news = raw_news or []
 
     score = 5.0
     signals = []
@@ -356,6 +364,7 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     return {
         "score": round(score, 1),
         "news_count": len(news),
+        "available": source_available,
         "catalysts": catalysts[:3],
         "detail": "; ".join(signals[:3]) if signals else "无显著催化",
     }
@@ -487,7 +496,7 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
     available = {
         "technical": technical["ma5"] is not None,        # 有K线
         "sentiment": sentiment.get("change_pct") is not None,  # 有实时
-        "catalyst": catalyst["news_count"] > 0,           # 有新闻源
+        "catalyst": catalyst.get("available", catalyst["news_count"] > 0),  # 数据源可用（无新闻=中性，仍纳入）
         "deep": deep["pe"] is not None,                   # 有估值
     }
     # 在可用维度上重新归一化权重；无可用维度时回退原始权重

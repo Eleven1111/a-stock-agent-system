@@ -1,10 +1,13 @@
 """打板口径胜率追踪 — 结算逻辑测试（纯函数，不触网）"""
 
+import threading
+
+import performance_tracker as pt
 from performance_tracker import evaluate_signal, _expectancy, compute_stats
 
 
-def bar(o, c, h, l):
-    return {"open": o, "close": c, "high": h, "low": l}
+def bar(o, c, h, lo):
+    return {"open": o, "close": c, "high": h, "low": lo}
 
 
 def test_evaluate_win_big_and_promoted():
@@ -111,3 +114,78 @@ def test_compute_stats_all_legacy():
     s = compute_stats(records)
     assert s["closed"] == 0
     assert s["legacy_excluded"] == 1
+
+
+# ========== 反馈闭环并发安全（这是系统唯一反馈闭环，丢记录 = 胜率不可信）==========
+
+def test_record_signal_concurrent_no_loss(tmp_path, monkeypatch):
+    """40 个并发 record_signal 不得丢记录（读-追加-写回必须在单锁内）。"""
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+
+    n = 40
+    threads = [
+        threading.Thread(target=pt.record_signal,
+                         args=(f"{600000 + i}", f"股票{i}", "A", 5.0, 10.0 + i))
+        for i in range(n)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    history = pt.load_history()
+    assert len(history) == n, f"并发 record 丢记录: 期望 {n}, 实际 {len(history)}"
+    assert len({r["code"] for r in history}) == n
+
+
+def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):
+    """结算 pending 期间并发写入的新信号不得被陈旧快照覆盖丢失。
+
+    复现 Codex 实测：update_outcomes 读快照→结算→写回，若期间有 record_signal 追加，
+    旧实现会把快照原样写回，吞掉新追加的记录。修复后用 mutate_json 在单锁内重读最新历史。
+    """
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "limit_pct", lambda code, name: 10.0)
+
+    # 初始一条 pending（信号日 P1）
+    pt.record_signal("600001", "老信号", "A", 5.0, 10.0)
+
+    fetch_started = threading.Event()
+    append_done = threading.Event()
+
+    def fake_fetch(code, signal_date, market):
+        if code == pt.BENCH_CODE:        # 跳过基准，alpha=None
+            return None
+        # 个股结算：先通知主线程"已进入结算窗口"，等并发追加落地后再返回，
+        # 把"追加发生在 update_outcomes 的读快照之后、写回之前"的竞态固定下来。
+        fetch_started.set()
+        assert append_done.wait(timeout=5), "并发追加未在窗口内完成"
+        return {"signal_close": 10.0,
+                "future": [{"open": 10.5, "close": 11.0, "high": 11.0, "low": 10.4}]}
+
+    monkeypatch.setattr(pt, "_fetch_future_bars", fake_fetch)
+
+    result_holder = {}
+
+    def run_update():
+        result_holder["records"] = pt.update_outcomes()
+
+    updater = threading.Thread(target=run_update)
+    updater.start()
+
+    assert fetch_started.wait(timeout=5), "update_outcomes 未进入结算窗口"
+    # 在结算窗口内并发追加一条新信号 P2
+    pt.record_signal("600002", "新信号", "B", 6.0, 20.0)
+    append_done.set()
+
+    updater.join(timeout=10)
+    assert not updater.is_alive(), "update_outcomes 未结束"
+
+    history = pt.load_history()
+    codes = {r["code"] for r in history}
+    assert codes == {"600001", "600002"}, f"并发追加被覆盖丢失: {codes}"
+
+    p1 = next(r for r in history if r["code"] == "600001")
+    p2 = next(r for r in history if r["code"] == "600002")
+    assert p1["outcome"] != "pending", "P1 应被结算"
+    assert p2["outcome"] == "pending", "P2 刚追加应仍为 pending"
