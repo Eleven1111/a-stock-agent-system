@@ -6,9 +6,16 @@
 import os
 import json
 import re
+import sys
 import urllib.request
 import urllib.parse
 from typing import Optional, List, Dict
+
+_COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
+if _COMMON_DIR not in sys.path:
+    sys.path.insert(0, os.path.abspath(_COMMON_DIR))
+
+from paths import env_file
 
 # SerpAPI multi-key rotation
 SERPAPI_KEYS = []
@@ -18,7 +25,7 @@ if _keys_str:
 # 也尝试从 .env 文件读取
 if not SERPAPI_KEYS:
     try:
-        with open(os.path.expanduser("~/.hermes/.env")) as f:
+        with open(env_file()) as f:
             for line in f:
                 if line.startswith("SERPAPI_KEYS="):
                     _keys_str = line.split("=", 1)[1].strip().strip("'").strip('"')
@@ -32,7 +39,7 @@ _KEY_INDEX = 0
 # 自动加载 NO_PROXY，绕过 Clash 代理的 DNS 劫持
 if not os.environ.get("NO_PROXY"):
     try:
-        with open(os.path.expanduser("~/.hermes/.env")) as f:
+        with open(env_file()) as f:
             for line in f:
                 if line.startswith("NO_PROXY="):
                     os.environ["NO_PROXY"] = line.split("=", 1)[1].strip().strip("'").strip('"')
