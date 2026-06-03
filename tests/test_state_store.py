@@ -1,5 +1,6 @@
 """state_store 并发安全测试"""
-import os, json, tempfile
+import os
+import tempfile
 from state_store import atomic_write_json, read_json, run_concurrent_test, run_concurrent_append_test, update_json_list
 
 

@@ -206,7 +206,8 @@ def run_concurrent_append_test(filepath: str, num_workers: int = 30) -> Dict[str
 
 def run_concurrent_test(filepath: str, num_writers: int = 5) -> Dict[str, Any]:
     """并发写入回归测试（旧接口，向前兼容）"""
-    import random, string
+    import random
+    import string
     results = []
     threads = []
 

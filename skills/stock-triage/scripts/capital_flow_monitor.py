@@ -11,11 +11,10 @@ Usage:
 """
 
 import json
-import sys
 import os
 import urllib.request
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 
 # 加载 .env
 env_file = os.path.expanduser("~/.hermes/.env")

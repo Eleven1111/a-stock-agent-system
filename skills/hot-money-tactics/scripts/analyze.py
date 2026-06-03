@@ -10,7 +10,9 @@
   python3 analyze.py --all               # 今日完整报告
 """
 
-import akshare as ak, os, sys, json
+import akshare as ak
+import os
+import sys
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -113,20 +115,20 @@ def analyze_quality(df_zt):
     """封板质量分析"""
     lines = []
     lines.append("\n━━━ 封板质量 ━━━")
-    
+
     total = len(df_zt)
     df_t = df_zt.dropna(subset=['首次封板时间'])
     early = len(df_t[df_t['首次封板时间'] <= '09:31'])
     mid = len(df_t[(df_t['首次封板时间'] > '09:31') & (df_t['首次封板时间'] <= '10:00')])
     late = len(df_t[df_t['首次封板时间'] > '10:00'])
     zhaban_count = len(df_zt[df_zt['炸板次数'] > 0])
-    
+
     lines.append("  封板总数: {}只".format(total))
     lines.append("  集合竞价封: {}只 ({:.0f}%)".format(early, early/total*100 if total else 0))
     lines.append("  早盘封(9:31-10:00): {}只 ({:.0f}%)".format(mid, mid/total*100 if total else 0))
     lines.append("  午盘后封: {}只 ({:.0f}%)".format(late, late/total*100 if total else 0))
     lines.append("  有炸板记录: {}只 ({:.1f}%)".format(zhaban_count, zhaban_count/total*100 if total else 0))
-    
+
     return "\n".join(lines)
 
 def analyze_sector(df_zt):
@@ -138,21 +140,21 @@ def analyze_sector(df_zt):
         最高连板=('连板数', 'max'),
         总连板=('连板数', 'sum')
     ).sort_values('涨停家数', ascending=False)
-    
+
     for s, row in sector_stats.head(10).iterrows():
         # 看看这个板块的个股
         stocks = df_zt[df_zt['所属行业'] == s][['名称','连板数','封板资金']].sort_values('连板数', ascending=False)
         stock_str = " ".join(["{}({}板)".format(r['名称'], int(r['连板数'])) for _, r in stocks.iterrows()])
         lines.append("  {}: {}家涨停 最高{}板 → {}".format(
             s, int(row['涨停家数']), int(row['最高连板']), stock_str[:100]))
-    
+
     return "\n".join(lines)
 
 def analyze_market(df_all):
     """大盘情绪"""
     lines = []
     lines.append("\n━━━ 大盘情绪 ━━━")
-    
+
     # 指数数据（Tencent fallback）
     if len(df_all) <= 5 and '上证指数' in df_all['名称'].values:
         for _, r in df_all.iterrows():
@@ -170,7 +172,7 @@ def analyze_market(df_all):
         lines.append("  涨跌比: {:.2f}".format(up/down if down else up))
         total_vol = df_all['成交额'].sum() / 1e8
         lines.append("  全A成交额: {:.0f}亿".format(total_vol))
-    
+
     return "\n".join(lines)
 
 def analyze_fengdan_top(df_zt):
@@ -193,16 +195,16 @@ def sentiment_judgment(df_zt, df_all):
     """游资情绪周期判断"""
     lines = []
     lines.append("\n━━━ 🧠 情绪周期判断 ━━━")
-    
+
     zt_count = len(df_zt)
     max_ban = int(df_zt['连板数'].max()) if len(df_zt) > 0 else 0
     zhaban_rate = len(df_zt[df_zt['炸板次数'] > 0]) / len(df_zt) * 100 if len(df_zt) > 0 else 0
     df_t = df_zt.dropna(subset=['首次封板时间'])
     early_rate = len(df_t[df_t['首次封板时间'] <= '09:31']) / len(df_t) * 100 if len(df_t) > 0 else 0
-    
+
     total_mcap = df_zt['总市值'].sum() / 1e8 if '总市值' in df_zt.columns else 0
     mean_mcap = df_zt['总市值'].mean() / 1e8 if len(df_zt) > 0 else 0
-    
+
     # 判断情绪
     signals = []
     if zt_count >= 80:
@@ -213,7 +215,7 @@ def sentiment_judgment(df_zt, df_all):
         signals.append("🌤 涨停数{}只，情绪温和".format(zt_count))
     else:
         signals.append("🌧 涨停数{}只，情绪低迷".format(zt_count))
-    
+
     if max_ban >= 7:
         signals.append("🏆 最高{}连板，高度板打开空间".format(max_ban))
     elif max_ban >= 5:
@@ -222,28 +224,28 @@ def sentiment_judgment(df_zt, df_all):
         signals.append("📌 最高{}连板，高度一般".format(max_ban))
     else:
         signals.append("⚠️ 最高仅{}连板，无高度板".format(max_ban))
-    
+
     if zhaban_rate >= 40:
         signals.append("⚡ 封板率{:.0f}%，炸板率高，警惕分歧".format(100-zhaban_rate))
     elif zhaban_rate >= 25:
         signals.append("📊 封板率{:.0f}%，正常".format(100-zhaban_rate))
     else:
         signals.append("✅ 封板率{:.0f}%，质量极好".format(100-zhaban_rate))
-    
+
     if early_rate >= 50:
         signals.append("🚀 集合竞价封板占{:.0f}%，隔夜情绪极强".format(early_rate))
     elif early_rate >= 35:
         signals.append("⚡ 竞价封板率{:.0f}%，隔夜情绪较好".format(early_rate))
     else:
         signals.append("💤 竞价封板仅{:.0f}%，隔夜追高意愿不强".format(early_rate))
-    
+
     # 整体判断
     score = 0
     score += 2 if zt_count >= 80 else (1 if zt_count >= 50 else 0)
     score += 2 if max_ban >= 7 else (1 if max_ban >= 5 else 0)
     score += -1 if zhaban_rate >= 40 else (0 if zhaban_rate >= 25 else 1)
     score += 1 if early_rate >= 50 else 0
-    
+
     if score >= 4:
         mood = "🔥🔥🔥 沸点区 — 情绪亢奋，分歧随时来临，追高谨慎"
     elif score >= 2:
@@ -252,7 +254,7 @@ def sentiment_judgment(df_zt, df_all):
         mood = "🌤 震荡区 — 情绪中性，选股重于择时"
     else:
         mood = "🌧 冰点区 — 情绪低迷，多看少动"
-    
+
     lines.append("  " + mood)
     for s in signals:
         lines.append("  " + s)
@@ -263,17 +265,16 @@ def sentiment_judgment(df_zt, df_all):
 
 def analyze_rotation(days=5):
     """对比最近N个交易日，追踪板块轮动"""
-    from datetime import timedelta
-    
+
     lines = []
     lines.append("═══════════════════════════════════")
     lines.append("  板块轮动追踪 · 近{}个交易日".format(days))
     lines.append("═══════════════════════════════════")
-    
+
     today = datetime.now()
     dates_data = {}
     tried = 0
-    
+
     for offset in range(1, 15):
         if len(dates_data) >= days:
             break
@@ -297,11 +298,11 @@ def analyze_rotation(days=5):
         tried += 1
         if tried > 12:
             break
-    
+
     if not dates_data:
         lines.append("⚠️ 无法获取历史数据")
         return "\n".join(lines)
-    
+
     # 1. 板块热度随时间变化
     lines.append("\n━━━ 每日板块TOP5 ━━━")
     for ds in sorted(dates_data.keys()):
@@ -313,13 +314,13 @@ def analyze_rotation(days=5):
         lines.append("  {} {}: {}只涨停 最高{}板".format(
             d['date'], d['date_label'], d['total_zt'], d['max_ban']))
         lines.append("    {}".format(sector_str))
-    
+
     # 2. 合并所有板块，看持续性
     lines.append("\n━━━ 板块持续性分析 ━━━")
     all_sectors = set()
     for ds in dates_data.values():
         all_sectors.update(ds['sectors'].keys())
-    
+
     # 对每个板块，统计出现天数 + 最新排名 + 涨停家数变化
     sector_tracker = {}
     sorted_dates = sorted(dates_data.keys())
@@ -335,7 +336,7 @@ def analyze_rotation(days=5):
             counts_trend.append(int(count))
         latest_count = counts_trend[-1] if counts_trend else 0
         prev_count = counts_trend[-2] if len(counts_trend) >= 2 else 0
-        
+
         sector_tracker[sec] = {
             'appearances': appearances,
             'latest_count': latest_count,
@@ -344,9 +345,9 @@ def analyze_rotation(days=5):
             'total_days': len(sorted_dates),
             'max_count': max(counts_trend) if counts_trend else 0
         }
-    
+
     # 持续性板块（连续出现且涨停数稳定/增长）
-    persistent = {s: d for s, d in sector_tracker.items() 
+    persistent = {s: d for s, d in sector_tracker.items()
                   if d['appearances'] >= len(sorted_dates) * 0.6 and d['latest_count'] >= 3}
     if persistent:
         lines.append("  🔥 持续热点（连续{}天以上出现）：".format(int(len(sorted_dates)*0.6)))
@@ -354,15 +355,15 @@ def analyze_rotation(days=5):
             trend = "↑" if d['latest_count'] > d['prev_count'] else ("↓" if d['latest_count'] < d['prev_count'] else "→")
             lines.append("    {}: {}家涨停 {} | {}天中{}天出现".format(
                 s, d['latest_count'], trend, d['total_days'], d['appearances']))
-    
+
     # 新冒头板块（最近才出现）
-    emerging = {s: d for s, d in sector_tracker.items() 
+    emerging = {s: d for s, d in sector_tracker.items()
                 if d['appearances'] == 1 and d['latest_count'] >= 3}
     if emerging:
         lines.append("\n  🌱 新冒头板块（今日首次出现且在3家以上）：")
         for s, d in sorted(emerging.items(), key=lambda x: -x[1]['latest_count']):
             lines.append("    {}: {}家涨停".format(s, d['latest_count']))
-    
+
     # 退潮板块（之前有但现在消失或减少）
     fading = {s: d for s, d in sector_tracker.items()
               if d['prev_count'] >= 3 and d['latest_count'] == 0}
@@ -370,18 +371,18 @@ def analyze_rotation(days=5):
         lines.append("\n  ❄️ 退潮板块（昨日有3家以上涨停，今日无）：")
         for s, d in sorted(fading.items(), key=lambda x: -x[1]['prev_count']):
             lines.append("    {}: 昨日{}家 → 今日0家 ↓".format(s, d['prev_count']))
-    
+
     # 3. 轮动方向判断
     lines.append("\n━━━ 🧭 轮动方向 ━━━")
     if persistent:
         hot_direction = max(persistent.items(), key=lambda x: x[1]['latest_count'])[0]
-        lines.append("  主力方向: {}（持续{}天热度）".format(hot_direction, 
+        lines.append("  主力方向: {}（持续{}天热度）".format(hot_direction,
             persistent[hot_direction]['appearances']))
     if emerging:
         lines.append("  新方向: " + "、".join(sorted(emerging.keys())))
     if fading:
         lines.append("  退潮: " + "、".join(sorted(fading.keys())))
-    
+
     return "\n".join(lines)
 
 
@@ -398,23 +399,23 @@ def main():
             do_rotation = True
         elif a.isdigit() and len(a) == 8:
             date_str = a
-    
+
     if do_rotation:
         print(analyze_rotation())
         return
-    
+
     print("═══════════════════════════════════")
     print("  游资战法 · 涨停板全景  {}".format(date_str))
     print("═══════════════════════════════════")
-    
+
     # 数据采集
     df_zt = get_zt_pool(date_str)
     if df_zt.empty:
         print("⚠️ 无涨停板数据（可能非交易日）")
         return
-    
+
     df_all = get_all_stocks()
-    
+
     # 输出分析
     print(analyze_board(df_zt))
     print(analyze_quality(df_zt))

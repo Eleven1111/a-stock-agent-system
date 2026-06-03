@@ -16,11 +16,10 @@ Cron-safe: 使用 urllib / yfinance（requests），不依赖 shell 命令。
 """
 
 import json
-import sys
 import os
 import urllib.request
 import urllib.error
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 # ========== 配置 ==========
@@ -568,7 +567,7 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
     # 1. 美股指数（yfinance 主 + Sina 备用）
     if USE_YFINANCE:
         try:
-            import yfinance as yf
+            import yfinance as yf  # noqa: F401
             yf_data = fetch_yfinance_batch(list(US_INDICES.keys()))
             ok_count = sum(1 for d in yf_data.values() if d.get("price"))
             if ok_count >= 2:
@@ -857,7 +856,7 @@ def print_summary(data: Dict[str, Any]):
     # 影响评估
     impact = data.get("impact", {})
     if impact.get("alerts"):
-        print(f"\n⚡ A股影响评估")
+        print("\n⚡ A股影响评估")
         for alert in impact["alerts"]:
             print(f"  {alert['level']} {alert['msg']}")
 

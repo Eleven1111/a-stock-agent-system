@@ -1,4 +1,5 @@
-import sys, os
+import sys
+import os
 
 BASE = os.path.dirname(__file__)
 PROJ = os.path.abspath(os.path.join(BASE, '..'))

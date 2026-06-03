@@ -243,7 +243,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 12 tests
+python -m pytest -q tests/        # 22 tests
 python scripts/smoke_test.py      # 6 integration checks
 python scripts/validate_cron_manifest.py
 ```

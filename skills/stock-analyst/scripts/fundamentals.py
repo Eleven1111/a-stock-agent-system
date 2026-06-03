@@ -8,8 +8,7 @@ import json
 import subprocess
 import sys
 import os
-from datetime import datetime
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SKILL_DIR)
@@ -31,14 +30,14 @@ def _extract_json(text):
         if idx >= 0:
             start = idx
             break
-    
+
     if start < 0:  # 后备方案：直接找第一个 [ 或 {
         start = text.find('[')
         if start < 0:
             start = text.find('{')
     if start < 0:
         return None
-    
+
     # 找到匹配的结束
     end = text.rfind(']') if text[start] == '[' else text.rfind('}')
     if end < 0:
@@ -52,7 +51,7 @@ def _extract_json(text):
 def _baostock_query(code: str, query_type: str, **kwargs) -> Optional[List[Dict]]:
     """通用 BaoStock 查询封装"""
     code_fmt = f"sh.{code}" if code.startswith('6') else f"sz.{code}"
-    
+
     # 构建查询Python代码
     py_code = f"""
 import sys, baostock as bs, json
@@ -95,7 +94,7 @@ QUARTER_MAP = {1: "1", 2: "2", 3: "3", 4: "4"}
 def get_stock_basic(code: str) -> Optional[Dict]:
     """获取股票基本面基础数据"""
     code_fmt = f"sh.{code}" if code.startswith('6') else f"sz.{code}"
-    
+
     py_code = f"""
 import baostock as bs, json
 lg = bs.login()
@@ -135,7 +134,7 @@ except Exception as e:
 def get_profit_data(code: str, year=2025, quarter=4) -> Optional[Dict]:
     """获取利润表数据：营收、净利"""
     code_fmt = f"sh.{code}" if code.startswith('6') else f"sz.{code}"
-    
+
     py_code = f"""
 import baostock as bs, json
 lg = bs.login()
@@ -186,7 +185,7 @@ except Exception as e:
 def get_dupont_data(code: str, year=2025, quarter=4) -> Optional[Dict]:
     """获取杜邦分析数据：ROE, ROA等"""
     code_fmt = f"sh.{code}" if code.startswith('6') else f"sz.{code}"
-    
+
     py_code = f"""
 import baostock as bs, json
 lg = bs.login()
@@ -230,25 +229,25 @@ def get_growth_data(code: str) -> Optional[Dict]:
     current_year = 2026
     # 取最近4个季度
     quarters = [(2025, 1), (2025, 2), (2025, 3), (2025, 4)]
-    
+
     profits = []
     for y, q in quarters:
         d = get_profit_data(code, y, q)
         if d:
             profits.append(d)
-    
+
     if len(profits) < 2:
         return None
-    
+
     # 营收增长率（最后一季 vs 第一季）
     rev_latest = profits[-1]['oper_rev']
     rev_earliest = profits[0]['oper_rev']
     np_latest = profits[-1]['net_profit']
     np_earliest = profits[0]['net_profit']
-    
+
     rev_growth = round((rev_latest - rev_earliest) / rev_earliest * 100, 2) if rev_earliest > 0 else 0
     np_growth = round((np_latest - np_earliest) / np_earliest * 100, 2) if np_earliest > 0 else 0
-    
+
     return {
         "rev_growth_4q": rev_growth,       # 4个季度营收增长率
         "np_growth_4q": np_growth,          # 4个季度净利增长率
@@ -263,22 +262,22 @@ def get_full_analysis(code: str, name: str = "") -> Dict:
     """完整基本面分析"""
     from scripts.tech_analysis import analyze_stock
     from scripts.data_cache import fetch_realtime
-    
+
     result = {
         "code": code,
         "name": name or code,
         "error": None,
     }
-    
+
     # 1. 基本面
     basic = get_stock_basic(code)
     dupont = get_dupont_data(code)
     growth = get_growth_data(code)
-    
+
     result['basic'] = basic
     result['dupont'] = dupont
     result['growth'] = growth
-    
+
     # 2. 最新一季财务（优先取有营收数据的季度）
     rev_profit = None
     for yr, qtr in [(2026, 1), (2025, 4), (2025, 3), (2025, 2), (2025, 1)]:
@@ -290,7 +289,7 @@ def get_full_analysis(code: str, name: str = "") -> Dict:
     # 如果有营收数据，用它覆盖
     if rev_profit:
         result['profit'] = rev_profit
-    
+
     # 3. 技术面
     try:
         rt = fetch_realtime([code])
@@ -298,7 +297,7 @@ def get_full_analysis(code: str, name: str = "") -> Dict:
         result['technical'] = tech
     except:
         result['technical'] = None
-    
+
     return result
 
 
@@ -308,12 +307,12 @@ def format_fundamental(result: Dict) -> str:
     lines.append(f"\n{'='*60}")
     lines.append(f" 📊 {result['name']}({result['code']}) 基本面分析")
     lines.append(f"{'='*60}")
-    
+
     # 基础信息
     if result.get('basic'):
         b = result['basic']
         lines.append(f" 上市日期: {b.get('ipo_date', '-')} | 状态: {b.get('status', '-')}")
-    
+
     # 财务数据
     if result.get('profit'):
         p = result['profit']
@@ -324,7 +323,7 @@ def format_fundamental(result: Dict) -> str:
         if p.get('revenue_rate'):
             rr = float(p['revenue_rate']) * 100
             lines.append(f"   营收同比: {rr:+.2f}%")
-    
+
     # ROE等
     if result.get('dupont'):
         d = result['dupont']
@@ -332,15 +331,15 @@ def format_fundamental(result: Dict) -> str:
         lines.append(f"   ROE: {d.get('roe', 0):.2f}%")
         lines.append(f"   ROA: {d.get('roa', 0):.2f}%")
         lines.append(f"   资产周转率: {d.get('asset_turnover', 0):.2f}")
-    
+
     # 增长
     if result.get('growth'):
         g = result['growth']
-        lines.append(f"\n 增长趋势(近4季):")
+        lines.append("\n 增长趋势(近4季):")
         lines.append(f"   营收增速: {g.get('rev_growth_4q', 0):+.2f}%")
         lines.append(f"   净利增速: {g.get('np_growth_4q', 0):+.2f}%")
         lines.append(f"   平均毛利率: {g.get('avg_gross_margin', 0):.1f}%")
-    
+
     return "\n".join(lines)
 
 
@@ -349,26 +348,26 @@ def format_brief(results: List[Dict]) -> str:
     lines = []
     lines.append(f"{'代码':<8} {'名称':<10} {'ROE':<7} {'营收同比':<9} {'评分':<5} {'评级':<12}")
     lines.append("-" * 60)
-    
+
     for r in results:
         p = r.get('profit') or {}
         roe = f"{float(p.get('roe',0))*100:.1f}%" if p.get('roe') else "-"
         rev_rate = f"{float(p.get('revenue_rate',0))*100:+.1f}%" if p.get('revenue_rate') else "-"
         score = r.get('technical', {}).get('score', '-')
         rating = (r.get('technical', {}).get('rating', '') or '')[:10]
-        
+
         lines.append(
             f"{r['code']:<8} {r['name']:<10} "
             f"{roe:<7} {rev_rate:<9} "
             f"{score:<5} {rating:<12}"
         )
-    
+
     return "\n".join(lines)
 
 
 if __name__ == "__main__":
     code = sys.argv[1] if len(sys.argv) > 1 else "600519"
     name = sys.argv[2] if len(sys.argv) > 2 else ""
-    
+
     result = get_full_analysis(code, name)
     print(format_fundamental(result))

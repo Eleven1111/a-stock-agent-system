@@ -15,7 +15,7 @@ import sys
 import os
 import urllib.request
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from state_store import read_json, atomic_write_json

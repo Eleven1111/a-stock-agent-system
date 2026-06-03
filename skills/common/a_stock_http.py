@@ -14,7 +14,7 @@ import json
 import os
 import urllib.request
 import urllib.error
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 
 
 class DataSourceError(Exception):
@@ -60,7 +60,7 @@ def http_get_json(url: str, headers: Dict = None, timeout: int = 10,
     except urllib.error.URLError as e:
         raise DataSourceError(url, f"网络错误: {e.reason}", e)
     except json.JSONDecodeError as e:
-        raise DataSourceError(url, f"JSON解析失败", e)
+        raise DataSourceError(url, "JSON解析失败", e)
     except Exception as e:
         raise DataSourceError(url, str(e), e)
 

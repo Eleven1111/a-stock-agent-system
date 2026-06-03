@@ -17,11 +17,11 @@ import sys
 import os
 import urllib.request
 from datetime import datetime, date
-from typing import Dict, Any, List, Optional
+from typing import Dict, List, Optional
 
 # 共享状态存储
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from state_store import read_json, atomic_write_json, file_lock
+from state_store import read_json, atomic_write_json
 
 PORTFOLIO_FILE = os.path.expanduser("~/.hermes/skills/stock-triage/data/portfolio.json")
 HISTORY_FILE = os.path.expanduser("~/.hermes/skills/stock-triage/data/trade_history.json")

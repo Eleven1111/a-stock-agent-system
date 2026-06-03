@@ -1,6 +1,8 @@
 """Cron Manifest 校验测试"""
 
-import json, os, tempfile
+import json
+import os
+import tempfile
 from scripts.validate_cron_manifest import validate
 
 VALID_JOB = {

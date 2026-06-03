@@ -6,7 +6,6 @@
 
 所有 JSON 读写走 state_store.atomic_write_json / read_json，确保并发安全。
 """
-import json
 import os
 import sys
 import urllib.request

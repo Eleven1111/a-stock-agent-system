@@ -2,7 +2,6 @@
 """Draw stock price chart based on known data"""
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from datetime import datetime, timedelta
 import pandas as pd
 
 # 设置中文字体
@@ -42,16 +41,16 @@ min_price = df['收盘'].min()
 max_date = df[df['收盘'] == max_price]['日期'].iloc[0]
 min_date = df[df['收盘'] == min_price]['日期'].iloc[0]
 
-ax1.scatter([max_date], [max_price], color='red', s=150, zorder=5, 
+ax1.scatter([max_date], [max_price], color='red', s=150, zorder=5,
             label=f'最高 ¥{max_price:.2f}', edgecolors='darkred', linewidths=2)
 ax1.scatter([min_date], [min_price], color='green', s=150, zorder=5,
             label=f'最低 ¥{min_price:.2f}', edgecolors='darkgreen', linewidths=2)
 
 # 添加价格标签
 for i, row in df.iterrows():
-    ax1.annotate(f'{row["收盘"]:.2f}', 
-                xy=(row['日期'], row['收盘']), 
-                xytext=(0, 10), 
+    ax1.annotate(f'{row["收盘"]:.2f}',
+                xy=(row['日期'], row['收盘']),
+                xytext=(0, 10),
                 textcoords='offset points',
                 ha='center', va='bottom', fontsize=9,
                 color='red' if row['涨跌幅'] < 0 else 'green')
@@ -99,7 +98,7 @@ plt.savefig(output_file, dpi=150, bbox_inches='tight')
 print(f"图表已保存到: {output_file}")
 
 # 显示统计信息
-print(f"\n中国中铁 (601390) 统计信息:")
+print("\n中国中铁 (601390) 统计信息:")
 print(f"数据周期: {df['日期'].min().strftime('%Y-%m-%d')} 至 {df['日期'].max().strftime('%Y-%m-%d')}")
 print(f"期间涨跌: {df['收盘'].iloc[-1] - df['收盘'].iloc[0]:+.2f} 元 ({((df['收盘'].iloc[-1] / df['收盘'].iloc[0]) - 1) * 100:+.2f}%)")
 print(f"最高价: ¥{df['最高'].max():.2f} ({df[df['最高']==df['最高'].max()]['日期'].iloc[0].strftime('%Y-%m-%d')})")

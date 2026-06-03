@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.data_cache import fetch_realtime, fetch_kline, fetch_zt_pool, fetch_index
-from scripts.tech_analysis import analyze_stock, screen_stocks, format_report, sma, compute_rsi, compute_macd
+from scripts.tech_analysis import analyze_stock, screen_stocks, format_report
 from scripts.chart import draw_kline_chart
 from scripts.news import search_stock_news, search_sector_news, search_market_news, format_news_with_fundflow as format_news, get_trends
 
@@ -65,12 +65,12 @@ def cmd_analyze(code, name=""):
     print(f" 现价: {result['price']:.2f} | 今日: {result['pct_change']:+.2f}%")
     if result.get('pct_5d'): print(f" 近5日: {result['pct_5d']:+.2f}% | 近10日: {result['pct_10d']:+.2f}%")
     print(f"\n 评级: {result['rating']} (综合分: {result['score']:+})")
-    print(f"\n 关键位置:")
+    print("\n 关键位置:")
     if result.get('ma5'): print(f"   MA5: {result['ma5']}  MA10: {result['ma10']}  MA20: {result['ma20']}")
     if result.get('ma60'): print(f"   MA60(趋势线): {result['ma60']}")
     if result.get('support'): print(f"   布林下轨(支撑): {result['support']}")
     if result.get('resistance'): print(f"   布林上轨(阻力): {result['resistance']}")
-    print(f"\n 技术信号:")
+    print("\n 技术信号:")
     for k, v in result['signals'].items():
         if k != 'score': print(f"   {v}")
     print(f" 数据: {result['data_points']}个交易日")
@@ -87,7 +87,7 @@ def cmd_screen(sector_name=None):
         if not pairs:
             pairs = SECTOR_PRESETS.get("高温主题", [])
             print(f"\n{'='*60}")
-            print(f" 高温主题板块 批量分析")
+            print(" 高温主题板块 批量分析")
             print(f"{'='*60}")
     results = screen_stocks(pairs)
     print(format_report(results))
@@ -99,17 +99,16 @@ def cmd_screen(sector_name=None):
 
 def cmd_zt():
     import datetime
-    from scripts.data_cache import fetch_zt_pool
     today = datetime.datetime.now().strftime("%Y%m%d")
     data = fetch_zt_pool(today)
     print(f"\n📊 {today} 涨停板全景 ({len(data)}家)")
     print(f"{'='*60}")
     from collections import Counter
     industry_count = Counter(d.get('所属行业', '未知') for d in data)
-    print(f"\n行业分布 TOP10:")
+    print("\n行业分布 TOP10:")
     for ind, cnt in industry_count.most_common(10):
         print(f"  {ind}: {cnt}家")
-    print(f"\n涨停明细:")
+    print("\n涨停明细:")
     for d in data[:30]:
         ban = d.get('连板数', '?')
         feng = d.get('封板资金', '')
@@ -136,13 +135,13 @@ def cmd_compare(sector_name=None):
     else:
         sector_name = "高温主题"
         pairs = SECTOR_PRESETS[sector_name]
-    
+
     print(f"\n{'='*80}")
     print(f" 📊 {sector_name}板块 横向对比（基本面+技术面）")
     print(f"{'='*80}")
-    
+
     from scripts.fundamentals import get_full_analysis, format_brief
-    
+
     results = []
     for code, name in pairs:
         try:
@@ -150,7 +149,7 @@ def cmd_compare(sector_name=None):
             results.append(r)
         except:
             pass
-    
+
     print(format_brief(results))
 
 def cmd_chart(code, name="", days=60):
@@ -172,12 +171,12 @@ def cmd_weekly(code, name=""):
     result = analyze_stock(code, name, kline_data=klines, realtime=rt.get(code))
     print(f" 现价: {result['price']:.2f}")
     print(f" 周线评分: {result['rating']} ({result['score']:+})")
-    print(f"\n 关键位置:")
+    print("\n 关键位置:")
     if result.get('ma5'): print(f"   周MA5: {result['ma5']}")
     if result.get('ma10'): print(f"   周MA10: {result['ma10']}")
     if result.get('ma20'): print(f"   周MA20: {result['ma20']}")
     if result.get('ma60'): print(f"   周MA60(趋势线): {result['ma60']}")
-    print(f"\n 信号:")
+    print("\n 信号:")
     for k, v in result['signals'].items():
         if k != 'score': print(f"   {v}")
 
@@ -202,7 +201,7 @@ def cmd_screener(query_str=None):
         print("  screener \"macd_golden AND ma5>ma20\"")
         print("  screener \"kdj_oversold AND pct_5d<-10\"")
         return
-    
+
     from scripts.screener import parse_query, screen_by_conditions, format_output
     conditions, logic = parse_query(query_str)
     print(f"🔍 筛选条件: {query_str}")
@@ -219,41 +218,40 @@ def cmd_backtest(code, name=""):
     if not klines or len(klines) < 60:
         print("数据不足（需要至少60个交易日）")
         return
-    
-    import numpy as np
+
     from scripts.tech_analysis import analyze_stock
-    
+
     print(f"\n{'='*60}")
     print(f" 🔄 评分系统回测 — {name or code}({code})")
     print(f"{'='*60}")
     print(f" 数据区间: {klines[0]['date']} → {klines[-1]['date']}")
     print(f" 总交易日: {len(klines)}")
-    
+
     # 滚动回测：每20天为一个窗口，模拟买入信号
     buy_signals = 0
     buy_win = 0
     sell_signals = 0
     sell_win = 0
     total_return = 1.0
-    
+
     results_log = []
     window = 20
     step = 5
-    
+
     for i in range(window, len(klines) - 20, step):
         window_data = klines[:i]
         future_data = klines[i:i+20]
-        
+
         if len(window_data) < 30 or len(future_data) < 5:
             continue
-        
+
         # 模拟分析（不带实时数据）
         result = analyze_stock(code, name, kline_data=window_data)
         score = result.get('score', 0)
         current_price = window_data[-1]['close']
         future_price = future_data[-1]['close']
         future_return = (future_price - current_price) / current_price
-        
+
         if score >= 2:  # 买入信号
             buy_signals += 1
             if future_return > 0:
@@ -264,17 +262,17 @@ def cmd_backtest(code, name=""):
             if future_return < 0:
                 sell_win += 1
             results_log.append(("卖出", window_data[-1]['date'], score, future_return * 100))
-        
+
         total_return *= (1 + future_return / 100 * 0.01)  # 模拟持仓
-    
-    print(f"\n 📈 回测结果:")
+
+    print("\n 📈 回测结果:")
     print(f"    买入信号触发: {buy_signals}次")
     print(f"    买入胜率: {buy_win/max(buy_signals,1)*100:.1f}%")
     print(f"    卖出信号触发: {sell_signals}次")
     print(f"    卖出胜率: {sell_win/max(sell_signals,1)*100:.1f}%")
-    
+
     if results_log:
-        print(f"\n 最近5次信号:")
+        print("\n 最近5次信号:")
         for sig_type, date, score, ret in results_log[-5:]:
             arrow = "🟢" if ret > 0 else "🔴"
             print(f"    {date} | {sig_type} signal(score={score:+}) | 后续20日: {arrow}{ret:+.1f}%")
@@ -320,9 +318,9 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         cmd_help()
         sys.exit(0)
-    
+
     cmd = sys.argv[1]
-    
+
     if cmd == "realtime":
         cmd_realtime(sys.argv[2] if len(sys.argv) > 2 else None)
     elif cmd == "analyze":

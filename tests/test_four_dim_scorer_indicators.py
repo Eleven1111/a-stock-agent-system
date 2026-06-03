@@ -1,9 +1,10 @@
 """四维打分引擎 — 技术指标边界条件测试"""
 
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'skills', 'stock-triage', 'scripts'))
 
-from four_dim_scorer import calc_ma, calc_ema, calc_rsi, calc_macd, calc_kdj
+from four_dim_scorer import calc_ma, calc_rsi, calc_macd, calc_kdj
 
 
 def test_ma_empty():

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Smoke Test — 验证核心脚本可运行且不崩溃"""
 
-import subprocess, sys, json, os
+import subprocess
+import sys
+import json
 
 PASS = 0
 FAIL = 0

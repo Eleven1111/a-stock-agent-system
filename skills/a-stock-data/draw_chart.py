@@ -3,7 +3,6 @@
 import akshare as ak
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from datetime import datetime
 import pandas as pd
 
 # 设置中文字体

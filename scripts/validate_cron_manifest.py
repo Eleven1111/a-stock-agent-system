@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Cron Manifest 校验器 — 严格模式"""
 
-import json, sys, os, re
+import json
+import sys
+import os
+import re
 
 REQUIRED = ["id", "name", "schedule", "timezone", "command", "cwd",
             "enabled", "external", "expected_output", "silent_when_no_signal"]
