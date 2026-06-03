@@ -4,12 +4,16 @@
 """
 import sqlite3
 import os
+import sys
 import json
 import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 
-CACHE_DIR = os.path.expanduser("~/.hermes/data")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from paths import hermes_home
+
+CACHE_DIR = os.path.join(hermes_home(), "data")
 CACHE_DB = os.path.join(CACHE_DIR, "stock_cache.db")
 CACHE_TTL = 3600  # 1小时，盘中高频刷新
 

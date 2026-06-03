@@ -32,7 +32,7 @@
     {
       "id": "intraday-alert",
       "name": "盘中异动监控（5分钟）",
-      "schedule": "*/5 9-15 * * 1-5",
+      "schedule": "*/5 9-11,13-14 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python skills/stock-triage/scripts/intraday_monitor.py --json",
       "cwd": ".",
@@ -40,7 +40,7 @@
       "silent_when_no_signal": true,
       "expected_output": "json",
       "external": true,
-      "external_note": "需 Hermes Agent cron 运行时；只输出告警，无告警静默"
+      "external_note": "需 Hermes Agent cron 运行时；只输出告警，无告警静默。脚本内置交易时段守卫(9:30-11:30/13:00-15:00)，盘前盘后自动静默退出"
     },
     {
       "id": "capital-flow",

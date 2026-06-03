@@ -22,9 +22,10 @@ from typing import Dict, List, Optional
 # 共享状态存储
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from state_store import read_json, atomic_write_json
+from paths import data_file
 
-PORTFOLIO_FILE = os.path.expanduser("~/.hermes/skills/stock-triage/data/portfolio.json")
-HISTORY_FILE = os.path.expanduser("~/.hermes/skills/stock-triage/data/trade_history.json")
+PORTFOLIO_FILE = data_file("stock-triage", "portfolio.json")
+HISTORY_FILE = data_file("stock-triage", "trade_history.json")
 os.makedirs(os.path.dirname(PORTFOLIO_FILE), exist_ok=True)
 
 # 风控参数

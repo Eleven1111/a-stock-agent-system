@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """
-四维打分引擎 — A股标的多维度自动评分
+四维打分引擎 — A股标的常规体检器
 ======================================
 技术面 × 情绪面 × 催化面 × 深度面 → S/A/B/C 分级 + 买卖建议
+
+⚠️ 定位说明（重要）：
+  本引擎是**常规个股体检器**（趋势/估值/催化的综合体检），含估值(深度面 20%)维度，
+  更贴合波段/中线持仓视角。它**不是打板引擎**——打板龙头的选股（连板梯队、封板质量、
+  竞价封板、游资情绪周期）由 `hot-money-tactics` 负责。打板标的常处于"均线尚未多头排列、
+  PE 高或无意义"的启动期，用本引擎打分会被技术/估值维度低估，请勿用本引擎给打板标的做
+  最终决策。两个引擎职责分离：体检走这里，打板走 hot-money-tactics。
 
 数据源（纯 urllib，cron-safe）：
 - 腾讯 qt.gtimg.cn — 实时行情 + 历史K线
@@ -39,6 +46,7 @@ from a_stock_http import (
     fetch_tencent_quote as _http_quote,
     fetch_tencent_kline as _http_kline,
 )
+from tradeability import assess_tradeability
 
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict[str, Any]:
@@ -371,9 +379,6 @@ def score_deep(code: str, name: str) -> Dict[str, Any]:
             score -= 1.5
         elif pe < 0:
             score -= 1.0
-            signals_detail = f"PE为负({pe:.1f})"
-        else:
-            signals_detail = f"PE={pe:.1f}"
 
     signals_detail = f"PE={pe:.1f}" if pe is not None else "PE缺失"
     if cap:
@@ -475,15 +480,28 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
     deep = score_deep(code, name)
     print(f"  深度面: {deep['score']}/10", file=sys.stderr)
 
-    weighted = (
-        technical["score"] * WEIGHTS["technical"] +
-        sentiment["score"] * WEIGHTS["sentiment"] +
-        catalyst["score"] * WEIGHTS["catalyst"] +
-        deep["score"] * WEIGHTS["deep"]
-    )
+    scores = {"technical": technical, "sentiment": sentiment,
+              "catalyst": catalyst, "deep": deep}
+
+    # 各维度数据是否真实可用（避免缺失维度以中性 5.0 静默稀释总分）
+    available = {
+        "technical": technical["ma5"] is not None,        # 有K线
+        "sentiment": sentiment.get("change_pct") is not None,  # 有实时
+        "catalyst": catalyst["news_count"] > 0,           # 有新闻源
+        "deep": deep["pe"] is not None,                   # 有估值
+    }
+    # 在可用维度上重新归一化权重；无可用维度时回退原始权重
+    eff = {k: WEIGHTS[k] for k in WEIGHTS if available.get(k, True)}
+    total_w = sum(eff.values())
+    if total_w > 0:
+        eff = {k: v / total_w for k, v in eff.items()}
+    else:
+        eff = dict(WEIGHTS)
+    weighted = sum(scores[k]["score"] * eff.get(k, 0.0) for k in WEIGHTS)
+    excluded = [k for k in WEIGHTS if not available.get(k, True)]
 
     g, emoji, advice = grade(weighted)
-    # 汇总
+
     # 计算置信度和数据覆盖率
     data_coverage = {
         "realtime": technical["price"] is not None,
@@ -505,23 +523,29 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
         advice = "数据不足，无法给出方向性判断"
         emoji = "⚪"
 
+    # 可成交性：封死一字板/停牌时，分数再高也无法买入，必须在建议中点明
+    market = "sz" if code.startswith(("0", "3")) else "sh"
+    quote = fetch_tencent_realtime(code, market)
+    trade = assess_tradeability(quote, code, name) if "error" not in quote else \
+        {"tradeable": False, "status": "no_data", "reason": "行情缺失"}
+    if trade.get("tradeable") is False and confidence != "low":
+        advice = f"⛔ {trade['reason']}（{advice}）"
+
     return {
         "code": code,
         "name": name,
         "timestamp": datetime.now().isoformat(),
         "confidence": confidence,
         "data_coverage": data_coverage,
-        "scores": {
-            "technical": technical,
-            "sentiment": sentiment,
-            "catalyst": catalyst,
-            "deep": deep,
-        },
+        "tradeability": trade,
+        "scores": scores,
         "weighted": round(weighted, 1),
         "grade": g,
         "emoji": emoji,
         "advice": advice,
         "weights": {k: f"{v*100:.0f}%" for k, v in WEIGHTS.items()},
+        "effective_weights": {k: f"{eff.get(k, 0)*100:.0f}%" for k in WEIGHTS},
+        "excluded_dims": excluded,
     }
 
 

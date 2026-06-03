@@ -5,8 +5,11 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-22%20passed-brightgreen)](tests/)
-[![Smoke](https://img.shields.io/badge/smoke-6%2F6%20passed-brightgreen)](scripts/smoke_test.py)
+[![Tests](https://img.shields.io/badge/tests-51%20passed-brightgreen)](tests/)
+[![Smoke](https://img.shields.io/badge/smoke-5%2F6%20offline-yellowgreen)](scripts/smoke_test.py)
+
+> Smoke badge reflects offline runs: `global_monitor` needs live `yfinance` and may
+> time out without network. With connectivity all 6 pass.
 
 A multi-agent research system for China's A-share market. Nine specialized skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management.
 
@@ -109,6 +112,9 @@ python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --time
 ## Configuration
 
 ```bash
+# Optional: relocate runtime data/cache/state (default: ~/.hermes)
+export HERMES_HOME=/path/to/hermes
+
 # Optional: enable Eastmoney APIs (fund flows, institutional data)
 export NO_PROXY=.eastmoney.com,.gtimg.cn,.sinajs.cn
 
@@ -116,7 +122,10 @@ export NO_PROXY=.eastmoney.com,.gtimg.cn,.sinajs.cn
 export SERPAPI_API_KEY=your_key
 ```
 
-Source health tracking is built-in. When critical data is missing (e.g., yfinance unavailable), the system emits `"status": "insufficient_data"` and refuses to output directional advice.
+All runtime paths resolve through `skills/common/paths.py` and honor `HERMES_HOME`, so the
+system can run inside the repo, a sandbox, or CI without writing to the deploy machine's home.
+
+Source health tracking is built-in. When critical data is missing (e.g., yfinance unavailable), the system emits `"status": "insufficient_data"` and refuses to output directional advice. When a scoring dimension lacks data (e.g., no `SERPAPI_API_KEY` → no catalyst), its weight is **renormalized away** instead of silently contributing a neutral 5.0; the dropped dimensions are listed in `excluded_dims`.
 
 ## Cron Schedule
 
@@ -129,7 +138,7 @@ python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 | Time (CST) | Job | Frequency |
 |------------|-----|-----------|
 | 08:15 | Global pre-market scan | Workdays |
-| 09:00–15:00 | Intraday alerts | Every 5 min |
+| 09:30–11:30, 13:00–15:00 | Intraday alerts | Every 5 min (session-guarded) |
 | 09:45, 13:45, 14:45 | HK-A linkage | Workdays |
 | 10:30, 14:30 | Capital flow monitor | Workdays |
 | 15:08 | Four-dim batch scoring | Workdays |
@@ -226,6 +235,40 @@ a-stock-agent-system/
 **Scripts over services.** Every module is a standalone CLI script. No servers, no databases, no daemons. Pipe them together however you want.
 
 **State is atomic.** All JSON writes go through `state_store.atomic_write_json()` with backup and crash recovery.
+
+## Two Scoring Engines — Don't Confuse Them
+
+The system separates **general stock health** from **hot-money board-hitting (打板)** by design:
+
+| Engine | Module | Use for | Holding horizon |
+|--------|--------|---------|-----------------|
+| **Four-dim scorer** | `stock-triage/four_dim_scorer.py` | General health check (trend / valuation / catalyst) | Swing / mid-term |
+| **Hot-money tactics** | `hot-money-tactics/analyze.py` | 打板 leader selection (连板 ladder, seal quality, auction seal, sentiment cycle) | T+1 (next-day) |
+
+A 打板 leader is typically in its ignition phase — moving averages not yet bullish-aligned, PE
+high or meaningless. The four-dim scorer's technical/valuation dimensions would **underrate** it.
+**Route 打板 decisions through `hot-money-tactics`, not the four-dim scorer.**
+
+### Win-rate is measured in 打板 terms
+
+`performance_tracker.py` is the system's only feedback loop, so it uses **board-hitting-native
+metrics** rather than 30/60-day swing returns:
+
+- **隔日溢价 / 隔日收益** (T+1 open premium / close return) — where a 打板 trade actually exits
+- **连板晋级率** (did T+1 limit-up again?)
+- **Expectancy** = win-rate × avg-win − loss-rate × avg-loss, plus payoff ratio
+- **Alpha vs CSI 300** — strips market beta so a number means *excess*, not "everything rose"
+
+Returns are computed from **forward-adjusted (qfq) K-lines** so splits/dividends don't corrupt
+them, and outcomes are resolved deterministically at the horizon — no "first touch +3% locks a
+win forever" upward bias.
+
+## Tradeability Gate
+
+Before emitting directional advice, the four-dim scorer runs `tradeability.assess_tradeability()`:
+a sealed 一字 limit-up board (`limit_up_sealed`) or a halted name (`halted`) is flagged as
+**un-buyable** and the advice is prefixed accordingly — a high score on a board you can't actually
+get filled on is not actionable.
 
 ## Data Sources
 
