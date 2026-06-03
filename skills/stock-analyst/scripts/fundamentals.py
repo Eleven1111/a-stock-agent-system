@@ -12,9 +12,14 @@ from typing import Optional, Dict, List
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SKILL_DIR)
+COMMON_DIR = os.path.join(os.path.dirname(SKILL_DIR), "common")
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
 
-# 使用 Hermes venv 的 Python（BaoStock 装在那里）
-HERMES_PYTHON = os.path.expanduser("~/.hermes/hermes-agent/venv/bin/python3")
+from paths import hermes_python
+
+# 使用 Hermes venv 的 Python（BaoStock 装在那里），支持 HERMES_HOME/HERMES_PYTHON 重定向。
+HERMES_PYTHON = hermes_python()
 
 
 def _extract_json(text):

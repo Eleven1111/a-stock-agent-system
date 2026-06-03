@@ -115,6 +115,12 @@ python skills/stock-triage/scripts/portfolio_manager.py --add 600011 华能国�
 ## 配置
 
 ```bash
+# 可选：重定向运行时数据、缓存和状态（默认 ~/.hermes）
+export HERMES_HOME=/path/to/hermes
+
+# 可选：覆盖 BaoStock 备用脚本使用的 Hermes Python
+export HERMES_PYTHON=/path/to/python3
+
 # 可选：启用东方财富接口（资金流向、机构数据）
 export NO_PROXY=.eastmoney.com,.gtimg.cn,.sinajs.cn
 
@@ -122,7 +128,7 @@ export NO_PROXY=.eastmoney.com,.gtimg.cn,.sinajs.cn
 export SERPAPI_API_KEY=your_key
 ```
 
-系统内置数据源健康追踪。关键数据缺失时（如 yfinance 不可用），输出 `"status": "insufficient_data"` 并拒绝给方向性判断。
+运行时路径统一通过 `skills/common/paths.py` 解析并支持 `HERMES_HOME`，因此可以在仓库、沙箱或 CI 中运行而不写入部署机 home。系统内置数据源健康追踪。关键数据缺失时（如 yfinance 不可用），输出 `"status": "insufficient_data"` 并拒绝给方向性判断。
 
 ## Cron 调度
 

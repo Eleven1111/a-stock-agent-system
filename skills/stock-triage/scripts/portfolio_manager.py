@@ -2,7 +2,7 @@
 """
 持仓风控管理器 — 仓位跟踪 / 浮盈浮亏 / 止损止盈 / 组合相关性
 ============================================================
-持仓文件: ~/.hermes/skills/stock-triage/data/portfolio.json
+持仓文件: $HERMES_HOME/skills/stock-triage/data/portfolio.json
 
 Usage:
   python3 portfolio_manager.py                  # 查看持仓

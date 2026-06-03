@@ -13,12 +13,23 @@ def test_default_home(monkeypatch):
 
 def test_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("HERMES_PYTHON", raising=False)
     import paths
     importlib.reload(paths)
     assert paths.hermes_home() == str(tmp_path)
     assert paths.data_file("stock-triage", "x.json") == \
         os.path.join(str(tmp_path), "skills", "stock-triage", "data", "x.json")
     assert paths.env_file() == os.path.join(str(tmp_path), ".env")
+    assert paths.hermes_python() == \
+        os.path.join(str(tmp_path), "hermes-agent", "venv", "bin", "python3")
+
+
+def test_hermes_python_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_PYTHON", "/opt/hermes-python")
+    import paths
+    importlib.reload(paths)
+    assert paths.hermes_python() == "/opt/hermes-python"
 
 
 def test_cache_and_cron_dirs(monkeypatch, tmp_path):

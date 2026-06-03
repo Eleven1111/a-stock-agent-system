@@ -6,7 +6,7 @@
 不再强绑定到部署机的 home 目录。
 
 用法:
-    from paths import data_file, hermes_home, env_file
+    from paths import data_file, hermes_home, env_file, hermes_python
     HISTORY = data_file("stock-triage", "signal_history.json")
     # → $HERMES_HOME/skills/stock-triage/data/signal_history.json
 """
@@ -22,6 +22,14 @@ def hermes_home() -> str:
 def env_file() -> str:
     """.env 文件路径。"""
     return os.path.join(hermes_home(), ".env")
+
+
+def hermes_python() -> str:
+    """Hermes Python 路径。优先 $HERMES_PYTHON，否则随 $HERMES_HOME 重定向。"""
+    return (
+        os.environ.get("HERMES_PYTHON")
+        or os.path.join(hermes_home(), "hermes-agent", "venv", "bin", "python3")
+    )
 
 
 def skill_data_dir(skill: str) -> str:

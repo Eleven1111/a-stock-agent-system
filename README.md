@@ -115,6 +115,9 @@ python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --time
 # Optional: relocate runtime data/cache/state (default: ~/.hermes)
 export HERMES_HOME=/path/to/hermes
 
+# Optional: override the Hermes Python used by BaoStock fallback scripts
+export HERMES_PYTHON=/path/to/python3
+
 # Optional: enable Eastmoney APIs (fund flows, institutional data)
 export NO_PROXY=.eastmoney.com,.gtimg.cn,.sinajs.cn
 
