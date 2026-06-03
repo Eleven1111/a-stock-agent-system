@@ -3,8 +3,9 @@ name: stock-triage
 description: >-
   A股全栈分析编排器。接收来自 cron job 的信号或用户指令，自动判断是否升级到深度分析，
   通过四维打分引擎(four_dim_scorer.py)自动评分，支持港A联动监控、资讯触发检测、
-  Serenity报告飞书存档。Kanban 分发给 stock-data / stock-analyst / hotmoney-worker /
-  serenity-worker 四个 worker profile，输出 S/A/B/C 分级的买卖建议报告。
+  Serenity报告飞书存档。打板范式下接入 daban-stock-picker 候选池，策略研究接入
+  chanlun-backtest 离线闸门。Kanban 分发给 stock-data / stock-analyst / hotmoney-worker /
+  serenity-worker 等 profile，输出 S/A/B/C 分级的买卖建议报告。
 version: 1.1.0
 author: Luna
 metadata:
@@ -16,6 +17,8 @@ metadata:
       stock-analyst: 技术分析（stock-analyst + a-stock-data）
       hotmoney-worker: 游资情绪（hot-money-tactics + news-to-sector）
       serenity-worker: 深度投研（serenity-investment-research / deepseek-v4-pro）
+      daban-picker: 打板候选池（daban-stock-picker + hot-money-tactics）
+      strategy-research: 离线研究闸门（chanlun-backtest）
       stock-triage: 编排中枢（本 profile）
 ---
 
@@ -23,6 +26,8 @@ metadata:
 
 这是一个**决策中枢**，不会自己执行分析，而是判断 → 分发 → 汇总。
 它相当于整个 A股 Agent 系统的大脑。
+
+打板范式单独处理：常规体检走 `four_dim_scorer.py`；游资打板候选走 `hot-money-tactics` 判断情绪和题材，再交给 `daban-stock-picker` 做机械候选过滤、六问否决和可成交性闸门。`chanlun-backtest` 只作为离线研究验证层，不作为实时买入信号源。
 
 ## 核心逻辑
 
@@ -78,6 +83,8 @@ metadata:
 | 周报 | `/report 封测 本周` | 汇总该板块本周表现 + 展望 |
 | 对比 | `/compare 通富微电 长电科技 华天科技` | 3只横向对比 |
 | 紧急推送 | `/push` | 立即推送当前待发的所有报告 |
+| 打板候选 | `/daban candidates.json` | 运行打板候选池闸门，输出可执行/否决原因 |
+| 策略研究闸门 | `/chanlun research_state.json` | 检查缠论/打板回测是否满足样本外证据标准 |
 
 ## 输出格式
 
@@ -234,6 +241,8 @@ t6 = kanban_create(
 | `event_calendar.py` | 事件日历：限售解禁/分红/政策窗口（东财+固定日期库） |
 | `performance_tracker.py` | 胜率统计：`--record`记录信号→自动跟踪表现→分S/A/B/C统计命中率 |
 | `serenity_to_feishu.py` | 飞书存档：接收 markdown 报告 → lark-cli docs +create → 本地双份存档 |
+| `../daban-stock-picker/scripts/daban_candidate_api.py` | 打板候选池：主板10cm首板回封/二板弱转强 → 六问否决 + 可成交性 |
+| `../chanlun-backtest/scripts/research_gate.py` | 离线研究闸门：IS/OOS、成本、对照组、统计检验完整性检查 |
 
 快速命令：
 
@@ -259,7 +268,12 @@ $PY $SDIR/portfolio_manager.py --close 600011 8.50
 $PY $SDIR/institution_tracker.py       # 机构行为
 $PY $SDIR/event_calendar.py            # 事件日历
 $PY $SDIR/performance_tracker.py --record 600011 华能国际 A 9.10
+$PY $SDIR/performance_tracker.py --record 002156 通富微电 S 11.00 --score 9.7 --strategy-id daban:first_board_reseal
 $PY $SDIR/performance_tracker.py       # 查看胜率
+
+# 打板候选池 / 策略研究闸门
+$PY ~/.hermes/skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
+$PY ~/.hermes/skills/chanlun-backtest/scripts/research_gate.py --example --json
 
 # 存档 — 从 stdin 读取 markdown
 echo "# 深度报告..." | $PY $SDIR/serenity_to_feishu.py "通富微电"
@@ -272,6 +286,8 @@ echo "# 深度报告..." | $PY $SDIR/serenity_to_feishu.py "通富微电"
 - `news-to-sector` — 资讯驱动催化分析（hotmoney-worker 的 skill）
 - `serenity-investment-research` — Serenity 深度投研（serenity-worker 的 skill）
 - `global-market-monitor` — 🆕 全球市场监控（外围输入，信号升级入口）
+- `daban-stock-picker` — 打板候选池（首板回封/二板弱转强的机械过滤和六问否决）
+- `chanlun-backtest` — 离线研究闸门（策略上线前的统计证据检查）
 - `a-stock-commands` — 快捷指令（/deep /scan /alert /report /compare /global）
 
 ## 8个拓展场景

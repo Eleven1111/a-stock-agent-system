@@ -5,10 +5,10 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-22%20passed-brightgreen)](tests/)
-[![Smoke](https://img.shields.io/badge/smoke-6%2F6%20passed-brightgreen)](scripts/smoke_test.py)
+[![Tests](https://img.shields.io/badge/tests-87%20passed-brightgreen)](tests/)
+[![Smoke](https://img.shields.io/badge/smoke-8%2F8%20passed-brightgreen)](scripts/smoke_test.py)
 
-A 股多智能体投研系统。9 个专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控的完整决策链路。
+A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
 
 **非交易机器人。** 系统只做数据分析和分级建议，不下单、不操盘。
 
@@ -23,6 +23,8 @@ graph TD
     TRIAGE --> GLOBAL[global-market-monitor<br/>全球宏观]
     TRIAGE --> NEWS[news-to-sector<br/>催化映射]
     TRIAGE --> SERENITY[serenity-investment-research<br/>深度投研]
+    TRIAGE --> DABAN[daban-stock-picker<br/>打板候选闸门]
+    TRIAGE --> CHANLUN[chanlun-backtest<br/>离线研究闸门]
 
     ANALYST --> FLOW[capital_flow_monitor<br/>资金流向]
     ANALYST --> PORT[portfolio_manager<br/>持仓风控]
@@ -37,6 +39,8 @@ graph TD
 |------|------|--------|
 | **stock-analyst** | 日/周/60分/30分多框架技术分析、板块扫描、条件筛选 | 腾讯、新浪、yfinance |
 | **hot-money-tactics** | 涨停板全景、连板梯队、封板质量、情绪周期、板块轮动 | AkShare |
+| **daban-stock-picker** | 主板10cm打板候选闸门：首板回封、二板弱转强、六问否决、可成交性 | 结构化行情/板块/持仓 JSON |
+| **chanlun-backtest** | 缠论/打板离线研究闸门：IS/OOS、成本、对照组、统计检验 | 本地研究状态 JSON |
 | **global-market-monitor** | 美股/VIX/美债/期货/外汇/自然灾害 → A股影响评估 | yfinance、USGS、GDACS |
 | **news-to-sector** | 实时资讯→18条产业链映射 + 预期差分析 | SerpAPI |
 | **serenity-investment-research** | 深度投研：供应链拆解、财务分析、估值情景、熊市审计 | cninfo、pypdf |
@@ -80,8 +84,8 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 ### 验证
 
 ```bash
-python scripts/smoke_test.py      # 6项集成检查
-python -m pytest -q tests/        # 22项测试全部通过
+python scripts/smoke_test.py      # 8项集成检查
+python -m pytest -q tests/        # 87项测试全部通过
 ```
 
 ### 运行
@@ -104,6 +108,12 @@ python skills/stock-triage/scripts/portfolio_manager.py --check
 
 # 60分钟短线入场判断
 python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --timeframe 60
+
+# 打板候选池
+python skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
+
+# 离线策略研究闸门
+python skills/chanlun-backtest/scripts/research_gate.py --example --json
 ```
 
 ### 录入持仓
@@ -212,14 +222,16 @@ a-stock-agent-system/
 ├── config/scoring.yaml         # 评分权重 & 风控参数
 ├── cron/hermes-cron-manifest.json  # 11个定时任务
 ├── scripts/
-│   ├── smoke_test.py           # 6项集成验证
+│   ├── smoke_test.py           # 8项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 12个单元测试
+├── tests/                      # 87个单元测试
 ├── skills/
 │   ├── common/                 # 共享HTTP层 + 原子状态存储
 │   ├── stock-triage/           # 编排中枢
 │   ├── stock-analyst/          # 技术分析引擎
 │   ├── hot-money-tactics/      # 游资战法
+│   ├── daban-stock-picker/     # 主板10cm打板候选闸门
+│   ├── chanlun-backtest/       # 离线策略研究闸门
 │   ├── global-market-monitor/  # 全球宏观→A股影响
 │   ├── news-to-sector/         # 产业链催化映射
 │   ├── serenity-investment-research/  # 深度投研
@@ -255,8 +267,8 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 22项测试
-python scripts/smoke_test.py      # 6项集成检查
+python -m pytest -q tests/        # 87项测试
+python scripts/smoke_test.py      # 8项集成检查
 python scripts/validate_cron_manifest.py
 ```
 

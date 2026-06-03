@@ -5,13 +5,13 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-51%20passed-brightgreen)](tests/)
-[![Smoke](https://img.shields.io/badge/smoke-5%2F6%20offline-yellowgreen)](scripts/smoke_test.py)
+[![Tests](https://img.shields.io/badge/tests-87%20passed-brightgreen)](tests/)
+[![Smoke](https://img.shields.io/badge/smoke-8%2F8%20passed-brightgreen)](scripts/smoke_test.py)
 
-> Smoke badge reflects offline runs: `global_monitor` needs live `yfinance` and may
-> time out without network. With connectivity all 6 pass.
+> Smoke badge reflects the latest connected validation. Offline runs may still
+> time out on `global_monitor` or `hk_a_linkage` because they depend on live market data.
 
-A multi-agent research system for China's A-share market. Nine specialized skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management.
+A multi-agent research system for China's A-share market. Eleven repository skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management, limit-up candidate gating, and offline strategy validation.
 
 **Not a trading bot.** This system analyzes data and produces graded recommendations. It never places orders.
 
@@ -26,6 +26,8 @@ graph TD
     TRIAGE --> GLOBAL[global-market-monitor<br/>Macro Surveillance]
     TRIAGE --> NEWS[news-to-sector<br/>Catalyst Mapping]
     TRIAGE --> SERENITY[serenity-investment-research<br/>Deep Research]
+    TRIAGE --> DABAN[daban-stock-picker<br/>Limit-up Candidate Gate]
+    TRIAGE --> CHANLUN[chanlun-backtest<br/>Offline Research Gate]
 
     ANALYST --> FLOW[capital_flow_monitor<br/>Fund Flows]
     ANALYST --> PORT[portfolio_manager<br/>Risk Control]
@@ -40,6 +42,8 @@ graph TD
 |--------|-------------|--------------|
 | **stock-analyst** | Multi-timeframe technical analysis (day/week/60m/30m), sector scanning, screener | Tencent, Sina, yfinance |
 | **hot-money-tactics** | Limit-up board analysis, sentiment cycles, sector rotation tracking | AkShare |
+| **daban-stock-picker** | Main-board 10cm limit-up candidate gate: first-board reseal, second-board weak-to-strong, six-question veto, tradeability | Structured quote/sector/portfolio JSON |
+| **chanlun-backtest** | Offline research gate for Chan Theory and strategy rules: IS/OOS wall, costs, controls, statistical tests | Local research-state JSON |
 | **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share impact | yfinance, USGS, GDACS |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
 | **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit | cninfo, pypdf |
@@ -107,6 +111,12 @@ python skills/stock-triage/scripts/portfolio_manager.py --check
 
 # 60-minute entry timing
 python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --timeframe 60
+
+# Limit-up candidate gate
+python skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
+
+# Offline strategy research gate
+python skills/chanlun-backtest/scripts/research_gate.py --example --json
 ```
 
 ## Configuration
@@ -212,14 +222,16 @@ a-stock-agent-system/
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── cron/hermes-cron-manifest.json  # 11 scheduled jobs
 ├── scripts/
-│   ├── smoke_test.py           # 6-test validation suite
+│   ├── smoke_test.py           # 8-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 12 unit tests
+├── tests/                      # 87 unit tests
 ├── skills/
 │   ├── common/                 # Shared HTTP + atomic state store
 │   ├── stock-triage/           # Orchestrator hub
 │   ├── stock-analyst/          # Technical analysis engine
 │   ├── hot-money-tactics/      # Sentiment & limit-up analysis
+│   ├── daban-stock-picker/     # Main-board 10cm limit-up candidate gate
+│   ├── chanlun-backtest/       # Offline strategy research gate
 │   ├── global-market-monitor/  # Macro → A-share impact
 │   ├── news-to-sector/         # Supply-chain catalyst mapping
 │   ├── serenity-investment-research/  # Deep fundamental research
@@ -289,8 +301,8 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 22 tests
-python scripts/smoke_test.py      # 6 integration checks
+python -m pytest -q tests/        # 87 tests
+python scripts/smoke_test.py      # 8 integration checks
 python scripts/validate_cron_manifest.py
 ```
 

@@ -72,11 +72,11 @@ def test_expectancy_empty():
 
 def test_compute_stats_aggregates():
     records = [
-        {"code": "1", "name": "a", "grade": "A", "outcome": "win", "t1_close_ret": 4.0,
+        {"code": "1", "name": "a", "grade": "A", "strategy_id": "four_dim", "outcome": "win", "t1_close_ret": 4.0,
          "t1_open_premium": 2.0, "alpha_t1": 3.0, "promoted": False},
-        {"code": "2", "name": "b", "grade": "A", "outcome": "loss", "t1_close_ret": -3.0,
+        {"code": "2", "name": "b", "grade": "A", "strategy_id": "daban:first_board_reseal", "outcome": "loss", "t1_close_ret": -3.0,
          "t1_open_premium": -1.0, "alpha_t1": -2.0, "promoted": False},
-        {"code": "3", "name": "c", "grade": "S", "outcome": "win_big", "t1_close_ret": 10.0,
+        {"code": "3", "name": "c", "grade": "S", "strategy_id": "daban:first_board_reseal", "outcome": "win_big", "t1_close_ret": 10.0,
          "t1_open_premium": 8.0, "alpha_t1": 9.0, "promoted": True},
         {"code": "4", "name": "d", "grade": "S", "outcome": "pending"},
     ]
@@ -87,6 +87,9 @@ def test_compute_stats_aggregates():
     assert s["promote_rate"] == round(1 / 3 * 100, 1)
     assert s["by_grade"]["S"]["win_rate"] == 100.0
     assert s["by_grade"]["A"]["closed"] == 2
+    assert s["by_strategy"]["four_dim"]["closed"] == 1
+    assert s["by_strategy"]["daban:first_board_reseal"]["closed"] == 2
+    assert s["by_strategy"]["daban:first_board_reseal"]["win_rate"] == 50.0
 
 
 def test_compute_stats_no_closed():
@@ -136,6 +139,16 @@ def test_record_signal_concurrent_no_loss(tmp_path, monkeypatch):
     history = pt.load_history()
     assert len(history) == n, f"并发 record 丢记录: 期望 {n}, 实际 {len(history)}"
     assert len({r["code"] for r in history}) == n
+
+
+def test_record_signal_persists_strategy_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+
+    result = pt.record_signal("002156", "通富微电", "S", 9.7, 11.0, "daban:first_board_reseal")
+
+    history = pt.load_history()
+    assert result["ok"] is True
+    assert history[0]["strategy_id"] == "daban:first_board_reseal"
 
 
 def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):

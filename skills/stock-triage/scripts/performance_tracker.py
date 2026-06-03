@@ -22,6 +22,7 @@
 Usage:
   python3 performance_tracker.py                          # 查看统计
   python3 performance_tracker.py --record CODE NAME GRADE PRICE
+  python3 performance_tracker.py --record CODE NAME GRADE PRICE --strategy-id daban:first_board_reseal
   python3 performance_tracker.py --json
 """
 
@@ -119,18 +120,29 @@ def save_history(records: List[Dict]):
     atomic_write_json(HISTORY_FILE, records)
 
 
-def record_signal(code: str, name: str, grade: str, score: float, price: float) -> Dict:
+def record_signal(
+    code: str,
+    name: str,
+    grade: str,
+    score: float,
+    price: float,
+    strategy_id: Optional[str] = None,
+) -> Dict:
     """记录一个新信号。price 为信号日收盘价（仅留档；结算以前复权 K 线为准）。
 
     用 update_json_list 在单锁内完成"读-追加-写回"，避免并发 --record 互相覆盖丢记录。
     """
-    update_json_list(HISTORY_FILE, {
+    record = {
         "code": code, "name": name, "grade": grade, "score": score,
         "signal_date": date.today().isoformat(),
         "signal_price": price,
         "outcome": "pending",
-    })
-    return {"ok": True, "recorded": f"{name}({code}) {grade}级 @ {price}"}
+    }
+    if strategy_id:
+        record["strategy_id"] = strategy_id
+    update_json_list(HISTORY_FILE, record)
+    suffix = f" [{strategy_id}]" if strategy_id else ""
+    return {"ok": True, "recorded": f"{name}({code}) {grade}级 @ {price}{suffix}"}
 
 
 def _fetch_future_bars(code: str, signal_date: str, market: str) -> Optional[Dict[str, Any]]:
@@ -249,6 +261,19 @@ def compute_stats(records: List[Dict]) -> Dict:
             **_expectancy(g_rets),
         }
 
+    by_strategy = {}
+    for strategy_id in sorted({r.get("strategy_id", "default") for r in records}):
+        s_closed = [r for r in closed if r.get("strategy_id", "default") == strategy_id]
+        s_rets = [r["t1_close_ret"] for r in s_closed]
+        s_wins = [r for r in s_closed if r["outcome"].startswith("win")]
+        by_strategy[strategy_id] = {
+            "total": len([r for r in records if r.get("strategy_id", "default") == strategy_id]),
+            "closed": len(s_closed),
+            "win_rate": round(len(s_wins) / len(s_closed) * 100, 1) if s_closed else 0,
+            "avg_t1_close": round(sum(s_rets) / len(s_rets), 2) if s_rets else 0,
+            **_expectancy(s_rets),
+        }
+
     return {
         "metric": "打板口径(T+1隔日)",
         "total_signals": len(records),
@@ -264,6 +289,7 @@ def compute_stats(records: List[Dict]) -> Dict:
         "avg_alpha_t1": round(sum(alphas) / len(alphas), 2) if alphas else None,
         **_expectancy(rets),
         "by_grade": by_grade,
+        "by_strategy": by_strategy,
     }
 
 
@@ -295,6 +321,16 @@ def format_stats(stats: Dict, records: List[Dict]) -> str:
                          f"{gs.get('win_rate', 0)}% | {gs.get('avg_t1_close', 0):+.2f}% | "
                          f"{gs.get('expectancy', 0):+.2f}% |")
 
+    by_strategy = stats.get("by_strategy", {})
+    if by_strategy:
+        lines.append("")
+        lines.append("| 策略 | 信号 | 结算 | 胜率 | 隔日收益 | 期望 |")
+        lines.append("|------|------|------|------|----------|------|")
+        for strategy_id, ss in by_strategy.items():
+            lines.append(f"| {strategy_id} | {ss['total']} | {ss.get('closed', 0)} | "
+                         f"{ss.get('win_rate', 0)}% | {ss.get('avg_t1_close', 0):+.2f}% | "
+                         f"{ss.get('expectancy', 0):+.2f}% |")
+
     recent = [r for r in records if r.get("outcome") and r["outcome"] != "pending"][-5:]
     if recent:
         lines.append("\n## 最近结算")
@@ -313,12 +349,13 @@ if __name__ == "__main__":
     p.add_argument("--record", nargs=4, metavar=("CODE", "NAME", "GRADE", "PRICE"),
                    help="记录信号: code name grade price")
     p.add_argument("--score", type=float, default=5.0, help="评分")
+    p.add_argument("--strategy-id", help="可选策略标识，如 daban:first_board_reseal")
     p.add_argument("--json", action="store_true")
     args = p.parse_args()
 
     if args.record:
         code, name, grade, price = args.record
-        result = record_signal(code, name, grade, args.score, float(price))
+        result = record_signal(code, name, grade, args.score, float(price), args.strategy_id)
         print(json.dumps(result, ensure_ascii=False))
     else:
         records = update_outcomes()
