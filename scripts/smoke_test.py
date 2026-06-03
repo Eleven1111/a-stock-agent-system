@@ -75,6 +75,14 @@ tests = [
         [PY, "scripts/validate_cron_manifest.py", "cron/hermes-cron-manifest.json"],
         "cron_manifest", 10, False
     ),
+    (  # 7. 打板候选池
+        [PY, "skills/daban-stock-picker/scripts/daban_candidate_api.py", "--example", "--json"],
+        "daban_candidate_api", 10, True
+    ),
+    (  # 8. 离线研究闸门
+        [PY, "skills/chanlun-backtest/scripts/research_gate.py", "--example", "--json"],
+        "chanlun_research_gate", 10, True
+    ),
 ]
 
 print("=" * 50)

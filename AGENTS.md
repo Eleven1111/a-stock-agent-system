@@ -16,20 +16,20 @@
                         │  (决策 + 派发)    │
                         └────────┬────────┘
                                  │
-        ┌────────────┬───────────┼───────────┬────────────┐
-        ▼            ▼           ▼           ▼            ▼
-   stock-analyst  hot-money  global-mkt  news-to-sector  serenity
-   (技术分析)     (游资情绪)   (全球监控)   (催化映射)     (深度投研)
-        │            │           │           │            │
-        └────────────┴───────────┴───────────┴────────────┘
+        ┌────────────┬───────────┼───────────┬────────────┬────────────┐
+        ▼            ▼           ▼           ▼            ▼            ▼
+   stock-analyst  hot-money  global-mkt  news-to-sector  serenity  daban-picker
+   (技术分析)     (游资情绪)   (全球监控)   (催化映射)     (深度投研) (打板候选)
+        │            │           │           │            │            │
+        └────────────┴───────────┴───────────┴────────────┴────────────┘
                                  │
-                    ┌────────────┼────────────┐
-                    ▼            ▼            ▼
-               capital_flow  portfolio    intraday
-               (资金流向)     (持仓风控)    (盘中异动)
+                    ┌────────────┼────────────┬────────────┬────────────┐
+                    ▼            ▼            ▼            ▼            ▼
+               capital_flow  portfolio    intraday   chanlun-backtest
+               (资金流向)     (持仓风控)    (盘中异动)    (离线研究闸门)
 ```
 
-**技能树（10 个 skill）：**
+**技能树（12 个 skill）：**
 
 | Skill | 路径 | 角色 |
 |-------|------|------|
@@ -39,6 +39,8 @@
 | global-market-monitor | `~/.hermes/skills/global-market-monitor/` | 🌍 全球外围 |
 | news-to-sector | `~/.hermes/skills/news-to-sector/` | 📡 资讯→板块映射 |
 | serenity-investment-research | `~/.hermes/skills/serenity-investment-research/` | 🎓 深度投研 |
+| daban-stock-picker | `~/.hermes/skills/daban-stock-picker/` | ⚡ 打板候选池 |
+| chanlun-backtest | `~/.hermes/skills/chanlun-backtest/` | 🧪 离线研究闸门 |
 | a-stock-data | `~/.hermes/skills/a-stock-data/` | 📦 数据源参考 |
 | a-stock-daily-report | `~/.hermes/skills/a-stock-daily-report/` | 📋 每日简报 |
 | a-stock-commands | `~/.hermes/skills/a-stock-commands/` | ⌨️ 快捷指令 |

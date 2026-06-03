@@ -1,7 +1,7 @@
 [project]
 name = "a-stock-agent-system"
 version = "1.0.1"
-description = "A股全栈Agent系统 — 9个Skill × 完整投资决策闭环"
+description = "A股全栈Agent系统 — 11个仓内Skill × 完整投资决策闭环"
 requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "MIT"}
