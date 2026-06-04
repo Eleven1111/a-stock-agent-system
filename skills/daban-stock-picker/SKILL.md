@@ -99,6 +99,26 @@ $PY $SDIR/daban_candidate_api.py --input candidates.json
 - `candidates[].t1_exit_plan`：T+1 机械处置规则。
 - `candidates[].record_payload`：可传给 `performance_tracker` 的信号记录草案，包含 `strategy_id`，调用方可用 `--strategy-id` 保留打板策略归因。
 
+## 集合竞价因子采集（auction_collector）
+
+`scripts/auction_collector.py` 在 9:15-9:25 用腾讯五档盘口（免费、全天候、不受 TUN 影响）算出 6 个真竞价因子，把单一手填的 `auction_gap_pct` 升级为可审计输入：
+
+- `auction_gap_pct`：真·竞价高开幅度（现价/昨收）。
+- `auction_bid_ask_ratio`：五档委买和/委卖和。
+- `auction_net_bid_delta`：9:20→9:25 委买净增（9:20 后不可撤单，逼近真实意图；需多次快照）。
+- `board_status`：`yizi_seal`（竞价一字封死）/ `limit_up_with_ask` / `high_open` / `flat_or_low_open`。
+- `seal_amount_ratio_pct`：竞价封单额/流通市值。
+- `auction_volume` / `auction_amount`：竞价撮合量与金额。
+
+```bash
+# cron 9:15-9:25 每 ~10s 累积快照
+$PY $SDIR/auction_collector.py --codes sh600519,sz002156 --snapshot
+# 9:25 收口算因子
+$PY $SDIR/auction_collector.py --codes sh600519,sz002156 --finalize --json
+```
+
+⚠️ 这些因子是**输入升级**，不是已验证的实盘阈值。把它们接入候选打分前，必须先过 `chanlun-backtest` 研究闸门验证样本外 edge；逐笔撤单率等更强信号需 L2 付费数据。
+
 ## 与 chanlun-backtest 的关系
 
 `chanlun-backtest` 是离线研究闸门，验证某套打板或缠论规则是否有样本外统计优势；`daban-stock-picker` 是日常候选池适配器。没有通过研究闸门的参数，不应在这里被包装成“已验证有效”的实时策略。

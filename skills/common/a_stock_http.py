@@ -111,6 +111,31 @@ def parse_tencent_quote_line(line: str) -> Optional[Dict[str, Any]]:
     return {"code": code, "fields": fields}
 
 
+# 腾讯五档盘口下标（parts[9..28]）。data_sources.md 原字段表停在 45，漏掉这段——
+# 集合竞价(9:15-9:25)期间这五档反映累积委买/委卖，是免费源最接近 L2 的竞价信号。
+# 顺序：买一价/量, 买二价/量 … 买五；卖一价/量 … 卖五。
+_TENCENT_BID_BASE = 9   # 买一价下标，之后每档 +2
+_TENCENT_ASK_BASE = 19  # 卖一价下标，之后每档 +2
+
+
+def parse_tencent_orderbook_line(line: str) -> Optional[Dict[str, Any]]:
+    """
+    解析单行腾讯报文的五档盘口（纯函数，不触网，可单测）。
+    返回 {"code", "bids": [(price, vol)*5], "asks": [(price, vol)*5]}，失败返回 None。
+    价或量缺失的档位以 (None, None) 占位，不丢弃整行。
+    """
+    if "=" not in line:
+        return None
+    code_raw, data = line.split("=", 1)
+    code = code_raw.replace("v_", "").strip()
+    parts = data.strip().strip('"').split("~")
+    if len(parts) < _TENCENT_ASK_BASE + 10:
+        return None
+    bids = [(_f(parts, _TENCENT_BID_BASE + 2 * i), _f(parts, _TENCENT_BID_BASE + 2 * i + 1)) for i in range(5)]
+    asks = [(_f(parts, _TENCENT_ASK_BASE + 2 * i), _f(parts, _TENCENT_ASK_BASE + 2 * i + 1)) for i in range(5)]
+    return {"code": code, "bids": bids, "asks": asks}
+
+
 def fetch_tencent_quote(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     """
     腾讯实时行情
@@ -130,6 +155,29 @@ def fetch_tencent_quote(codes: List[str]) -> Dict[str, Dict[str, Any]]:
         parsed = parse_tencent_quote_line(line)
         if parsed:
             results[parsed["code"]] = parsed["fields"]
+    return results
+
+
+def fetch_tencent_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
+    """
+    腾讯实时行情 + 五档盘口（一次请求合并），供集合竞价采集使用。
+    返回: {code: {price, prev_close, volume, market_cap, name, ..., bids, asks}}
+    """
+    url = "http://qt.gtimg.cn/q=" + ",".join(codes)
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read().decode("gbk")
+    except Exception as e:
+        raise DataSourceError("tencent", f"行情请求失败: {e}", e)
+
+    results: Dict[str, Dict[str, Any]] = {}
+    for line in raw.strip().split("\n"):
+        quote = parse_tencent_quote_line(line)
+        if not quote:
+            continue
+        book = parse_tencent_orderbook_line(line) or {"bids": [], "asks": []}
+        results[quote["code"]] = {**quote["fields"], "bids": book["bids"], "asks": book["asks"]}
     return results
 
 
