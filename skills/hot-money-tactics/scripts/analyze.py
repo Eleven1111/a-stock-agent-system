@@ -118,13 +118,16 @@ def analyze_quality(df_zt):
 
     total = len(df_zt)
     df_t = df_zt.dropna(subset=['首次封板时间'])
-    early = len(df_t[df_t['首次封板时间'] <= '09:31'])
+    # 集合竞价 9:25 结束：≤09:25 才是真竞价封；09:25-09:31 是开盘秒封，强度不同，分开统计。
+    auction = len(df_t[df_t['首次封板时间'] <= '09:25'])
+    open_burst = len(df_t[(df_t['首次封板时间'] > '09:25') & (df_t['首次封板时间'] <= '09:31')])
     mid = len(df_t[(df_t['首次封板时间'] > '09:31') & (df_t['首次封板时间'] <= '10:00')])
     late = len(df_t[df_t['首次封板时间'] > '10:00'])
     zhaban_count = len(df_zt[df_zt['炸板次数'] > 0])
 
     lines.append("  封板总数: {}只".format(total))
-    lines.append("  集合竞价封: {}只 ({:.0f}%)".format(early, early/total*100 if total else 0))
+    lines.append("  集合竞价封(≤9:25): {}只 ({:.0f}%)".format(auction, auction/total*100 if total else 0))
+    lines.append("  开盘秒封(9:25-9:31): {}只 ({:.0f}%)".format(open_burst, open_burst/total*100 if total else 0))
     lines.append("  早盘封(9:31-10:00): {}只 ({:.0f}%)".format(mid, mid/total*100 if total else 0))
     lines.append("  午盘后封: {}只 ({:.0f}%)".format(late, late/total*100 if total else 0))
     lines.append("  有炸板记录: {}只 ({:.1f}%)".format(zhaban_count, zhaban_count/total*100 if total else 0))
@@ -200,7 +203,8 @@ def sentiment_judgment(df_zt, df_all):
     max_ban = int(df_zt['连板数'].max()) if len(df_zt) > 0 else 0
     zhaban_rate = len(df_zt[df_zt['炸板次数'] > 0]) / len(df_zt) * 100 if len(df_zt) > 0 else 0
     df_t = df_zt.dropna(subset=['首次封板时间'])
-    early_rate = len(df_t[df_t['首次封板时间'] <= '09:31']) / len(df_t) * 100 if len(df_t) > 0 else 0
+    # 真集合竞价封（≤9:25）才反映隔夜情绪；09:25-09:31 的开盘秒封不计入。
+    early_rate = len(df_t[df_t['首次封板时间'] <= '09:25']) / len(df_t) * 100 if len(df_t) > 0 else 0
 
     total_mcap = df_zt['总市值'].sum() / 1e8 if '总市值' in df_zt.columns else 0
     mean_mcap = df_zt['总市值'].mean() / 1e8 if len(df_zt) > 0 else 0
