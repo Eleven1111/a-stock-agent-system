@@ -5,8 +5,8 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-87%20passed-brightgreen)](tests/)
-[![Smoke](https://img.shields.io/badge/smoke-8%2F8%20passed-brightgreen)](scripts/smoke_test.py)
+[![Tests](https://img.shields.io/badge/tests-92%20passed-brightgreen)](tests/)
+[![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
 
@@ -84,8 +84,8 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 ### 验证
 
 ```bash
-python scripts/smoke_test.py      # 8项集成检查
-python -m pytest -q tests/        # 87项测试全部通过
+python scripts/smoke_test.py      # 9项集成检查
+python -m pytest -q tests/        # 92项测试全部通过
 ```
 
 ### 运行
@@ -222,9 +222,9 @@ a-stock-agent-system/
 ├── config/scoring.yaml         # 评分权重 & 风控参数
 ├── cron/hermes-cron-manifest.json  # 11个定时任务
 ├── scripts/
-│   ├── smoke_test.py           # 8项集成验证
+│   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 87个单元测试
+├── tests/                      # 92个单元测试
 ├── skills/
 │   ├── common/                 # 共享HTTP层 + 原子状态存储
 │   ├── stock-triage/           # 编排中枢
@@ -267,8 +267,8 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 87项测试
-python scripts/smoke_test.py      # 8项集成检查
+python -m pytest -q tests/        # 92项测试
+python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```
 

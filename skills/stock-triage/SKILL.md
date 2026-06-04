@@ -240,6 +240,7 @@ t6 = kanban_create(
 | `institution_tracker.py` | 机构行为：调研/研报/增减持（东财数据中心+SerpAPI） |
 | `event_calendar.py` | 事件日历：限售解禁/分红/政策窗口（东财+固定日期库） |
 | `performance_tracker.py` | 胜率统计：`--record`记录信号→自动跟踪表现→分S/A/B/C统计命中率 |
+| `recommendation_audit.py` | 推荐审计档案：买/卖/加/减建议写入 `recommendations.json`，支持查询、结果更新、赔率/凯利仓位测算 |
 | `serenity_to_feishu.py` | 飞书存档：接收 markdown 报告 → lark-cli docs +create → 本地双份存档 |
 | `../daban-stock-picker/scripts/daban_candidate_api.py` | 打板候选池：主板10cm首板回封/二板弱转强 → 六问否决 + 可成交性 |
 | `../chanlun-backtest/scripts/research_gate.py` | 离线研究闸门：IS/OOS、成本、对照组、统计检验完整性检查 |
@@ -270,6 +271,8 @@ $PY $SDIR/event_calendar.py            # 事件日历
 $PY $SDIR/performance_tracker.py --record 600011 华能国际 A 9.10
 $PY $SDIR/performance_tracker.py --record 002156 通富微电 S 11.00 --score 9.7 --strategy-id daban:first_board_reseal
 $PY $SDIR/performance_tracker.py       # 查看胜率
+$PY $SDIR/recommendation_audit.py --record 002156 通富微电 buy "10.80-11.00" "半导体主线早盘回封" --strategy-id daban:first_board_reseal
+$PY $SDIR/recommendation_audit.py --code 002156
 
 # 打板候选池 / 策略研究闸门
 $PY ~/.hermes/skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
