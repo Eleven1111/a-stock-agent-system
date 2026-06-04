@@ -83,6 +83,10 @@ tests = [
         [PY, "skills/chanlun-backtest/scripts/research_gate.py", "--example", "--json"],
         "chanlun_research_gate", 10, True
     ),
+    (  # 9. 推荐审计档案（示例模式不写状态）
+        [PY, "skills/stock-triage/scripts/recommendation_audit.py", "--example", "--json"],
+        "recommendation_audit", 10, True
+    ),
 ]
 
 print("=" * 50)

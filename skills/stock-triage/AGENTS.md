@@ -102,12 +102,12 @@ cron 任务中所有数据抓取**必须用 `execute_code` + Python `urllib`**�
 参考：`sector_scan.py` 遍历所有行业板块。
 
 ### 4. 分析输出
-任何个股分析必须包含：
+当置信度为"高"或"中"时，个股分析必须包含：
 - 具体买入价 / 止损位 / 目标位
 - 持有周期
 - S/A/B/C 分级 + 仓位建议
 
-只给数据和判断依据，不给"可能/或许/建议关注"等模糊词。
+置信度为"低"或数据不足时，禁止输出方向性投资判断。
 
 ### 5. 网络故障处理
 遇到 502 / DNS 劫持 / 连接拒绝等报错时：
@@ -175,6 +175,7 @@ from typing import Dict, Any, List, Optional
 |------|------|------|
 | portfolio.json | `stock-triage/data/` | 持仓数据 |
 | signal_history.json | `stock-triage/data/` | 历史信号记录 |
+| recommendations.json | `stock-triage/data/` | 推荐审计档案 |
 | intraday_alerts.json | `stock-triage/data/` | 盘中告警去重缓存 |
 | alerts.json | `~/.hermes/cron/output/` | 价格提醒数据 |
 | .env | `~/.hermes/` | API keys + NO_PROXY |

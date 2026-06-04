@@ -5,8 +5,8 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-87%20passed-brightgreen)](tests/)
-[![Smoke](https://img.shields.io/badge/smoke-8%2F8%20passed-brightgreen)](scripts/smoke_test.py)
+[![Tests](https://img.shields.io/badge/tests-92%20passed-brightgreen)](tests/)
+[![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
 > time out on `global_monitor` or `hk_a_linkage` because they depend on live market data.
@@ -222,9 +222,9 @@ a-stock-agent-system/
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── cron/hermes-cron-manifest.json  # 11 scheduled jobs
 ├── scripts/
-│   ├── smoke_test.py           # 8-test validation suite
+│   ├── smoke_test.py           # 9-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 87 unit tests
+├── tests/                      # 92 unit tests
 ├── skills/
 │   ├── common/                 # Shared HTTP + atomic state store
 │   ├── stock-triage/           # Orchestrator hub
@@ -301,8 +301,8 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 87 tests
-python scripts/smoke_test.py      # 8 integration checks
+python -m pytest -q tests/        # 92 tests
+python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```
 
