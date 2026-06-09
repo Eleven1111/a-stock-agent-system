@@ -59,6 +59,9 @@ except Exception:  # noqa: BLE001
     _chan = None
 from strategy_registry import is_allowed_in_live as _chan_allowed
 
+# 技术指标统一走 common/indicators.py（去重，数值与历史实现逐位一致）
+from indicators import calc_ma, calc_ema, calc_macd, calc_rsi, calc_kdj
+
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict[str, Any]:
     """腾讯实时行情 — 委托 a_stock_http"""
@@ -103,81 +106,9 @@ def fetch_serpapi_news(query: str, num: int = 5) -> Optional[List[Dict]]:
         return None
 
 
-# ========== 技术指标（纯numpy） ==========
-
-def calc_ma(closes: List[float], period: int) -> List[float]:
-    """简单移动平均"""
-    if len(closes) < period:
-        return [None] * len(closes)
-    result = [None] * (period - 1)
-    for i in range(period - 1, len(closes)):
-        result.append(sum(closes[i-period+1:i+1]) / period)
-    return result
-
-
-def calc_ema(closes: List[float], period: int) -> List[float]:
-    """指数移动平均"""
-    if len(closes) < 2:
-        return [None] * len(closes)
-    k = 2 / (period + 1)
-    result = [closes[0]]
-    for i in range(1, len(closes)):
-        result.append(closes[i] * k + result[-1] * (1 - k))
-    return result
-
-
-def calc_macd(closes: List[float], fast=12, slow=26, signal=9) -> Tuple[List, List, List]:
-    """MACD: DIF, DEA, MACD柱"""
-    ema_fast = calc_ema(closes, fast)
-    ema_slow = calc_ema(closes, slow)
-    dif = [f - s if f and s else None for f, s in zip(ema_fast, ema_slow)]
-    dea = calc_ema([d for d in dif if d is not None], signal)
-    # pad dea to match length
-    dea_padded = [None] * (len(dif) - len(dea)) + dea
-    macd_hist = [(d - de) * 2 if d is not None and de is not None else None
-                 for d, de in zip(dif, dea_padded)]
-    return dif, dea_padded, macd_hist
-
-
-def calc_rsi(closes: List[float], period: int = 14) -> List[float]:
-    """RSI"""
-    if len(closes) < period + 1:
-        return [None] * len(closes)
-    result = [None] * period
-    gains, losses = [], []
-    for i in range(1, len(closes)):
-        diff = closes[i] - closes[i-1]
-        gains.append(diff if diff > 0 else 0)
-        losses.append(-diff if diff < 0 else 0)
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-    for i in range(period, len(gains)):
-        if avg_loss == 0:
-            result.append(100)
-        else:
-            rs = avg_gain / avg_loss
-            result.append(100 - 100 / (1 + rs))
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-    return result
-
-
-def calc_kdj(highs, lows, closes, period=9):
-    """KDJ"""
-    n = len(closes)
-    k_vals, d_vals, j_vals = [None]*n, [None]*n, [None]*n
-    for i in range(period-1, n):
-        hh = max(highs[i-period+1:i+1])
-        ll = min(lows[i-period+1:i+1])
-        rsv = (closes[i] - ll) / (hh - ll) * 100 if hh != ll else 50
-        if k_vals[i-1] is None:
-            k_vals[i] = 50
-            d_vals[i] = 50
-        else:
-            k_vals[i] = 2/3 * k_vals[i-1] + 1/3 * rsv
-            d_vals[i] = 2/3 * d_vals[i-1] + 1/3 * k_vals[i]
-        j_vals[i] = 3 * k_vals[i] - 2 * d_vals[i]
-    return k_vals, d_vals, j_vals
+# ========== 技术指标 → 统一走 common/indicators.py ==========
+# calc_ma/calc_ema/calc_macd/calc_rsi/calc_kdj 已在顶部从 indicators import，
+# 数值与历史实现逐位一致，消除与 chan_structure / tech_analysis 的重复定义。
 
 
 # ========== 四维评分 ==========
@@ -223,11 +154,13 @@ def chan_adjustment(signals, recent_window, total_bars, allow_fn):
     return delta, lock_max, notes
 
 
-def score_technical(code: str, name: str) -> Dict[str, Any]:
-    """技术面评分（0-10）"""
+def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
+                    klines: Optional[List[Dict]] = None) -> Dict[str, Any]:
+    """技术面评分（0-10）。quote/klines 可由 score_stock 预取注入，避免同票重复抓取。"""
     market = "sz" if code.startswith(("0", "3")) else "sh"
-    rt = fetch_tencent_realtime(code, market)
-    klines = fetch_tencent_kline(code, market, 60)
+    rt = quote if quote is not None else fetch_tencent_realtime(code, market)
+    if klines is None:
+        klines = fetch_tencent_kline(code, market, 60)
 
     if not klines:
         return {"score": 5, "detail": "K线数据不足", "signals": []}
@@ -342,11 +275,11 @@ def score_technical(code: str, name: str) -> Dict[str, Any]:
     }
 
 
-def score_sentiment(code: str, name: str) -> Dict[str, Any]:
-    """情绪面评分（0-10）——基于板块热度和资金流向"""
+def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """情绪面评分（0-10）——基于板块热度和资金流向。quote 可注入复用。"""
     # 简化版：通过涨跌幅、换手率、连板数判断
     market = "sz" if code.startswith(("0", "3")) else "sh"
-    rt = fetch_tencent_realtime(code, market)
+    rt = quote if quote is not None else fetch_tencent_realtime(code, market)
 
     score = 5.0
     signals = []
@@ -451,7 +384,7 @@ def _pe_snapshot_score(pe: Optional[float]) -> float:
     return max(0, min(10, score))
 
 
-def score_deep(code: str, name: str) -> Dict[str, Any]:
+def score_deep(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """深度面评分（0-10）——优先读 Serenity 投研缓存，过期衰减，缺失回退 PE 快照。
 
     断点修复：原实现仅做 PE 分桶，让"深度面 20%"形同虚设。现在优先消费
@@ -459,7 +392,7 @@ def score_deep(code: str, name: str) -> Dict[str, Any]:
     深研一次、日评复用；缓存过期则按新鲜度向 PE 快照线性回归。
     """
     market = "sz" if code.startswith(("0", "3")) else "sh"
-    rt = fetch_tencent_realtime(code, market)
+    rt = quote if quote is not None else fetch_tencent_realtime(code, market)
     pe = rt.get("pe")
     cap = rt.get("market_cap")
     pe_score = _pe_snapshot_score(pe)
@@ -580,20 +513,26 @@ def grade(weighted_score: float) -> Tuple[str, str, str]:
     return "D", "🔴", "回避 — 多维度利空"
 
 
-def score_stock(code: str, name: str) -> Dict[str, Any]:
-    """完整四维评分"""
+def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
+                klines: Optional[List[Dict]] = None) -> Dict[str, Any]:
+    """完整四维评分。quote/klines 可由批量调用方预取注入，同票只抓一次（4→1）。"""
     print(f"🔍 正在分析 {name}({code})...", file=sys.stderr)
+    market = "sz" if code.startswith(("0", "3")) else "sh"
+    if quote is None:
+        quote = fetch_tencent_realtime(code, market)
+    if klines is None:
+        klines = fetch_tencent_kline(code, market, 60)
 
-    technical = score_technical(code, name)
+    technical = score_technical(code, name, quote=quote, klines=klines)
     print(f"  技术面: {technical['score']}/10", file=sys.stderr)
 
-    sentiment = score_sentiment(code, name)
+    sentiment = score_sentiment(code, name, quote=quote)
     print(f"  情绪面: {sentiment['score']}/10", file=sys.stderr)
 
     catalyst = score_catalyst(code, name)
     print(f"  催化面: {catalyst['score']}/10", file=sys.stderr)
 
-    deep = score_deep(code, name)
+    deep = score_deep(code, name, quote=quote)
     print(f"  深度面: {deep['score']}/10", file=sys.stderr)
 
     scores = {"technical": technical, "sentiment": sentiment,
@@ -641,8 +580,7 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
         emoji = "⚪"
 
     # 可成交性：封死一字板/停牌时，分数再高也无法买入，必须在建议中点明
-    market = "sz" if code.startswith(("0", "3")) else "sh"
-    quote = fetch_tencent_realtime(code, market)
+    # 复用顶部预取的 quote，避免重复抓取
     trade = assess_tradeability(quote, code, name) if "error" not in quote else \
         {"tradeable": False, "status": "no_data", "reason": "行情缺失"}
     if trade.get("tradeable") is False and confidence != "low":

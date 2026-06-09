@@ -26,6 +26,9 @@ import sys
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
+from indicators import macd_hist  # noqa: E402  技术指标统一走 common（去重）
+
 # strategy_id 命名（与 research_gate / strategy_registry 对齐）
 SIGNAL_STRATEGY = {
     "third_buy": "chanlun_third_buy",
@@ -35,30 +38,6 @@ SIGNAL_STRATEGY = {
 }
 
 DEFAULT_MIN_STROKE_GAP = 4   # 一笔至少跨 4 根去包含K线（经典"5根K线一笔"的简化）
-
-
-# ========== MACD（内联，无第三方依赖）==========
-
-def calc_ema(values: List[float], period: int) -> List[float]:
-    if not values:
-        return []
-    k = 2.0 / (period + 1)
-    out = [values[0]]
-    for v in values[1:]:
-        out.append(v * k + out[-1] * (1 - k))
-    return out
-
-
-def calc_macd_hist(closes: List[float], fast: int = 12, slow: int = 26,
-                   signal: int = 9) -> List[Optional[float]]:
-    """返回与 closes 等长的 MACD 柱（DIF-DEA)*2，前段不足处为 None。"""
-    if len(closes) < slow:
-        return [None] * len(closes)
-    ema_fast = calc_ema(closes, fast)
-    ema_slow = calc_ema(closes, slow)
-    dif = [f - s for f, s in zip(ema_fast, ema_slow)]
-    dea = calc_ema(dif, signal)
-    return [(d - de) * 2 for d, de in zip(dif, dea)]
 
 
 # ========== 去包含 ==========
@@ -234,7 +213,7 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
         return {"ok": False, "reason": "K线不足", "signals": [], "structure": {}}
 
     closes = [b["close"] for b in bars]
-    hist = calc_macd_hist(closes)
+    hist = macd_hist(closes) if len(closes) >= 26 else [None] * len(closes)
     merged = merge_klines(bars)
     fractals = find_fractals(merged)
     strokes, cleaned = build_strokes(fractals, min_gap)
