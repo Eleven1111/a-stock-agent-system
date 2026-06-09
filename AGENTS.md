@@ -134,6 +134,15 @@ Hermes manifest 的 `command` **必须**走 `python scripts/hermes_job_runner.py
 4. **Manifest 是否隔离？** → `command` 走 `hermes_job_runner`，`run.command` 指向 canonical `skills/.../scripts/...`
 5. **Cron 时间是否与现有冲突？** → 查 `cronjob list`，并跑 `validate_cron_manifest.py`
 6. **是否需要更新 AGENTS.md？** → 数据源/铁律有变化必须更新
+### 7. 所有 cron 走子代理模式（2026-06-09 定下的铁律）
+所有 agent-driven cron job（`no_agent=False`）的 `enabled_toolsets` 必须包含 `delegation`，
+格式固定为 `["terminal", "file", "web", "delegation"]`。
+
+数据采集必须由 subagent 通过 `delegate_task` 执行，
+main agent 只做编排+汇总输出。违反此条导致 token 浪费或上下文膨胀。
+
+`no_agent=True` 的脚本任务（如价格提醒）例外，不需要 delegation。
+
 7. **输出是否控制在 Discord 一屏内？** → 配置 `max_output_chars`，例行任务 `deliver=local`
 8. **无信号时是否静默？** → 高频 cron（盘中异动、资讯监控）必须静默
 

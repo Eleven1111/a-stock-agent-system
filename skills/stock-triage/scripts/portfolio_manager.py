@@ -292,10 +292,11 @@ def _apply_prices(pf: Dict, fetched: Dict[str, Optional[Dict]]) -> Dict:
             pos["current_price"] = None
             pos["change_pct"] = None
 
-    # 仓位集中度
+    # 仓位集中度（按总资产 = 现金 + 持仓市值）
     if total_value > 0:
+        total_asset = pf.get("cash", 0) + total_value
         for pos in pf["positions"]:
-            weight = pos.get("market_value", 0) / total_value * 100
+            weight = pos.get("market_value", 0) / total_asset * 100
             pos["weight_pct"] = round(weight, 1)
             if weight > MAX_SINGLE_POSITION:
                 alerts.append({
