@@ -262,8 +262,8 @@ t6 = kanban_create(
 
 | 脚本 | 用途 |
 |------|------|
-| `four_dim_scorer.py` | 四维打分引擎：技术(30%)×情绪(25%)×催化(25%)×深度(20%)→ S/A/B/C/D；深度面回流 Serenity 深研缓存、技术面接入缠论结构(过闸才计权)；支持 `--timeframe 60/30` 短线入场 |
-| `capital_flow_monitor.py` | 资金流向：北向资金 + 主力/散户净流 + 板块资金（东财API，需NO_PROXY） |
+| `four_dim_scorer.py` | 四维打分引擎：技术(30%)×情绪(25%)×催化(25%)×深度(20%)→ S/A/B/C/D；深度面回流 Serenity、技术面接缠论(过闸才计权)、情绪面接连板梯队/板块赚钱效应/资金流(signal_context)、催化面分级×新鲜度衰减、出分后叠大盘 overlay(market_context)；支持 `--timeframe 60/30` 短线入场 |
+| `capital_flow_monitor.py` | 资金流向：北向资金 + 主力/散户净流 + 板块资金（东财API，需NO_PROXY）；`--cache` 落情绪上下文供四维消费 |
 | `portfolio_manager.py` | 持仓风控：`--add`开仓、`--close`清仓、`--check`止损止盈/仓位集中度 |
 | `intraday_monitor.py` | 盘中异动：涨跌停/放量>10%/急涨急跌>5%（5分钟静默式，无触发不输出） |
 | `hk_a_linkage.py` | 港A联动：AH溢价率 + 恒生vs上证背离 + 港股通权重异动检测 |

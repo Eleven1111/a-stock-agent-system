@@ -10,9 +10,9 @@ cs = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(cs)
 
 
-def _bar(h, l, c=None, d=None):
-    c = c if c is not None else (h + l) / 2
-    return {"high": h, "low": l, "close": c, "open": c, "date": d}
+def _bar(h, low, c=None, d=None):
+    c = c if c is not None else (h + low) / 2
+    return {"high": h, "low": low, "close": c, "open": c, "date": d}
 
 
 def test_merge_klines_removes_inclusion():

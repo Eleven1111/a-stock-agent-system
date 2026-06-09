@@ -60,7 +60,13 @@ except Exception:  # noqa: BLE001
 from strategy_registry import is_allowed_in_live as _chan_allowed
 
 # 技术指标统一走 common/indicators.py（去重，数值与历史实现逐位一致）
-from indicators import calc_ma, calc_ema, calc_macd, calc_rsi, calc_kdj
+from indicators import calc_ma, calc_macd, calc_rsi, calc_kdj
+
+# 大盘 context overlay（外围环境回流个股评分；无缓存则 no-op）
+from market_context import read_market_context, apply_market_overlay
+
+# 情绪上下文（连板梯队/板块赚钱效应/资金流回流情绪面；无缓存则回退历史逻辑）
+from signal_context import read_signal_context, sentiment_boost
 
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict[str, Any]:
@@ -275,9 +281,16 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
     }
 
 
-def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """情绪面评分（0-10）——基于板块热度和资金流向。quote 可注入复用。"""
-    # 简化版：通过涨跌幅、换手率、连板数判断
+def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
+                    signal_ctx: Optional[Dict[str, Any]] = None,
+                    sector: Optional[str] = None) -> Dict[str, Any]:
+    """情绪面评分（0-10）——个股量价 + 连板梯队/板块赚钱效应/资金流上下文。
+
+    本系统核心玩法是抓赚钱效应板块做打板/高成长，情绪面是主战场：
+    基础分仍由涨跌幅+换手率给出（向后兼容），其上叠加 signal_context 的
+    连板梯队在册/封板质量/板块涨停集群/主力与北向资金加成；上下文缺失时
+    行为与历史完全一致。
+    """
     market = "sz" if code.startswith(("0", "3")) else "sh"
     rt = quote if quote is not None else fetch_tencent_realtime(code, market)
 
@@ -313,6 +326,12 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
         elif turnover < 1:
             score -= 0.5
 
+    # 板块赚钱效应/连板梯队/资金流上下文（缺失→0 加成，行为同历史）
+    ctx = signal_ctx if signal_ctx is not None else read_signal_context()
+    boost = sentiment_boost(code, ctx, sector=sector)
+    score += boost["delta"]
+    signals.extend(boost["notes"])
+
     score = max(0, min(10, score))
 
     return {
@@ -320,52 +339,120 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
         "change_pct": pct,
         "turnover": turnover,
         "amount_yi": round(amount / 1e8, 1) if amount else None,
+        "context_boost": boost["delta"],
+        "sector": boost.get("sector"),
         "detail": "; ".join(signals) if signals else "情绪中性",
     }
 
 
+# 催化关键词分级（打板/高成长玩法导向）：
+# T1 强催化——政策/战略级与重大资本动作，能直接点燃板块赚钱效应
+# T2 实质催化——订单/业绩/产能落地，高成长逻辑的硬证据
+# T3 弱催化——泛利好措辞，仅作辅助
+CATALYST_TIERS = {
+    "bullish": [
+        (1.2, ["国家战略", "政策支持", "国产替代", "重大重组", "战略合作", "补贴",
+               "纳入指数", "重大突破"]),
+        (0.8, ["业绩增长", "业绩预增", "中标", "大额订单", "订单", "产能释放",
+               "扩产", "回购", "增持", "涨价"]),
+        (0.4, ["利好", "突破", "创新高", "获批"]),
+    ],
+    "bearish": [
+        (1.2, ["退市", "暴雷", "立案调查", "财务造假", "制裁"]),
+        (0.8, ["减持", "亏损", "诉讼", "处罚", "业绩下滑", "产能过剩", "限制"]),
+        (0.4, ["利空", "回调", "破位"]),
+    ],
+}
+
+
+def _news_age_days(date_str: str, now: Optional[datetime] = None) -> Optional[float]:
+    """SerpAPI 日期解析：'MM/DD/YYYY, ...' 或 'N hours/days ago'。失败返回 None。"""
+    if not date_str:
+        return None
+    ref = now or datetime.now()
+    text = str(date_str).strip().lower()
+    try:
+        if "ago" in text:
+            num = float(text.split()[0])
+            if "minute" in text:
+                return num / 1440
+            if "hour" in text:
+                return num / 24
+            if "day" in text:
+                return num
+            if "week" in text:
+                return num * 7
+            if "month" in text:
+                return num * 30
+            return None
+        # 'MM/DD/YYYY, 07:00 AM, +0000 UTC'
+        head = text.split(",")[0].strip()
+        parsed = datetime.strptime(head, "%m/%d/%Y")
+        return max(0.0, (ref - parsed).total_seconds() / 86400)
+    except (ValueError, IndexError):
+        return None
+
+
+def freshness_factor(age_days: Optional[float]) -> float:
+    """新闻新鲜度衰减：越旧的催化对短线越没意义。无法解析按 0.6 保守计。"""
+    if age_days is None:
+        return 0.6
+    if age_days <= 3:
+        return 1.0
+    if age_days <= 7:
+        return 0.7
+    if age_days <= 30:
+        return 0.4
+    return 0.2
+
+
+def news_catalyst_score(news: List[Dict], now: Optional[datetime] = None) -> Dict[str, Any]:
+    """对一组新闻计算催化分增量（纯函数）：分级关键词权重 × 新鲜度衰减。
+    每条新闻只取多空各自命中的最高档，多空可同时计入（对冲）。"""
+    delta = 0.0
+    signals = []
+    for item in news[:5]:
+        title = item.get("title", "")
+        text = title + " " + item.get("snippet", "")
+        age = _news_age_days(item.get("date", ""), now)
+        fresh = freshness_factor(age)
+        for direction, sign in (("bullish", 1), ("bearish", -1)):
+            for weight, kws in CATALYST_TIERS[direction]:
+                hit = next((kw for kw in kws if kw in text), None)
+                if hit:
+                    contribution = sign * weight * fresh
+                    delta += contribution
+                    mark = "" if sign > 0 else "⚠️ "
+                    age_str = f"{age:.0f}d" if age is not None else "?d"
+                    signals.append(f"{mark}{hit}({contribution:+.1f},{age_str}): {title[:24]}")
+                    break  # 该方向取最高档后停
+    return {"delta": round(delta, 2), "signals": signals}
+
+
 def score_catalyst(code: str, name: str) -> Dict[str, Any]:
-    """催化面评分（0-10）——基于新闻和政策"""
+    """催化面评分（0-10）——分级关键词权重 × 新闻新鲜度衰减。
+
+    升级说明：旧版关键词平权 ±0.8 且不看新闻日期——一个月前的"利好"和今早的
+    "国家战略"同分。现按 T1/T2/T3 分级（政策战略>订单业绩>泛利好），并按
+    新闻时间衰减（≤3天全额，>30天两折），更贴合打板/高成长对催化时效的要求。
+    """
     raw_news = fetch_serpapi_news(f"{name} {code} 政策 业绩 公告", num=5)
     source_available = raw_news is not None   # None=数据源不可用；[]=可用但无新闻
     news = raw_news or []
 
-    score = 5.0
-    signals = []
-    catalysts = []
+    catalysts = [{"title": item.get("title", ""),
+                  "source": item.get("source", {}).get("name", ""),
+                  "date": item.get("date", "")} for item in news[:5]]
 
-    # 关键词检测
-    bullish_kw = ["业绩增长", "中标", "订单", "突破", "利好", "回购", "增持", "产能释放",
-                  "政策支持", "国家战略", "补贴", "国产替代"]
-    bearish_kw = ["减持", "亏损", "诉讼", "调查", "处罚", "利空", "暴雷", "退市",
-                  "制裁", "限制", "产能过剩"]
-
-    for item in news[:5]:
-        title = item.get("title", "")
-        snippet = item.get("snippet", "")
-        text = title + " " + snippet
-        catalysts.append({"title": title, "source": item.get("source", {}).get("name", ""),
-                          "date": item.get("date", "")})
-
-        for kw in bullish_kw:
-            if kw in text:
-                score += 0.8
-                signals.append(f"利好催化: {title[:30]}...")
-                break
-        for kw in bearish_kw:
-            if kw in text:
-                score -= 0.8
-                signals.append(f"⚠️ 利空信号: {title[:30]}...")
-                break
-
-    score = max(0, min(10, score))
+    scored = news_catalyst_score(news)
+    score = max(0, min(10, 5.0 + scored["delta"]))
 
     return {
         "score": round(score, 1),
         "news_count": len(news),
         "available": source_available,
         "catalysts": catalysts[:3],
-        "detail": "; ".join(signals[:3]) if signals else "无显著催化",
+        "detail": "; ".join(scored["signals"][:3]) if scored["signals"] else "无显著催化",
     }
 
 
@@ -514,8 +601,10 @@ def grade(weighted_score: float) -> Tuple[str, str, str]:
 
 
 def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
-                klines: Optional[List[Dict]] = None) -> Dict[str, Any]:
-    """完整四维评分。quote/klines 可由批量调用方预取注入，同票只抓一次（4→1）。"""
+                klines: Optional[List[Dict]] = None,
+                market_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """完整四维评分。quote/klines 可由批量调用方预取注入，同票只抓一次（4→1）；
+    market_ctx 为大盘上下文，缺省时自读缓存，用于出分后叠加大盘 overlay。"""
     print(f"🔍 正在分析 {name}({code})...", file=sys.stderr)
     market = "sz" if code.startswith(("0", "3")) else "sh"
     if quote is None:
@@ -586,7 +675,7 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
     if trade.get("tradeable") is False and confidence != "low":
         advice = f"⛔ {trade['reason']}（{advice}）"
 
-    return {
+    result = {
         "code": code,
         "name": name,
         "timestamp": datetime.now().isoformat(),
@@ -603,6 +692,10 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "excluded_dims": excluded,
         "deep_source": scores["deep"].get("source"),
     }
+
+    # 大盘 overlay：无缓存则 no-op，不影响个股四维分；承压时降档封顶
+    ctx = market_ctx if market_ctx is not None else read_market_context()
+    return apply_market_overlay(result, ctx)
 
 
 def format_report(result: Dict[str, Any]) -> str:

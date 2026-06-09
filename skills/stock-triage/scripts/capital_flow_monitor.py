@@ -228,12 +228,41 @@ def format_report(data: Dict) -> str:
     return "\n".join(lines)
 
 
+def cache_signal_context(data: Dict[str, Any]) -> None:
+    """把资金流采集结果落入情绪上下文缓存（northbound/板块/个股主力资金），
+    供 four_dim 情绪面消费。失败不阻塞主输出。"""
+    try:
+        from signal_context import update_signal_context
+        partial: Dict[str, Any] = {}
+        nb = (data.get("northbound") or {}).get("net_flow_yi")
+        if nb is not None:
+            partial["northbound_net_yi"] = nb
+        sector_flows = {s["name"]: s.get("main_net_yi")
+                        for s in data.get("sectors", [])
+                        if s.get("name") and s.get("main_net_yi") is not None}
+        if sector_flows:
+            partial["sector_flows"] = sector_flows
+        stock_flows = {str(s["code"]).zfill(6): {"main_net_yi": s.get("main_net_yi")}
+                       for s in data.get("stocks", [])
+                       if s.get("code") and s.get("main_net_yi") is not None}
+        if stock_flows:
+            partial["stock_flows"] = stock_flows
+        if partial:
+            update_signal_context(partial)
+    except Exception as e:  # noqa: BLE001
+        print(f"signal_context 写入失败: {e}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--json", action="store_true")
+    p.add_argument("--cache", action="store_true",
+                   help="把资金流落入情绪上下文缓存，供四维情绪面 overlay")
     args = p.parse_args()
     data = collect_flow_data()
+    if args.cache:
+        cache_signal_context(data)
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
     else:

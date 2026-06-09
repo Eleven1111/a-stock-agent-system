@@ -203,6 +203,17 @@ from typing import Dict, Any, List, Optional
 5. **闭环门控**：`performance_tracker --gate` 按 `by_strategy` 期望值淘汰负期望策略
    (写 `strategy_registry`)，`recommendation_audit` 对被停用策略仓位归零。
    **淘汰走门控、改规则走闸门——两条路分开，防过拟合。**
+6. **大盘 context 回流**（2026-06-10）：`global-market-monitor --cache` 把 `assess_impact`
+   落入 `common/market_context.py` 缓存；four_dim 出分后叠加 overlay——大盘系统性承压
+   (risk_off) 时个股 grade 降一档并标注，`insufficient_data` 时拒绝写缓存（fail-closed）。
+   无缓存 = no-op。
+7. **情绪面回流**（2026-06-10，核心玩法主战场）：`hot-money analyze --cache`（连板梯队/
+   板块涨停数/封板质量）与 `capital_flow_monitor --cache`（北向/板块/个股主力资金）合并
+   写入 `common/signal_context.py`；four_dim 情绪面按打板原生口径加成（连板在册/早盘强封/
+   板块赚钱效应集群/主力流向）。缓存缺失时行为与历史完全一致。
+8. **催化面分级×时效**（2026-06-10）：`score_catalyst` 按 T1 政策战略(±1.2)/T2 订单业绩
+   (±0.8)/T3 泛利好(±0.4) 分级，乘新闻新鲜度衰减（≤3天全额，>30天两折）——旧版
+   关键词平权且不看日期。
 
 ## 关键文件索引
 
@@ -212,6 +223,8 @@ from typing import Dict, Any, List, Optional
 | signal_history.json | `stock-triage/data/` | 历史信号记录 |
 | strategy_registry.json | `stock-triage/data/` | 策略闸门+门控状态（缠论信号过闸/负期望淘汰） |
 | deep_research/{code}.json | `stock-triage/cache/` | Serenity 深研缓存（回流四维深度面） |
+| market_context.json | `stock-triage/cache/` | 大盘影响缓存（global-monitor --cache 写，四维 overlay 读） |
+| signal_context.json | `stock-triage/cache/` | 情绪上下文（hot-money/capital_flow --cache 写，情绪面读） |
 | daban_thresholds.yaml | `config/` | 打板阈值单一事实源（实盘=回测，过闸才改） |
 | intraday_alerts.json | `stock-triage/data/` | 盘中告警去重缓存 |
 | alerts.json | `$HERMES_HOME/cron/output/` | 价格提醒数据 |
