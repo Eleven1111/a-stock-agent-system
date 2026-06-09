@@ -4,7 +4,7 @@
 
 语法：
   screener --条件1 AND/OR 条件2
-
+  
 条件格式：
   rsi<30            RSI(14)低于30
   rsi(6)>70         RSI(6)高于70
@@ -38,20 +38,24 @@ import sys
 import os
 import re
 import json
-from datetime import datetime
+import sqlite3
+import urllib.request
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 # 添加项目根路径
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, SKILL_DIR)
 
-from scripts.data_cache import fetch_kline, fetch_realtime, fetch_zt_pool
-from scripts.tech_analysis import analyze_stock
+from scripts.data_cache import fetch_kline, fetch_realtime, get_db, fetch_zt_pool
+from scripts.tech_analysis import analyze_stock, compute_rsi, compute_macd, compute_kdj, compute_boll, sma
+import numpy as np
 
 
 # ─── 条件解析器 ───
 
 CONDITION_DEFS = {
-    "rsi": lambda v, k: ("rsi(14)", "<", v) if k.startswith("rsi<") else ("rsi(14)", ">", v) if k.startswith("rsi>") else None,
+    "rsi": lambda v, k: (f"rsi(14)", "<", v) if k.startswith("rsi<") else (f"rsi(14)", ">", v) if k.startswith("rsi>") else None,
     "rsi_6": None,
     "ma5>ma20": ("ma_golden_cross",),
     "ma5<ma20": ("ma_death_cross",),
@@ -75,23 +79,23 @@ def parse_query(query_str: str) -> list:
     """解析查询字符串为条件列表"""
     # 替换中文标点
     q = query_str.replace("，", ",").replace(" ", " ").strip()
-
+    
     # 分割 AND/OR
     parts = re.split(r'\s+(?:AND|and|&&)\s+', q)
     op = "AND" if len(parts) > 1 else "OR"
     if op == "AND" and len(parts) == 1:
         parts = re.split(r'\s+(?:OR|or|\|\|)\s+', q)
         op = "OR"
-
+    
     conditions = []
     for p in parts:
         p = p.strip()
         if not p:
             continue
-
+        
         # 解析条件
         cond = None
-
+        
         # 比较条件: field<value, field>value, field=value
         m = re.match(r'^(\w+)\s*(<|>|=|<=|>=)\s*([\d.]+)$', p)
         if m:
@@ -105,10 +109,10 @@ def parse_query(query_str: str) -> list:
             else:
                 # 纯信号条件
                 cond = {"signal": p, "raw": p}
-
+        
         if cond:
             conditions.append(cond)
-
+    
     return conditions, op
 
 
@@ -175,7 +179,7 @@ def check_conditions(result, conditions, logic="AND"):
     """检查个股是否满足所有条件"""
     if not conditions:
         return True
-
+    
     results_bool = []
     for cond in conditions:
         if 'signal' in cond:
@@ -201,7 +205,7 @@ def check_conditions(result, conditions, logic="AND"):
                 results_bool.append(True)  # 在筛选时外部分组
             else:
                 results_bool.append(False)
-
+    
     if logic == "AND":
         return all(results_bool)
     else:
@@ -213,7 +217,7 @@ def check_conditions(result, conditions, logic="AND"):
 def get_all_stocks(limit=500):
     """获取全市场股票列表（从上交所+深交所）"""
     from scripts.data_cache import _run_python
-
+    
     code = """
 import akshare as ak, os, json
 for k in ['HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy','ALL_PROXY','all_proxy']:
@@ -243,50 +247,50 @@ print(df.head(6000).to_json(orient='records', force_ascii=False))
 def screen_by_conditions(conditions, logic="AND", max_results=50, industry_filter=None):
     """条件筛选主函数"""
     start_t = datetime.now()
-
+    
     all_stocks = get_all_stocks()
     print(f"📋 全市场 {len(all_stocks)} 只股票，开始扫描...")
-
+    
     matched = []
     checked = 0
-
+    
     for code, name in all_stocks:
         # 行业预筛
         if industry_filter:
             # 通过缓存或实时数据判断行业
             pass
-
+        
         # 跳过北交所
         if code.startswith('8') or code.startswith('4'):
             continue
-
+        
         checked += 1
         if checked % 500 == 0:
             elapsed = (datetime.now() - start_t).seconds
             print(f"  已扫描 {checked}/{len(all_stocks)} 只，耗时 {elapsed}s，命中 {len(matched)} 只")
-
+        
         # 获取K线计算
         kline = fetch_kline(code, 90)
         if not kline or len(kline) < 30:
             continue
-
+        
         try:
             rt = fetch_realtime([code])
             result = analyze_stock(code, name, kline_data=kline, realtime=rt.get(code))
-        except Exception:
+        except:
             continue
-
+        
         if 'error' in result:
             continue
-
+        
         if check_conditions(result, conditions, logic):
             matched.append(result)
             if len(matched) >= max_results:
                 break
-
+    
     elapsed = (datetime.now() - start_t).seconds
     print(f"\n✅ 扫描完成: {checked}只检查, {len(matched)}只命中, 耗时{elapsed}s")
-
+    
     return matched
 
 
@@ -295,23 +299,19 @@ def format_output(results, format_type="table"):
     lines = []
     lines.append(f"{'代码':<8} {'名称':<10} {'现价':<8} {'今日':<7} {'5日':<7} {'评分':<5} {'评级':<12} {'RSI':<6} {'信号'}")
     lines.append("-" * 95)
-
+    
     for r in results:
         rsi_str = ""
         for k, v in r.get('signals', {}).items():
             if k == 'rsi':
                 rsi_str = v.split('(')[1].split(')')[0] if '(' in v else ""
-
+        
         sigs = []
-        if 'ma_golden_cross' in r.get('signals', {}):
-            sigs.append("金叉")
-        if 'macd_golden' in r.get('signals', {}):
-            sigs.append("MACD金叉")
-        if 'kdj_golden' in r.get('signals', {}):
-            sigs.append("KDJ金叉")
-        if 'boll' in r.get('signals', {}):
-            sigs.append(r['signals']['boll'][:8])
-
+        if 'ma_golden_cross' in r.get('signals', {}): sigs.append("金叉")
+        if 'macd_golden' in r.get('signals', {}): sigs.append("MACD金叉")
+        if 'kdj_golden' in r.get('signals', {}): sigs.append("KDJ金叉")
+        if 'boll' in r.get('signals', {}): sigs.append(r['signals']['boll'][:8])
+        
         arrow = "🟢" if r.get('pct_change', 0) >= 0 else "🔴"
         lines.append(
             f"{r['code']:<8} {r['name']:<10} "
@@ -320,13 +320,13 @@ def format_output(results, format_type="table"):
             f"{r.get('score',0):<+5} {r.get('rating','')[:10]:<12} "
             f"{rsi_str:<6} {' '.join(sigs)}"
         )
-
+    
     return "\n".join(lines)
 
 
 def screen_by_criteria(criteria: dict) -> list:
     """便捷筛选接口，供 CLI 调用"""
-    return screen_by_conditions(criteria.get('conditions', []),
+    return screen_by_conditions(criteria.get('conditions', []), 
                                 criteria.get('logic', 'AND'),
                                 criteria.get('max_results', 50))
 
@@ -345,19 +345,19 @@ def get_industry_list() -> dict:
 
 if __name__ == "__main__":
     import sys
-
+    
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(0)
-
+    
     query = " ".join(sys.argv[1:])
     conditions, logic = parse_query(query)
-
+    
     print(f"🔍 筛选条件: {query}")
     print(f"  逻辑: {logic}, 条件数: {len(conditions)}")
-
+    
     results = screen_by_conditions(conditions, logic)
-
+    
     if results:
         print("\n" + format_output(results))
     else:

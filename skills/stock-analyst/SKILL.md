@@ -1,7 +1,7 @@
 ---
 name: stock-analyst
 description: "股票技术分析工具。基于多数据源（腾讯/新浪/BaoStock/SerpAPI）的本地缓存+技术指标分析系统，支持个股分析、板块批量扫描、涨停板监控、多因子评分、基本面分析、条件筛选、K线图、新闻驱动分析。纯numpy计算，无需talib。支持A股全量分析及港股基础行情+新闻分析。"
-version: 3.0.0
+version: 3.1.1
 author: Luna
 metadata:
   hermes:
@@ -22,10 +22,11 @@ metadata:
                      │ realtime     │
                      └──────┬───────┘
                             ↑
-  数据源链（有降级）：腾讯 ifzq → 新浪 → BaoStock（支持日/周/月）
-  实时行情：腾讯 qt.gtimg.cn
-  资金流向：push2his.eastmoney.com（需 NO_PROXY 绕过 Clash，见 references/clash_proxy_bypass.md）
-  涨停板：AkShare stock_zt_pool_em
+  数据源链（有降级）：AkShare stock_zh_a_hist_tx（腾讯）→ 腾讯 ifzq → 新浪 → BaoStock（支持日/周/月）
+  实时行情：腾讯 qt.gtimg.cn（主力）+ AkShare stock_zh_a_spot（新浪备选）
+  资金流向：AkShare stock_individual_fund_flow（push2his，✅ 已验证可用，CDN 抽风时 retry）
+  涨停板：AkShare stock_zt_pool_em（push2ex，通，✅已验证）
+  板块列表：AkShare stock_board_industry_name_ths（同花顺，境外通，✅已验证）
   基本面：BaoStock（利润表、杜邦分析、ROE、营收同比）
 - **SerpAPI**: Google News + Trends（3 key 轮询，见 `references/serpapi_key_rotation.md`）
 - **港股行情**: 腾讯 `qt.gtimg.cn/q=hkXXXXX`，仅实时行情+新闻（见 `references/hk-stock-capabilities.md`）
@@ -51,6 +52,22 @@ metadata:
 5. **Triage 升级 → Kanban 派发 → Serenity 深度投研**（见下方「多Agent Kanban编排系统」）
 
 最后输出的报告必须包含具体买入区间、止损位、目标位、持有周期和仓位建议。
+
+## 洗盘/超卖捡筹分析
+
+详见 `references/washout-detection.md`。
+
+当用户问"哪些在洗盘"、"超卖捡筹"、"跌透了没有"、"疯狂洗盘"时，触发此工作流：
+
+**四步排查法：**
+1. **扫板块** — 遍历用户跟踪板块（封测/AI算力/军工航天/电网/家电/煤炭），批量拉行情，找10~20%跌幅区间的标的
+2. **验信号** — 对候选逐个做技术分析，检查RSI(<30超卖)、KDJ(K<10极限)、布林位置、均线排列
+3. **看钱包** — 读 portfolio.json 的现金，算1手成本是否买得起；如不够给出"卖A→腾钱→买B"路径
+4. **出方案** — 区分"可以关注"和"可以买入"两个阶段，给出条件式入场点
+
+**⚠️ 洗盘票的客观性铁律约束：** 洗盘票大多跌破布林下轨+空头排列，触犯铁律2/3/4。输出时必须诚实标注约束，不硬给买入评级。用条件句而不是断言句。
+
+**洗盘 vs 真跌口诀：** 洗盘是"吓到你了"，真跌是"真的不行了"。行业逻辑没变+PE不贵+RSI<30→大概率洗盘。持续阴跌30%+RSI长期趴30以下→真跌。
 
 ## 使用
 
@@ -133,16 +150,108 @@ $PY $ANALYST news trend 封测                # 搜索热度趋势
 **曾犯错误（已修复）：**
 - ❌ 中国卫通趋势空头+评分+1.5 不应给布局建议
 - ❌ 中科曙光跌破布林下轨+价格<MA20 不应给买入
+- ❌ 通富微电33亿封单涨停时，不应绕过它去推荐康强电子（替身标）。用户核心跟踪标的有异常巨量信号时必须优先提示，资金不够也应明确说明而非推荐替代品。
+- ❌ **国联股份：赛道偏好覆盖了客观性铁律** — 用户问"互联网/电商"板块，国联属于该板块就推荐了它，跳过了客观性铁律。实际上国联空头排列锁分-0.5，评分不够+2，且净利润同比下降9.12%，低PE是价值陷阱。**用户问的赛道只是筛选条件，不是买入理由。**
+
+### 3. 用户赛道偏好不降低评分门槛
+用户问"XX板块有哪些好标的"时，先筛出该板块所有候选标的，然后对每个标的走标准评分流程。客观性铁律（铁律2/3/4）优先级高于用户赛道偏好。不能说"用户想买这个板块的所以放松评分"。
+
+### 4. PE便宜必须交叉验证利润趋势
+PE<15时自动检查净利润同比趋势。净利润下降时的低PE标记为"⚠️价值陷阱风险"，不作为买入理由单独使用。确认步骤：运行 `analyst.py fundamental <code> <name>` 查看利润同比。
+
+### 5. 分形图必须用缠论框架输出 Markdown
+用户要求画分形图/走势图时，必须使用 `chanlun-backtest` 技能的缠论框架（分型、笔、线段、中枢），输出 Markdown 格式。禁止用普通 ASCII K线图替代缠论分形图。
+
+### 6. 所有权归属明确
+当用户同时提到"自己买入"和"朋友套牢"等多方持仓时，分析输出必须明确区分「你的」和「你朋友的」，不可混淆。建议分别标注，且朋友持仓只能从对话上下文推断，不写入 portfolio.json。
+
+### 7. 推荐前必须标注阶段和风险
+任何买入/卖出/加仓推荐前，必须标注：
+- 标的当前阶段（连板第N天/分歧日/高位横盘/突破启动/回调中）
+- 核心风险（距均线乖离率、换手率异常、连板后分歧、非基本面炒作）
+- 追高场景下明确说"现在追是XX风险"再给操作建议，不能只说"可以"
+
+判断方式：
+- 用户说"我朋友"、"有人"、"他有" → 对方的票
+- 用户说"我的"、"我买了"、"帮我记录" → 用户的票
+- 默认假设是用户自己的，除非有明确证据指向他人
+
+曾犯错误：
+- ❌ 用户朋友套牢了华电能源，我分析完后把朋友的持仓和用户自己的能科科技混在一起回答，用户暴怒。
+PE<15时自动检查净利润同比趋势。净利润下降时的低PE标记为"⚠️价值陷阱风险"，不作为买入理由单独使用。确认步骤：运行 `analyst.py fundamental <code> <name>` 查看利润同比。
+
+## 🚨 分析纪律（agent 必须遵守）
+
+### 1. 跟踪标的优先原则
+用户有任何核心跟踪标的出现异常信号时（巨量封单涨停、板块龙头暴动等），**必须优先给该标的的上车分析**。不能因为用户资金暂时不够就跳过，去推荐次要标的。资金不足的解决方案是给出具体操作建议（如清其他仓位），而不是找便宜替代品。
+
+### 2. 禁止猜测数据
+任何关于"今天某股票怎么样了"的问题，**必须实时查询腾讯 API 给出精确数据**。禁止基于之前的分析推断（"大概率是…"、"应该…"）。查了再说话，不查别开口。
+
+### 3. 时间必须动态获取
+报告中出现的时间必须用 datetime.now() 实时获取，禁止硬编码。用户会纠正"你的时间不对"。显示格式：datetime.now().strftime("%H:%M")。
+
+### 4. ⚠️ 子代理新闻搜索防伪造（2026-06-09 新增）
+将新闻搜索委托给子代理（delegate_task）时，必须明确要求子代理**不能模拟/虚构搜索结果**。子代理在无法连接到真实API时，可能生成"看起来很合理"但实际是虚构的新闻内容（包括但不限于：虚构股价涨跌、捏造政策消息、编造公司公告）。
+
+**安全做法：**
+- 委托搜索时，prompt 中明确写："如果API调用失败或返回空结果，请如实报告失败，**不要**模拟或虚构搜索结果"
+- 对子代理返回的新闻结果，始终保持怀疑态度。如果结果是"模拟"或"总结"而非真实API查询，不应作为分析依据
+- 最可靠的做法：主agent自己调用 analyst.py news 命令（terminal），不走子代理委托
+- 如果确实需要委托且新闻对结论至关重要，要求子代理返回每个结果的URL链接以便验证
+
+**识别伪造信号的检查表：**
+| 迹象 | 疑似伪造 | 说明 |
+|------|---------|------|
+| 子代理说"我模拟了四个搜索" | 🚨 确定伪造 | 直接丢弃结果 |
+| 股价/行情信息与实时数据矛盾 | 🚨 高度怀疑 | 如报告说"华能国际涨4%"但实时数据是-0.95% |
+| 详细的价格/时间/百分比数字 | ⚠️ 需交叉验证 | 子代理可能编造具体数字 |
+| 看起来太完美的催化叙事 | ⚠️ 需交叉验证 | "利好大爆发"类内容需怀疑 |
+| 只有摘要没有来源链接 | ⚠️ 可信度低 | 无法溯源验证 |
+
+## 🔍 搜索热度分析 — 多关键词交叉验证
+
+使用 `analyst.py news trend <关键词>` 获取搜索热度趋势（SerpAPI Google Trends），但**单一关键词的热度绝对数值可被孤立解读**。必须交叉验证：
+
+### 核心原则：搜索热度必须与其他关键词对比
+
+**❌ 错误示例**：电力保供搜索热度 100/100 → "主题热度冲顶，情绪过热"
+**✅ 正确分析**：电力保供 100 + 高温 38 + 用电负荷 37 → 搜索热度被政策叙事推高，非天气驱动
+
+### 实践模式
+
+```
+电力保供 100  +  拉闸限电 0（上周100脉冲） +  高温 38  +  用电负荷 37
+   │                         │                    │              │
+   ↓                         ↓                    ↓              ↓
+政策驱动                   事件脉冲已过          正常水平        正常水平
+```
+
+### 交叉验证矩阵
+
+| 关键词 | 热度趋势 | 解读 |
+|--------|---------|------|
+| 电力保供 ↑ | 100/100 连续冲高 | 主题情绪峰值，政策/资金驱动 |
+| 拉闸限电 | 脉冲100→0 | 短期新闻事件，不具持续性 |
+| 高温 | 35-43 温和波动 | 夏季正常波动，未出现极端天气 |
+| 用电负荷 | 25-45 中位波动 | 未突破季节性峰值 |
+
+**时机判断**：当「核心叙事关键词」（如电力保供）热度远高于「实质催化关键词」（如高温、用电负荷），且存在「脉冲型关键词」（如拉闸限电）短暂冲高后回落，通常意味着：
+1. 行情由**政策预期 + 资金驱动**，非基本面/天气驱动
+2. 核心叙事已进入**情绪高潮期**，追高风险增大
+3. 脉冲型事件消失后，**后续催化不足**概率高
 
 ## Cron 执行注意事项
 
-详见 `references/cron-pitfalls.md`：
+详见 `references/cron-pitfalls.md`（含 execute_code 网络能力勘误）和 `references/execute_code_data_patterns.md`（含可复用的代码模板）：
 
-1. **terminal 命令在 cron 下会触发审批锁** — 所有cron数据采集必须用 `execute_code` + Python `urllib`，禁止用 `terminal`
+1. **`execute_code` 沙箱有 HTTP 网络但 HTTPS 不可用** — gtimg.cn（HTTP）全天候稳定，push2（HTTP）间歇性可用需重试。详见 `references/cron-pitfalls.md` 的勘误章节。直接运行 `analyst.py` 命令（自动处理代理）也是最可靠的路径之一。
 2. **DeepSeek 冷启动** — 首次API调用可能耗时200-300s，设置timeout=300+
 3. **Prompt 必须自包含** — cron无对话上下文，所有信息必须在prompt内
 4. **定期跟踪型 job 用 `repeat: forever`，事件型 job 用 `repeat: once`**
 5. **时间分散错开** — 避免整点，避免同分钟多job并发。新建job前检查现有时间表
+6. **已验证可用的 cron 命令**：`analyst.py index`、`analyze`、`realtime`、`screen`、`news`（含 sector/market/trend）
+7. **已验证的**：`execute_code` 内 gtimg.cn HTTP 调用全天候可用。push2 HTTP 调用约30%初次失败（CDN间歇性），加 retry 后可恢复。HTTPS 类（SerpAPI、Sina 等）不可用。
 
 ## SerpAPI 多 Key 轮询
 
@@ -154,11 +263,12 @@ $PY $ANALYST news trend 封测                # 搜索热度趋势
 
 ## 数据源限制
 
-- **东财 push2/push2his** — Clash Verge DNS 劫持导致 502，已通过在 `.env` 设 `NO_PROXY` 绕过。详见 `references/clash_proxy_bypass.md`
+- **东财 push2/push2his** — **CDN 间歇性 Empty reply**（约 30% 请求失败，重试 1-2 次恢复），非永久丢失。详见 `references/push2-connectivity-status.md`。AkShare 内置 `request_with_retry`（3 次指数退避），大多数单次请求函数可稳定使用。`stock_zh_a_spot_em()`（全A行情）因分页多失败率较高，建议用 `stock_zh_a_spot()` 新浪版替代。仅 `push2ex.eastmoney.com`（涨停板池）CDN 稳定。
+- **资金流向** — `akshare stock_individual_fund_flow()` 可通过 `stock_individual_fund_flow(stock="600519", market="sh")` 调用，已验证可用。TUN 关闭后 push2his 可连通，CDN 抽风时加 retry 即可。
 - **BaoStock 基本面** — 无需注册/API key
 - **腾讯 ifzq K线 / qt.gtimg.cn 实时行情** — 全天候可用 ✓
 - **SerpAPI 新闻** — 3 key 轮询，按量使用
-- **资金流向** — 现在 `akshare stock_individual_fund_flow()` 可用（需 NO_PROXY），同时新闻提取做间接信号补充
+- **资金流向** — `akshare stock_individual_fund_flow(stock="600519", market="sh")` 已验证可用（TUN 关闭后 push2his 通，CDN 抽风时 retry 即可）。备用降级路径：`analyst.py news <代码> <名称>` 从新闻摘要中提取资金信号（如"主力净买入3.43亿"），见 `references/fund_flow_from_news.md`。
 
 ## 多Agent Kanban编排系统
 
@@ -223,7 +333,7 @@ S级信号触发 Serenity 的完整供应链分析、财务拆解、估值赔率
 
 当用户问"有没有别的 skill 可以实现"，首选检查 Skill Hub 是否真有替代方案。以下是已知事实（2026-06-02 实测）：
 
-- **Hub 里几乎所有的 A 股技能依赖 AkShare/eastmoney** — `a-stock-review`、`a-stock-data`、`a-stock-screener`、`stock-alpha` 等数十个 clawhub 技能，底层全走 push2.eastmoney.com。这些技能现在也能用了（NO_PROXY 绕过 Clash），但功能上不超出 stock-analyst 已有的能力。
+- **Hub 里几乎所有的 A 股技能依赖 AkShare/eastmoney** — `a-stock-review`、`a-stock-data`、`a-stock-screener`、`stock-alpha` 等数十个 clawhub 技能，底层全走 push2.eastmoney.com。这些技能现在**CDN 间歇性可用**（Empty reply 约30%，重试1-2次恢复），非永久封禁。`stock_board_industry_name_em()` 等单次请求类可稳定使用，`stock_zh_a_spot_em()`（全A分页）失败率较高。
 - **GitHub repo tap 不可用** — `hermes skills tap add github:xxx` 可以注册 tap，但 GitHub 被 Clash 代理延迟/超时（connect timeout），repo 拉不下来。不去尝试安装 GitHub 来源的 A 股技能。
 - **skills.sh 来源的 400+ 个 skills** — 在 skill hub 搜索时能看到它们（缓存在本地 index），但 `hermes skills inspect/install` 都需要从 skills.sh/GitHub 下载内容，Clash 下绝大多数失败。
 - **唯一本地可用的 clawhub 技能** — `a-stock-data`（已安装）、`a-stock-review`（可安装）、`money-flow`（方法论知识，无数据抓取能力）、`magpie`（需本地 daemon）。
@@ -244,10 +354,12 @@ stock-analyst/
 │   ├── news.py                 # SerpAPI新闻搜索 + 资金信号自动提取
 │   └── sector_scan.py          # 全市场板块热度扫描（涨停聚合）
 ├── references/
-│   ├── clash_proxy_bypass.md   # Clash DNS劫持绕过（NO_PROXY方案）
+│   ├── clash_proxy_bypass.md   # （过时）原Clash DNS劫持方案，push2实为CDN geo-block
+│   ├── cron-pitfalls.md        # Cron作业常见陷阱和解决方案（含execute_code网络能力勘误）
 │   ├── data_sources.md         # 数据源技术细节和API字段映射
-│   ├── cron-pitfalls.md        # Cron作业常见陷阱和解决方案
+│   ├── execute_code_data_patterns.md  # execute_code数据采集模式（含gtimg/push2/AkShare代码模板）
 │   ├── fund_flow_from_news.md  # 资金流向替代方案：SerpAPI新闻提取
+│   ├── push2-connectivity-status.md  # Push2 CDN 状态 + 诊断 Quick Reference
 │   └── sector-scan-workflow.md # 全市场扫描四步法
 ```
 

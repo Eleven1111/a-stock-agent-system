@@ -1,7 +1,7 @@
 ---
 name: a-stock-data
 description: "A股数据查询技能。当用户询问中国A股股价、行情、K线、财务数据、实时行情、历史数据、涨停板、选股分析时使用。支持股票代码查询（如000001、600000）、股票名称查询。"
-version: 1.1.0
+version: 1.4.0
 ---
 
 # A股数据查询技能
@@ -29,22 +29,40 @@ version: 1.1.0
 ## 数据源
 
 - **AkShare** (v1.18.64): 免费开源财经数据接口，覆盖 A股、港股、美股、基金、期货、宏观经济
+  - ⚠️ push2.eastmoney.com CDN 间歇性 `Empty reply`（约30%请求），重试1-2次可恢复
+  - ✅ `stock_board_industry_name_em()`、`stock_individual_info_em()`、`stock_zh_a_hist()`、`stock_individual_fund_flow()` 已验证可用
+  - ⚠️ `stock_zh_a_spot_em()` 分页多失败率高，优先用 `stock_zh_a_spot()`（新浪）替代
+  - ✅ 已验证可用的替代函数见下方「AkShare 替代函数对照表」
 - **腾讯 ifzq** (`ifzq.gtimg.cn`): 历史K线（支持日/周/月），需 curl `-sL` 跟随重定向，JSON格式，TUN模式可用 ✓
 - **新浪 K线** (`money.finance.sina.com.cn`): 历史K线+MA，JSON格式，TUN模式可用 ✓
 - **BaoStock** (v0.9.1): 免费开源，无需API key，补充历史K线和基本面数据（ROE、营收、杜邦分析）
 - **腾讯实时** (`qt.gtimg.cn`): 实时行情，GBK编码，TUN模式可用
 - **新浪实时** (`hq.sinajs.cn`): 实时行情，GBK编码
 - **SerpAPI**: 新闻搜索+Google Trends，需 `SERPAPI_API_KEY` 存于 `~/.hermes/.env`
+- **同花顺 THS**: 行业板块、概念板块列表（`stock_board_industry_name_ths()`），不走 push2，境外通
+
+### AkShare 替代函数对照表
+
+| 需要的数据 | EM版（不通） | ✅ 替代版 | 后端 | 状态 |
+|-----------|------------|---------|------|------|
+| 全A实时行情 | `stock_zh_a_spot_em()` | **`stock_zh_a_spot()`** | 新浪 | ✅ |
+| 历史K线 | `stock_zh_a_hist()` | **`stock_zh_a_hist_tx()`** | 腾讯 | ✅ |
+| 行业板块列表 | `stock_board_industry_name_em()` | **`stock_board_industry_name_ths()`** | 同花顺 | ✅ |
+| 概念板块列表 | — | **`stock_board_concept_name_ths()`** | 同花顺 | ✅ |
+| 指数行情 | `stock_zh_index_spot_em()` | **`stock_zh_index_spot_sina()`** | 新浪 | ✅ |
+| 涨停板池 | — | **`stock_zt_pool_em()`** | push2ex（通）| ✅ |
+| 个股信息 | `stock_individual_info_em()` | `stock_individual_spot_xq()` | 雪球 | ✅ 盘后稳定 |
+| 资金流向 | `stock_individual_fund_flow()` | **`stock_individual_fund_flow()`** | push2his | ✅ 已验证可用，CDN重试可恢复 |
 
 ## ⚠️ Cron 任务中的命令执行
 
 Hermes 的 cron 任务运行在无人值守环境中。`terminal` 工具的某些命令（如 `curl --noproxy '*'`、含 shell 管道的命令）会触发安全审批锁（`pending_approval`），导致 cron 任务卡死。
 
 **✅ 正确做法：在 cron 任务中使用 `execute_code` 工具，通过 Python 内置的 `urllib` 直接发起 HTTP 请求。**
-
 ```python
 # 在 cron prompt 中要求 agent 用 execute_code：
-import urllib.request
+import os, urllib.request
+os.environ["NO_PROXY"] = ".gtimg.cn"  # 绕过 TUN 代理
 url = "http://qt.gtimg.cn/q=sh000001"
 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
 with urllib.request.urlopen(req, timeout=10) as resp:
@@ -63,11 +81,11 @@ price, pct, amount = val[3], val[32], float(val[37]) * 10000
 ```python
 import akshare as ak
 
-# 方式1：东方财富实时行情（推荐，更快）
-stock_zh_a_spot_em_df = ak.stock_zh_a_spot_em()
-
-# 方式2：新浪财经实时行情
+# 方式1：新浪财经实时行情（推，push2不通，走新浪API，境外通）
 stock_zh_a_spot_df = ak.stock_zh_a_spot()
+
+# 方式2：腾讯实时行情（直接 HTTP，不依赖 AkShare）
+# 见下方「腾讯 API 字段映射」
 ```
 
 #### 沪 A 股
@@ -110,16 +128,14 @@ stock_kc_a_spot_em_df = ak.stock_kc_a_spot_em()
 
 #### 日 K线
 ```python
-# 东方财富接口（推荐）
-stock_zh_a_hist_df = ak.stock_zh_a_hist(
-    symbol="000001",
-    period="daily",  # daily/weekly/monthly
+# 腾讯版（通过 AkShare，推，push2不通时的替代）
+stock_zh_a_hist_df = ak.stock_zh_a_hist_tx(
+    symbol="sh000001",  # sh/sz 前缀
     start_date="20240101",
     end_date="20240331",
-    adjust="qfq"     # qfq前复权/hfq后复权/""不复权
 )
 
-# 新浪财经接口
+# 新浪财经接口（备用）
 stock_zh_a_hist_df = ak.stock_zh_a_hist(
     symbol="sz000001",
     start_date="19910403",
@@ -497,19 +513,25 @@ print(df_zt[['代码','名称','最新价','涨跌幅','成交额']].head(20))
 ### 查询个股实时行情
 ```python
 用户：查询贵州茅台的股价
-响应：使用 stock_zh_a_spot_em() 查询 600519
+响应：使用 stock_zh_a_spot() 查询 600519
 ```
 
 ### 查询历史 K线
 ```python
 用户：获取平安银行最近 30 天的 K线
-响应：使用 stock_zh_a_hist() 查询 000001，指定日期范围
+响应：使用 stock_zh_a_hist_tx() 查询 sh000001，指定日期范围
 ```
 
 ### 查询涨停板
 ```python
 用户：今天有哪些股票涨停
-响应：使用 stock_zh_a_spot_em() 筛选涨跌幅 >= 9.9%
+响应：使用 stock_zt_pool_em() 获取涨停板池
+```
+
+### 查询行业板块列表
+```python
+用户：有哪些行业板块
+响应：使用 stock_board_industry_name_ths() 获取同花顺行业板块列表
 ```
 
 ### 查询财务数据
@@ -550,35 +572,50 @@ print(df_zt[['代码','名称','最新价','涨跌幅','成交额']].head(20))
 3. **复权处理**: 查询历史数据时注意复权方式选择
 4. **代码规范**: 6 位数字代码，补齐前导 0（如 1 → 000001）
 
-## macOS 代理问题
+## macOS 代理与数据源可用性问题
 
-⚠️ **macOS 系统代理（ClashX/V2Ray/Shadowsocks 等，端口 7897）会导致 AkShare/requests 请求东财 API 失败**，报错 `ProxyError: Unable to connect to proxy`。
+⚠️ **push2.eastmoney.com CDN 间歇性 Empty reply，带重试后可稳定使用。**
 
-### 两种模式，分别处理
+### 诊断记录（2026-06-09）
 
-**模式一：ClashX 普通代理模式（redir-host）**
-- `curl --noproxy '*'` 即可绕过
-- Python `requests` 清理 `HTTP_PROXY` 环境变量后也可绕过
+**ClashX TUN 模式关闭后**，DNS 解析到真实 IP，TCP 80/443 通，ping 正常。但约有 30% 的请求返回 `Empty reply from server`（HTTP err 52），重试 1-2 次后恢复正常。所有 CDN 节点（`14.103.191.91`、`47.112.165.11`、`61.129.129.196`、`43.144.251.121`）行为一致。
 
-**模式二：ClashX TUN 模式（增强模式）**
-- `--noproxy '*'` 无效！TUN 模式在系统层拦截 DNS，`push2.eastmoney.com` 被解析为假 IP（`198.18.x.x` 段），SSL 握手成功但 HTTP 层无响应
-- 受影响的 AkShare 函数：`stock_zh_a_spot_em()`, `stock_board_industry_name_em()`, `stock_individual_fund_flow()` 等所有走 `push2.eastmoney.com` 的接口
-- 仍可用的 AkShare 函数：`stock_zt_pool_em()`（不走 push2，直接绕过 TUN 封锁）
+**不是永久不通，是 CDN 不稳定。** AkShare 函数带 3 次重试（指数退避 2s）即可稳定工作。详见 `references/push2-connectivity.md`。
 
-**解决方式（TUN 模式下）：**
-- 方式 A：使用 Hermes venv 中的 AkShare — `stock_zt_pool_em()` 等不走 push2 的接口可用
-- 方式 B：用腾讯备用 API（见下方），返回 GBK 编码，需 `raw_bytes.decode('gbk')`
-- 方式 C：关闭 ClashX TUN 模式，切回 redir-host 模式
+受影响的所有 AkShare 函数（走 push2/push2his 的调用）：`stock_zh_a_spot_em()`, `stock_board_industry_name_em()`, `stock_individual_fund_flow()`, `stock_zh_a_hist()`（东财版）等。
 
-### 已验证可用的数据端点（TUN 模式下）
+### 数据端点可用性一览（2026-06-09 验证）
 
 | 端点 | 状态 | 说明 |
 |------|------|------|
-| `datacenter.eastmoney.com` | ✅ 可直连 | 部分报表API可用 |
-| `webapi.cninfo.com.cn` | ✅ 可直连 | 巨潮资讯数据 |
-| `qt.gtimg.cn` (腾讯) | ✅ 可直连 | 全天候，GBK编码 |
-| `hq.sinajs.cn` (新浪) | ✅ 可直连 | 全天候，GBK编码 |
-| `ifzq.gtimg.cn` (腾讯历史) | ✅ 可直连 | JSON格式，全天候 |
+| `push2.eastmoney.com` | ⚠️ 间歇性可用 | CDN 约30%请求 Empty reply，重试1-2次恢复 |
+| `push2his.eastmoney.com` | ⚠️ 间歇性可用 | 同上 |
+| `push2ex.eastmoney.com` | ✅ 稳定可用 | 涨停板池后端 |
+| `82.push2.eastmoney.com` | ⚠️ 间歇性可用 | stock_zh_a_spot_em 的后端，分页多失败率较高 |
+| `17.push2.eastmoney.com` | ⚠️ 间歇性可用 | 行业板块，单次请求成功率较高 |
+| `datacenter.eastmoney.com` | ❓ 未重新验证 | — |
+| `webapi.cninfo.com.cn` | ❓ 未验证 | 巨潮资讯 |
+| `qt.gtimg.cn` (腾讯实时) | ✅ 可直连 | GBK编码，全天候 |
+| `hq.sinajs.cn` (新浪实时) | ✅ 可直连 | GBK编码，全天候 |
+| `ifzq.gtimg.cn` (腾讯历史K线) | ✅ 可直连 | JSON，follow 302 |
+| `money.finance.sina.com.cn` (新浪历史) | ✅ 可直连 | JSON格式 |
+| `stock_zt_pool_em()` (AkShare涨停板) | ✅ 可用 | 不走push2 |
+
+### ClashX 代理模式说明
+
+**模式一：ClashX 普通代理模式（redir-host）**
+- `curl --noproxy '*'` 绕过
+- Python `requests` 清理 `HTTP_PROXY` 后可绕过
+
+**模式二：ClashX TUN 模式（增强模式）**
+- `--noproxy '*'` 无效！TUN 在系统层拦截 DNS，push2 被解析为假 IP（`198.18.x.x` 段），SSL 握手成功但 HTTP 层无响应
+- 但即使关掉 TUN，push2 仍然不可用——所以这不是恢复方案
+
+### 板块扫描替代工作流
+
+当 `stock_board_industry_name_em()` 不可用时，
+用硬编码候选列表 + 腾讯 API 行情 + stock-analyst 替代。
+详见 `references/tun-sector-scanning.md`。
 
 ### 备用 API（无需代理，收盘后可用）
 
@@ -613,14 +650,55 @@ bs.logout()
 **个股格式（qt.gtimg.cn/q=szXXXXXX）：**
 | 位置 | 字段 | 说明 |
 |------|------|------|
+| parts[0] | 市场代码 | 51=深圳, 1=上海, 0=未知 |
+| parts[1] | 名称 | UTF-8中文 |
+| parts[2] | **股票代码** | **6位数字代码，不是 parts[0]！** |
 | parts[3] | 现价 | |
 | parts[4] | 昨收 | |
 | parts[31] | 涨跌额 | |
 | parts[32] | 涨跌幅(%) | |
 | parts[33] | 最高 | |
 | parts[34] | 最低 | |
-| parts[37] | 成交额(万) | 需 *10000 转元 |
+| parts[37] | 成交额(万) | *10000=元, /10000=亿元 |
 | parts[38] | 换手率(%) | |
+| parts[39] | **市盈率-动态** | 动态PE值，空字符串表示亏损或暂无 |
+| parts[44] | **流通市值(亿)** | **已是亿单位，直接使用** |
+| parts[45] | **总市值(亿)** | **已是亿单位，直接使用** |
+
+**⚠️ Python 解析注意事项：**
+1. **股票代码在 parts[2]，不是 parts[0]**。parts[0]是市场代码（51/1等）。
+2. **成交额**：parts[37]单位是"万元" → 转元需 `*10000`，转亿需 `/10000`。
+3. **市值**：parts[44]/[45]已是"亿"单位，直接 `float()` 即可，不要除以100000000。
+4. **PE**：parts[39]为空字符串表示亏损或暂未披露。
+5. **Python urllib 必须设置 NO_PROXY** 绕过 ClashX TUN 代理（否则 urllib 走系统代理连不上）：
+   ```python
+   import os
+   os.environ["NO_PROXY"] = ".gtimg.cn"
+   # 或使用 --noproxy '*'（curl 方式）
+   ```
+
+**Python 解析模板：**
+```python
+import os, urllib.request
+os.environ["NO_PROXY"] = ".gtimg.cn"
+
+url = "http://qt.gtimg.cn/q=sz300059"
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+with urllib.request.urlopen(req, timeout=10) as resp:
+    raw = resp.read().decode("gbk")
+
+for line in raw.strip().split(";"):
+    if not line or "=" not in line:
+        continue
+    val = line.split("=")[1].strip().strip('"').split("~")
+    code = val[2]      # 股票代码在索引2！
+    name = val[1]      # 名称
+    price = val[3]     # 现价
+    chg_pct = val[32]  # 涨跌幅%
+    amount_yi = float(val[37]) / 10000  # 成交额(亿元)
+    pe = val[39] if val[39] else "-"    # 动态PE
+    total_mcap = float(val[45]) if val[45] else 0  # 总市值(亿)
+```
 
 **指数格式（qt.gtimg.cn/q=sh000001）：**
 | 位置 | 字段 | 说明 |
@@ -632,9 +710,9 @@ bs.logout()
 | parts[36] | "价/量/额"组合 | 如 `4057.74/676025806/1319801913951` |
 | parts[37] | 成交额(万) | 需 *10000 转元 |
 
-### AkShare 函数 TUN 模式兼容速查表
+### AkShare 函数兼容速查表（本网络环境）
 
-**可用（无需额外配置）：**
+**可用（走 push2ex，CDN 稳定）：**
 | 函数 | 用途 |
 |------|------|
 | `stock_zt_pool_em(date)` | 涨停板池 — 连板数、封板资金、炸板次数、所属行业 |
@@ -642,15 +720,24 @@ bs.logout()
 | `stock_zt_pool_dt_em(date)` | 跌停板池 |
 | `stock_sse_summary()` | 上交所总览 |
 
-**不可用（走 push2/push2his，TUN 下被拦截）：**
-| 函数 | 替代方案 |
-|------|---------|
-| `stock_zh_a_spot_em()` | → 腾讯 qt.gtimg.cn/q=szXXXXXX（GBK） |
-| `stock_zh_a_hist()` | → 腾讯 ifzq（`-sL` 跟随重定向）或 BaoStock（免费，无需key） |
-| `stock_board_industry_name_em()` | → 无可靠替代 |
-| `stock_individual_fund_flow()` | → 无可靠替代 |
+**可用（走 push2/push2his，CDN 间歇性抽风，重试可恢复）：**
+| 函数 | 用途 | 重试建议 |
+|------|------|---------|
+| `stock_zh_a_spot_em()` | 全A实时行情 | 分页多，失败率高，建议用 `stock_zh_a_spot()` 替代 |
+| `stock_board_industry_name_em()` | 行业板块 | ✅ 单次请求，重试1-2次即可 |
+| `stock_individual_info_em()` | 个股信息 | ✅ 单次请求，重试1-2次即可 |
+| `stock_zh_a_hist()` | 历史K线 | ✅ 单次请求，重试1-2次即可 |
+| `stock_individual_fund_flow()` | 个股资金流向 | ✅ 已验证可用 |
 
-**代码示例修正：** SKILL.md 中所有涉及 `stock_zh_a_spot_em()` 和 `stock_zh_a_hist()` 的示例在本机 TUN 模式下不可用。如需查询个股行情，用 `curl http://qt.gtimg.cn/q=szXXXXXX --noproxy '*' | iconv -f GBK -t UTF-8` 替代。
+### 重试模式（AkShare request_with_retry 已有内置）
+
+详见 `references/push2-connectivity.md`。
+
+### 并发安全状态管理
+
+项目使用 `skills/common/state_store.py` 实现文件级原子写入。涉及"读-改-写"的操作（如追加列表）必须用 `update_json_list()` 而非先调 `read_json()` 再调 `atomic_write_json()`——两次独立加锁会并发丢更新。详见 `references/atomic-state-pattern.md`。
+
+**代码示例修正：** SKILL.md 中所有涉及
 
 ## 支持的数据范围
 

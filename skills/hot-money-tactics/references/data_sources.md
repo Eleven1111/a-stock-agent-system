@@ -55,8 +55,8 @@ text = r.stdout.decode('gbk', errors='ignore')
 - 本机 ClashX 当前处于 **TUN 模式**
 - `push2.eastmoney.com` 和 `push2his.eastmoney.com` 被拦截
 - `stock_zt_pool_em()` 仍可用（不走 push2）
-- 个股详细行情 → 走腾讯 API
-- 历史K线 → 无可靠替代
+- 个股详细行情 → 走腾讯 API (`qt.gtimg.cn`)
+- **历史K线** → 走腾讯 ifzq API (`ifzq.gtimg.cn`)，`curl -sL` 跟随 302 重定向即可获得 JSON 格式数据。注意数据结构：`data["sz002046"]["qfqday"]`（前复权）或 `data["sz002046"]["day"]`（不复权），每行格式 `["日期", open, close, high, low, volume]`
 - 板块资金流向 → 无可靠替代（`--rotation` 用涨停家数替代）
 
 ## 已知局限

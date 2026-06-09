@@ -100,10 +100,6 @@ for alert in global_data["impact"]["alerts"]:
 12. **全球指数** 🆕 — 恒生>2%同向预警，日经/韩国亚太传导，欧洲信号
 13. **自然灾害** 🆕 — USGS地震≥6级 + GDACS气旋/洪水/火山/海啸，按位置→A股板块
 14. **重大新闻关键词** 🆕 — 从SerpAPI新闻中提取地缘冲突/美联储动态关键词自动告警
-11. **美股行业 ETF** — ≥2% 异动 → 映射到 A 股对应板块（XLK→AI/半导体, XLE→石油/煤炭, XLY→消费等）
-12. **全球指数联动** — ≥2% 异动：恒生→A股同向预警，日经/韩国→亚太情绪，欧洲→隔夜信号
-13. **自然灾害** — USGS ≥6级地震 + GDACS 飓风/火山/洪水 → 按位置自动映射A股板块（台日→半导体，智利→有色，墨西哥湾→石油）
-14. **新闻关键词扫描** — 从 SerpAPI 新闻中自动检测 地缘冲突/美联储/制裁关税 触发词 → 即时板块预警
 
 输出格式：
 ```json
@@ -129,7 +125,7 @@ for alert in global_data["impact"]["alerts"]:
 
 → 比 BuilderPulse(08:30) 和 PulseEngine(08:55) 更早，为全天交易提供外围背景。
 
-### 晚间全球扫描（21:00，工作日）
+### 晚间全球扫描（22:30，工作日）
 - 欧洲收盘 + 美股盘中
 - 全球期货/汇率走势
 - 当日重大国际新闻
@@ -186,7 +182,24 @@ Cron 流水线              →   全球市场监控         →   stock-triage
 pip install yfinance curl_cffi    # 均已安装于 ~/.hermes/hermes-agent/venv/
 ```
 
-## 约束与限制
+### 数据质量门禁 ⚠️
+
+**source_health 检测逻辑：**
+- yfinance → 检测美股指数 ≥2 只有效才标记 `ok`，否则 `failed`
+- SerpAPI → 检测返回列表是否含 `{"error": "..."}` 或为空；key 未配时标记 `failed`
+- USGS/GDACS → 捕获异常，降级标记
+
+**yfinance 不可用时的降级行为**：如果美股指数/VIX/美债三项中至少两项不可用，`monitor.py` 输出：
+```json
+{
+  "source_health": {"yfinance": {"status": "failed"}},
+  "impact": {
+    "status": "insufficient_data",
+    "summary": "关键市场数据不足：美股指数/VIX/美债不可用，禁止输出方向性A股判断"
+  }
+}
+```
+此时不会生成任何"利好/利空"方向性结论，避免在数据缺失时误导。
 
 - **非实时**：yfinance 数据有 15-20 分钟延迟，非 tick 级数据
 - **盘前扫描的数据是隔夜美股收盘价**，非美股实时价（美股在北京时间 04:00 收盘）

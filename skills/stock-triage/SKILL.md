@@ -183,7 +183,33 @@ t6 = kanban_create(
 - **用户关注标的**: 华能国际(600011)、通富微电(002156)、长电科技(600584)、华天科技(002185)、深科技(000021)、太极实业(600667)
 - **跟踪板块**: 封测、高温主题(电力/电网/空调)、AI算力、军工航天、煤炭
 
-## Cron 流水线时间表（21 jobs，工作日核心15个）
+### ⚠️ Cron 子代理架构（2026-06-09 强制推行）
+
+所有 A股 cron 任务必须使用 **子代理（delegate_task）模式**，不得在 cron 主 agent 内直接执行数据采集和重计算：
+
+```
+┌──────────────┐     delegate_task()     ┌──────────────────┐
+│  Cron Agent  │ ──────────────────────→ │  Subagent Worker  │
+│  (编排+汇总)  │                         │  (数据采集+分析)   │
+│              │ ←────────────────────── │                  │
+│  输出一屏以内  │     返回摘要结果         │  可多组并行       │
+└──────────────┘                         └──────────────────┘
+```
+
+**规则：**
+1. **数据采集** → 必须 `delegate_task(reel...)` 给 subagent，不可直接在 terminal/execute_code 里拉
+2. **重计算/分析** → 必须给 subagent，主 agent 只读结果
+3. **主 agent 只做**：编排 → 汇总结果 → 输出（压缩到一屏以内）
+4. **无信号则静默** — 盘中异动、资讯监控等 cron 在无触发时 `[SILENT]`
+5. **并行** — 可拆分的多组采集（如同时拉多板块行情）用 `tasks` 数组并行
+6. **输出压缩** — 每个 cron 的输出控制在一屏以内，收盘密集区（15:05~15:25）尤其严格控制
+
+**为什么必须这么做：**
+- 单一 agent 同时处理数据采集→分析→输出，任务一多就乱套（上下文膨胀、工具调用互相干扰）
+- 子代理隔离上下文，每个子代理只做一件事，结果干净
+- 主 agent 的上下文不会被中间数据撑爆，始终专注在编排和输出
+
+## Cron 流水线时间表
 
 > 设计原则详见 `references/cron-scheduling-principles.md`：时间分散、上下文链路、静默式vs定时式、推送分层、数据采集模式。
 
@@ -194,9 +220,11 @@ t6 = kanban_create(
 | 08:00 Mon | 📅 事件日历提醒 | ⚪ | event_calendar.py |
 | 08:15 | 🌍 全球市场盘前扫描 | 🟢 | global-market-monitor |
 | 08:30 | BuilderPulse → 飞书 | 🟢 | — |
-| 08:55 | PulseEngine 日报 | 🟢 | — |
+| 08:55 | PulseEngine 日报 (已调至07:00) | 🟢 | — |
 | 09:00 | 📡 资讯监控(政策/产业/地缘) | 🟡 | SerpAPI 4组关键词 |
 | 09:00-15:00 | ⚡ 盘中异动（每5分钟） | 🔴 | intraday_monitor.py |
+| **09:25** | **⚡ 集合竞价收口+候选池** | **🟡** | **daban-stock-picker + hot-money-tactics** |
+| **09:35** | **⚡ 开盘确认+上车判定** | **🟡** | **daban-stock-picker + stock-analyst** |
 | 09:45 | 🇭🇰 港A联动 | 🟢 | hk_a_linkage.py |
 | 10:00 | 高温主题开盘跟踪 | 🟢 | stock-analyst |
 | 10:30 | 💰 资金流向 | 🟡 | capital_flow_monitor.py |
@@ -311,3 +339,26 @@ echo "# 深度报告..." | $PY $SDIR/serenity_to_feishu.py "通富微电"
 ## ⚠️ 构建原则
 
 **设计即构建**：在 SKILL.md 中描述的任何模块（脚本、cron job、集成管道），必须在同一次交付中建成可运行的实现。不允许出现"设计完成但未实现"的半成品——这会导致用户追问和重复工作。本 skill 中的所有脚本、cron 和管道均已完成并验证。
+
+### ⚠️ 持仓数据准确性铁律
+
+持仓信息在 persistent memory 中可能是过时或错误的。**做任何涉及持仓的分析/推荐前：**
+
+1. 先跑 `portfolio_manager.py --balance --json` 获取当前持仓+现金
+2. 只有它返回的数据才是权威源
+3. memory 中的持仓数据仅作话题线索，不可直接用于计算仓位/盈亏
+
+曾犯错误（2026-06-05）：persistent memory 中残留了一条"证券ETF 512880 3100份"的虚假持仓记录（上一轮 session 的笔误），导致用户在"清仓"时多算了 3,200 元现金。持仓来源只有 portfolio_manager。memory 里的持仓记录只是笔记，不是账本。
+
+## 项目维护
+
+### GitHub → 本地同步
+
+当用户要求"同步GitHub更新到本地"时，执行 `references/repo-sync.md` 中的完整流程。核心步骤：
+
+1. `git fetch origin`（设 timeout=120 应对代理超时）
+2. `git pull origin main --ff-only`
+3. 复制脚本到 `~/.hermes/skills/stock-triage/scripts/`
+4. 复制 `common/` 共享模块（最易遗漏）
+5. 验证 `portfolio_manager.py --check`
+6. 如有数据兼容问题（现金对账/历史文件格式），按坑位修复
