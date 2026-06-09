@@ -1,0 +1,49 @@
+# 打板阈值 — 单一事实源（Single Source of Truth）
+# ===================================================
+# 实盘候选闸门 daban-stock-picker/daban_candidate_api.py 与
+# 离线回测引擎 chanlun-backtest/daban_bt_engine.py 共读本文件。
+#
+# 铁律：本文件的入场/过滤阈值，只允许在 daban_bt_run → research_gate 返回 passed
+# （allowed_in_live_agent=true）之后变更。禁止根据近期实盘结果直接回拟合（过拟合）。
+# 实盘表现差的策略走 strategy_registry 门控停用，不在此处改阈值。
+
+cost:
+  commission: 0.00025
+  stamp: 0.0005
+  slippage: 0.002
+
+auction:
+  gap_window_low: -1.0      # 二板弱转强竞价窗口下沿 %
+  gap_window_high: 3.0      # 上沿 %
+  auction_seal_minute: 565  # 真集合竞价封板上限 09:25 → 9*60+25
+
+universe:
+  float_mktcap_min: 1500000000.0   # 1.5亿*10 = 15亿
+  float_mktcap_max: 12000000000.0  # 120亿
+  avg_turnover_20d_min: 200000000.0  # 2亿
+  close_prev_min: 4.0
+  close_prev_max: 35.0
+  listed_days_min: 60
+
+first_board_reseal:
+  first_limitup_latest: "10:30"
+  open_board_max: 2
+  reseal_minutes_max: 15
+  seal_amount_ratio_min: 0.003
+  active_buy_ratio_min: 0.60
+  big_order_inflow_ratio_min: 0.08
+  sector_limitup_min: 3
+
+second_board_weak_to_strong:
+  auction_gap_low: -1.0
+  auction_gap_high: 3.0
+  first_limitup_latest: "09:45"
+  sector_companion_min: 2
+
+market_gate:
+  yday_limitup_index_open_min: -2.0
+  broken_rate_first20m_max: 35.0
+  week_trades_max: 3
+  day_loss_pct_stop: -2.0
+  week_loss_pct_freeze: -5.0
+  consecutive_losses_max: 3

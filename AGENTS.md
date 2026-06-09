@@ -185,12 +185,34 @@ from typing import Dict, Any, List, Optional
 - 默认 → 人类可读 Markdown（供 Discord 展示）
 - 无信号场景 → 静默退出（return code 0，无 stdout）
 
+## 模块整合数据流（2026-06-09 接通）
+
+缠论与 Serenity 不再是孤岛，已程序化接入主决策链路：
+
+1. **深度面回流**：`four_dim_scorer` 的深度面(20%)优先读 Serenity 深研缓存
+   (`common/deep_research_cache.py`)，而非 PE 分桶；深研一次、日评复用，过期向 PE 快照线性衰减。
+   Serenity 流程产出 scorecard 后用 `deep_research_cache.py write` 落缓存。
+2. **缠论信号化**：`chanlun-backtest/scripts/chan_structure.py` 输出分型/笔/中枢/三买三卖/背驰
+   JSON 信号，接入四维技术面与 60 分钟择时。
+3. **信号过闸才计权（铁律）**：任何缠论信号在 `research_gate --register` 写入
+   `allowed_in_live_agent=true` 之前，只能 display-only / 0 权重（标"研究假设"）。
+   裁决统一走 `common/strategy_registry.py`，默认未注册=不计权。
+4. **单一事实源**：打板阈值集中在 `config/daban_thresholds.yaml`，实盘候选闸门
+   (`daban_candidate_api`)与回测引擎(`daban_bt_engine`)共读；阈值变更只允许在
+   `research_gate` 通过后进行，**禁止用实盘结果回拟合**。
+5. **闭环门控**：`performance_tracker --gate` 按 `by_strategy` 期望值淘汰负期望策略
+   (写 `strategy_registry`)，`recommendation_audit` 对被停用策略仓位归零。
+   **淘汰走门控、改规则走闸门——两条路分开，防过拟合。**
+
 ## 关键文件索引
 
 | 文件 | 位置 | 用途 |
 |------|------|------|
 | portfolio.json | `stock-triage/data/` | 持仓数据 |
 | signal_history.json | `stock-triage/data/` | 历史信号记录 |
+| strategy_registry.json | `stock-triage/data/` | 策略闸门+门控状态（缠论信号过闸/负期望淘汰） |
+| deep_research/{code}.json | `stock-triage/cache/` | Serenity 深研缓存（回流四维深度面） |
+| daban_thresholds.yaml | `config/` | 打板阈值单一事实源（实盘=回测，过闸才改） |
 | intraday_alerts.json | `stock-triage/data/` | 盘中告警去重缓存 |
 | alerts.json | `$HERMES_HOME/cron/output/` | 价格提醒数据 |
 | job_runs.json | `$HERMES_HOME/cron/output/` | Cron 运行账本 |

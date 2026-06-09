@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Set
@@ -216,9 +217,20 @@ if __name__ == "__main__":
     parser.add_argument("--input", help="JSON input file. If omitted, reads stdin when piped.")
     parser.add_argument("--example", action="store_true", help="Run with built-in example payload.")
     parser.add_argument("--json", action="store_true", help="Output JSON.")
+    parser.add_argument("--register", action="store_true",
+                        help="把闸门结论登记进 strategy_registry（供实时 Agent 裁决是否计权）。")
     args = parser.parse_args()
 
     output = evaluate_gate(load_payload(args.input, args.example))
+    if args.register:
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+        import strategy_registry  # noqa: E402
+        rec = strategy_registry.register_gate_result(output["strategy_id"], output)
+        output["registered"] = {
+            "strategy_id": rec["strategy_id"],
+            "allowed_in_live_agent": rec["allowed_in_live_agent"],
+            "gating_status": rec.get("gating_status"),
+        }
     if args.json:
         print(json.dumps(output, ensure_ascii=False, indent=2))
     else:

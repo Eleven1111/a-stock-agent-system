@@ -140,6 +140,23 @@ python scripts/report_lint.py outputs/sanhua/report.md --evidence outputs/sanhua
 
 If lint fails, fix the report before presenting the final answer unless the failure is a known limitation that must be disclosed.
 
+### 8. Cache the Scorecard for the Four-Dim Deep Dimension（回流四维深度面）
+
+After producing `scorecard.json` (and optionally `valuation_scenarios.json`), write it to the
+shared deep-research cache so `four_dim_scorer` 的深度面 (20%) consumes real Serenity research
+instead of a PE bucket. Deep research runs once; daily scoring reuses it (freshness-decayed).
+
+```bash
+python ../../common/deep_research_cache.py write \
+  --code 002156 --name 通富微电 \
+  --scorecard outputs/tongfu/scorecard.json \
+  --valuation outputs/tongfu/valuation.json \
+  --asof 2026-06-09
+```
+
+The four-dim scorer reads this cache via `read_deep_research(code)`; entries older than 90 days
+decay toward the PE snapshot. Re-run this write whenever a fresh report or major catalyst lands.
+
 ## Source Grading
 
 Use `references/source_grading.md`. Short version:

@@ -117,6 +117,24 @@ def position_guidance(
         "recommended_amount": None,
     }
 
+    # 实盘门控：被 strategy_registry 停用的策略 → 仓位归零（淘汰负期望策略，胜率闭环的执行点）
+    try:
+        import strategy_registry as _sr
+        _gate_rec = _sr.get(sid)
+    except Exception:  # noqa: BLE001
+        _gate_rec = None
+    if _gate_rec and _gate_rec.get("gating_status") == "disabled":
+        guidance.update({
+            "method": "gated_off",
+            "kelly_fraction": 0.0,
+            "execution_fraction": 0.0,
+            "recommended_position_pct": 0.0,
+            "recommended_amount": 0.0,
+            "gating_status": "disabled",
+            "reason": f"策略 {sid} 已被实盘门控停用（期望值转负），暂停建仓",
+        })
+        return guidance
+
     if odds is not None and stats["win_rate"] is not None and stats["total"] >= 10:
         p = stats["win_rate"]
         q = 1 - p

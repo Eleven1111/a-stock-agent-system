@@ -262,18 +262,21 @@ t6 = kanban_create(
 
 | 脚本 | 用途 |
 |------|------|
-| `four_dim_scorer.py` | 四维打分引擎：技术(30%)×情绪(25%)×催化(25%)×深度(20%)→ S/A/B/C/D；支持 `--timeframe 60/30` 短线入场 |
+| `four_dim_scorer.py` | 四维打分引擎：技术(30%)×情绪(25%)×催化(25%)×深度(20%)→ S/A/B/C/D；深度面回流 Serenity 深研缓存、技术面接入缠论结构(过闸才计权)；支持 `--timeframe 60/30` 短线入场 |
 | `capital_flow_monitor.py` | 资金流向：北向资金 + 主力/散户净流 + 板块资金（东财API，需NO_PROXY） |
 | `portfolio_manager.py` | 持仓风控：`--add`开仓、`--close`清仓、`--check`止损止盈/仓位集中度 |
 | `intraday_monitor.py` | 盘中异动：涨跌停/放量>10%/急涨急跌>5%（5分钟静默式，无触发不输出） |
 | `hk_a_linkage.py` | 港A联动：AH溢价率 + 恒生vs上证背离 + 港股通权重异动检测 |
 | `institution_tracker.py` | 机构行为：调研/研报/增减持（东财数据中心+SerpAPI） |
 | `event_calendar.py` | 事件日历：限售解禁/分红/政策窗口（东财+固定日期库） |
-| `performance_tracker.py` | 胜率统计：`--record`记录信号→自动跟踪表现→分S/A/B/C统计命中率 |
+| `performance_tracker.py` | 胜率统计：`--record`记录信号→自动跟踪表现→分S/A/B/C/策略统计命中率；`--gate`按实盘期望值淘汰负期望策略(写strategy_registry) |
 | `recommendation_audit.py` | 推荐审计档案：买/卖/加/减建议写入 `recommendations.json`，支持查询、结果更新、赔率/凯利仓位测算 |
 | `serenity_to_feishu.py` | 飞书存档：接收 markdown 报告 → lark-cli docs +create → 本地双份存档 |
 | `../daban-stock-picker/scripts/daban_candidate_api.py` | 打板候选池：主板10cm首板回封/二板弱转强 → 六问否决 + 可成交性 |
-| `../chanlun-backtest/scripts/research_gate.py` | 离线研究闸门：IS/OOS、成本、对照组、统计检验完整性检查 |
+| `../chanlun-backtest/scripts/research_gate.py` | 离线研究闸门：IS/OOS、成本、对照组、统计检验完整性检查；`--register`登记结论到策略注册表 |
+| `../chanlun-backtest/scripts/chan_structure.py` | 缠论结构信号：分型/笔/中枢/三买三卖/背驰 → JSON（过闸才计权） |
+| `../../common/strategy_registry.py` | 策略闸门+门控裁决：缠论信号是否计权、负期望策略是否停用 |
+| `../../common/deep_research_cache.py` | Serenity 深研缓存读写：回流四维深度面（深研一次、日评复用） |
 
 快速命令：
 

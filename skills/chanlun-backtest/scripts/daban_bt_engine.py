@@ -20,10 +20,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 from tradeability import limit_pct  # noqa: E402
+import daban_config as _cfg  # noqa: E402
 
-DEFAULT_COST = {"commission": 0.00025, "stamp": 0.0005, "slippage": 0.002}
-GAP_WINDOW = (-1.0, 3.0)          # daban 二板弱转强竞价窗口
-AUCTION_SEAL_MINUTES = 9 * 60 + 25  # 真集合竞价封板上限 09:25
+# 阈值走单一事实源 config/daban_thresholds.yaml（回退默认与历史硬编码一致）
+_AUC = _cfg.section("auction")
+_COST = _cfg.section("cost")
+DEFAULT_COST = {"commission": _COST["commission"], "stamp": _COST["stamp"],
+                "slippage": _COST["slippage"]}
+GAP_WINDOW = (_AUC["gap_window_low"], _AUC["gap_window_high"])  # daban 二板弱转强竞价窗口
+AUCTION_SEAL_MINUTES = int(_AUC["auction_seal_minute"])         # 真集合竞价封板上限 09:25
 
 
 def net_return(buy: float, sell: float, cost: Dict[str, float] = DEFAULT_COST) -> float:

@@ -293,6 +293,50 @@ def compute_stats(records: List[Dict]) -> Dict:
     }
 
 
+# ========== 反馈闭环：策略门控（gating，不是 refit）==========
+
+GATING_MIN_SAMPLES = 12  # 至少结算 N 笔才门控，避免小样本误杀
+
+
+def evaluate_strategy_gating(by_strategy: Dict[str, Dict],
+                             min_samples: int = GATING_MIN_SAMPLES) -> List[Dict]:
+    """根据 by_strategy 期望值决定门控（纯函数）。
+
+    期望<0 且样本≥min_samples → disable；≥0 且样本≥min_samples → enable；
+    样本不足或 default → skip。**只淘汰策略、不回拟合入场规则**（改规则走 research_gate），
+    避免用近期实盘噪声过拟合。返回决定列表。
+    """
+    decisions = []
+    for sid, s in (by_strategy or {}).items():
+        if sid == "default":
+            continue
+        closed = s.get("closed", 0)
+        exp = s.get("expectancy", 0.0)
+        if closed < min_samples:
+            action, reason = "skip", "样本不足"
+        elif exp < 0:
+            action, reason = "disable", f"实盘期望{exp:+.2f}%<0"
+        else:
+            action, reason = "enable", f"实盘期望{exp:+.2f}%≥0"
+        decisions.append({"strategy_id": sid, "action": action,
+                          "expectancy": exp, "closed": closed, "reason": reason})
+    return decisions
+
+
+def apply_strategy_gating(decisions: List[Dict]) -> List[Dict]:
+    """把门控决定写入 strategy_registry（skip 不写）。返回已应用项。"""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+    import strategy_registry as sr
+    applied = []
+    for d in decisions:
+        if d["action"] == "skip":
+            continue
+        sr.set_gating(d["strategy_id"], enabled=(d["action"] == "enable"),
+                      reason=d["reason"], expectancy=d["expectancy"], samples=d["closed"])
+        applied.append(d)
+    return applied
+
+
 def format_stats(stats: Dict, records: List[Dict]) -> str:
     lines = ["📈 **打板信号胜率统计（T+1 隔日口径）**",
              f"⏰ {datetime.now().strftime('%Y-%m-%d')}", ""]
@@ -350,6 +394,8 @@ if __name__ == "__main__":
                    help="记录信号: code name grade price")
     p.add_argument("--score", type=float, default=5.0, help="评分")
     p.add_argument("--strategy-id", help="可选策略标识，如 daban:first_board_reseal")
+    p.add_argument("--gate", action="store_true",
+                   help="根据实盘期望值更新策略门控（写 strategy_registry）；建议周报 cron 带上")
     p.add_argument("--json", action="store_true")
     args = p.parse_args()
 
@@ -360,7 +406,12 @@ if __name__ == "__main__":
     else:
         records = update_outcomes()
         stats = compute_stats(records)
+        if args.gate:
+            stats["gating_applied"] = apply_strategy_gating(
+                evaluate_strategy_gating(stats.get("by_strategy", {})))
         if args.json:
             print(json.dumps(stats, ensure_ascii=False, indent=2))
         else:
             print(format_stats(stats, records))
+            for d in stats.get("gating_applied", []):
+                print(f"⚖️ 门控 {d['strategy_id']}: {d['action']} ({d['reason']})")
