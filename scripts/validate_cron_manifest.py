@@ -163,30 +163,15 @@ def validate(filepath):
             if timeout is not None and (not isinstance(timeout, int) or timeout <= 0):
                 errors.append(f"job[{i}] ({jid}) run.timeout_seconds must be positive int")
 
-        # 占位符检测：command 中有占位符但没有 template_vars 声明 → 错误
+        # 仓库 cron 必须自包含。不能依赖 Gateway/agent 在触发时动态注入模板变量，
+        # 否则会重新走 in-process AIAgent import 路径，触发上下文污染和导入冲突。
         placeholders = PLACEHOLDER_RE.findall(cmd) + PLACEHOLDER_RE.findall(run_cmd)
-        template_vars = job.get("template_vars")
-
         if placeholders:
-            if not template_vars:
-                errors.append(
-                    f"job[{i}] ({jid}) command has placeholders {placeholders} "
-                    f"but no template_vars defined"
-                )
-            else:
-                # 严格校验：占位符集合必须是 template_vars 的子集
-                placeholder_set = set(placeholders)
-                vars_set = set(template_vars)
-                missing = placeholder_set - vars_set
-                if missing:
-                    errors.append(
-                        f"job[{i}] ({jid}) placeholders {sorted(missing)} "
-                        f"not covered by template_vars={template_vars}"
-                    )
-                # 警告未使用的 template var（不阻断，仅输出）
-                unused = vars_set - placeholder_set
-                if unused:
-                    print(f"  WARN: job[{i}] ({jid}) unused template_vars={sorted(unused)}")
+            errors.append(
+                f"job[{i}] ({jid}) must be self-contained; placeholders are not allowed: {placeholders}"
+            )
+        if "template_vars" in job:
+            errors.append(f"job[{i}] ({jid}) template_vars are not allowed in isolated cron manifest")
 
     for slot, slot_jobs in schedule_slots.items():
         if len(slot_jobs) > 2:

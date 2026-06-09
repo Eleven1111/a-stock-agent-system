@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-147%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-152%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -150,6 +150,19 @@ The manifest routes every scheduled job through `scripts/hermes_job_runner.py`. 
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
 
+Deployment guardrails:
+
+```bash
+# Diagnose Gateway cwd/run_agent.py shadowing and schedule-state hazards.
+python scripts/hermes_gateway_doctor.py --write-launcher
+
+# Emergency fallback when Hermes Gateway cron is unhealthy:
+# generate system crontab lines that run isolated jobs directly.
+python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERMES_HOME"
+```
+
+Cron jobs in this repo must be fully self-contained. Do not deploy jobs that require Gateway-side `{template}` injection; it can route execution back through in-process agent cron and reintroduce `run_agent.AIAgent` import conflicts.
+
 | Time (CST) | Job | Frequency |
 |------------|-----|-----------|
 | 08:15 | Global pre-market scan | Workdays |
@@ -228,9 +241,11 @@ a-stock-agent-system/
 ├── cron/hermes-cron-manifest.json  # 15 isolated scheduled jobs
 ├── scripts/
 │   ├── hermes_job_runner.py    # Cron isolation runner + artifact writer
+│   ├── hermes_gateway_doctor.py # Deployment-side Gateway import/schedule diagnostics
+│   ├── generate_system_crontab.py # System cron fallback generator
 │   ├── smoke_test.py           # 9-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 147 unit tests
+├── tests/                      # 152 unit tests
 ├── skills/
 │   ├── common/                 # Shared HTTP + atomic state store + runtime context
 │   ├── stock-triage/           # Orchestrator hub
@@ -307,7 +322,7 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 147 tests
+python -m pytest -q tests/        # 152 tests
 python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```

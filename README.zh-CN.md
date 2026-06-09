@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-147%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-152%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
@@ -85,7 +85,7 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 
 ```bash
 python scripts/smoke_test.py      # 9项集成检查
-python -m pytest -q tests/        # 147项测试全部通过
+python -m pytest -q tests/        # 152项测试全部通过
 ```
 
 ### 运行
@@ -149,6 +149,19 @@ manifest 中每个定时任务都先进入 `scripts/hermes_job_runner.py`。runn
 ```bash
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
+
+部署守卫：
+
+```bash
+# 诊断 Gateway cwd/run_agent.py 影子导入和 schedule 状态风险
+python scripts/hermes_gateway_doctor.py --write-launcher
+
+# Hermes Gateway cron 不稳定时的应急兜底：
+# 生成直接运行 isolated job 的系统 crontab 行。
+python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERMES_HOME"
+```
+
+仓库 cron 必须完全自包含。不要部署需要 Gateway 侧 `{template}` 动态注入的任务，否则会重新走 in-process agent cron 路径，重新触发 `run_agent.AIAgent` 导入冲突。
 
 | 时间 | 任务 | 频率 |
 |------|------|------|
@@ -228,9 +241,11 @@ a-stock-agent-system/
 ├── cron/hermes-cron-manifest.json  # 15个隔离定时任务
 ├── scripts/
 │   ├── hermes_job_runner.py    # Cron隔离runner + artifact写入
+│   ├── hermes_gateway_doctor.py # 部署机Gateway导入/schedule诊断
+│   ├── generate_system_crontab.py # 系统cron兜底生成器
 │   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 147个单元测试
+├── tests/                      # 152个单元测试
 ├── skills/
 │   ├── common/                 # 共享HTTP层 + 原子状态存储 + runtime context
 │   ├── stock-triage/           # 编排中枢
@@ -273,7 +288,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 147项测试
+python -m pytest -q tests/        # 152项测试
 python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```
