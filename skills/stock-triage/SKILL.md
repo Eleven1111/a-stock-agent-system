@@ -183,30 +183,31 @@ t6 = kanban_create(
 - **用户关注标的**: 华能国际(600011)、通富微电(002156)、长电科技(600584)、华天科技(002185)、深科技(000021)、太极实业(600667)
 - **跟踪板块**: 封测、高温主题(电力/电网/空调)、AI算力、军工航天、煤炭
 
-### ⚠️ Cron 子代理架构（2026-06-09 强制推行）
+### ⚠️ Cron 上下文隔离架构（2026-06-09 强制推行）
 
-所有 A股 cron 任务必须使用 **子代理（delegate_task）模式**，不得在 cron 主 agent 内直接执行数据采集和重计算：
+所有 A股 cron 任务必须隔离运行，不得在主线用户对话或 cron 主 agent 上下文里直接堆数据采集和重计算：
 
 ```
-┌──────────────┐     delegate_task()     ┌──────────────────┐
-│  Cron Agent  │ ──────────────────────→ │  Subagent Worker  │
-│  (编排+汇总)  │                         │  (数据采集+分析)   │
-│              │ ←────────────────────── │                  │
-│  输出一屏以内  │     返回摘要结果         │  可多组并行       │
-└──────────────┘                         └──────────────────┘
+┌──────────────┐     runner / delegate     ┌──────────────────┐
+│  Cron Agent  │ ────────────────────────→ │  Isolated Worker  │
+│  (编排+汇总)  │                           │  (数据采集+分析)   │
+│              │ ←──────────────────────── │                  │
+│  只读artifact │     artifact + 摘要        │  可多组并行       │
+└──────────────┘                           └──────────────────┘
 ```
 
 **规则：**
-1. **数据采集** → 必须 `delegate_task(reel...)` 给 subagent，不可直接在 terminal/execute_code 里拉
-2. **重计算/分析** → 必须给 subagent，主 agent 只读结果
-3. **主 agent 只做**：编排 → 汇总结果 → 输出（压缩到一屏以内）
-4. **无信号则静默** — 盘中异动、资讯监控等 cron 在无触发时 `[SILENT]`
-5. **并行** — 可拆分的多组采集（如同时拉多板块行情）用 `tasks` 数组并行
-6. **输出压缩** — 每个 cron 的输出控制在一屏以内，收盘密集区（15:05~15:25）尤其严格控制
+1. **脚本型 cron** → manifest 的 `command` 必须走 `python scripts/hermes_job_runner.py <job-id>`；真实业务命令放 `run.command`
+2. **Agent prompt 型 cron** → 必须 `delegate_task(...)` 给 subagent；主 agent 只编排、汇总、压缩输出
+3. **artifact 优先** → 每次运行必须写 `$HERMES_HOME/cron/output/{job_id}/{run_id}.json`，下游只通过 `context_from` 读 artifact 摘要
+4. **主 agent 只做**：编排 → 汇总 artifact → 输出（压缩到一屏以内）
+5. **无信号则静默** — 盘中异动、资讯监控等 cron 在无触发时 `[SILENT]`
+6. **并行** — 可拆分的多组采集（如同时拉多板块行情）用 `tasks` 数组或多个 isolated job 并行
+7. **输出压缩** — 每个 cron 的输出控制在 `max_output_chars` 内，例行任务 `deliver=local`
 
 **为什么必须这么做：**
 - 单一 agent 同时处理数据采集→分析→输出，任务一多就乱套（上下文膨胀、工具调用互相干扰）
-- 子代理隔离上下文，每个子代理只做一件事，结果干净
+- runner/subagent 隔离上下文，每个 worker 只做一件事，结果落入 artifact
 - 主 agent 的上下文不会被中间数据撑爆，始终专注在编排和输出
 
 ## Cron 流水线时间表
@@ -222,6 +223,7 @@ t6 = kanban_create(
 | 08:30 | BuilderPulse → 飞书 | 🟢 | — |
 | 08:55 | PulseEngine 日报 (已调至07:00) | 🟢 | — |
 | 09:00 | 📡 资讯监控(政策/产业/地缘) | 🟡 | SerpAPI 4组关键词 |
+| **09:15-09:24** | **集合竞价快照采集** | **⚪** | **auction_collector.py** |
 | 09:00-15:00 | ⚡ 盘中异动（每5分钟） | 🔴 | intraday_monitor.py |
 | **09:25** | **⚡ 集合竞价收口+候选池** | **🟡** | **daban-stock-picker + hot-money-tactics** |
 | **09:35** | **⚡ 开盘确认+上车判定** | **🟡** | **daban-stock-picker + stock-analyst** |
@@ -248,7 +250,7 @@ t6 = kanban_create(
 | Sat 10:00 | 🏛️ 机构行为周报 | ⚪ | institution_tracker.py |
 | Sun 10:00 | 📈 信号胜率统计周报 | ⚪ | performance_tracker.py |
 
-收盘 Triage（15:25）的 `context_from` 链：[封测跟踪(15:05), 四维打分(15:08)] → 两份输入合并判断。
+收盘 Triage（15:25）的 `context_from` 链：[四维打分(15:08), 持仓风控(15:10), 资金流向(14:30)] → 只读取上游 artifact 摘要，不读取主线对话历史。
 
 **推送分层策略：**
 - 🔴 紧急：止损触发、跌停、地缘冲突 — 立即推送

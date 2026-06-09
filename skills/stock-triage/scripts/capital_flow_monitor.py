@@ -11,21 +11,17 @@ Usage:
 """
 
 import json
-import sys
 import os
+import sys
 import urllib.request
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 
-# 加载 .env
-env_file = os.path.expanduser("~/.hermes/.env")
-if os.path.exists(env_file):
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                k, v = line.split('=', 1)
-                os.environ[k.strip()] = v.strip().strip('"').strip("'")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from a_stock_http import load_hermes_env
+
+# 加载 $HERMES_HOME/.env（默认 ~/.hermes/.env）
+load_hermes_env()
 
 # 用户跟踪标的
 TRACKED_STOCKS = [
@@ -52,7 +48,7 @@ def fetch_eastmoney(url: str) -> Optional[Dict]:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
     except Exception:
-        return {}
+        return None
 
 
 def fetch_sina_northbound() -> Dict:
@@ -106,7 +102,7 @@ def collect_flow_data() -> Dict[str, Any]:
         "https://push2his.eastmoney.com/api/qt/kamt.kline/get?"
         "fields1=f1,f2,f3,f4&fields2=f51,f52,f53,f54&klt=1&lmt=5&secid=1.000001"
     )
-    if nb_data and nb_data.get("data") and nb_data["data"].get("klines"):
+    if nb_data and nb_data.get("data", {}).get("klines"):
         latest = nb_data["data"]["klines"][-1]
         parts = latest.split(",")
         if len(parts) >= 4:
@@ -140,7 +136,7 @@ def collect_flow_data() -> Dict[str, Any]:
             "amount_yi": round(qt_data.get("amount", 0) / 1e8, 1) if qt_data.get("amount") else None,
         }
 
-        if ff_data and ff_data.get("data") and ff_data["data"].get("klines"):
+        if ff_data and ff_data.get("data", {}).get("klines"):
             latest_ff = ff_data["data"]["klines"][-1]
             parts = latest_ff.split(",")
             if len(parts) >= 6:
@@ -171,7 +167,7 @@ def collect_flow_data() -> Dict[str, Any]:
             f"fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56&lmt=3&secid={secid}"
         )
         sector = {"code": bk_code, "name": bk_name}
-        if bk_data and bk_data.get("data") and bk_data["data"].get("klines"):
+        if bk_data and bk_data.get("data", {}).get("klines"):
             latest_bk = bk_data["data"]["klines"][-1]
             parts = latest_bk.split(",")
             if len(parts) >= 6:

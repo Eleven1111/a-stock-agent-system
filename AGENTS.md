@@ -93,9 +93,15 @@ Hermes → ~/.hermes/
 ```
 **改配置前必须确认目标工具。**
 
-### 2. Cron 数据采集
-cron 任务中所有数据抓取**必须用 `execute_code` + Python `urllib`**，
-**禁止用 `terminal` 工具**（会触发安全审批锁，导致 cron 卡死）。
+### 2. Cron 运行隔离
+Hermes manifest 的 `command` **必须**走 `python scripts/hermes_job_runner.py <job-id>`，
+真实业务命令放在 `run.command`，并写入 `$HERMES_HOME/cron/output/{job_id}/{run_id}.json` artifact。
+
+如果 cron 由 Agent prompt 实现，主 cron agent 只能编排/汇总，数据采集和重计算必须委托子代理；
+如果 cron 由仓库脚本实现，只能通过 `hermes_job_runner` 启动隔离子进程。
+
+业务脚本内所有数据抓取必须用 Python `urllib`，禁止在 cron prompt 中直接使用 `terminal` 工具
+（会触发安全审批锁，导致 cron 卡死）。
 
 ### 3. 全量扫描
 用户说"全量"时必须真正穷尽，不能只扫预设板块。
@@ -125,10 +131,11 @@ cron 任务中所有数据抓取**必须用 `execute_code` + Python `urllib`**�
 1. **数据源是否在可用列表内？** → 不在则先验证端点
 2. **是否需要新的 Python 依赖？** → 先 `pip install` 到 Hermes venv
 3. **脚本是否 cron-safe？** → 只用 `urllib`，别用 `requests`（除非加载 `.env`）
-4. **Cron 时间是否与现有冲突？** → 查 `cronjob list`
-5. **是否需要更新 AGENTS.md？** → 数据源/铁律有变化必须更新
-6. **输出是否控制在 Discord 一屏内？** → 太长会被截断
-7. **无信号时是否静默？** → 高频 cron（盘中异动、资讯监控）必须静默
+4. **Manifest 是否隔离？** → `command` 走 `hermes_job_runner`，`run.command` 指向 canonical `skills/.../scripts/...`
+5. **Cron 时间是否与现有冲突？** → 查 `cronjob list`，并跑 `validate_cron_manifest.py`
+6. **是否需要更新 AGENTS.md？** → 数据源/铁律有变化必须更新
+7. **输出是否控制在 Discord 一屏内？** → 配置 `max_output_chars`，例行任务 `deliver=local`
+8. **无信号时是否静默？** → 高频 cron（盘中异动、资讯监控）必须静默
 
 ## 脚本规范
 
@@ -176,7 +183,9 @@ from typing import Dict, Any, List, Optional
 | portfolio.json | `stock-triage/data/` | 持仓数据 |
 | signal_history.json | `stock-triage/data/` | 历史信号记录 |
 | intraday_alerts.json | `stock-triage/data/` | 盘中告警去重缓存 |
-| alerts.json | `~/.hermes/cron/output/` | 价格提醒数据 |
+| alerts.json | `$HERMES_HOME/cron/output/` | 价格提醒数据 |
+| job_runs.json | `$HERMES_HOME/cron/output/` | Cron 运行账本 |
+| `{job_id}/{run_id}.json` | `$HERMES_HOME/cron/output/` | 每次 cron 的隔离 artifact |
 | .env | `~/.hermes/` | API keys + NO_PROXY |
 
 ## 用户偏好（来自记忆）

@@ -6,10 +6,16 @@
 import os
 import json
 import re
+import sys
 import urllib.request
 import urllib.parse
-from datetime import datetime
 from typing import Optional, List, Dict
+
+_COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
+if _COMMON_DIR not in sys.path:
+    sys.path.insert(0, os.path.abspath(_COMMON_DIR))
+
+from paths import env_file
 
 # SerpAPI multi-key rotation
 SERPAPI_KEYS = []
@@ -19,13 +25,13 @@ if _keys_str:
 # 也尝试从 .env 文件读取
 if not SERPAPI_KEYS:
     try:
-        with open(os.path.expanduser("~/.hermes/.env")) as f:
+        with open(env_file()) as f:
             for line in f:
                 if line.startswith("SERPAPI_KEYS="):
                     _keys_str = line.split("=", 1)[1].strip().strip("'").strip('"')
                     SERPAPI_KEYS = [k.strip() for k in _keys_str.split(",") if k.strip()]
                     break
-    except:
+    except Exception:
         pass
 
 _KEY_INDEX = 0
@@ -33,12 +39,12 @@ _KEY_INDEX = 0
 # 自动加载 NO_PROXY，绕过 Clash 代理的 DNS 劫持
 if not os.environ.get("NO_PROXY"):
     try:
-        with open(os.path.expanduser("~/.hermes/.env")) as f:
+        with open(env_file()) as f:
             for line in f:
                 if line.startswith("NO_PROXY="):
                     os.environ["NO_PROXY"] = line.split("=", 1)[1].strip().strip("'").strip('"')
                     break
-    except:
+    except Exception:
         pass
 
 
@@ -57,13 +63,13 @@ def _serpapi_request(params: dict) -> Optional[Dict]:
     api_key = _get_next_key()
     if not api_key:
         return {"error": "SERPAPI_KEYS 未配置"}
-    
+
     params["api_key"] = api_key
     params["hl"] = "zh-CN"
     params["gl"] = "cn"
-    
+
     url = f"https://serpapi.com/search.json?{urllib.parse.urlencode(params)}"
-    
+
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -75,16 +81,16 @@ def _serpapi_request(params: dict) -> Optional[Dict]:
 def search_stock_news(code: str = "", name: str = "", max_results=8) -> List[Dict]:
     """搜索个股新闻"""
     query = f"{name} {code} A股 2026" if name else f"{code} A股"
-    
+
     data = _serpapi_request({
         "engine": "google_news",
         "q": query,
         "num": max_results,
     })
-    
+
     if not data or "error" in data:
         return [{"title": f"新闻获取失败: {data.get('error', '未知错误')}", "source": "", "date": "", "url": ""}]
-    
+
     news = data.get("news_results", [])
     results = []
     for n in news[:max_results]:
@@ -101,16 +107,16 @@ def search_stock_news(code: str = "", name: str = "", max_results=8) -> List[Dic
 def search_sector_news(sector: str, max_results=6) -> List[Dict]:
     """搜索板块新闻"""
     query = f"{sector}板块 A股"
-    
+
     data = _serpapi_request({
         "engine": "google_news",
         "q": query,
         "num": max_results,
     })
-    
+
     if not data or "error" in data:
         return []
-    
+
     news = data.get("news_results", [])
     results = []
     for n in news[:max_results]:
@@ -131,10 +137,10 @@ def search_market_news(max_results=10) -> List[Dict]:
         "q": "A股 行情 热点 2026",
         "num": max_results,
     })
-    
+
     if not data or "error" in data:
         return []
-    
+
     news = data.get("news_results", [])
     results = []
     for n in news[:max_results]:
@@ -191,7 +197,7 @@ def analyze_news_fund_flow(news_list: List[Dict]) -> Dict:
     """分析新闻列表中的资金流向信号"""
     buy_signals = []
     sell_signals = []
-    
+
     for n in news_list:
         combined = n['title'] + " " + n.get('snippet', '')
         signals = extract_fund_flow(combined)
@@ -201,7 +207,7 @@ def analyze_news_fund_flow(news_list: List[Dict]) -> Dict:
                 buy_signals.append({"news": n['title'][:40], "signal": sig_text})
             else:
                 sell_signals.append({"news": n['title'][:40], "signal": sig_text})
-    
+
     return {
         "buy": buy_signals[:5],
         "sell": sell_signals[:5],
@@ -216,17 +222,17 @@ def format_news_with_fundflow(news_list: List[Dict], title: str = "最新新闻"
     """格式化新闻输出（含资金流向分析）"""
     lines = [f"\n📰 {title}"]
     lines.append("=" * 60)
-    
+
     # 资金流向分析
     ff = analyze_news_fund_flow(news_list)
     if ff['buy'] or ff['sell']:
-        lines.append(f"\n💰 资金信号（从新闻提取）:")
+        lines.append("\n💰 资金信号（从新闻提取）:")
         for s in ff['buy']:
             lines.append(f"   🟢 {s['signal']}")
         for s in ff['sell']:
             lines.append(f"   🔴 {s['signal']}")
         lines.append("")
-    
+
     # 新闻列表
     for i, n in enumerate(news_list, 1):
         lines.append(f"\n{i}. {n['title']}")
@@ -236,7 +242,7 @@ def format_news_with_fundflow(news_list: List[Dict], title: str = "最新新闻"
             snippet = n['snippet'][:120]
             # 高亮资金信号
             lines.append(f"   {snippet}")
-    
+
     return "\n".join(lines)
 
 def get_trends(keyword: str) -> Optional[Dict]:
@@ -245,14 +251,14 @@ def get_trends(keyword: str) -> Optional[Dict]:
         "engine": "google_trends",
         "q": keyword,
     })
-    
+
     if not data or "error" in data:
         return None
-    
+
     timeline = data.get("interest_over_time", {})
     if not timeline:
         return None
-    
+
     # 提取最近趋势
     results = []
     for item in timeline.get("timeline_data", [])[-10:]:
@@ -260,7 +266,7 @@ def get_trends(keyword: str) -> Optional[Dict]:
             "date": item.get("date", ""),
             "value": item.get("values", [{}])[0].get("value", 0),
         })
-    
+
     return {
         "keyword": keyword,
         "trend": results,
@@ -273,23 +279,23 @@ def format_news(news_list: List[Dict], title: str = "最新新闻") -> str:
     """格式化新闻输出"""
     if not news_list:
         return "暂无新闻"
-    
+
     lines = [f"\n📰 {title}"]
     lines.append("=" * 60)
-    
+
     for i, n in enumerate(news_list, 1):
         lines.append(f"\n{i}. {n['title']}")
         if n.get('source'):
             lines.append(f"   来源: {n['source']} | {n.get('date', '')}")
         if n.get('snippet'):
             lines.append(f"   {n['snippet'][:120]}")
-    
+
     return "\n".join(lines)
 
 
 if __name__ == "__main__":
     import sys
-    
+
     if len(sys.argv) < 2:
         print("用法:")
         print("  python3 news.py <股票代码|名称>  # 个股新闻")
@@ -297,9 +303,9 @@ if __name__ == "__main__":
         print("  python3 news.py market         # 大盘新闻")
         print("  python3 news.py trend <关键词>  # 搜索热度趋势")
         sys.exit(0)
-    
+
     cmd = sys.argv[1]
-    
+
     if cmd == "sector" and len(sys.argv) > 2:
         news = search_sector_news(sys.argv[2])
         print(format_news(news, f"{sys.argv[2]}板块新闻"))

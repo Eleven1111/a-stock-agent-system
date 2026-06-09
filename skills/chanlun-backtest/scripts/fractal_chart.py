@@ -11,7 +11,10 @@
 依赖: 无第三方库（仅用 urllib + json）
 数据源: 腾讯 ifzq.gtimg.cn（前复权日线，免费全天候）
 """
-import os, sys, urllib.request, json
+import os
+import sys
+import urllib.request
+import json
 
 os.environ["NO_PROXY"] = ".gtimg.cn,.eastmoney.com"
 
@@ -49,7 +52,7 @@ if not klines or len(klines) < 5:
 # 今日K线的volume字段可能是dict(含除权信息)，需特殊处理
 bars = []
 for k in klines[-DAYS:]:
-    date, o, c, h, l = str(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4])
+    date, o, c, h, low_value = str(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4])
     v_raw = k[5]
     if isinstance(v_raw, (int, float)):
         v = int(v_raw)
@@ -57,7 +60,7 @@ for k in klines[-DAYS:]:
         v = int(float(v_raw))
     else:
         v = 0  # dict or None — 含除权信息
-    bars.append({"date": date, "open": o, "close": c, "high": h, "low": l, "vol": v})
+    bars.append({"date": date, "open": o, "close": c, "high": h, "low": low_value, "vol": v})
 
 n = len(bars)
 closes = [b["close"] for b in bars]
@@ -160,9 +163,9 @@ for row_idx in range(CHART_HEIGHT):
     price_level = price_labels[row_idx]
     row_chars = []
     for col_idx in range(max_cols):
-        o, h, l, c = opens[col_idx], highs[col_idx], lows[col_idx], closes[col_idx]
+        o, h, low_value, c = opens[col_idx], highs[col_idx], lows[col_idx], closes[col_idx]
         is_up = c >= o
-        in_range = l <= price_level <= h
+        in_range = low_value <= price_level <= h
         if not in_range:
             row_chars.append(" ")
             continue
