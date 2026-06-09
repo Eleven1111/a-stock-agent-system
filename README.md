@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-92%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-147%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -144,6 +144,8 @@ Source health tracking is built-in. When critical data is missing (e.g., yfinanc
 
 All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json). Scheduling requires an external [Hermes Agent](https://hermes-agent.nousresearch.com) runtime — this repo provides the scripts; Hermes provides the clock.
 
+The manifest routes every scheduled job through `scripts/hermes_job_runner.py`. The runner executes the business script in an isolated subprocess, writes `$HERMES_HOME/cron/output/{job_id}/{run_id}.json`, records `$HERMES_HOME/cron/output/job_runs.json`, and only emits the configured `deliver` output. Routine jobs can be archived with `deliver=local` so cron output does not pollute the active user conversation.
+
 ```bash
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
@@ -151,6 +153,9 @@ python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 | Time (CST) | Job | Frequency |
 |------------|-----|-----------|
 | 08:15 | Global pre-market scan | Workdays |
+| 09:15–09:24 | Auction snapshots | Every minute, workdays |
+| 09:25 | Auction finalize + candidate context | Workdays |
+| 09:35 | Open confirmation | Workdays |
 | 09:30–11:30, 13:00–15:00 | Intraday alerts | Every 5 min (session-guarded) |
 | 09:45, 13:45, 14:45 | HK-A linkage | Workdays |
 | 10:30, 14:30 | Capital flow monitor | Workdays |
@@ -220,13 +225,14 @@ If critical data is missing:
 a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
-├── cron/hermes-cron-manifest.json  # 11 scheduled jobs
+├── cron/hermes-cron-manifest.json  # 15 isolated scheduled jobs
 ├── scripts/
+│   ├── hermes_job_runner.py    # Cron isolation runner + artifact writer
 │   ├── smoke_test.py           # 9-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 92 unit tests
+├── tests/                      # 147 unit tests
 ├── skills/
-│   ├── common/                 # Shared HTTP + atomic state store
+│   ├── common/                 # Shared HTTP + atomic state store + runtime context
 │   ├── stock-triage/           # Orchestrator hub
 │   ├── stock-analyst/          # Technical analysis engine
 │   ├── hot-money-tactics/      # Sentiment & limit-up analysis
@@ -301,7 +307,7 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 92 tests
+python -m pytest -q tests/        # 147 tests
 python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```

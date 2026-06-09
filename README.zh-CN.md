@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-92%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-147%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
@@ -85,7 +85,7 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 
 ```bash
 python scripts/smoke_test.py      # 9项集成检查
-python -m pytest -q tests/        # 92项测试全部通过
+python -m pytest -q tests/        # 147项测试全部通过
 ```
 
 ### 运行
@@ -144,6 +144,8 @@ export SERPAPI_API_KEY=your_key
 
 所有任务定义在 [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json)。调度依赖外部 [Hermes Agent](https://hermes-agent.nousresearch.com) 运行时——本仓库提供脚本，Hermes 提供时钟。
 
+manifest 中每个定时任务都先进入 `scripts/hermes_job_runner.py`。runner 在隔离子进程中执行真实业务脚本，写入 `$HERMES_HOME/cron/output/{job_id}/{run_id}.json`，并维护 `$HERMES_HOME/cron/output/job_runs.json` 运行账本，再按 `deliver` 配置决定是否推送。例行数据任务可设为 `deliver=local`，避免定时任务输出污染主线对话。
+
 ```bash
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
@@ -151,6 +153,9 @@ python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 | 时间 | 任务 | 频率 |
 |------|------|------|
 | 08:15 | 全球盘前扫描 | 工作日 |
+| 09:15–09:24 | 集合竞价快照 | 工作日每分钟 |
+| 09:25 | 集合竞价收口+候选池 | 工作日 |
+| 09:35 | 开盘确认+上车判定 | 工作日 |
 | 09:00–15:00 | 盘中异动告警 | 每5分钟 |
 | 09:45, 13:45, 14:45 | 港A联动 | 工作日 |
 | 10:30, 14:30 | 资金流向监控 | 工作日 |
@@ -220,13 +225,14 @@ python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 a-stock-agent-system/
 ├── pyproject.toml              # 依赖管理
 ├── config/scoring.yaml         # 评分权重 & 风控参数
-├── cron/hermes-cron-manifest.json  # 11个定时任务
+├── cron/hermes-cron-manifest.json  # 15个隔离定时任务
 ├── scripts/
+│   ├── hermes_job_runner.py    # Cron隔离runner + artifact写入
 │   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 92个单元测试
+├── tests/                      # 147个单元测试
 ├── skills/
-│   ├── common/                 # 共享HTTP层 + 原子状态存储
+│   ├── common/                 # 共享HTTP层 + 原子状态存储 + runtime context
 │   ├── stock-triage/           # 编排中枢
 │   ├── stock-analyst/          # 技术分析引擎
 │   ├── hot-money-tactics/      # 游资战法
@@ -267,7 +273,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 92项测试
+python -m pytest -q tests/        # 147项测试
 python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```

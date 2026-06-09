@@ -1,6 +1,6 @@
 # Cron 调度设计原则
 
-> 基于 A 股全栈系统 21 个 cron job 的实战经验总结
+> 基于 A 股全栈系统 manifest cron job 与外部 Hermes cron 的实战经验总结
 
 ## 时间分散原则
 
@@ -17,12 +17,12 @@
 
 收盘 Triage 链：
 ```
-15:05 封测跟踪 → 15:08 四维打分 → 15:25 Triage
-                     ↑ context_from: [封测, 四维打分]
+14:30 资金流向 → 15:08 四维打分 → 15:10 持仓风控 → 15:25 Triage
+                                      ↑ context_from: [四维打分, 持仓风控, 资金流向]
 ```
 
-- `context_from` 注入上游 job 的最近输出
-- 上游 job 的输出必须结构化（JSON 或固定格式 markdown）以便下游解析
+- `context_from` 只注入上游 job 的最近 artifact 摘要，不读取主线用户对话
+- 上游 job 的输出必须结构化（JSON 或固定格式 markdown）以便 runner 生成 summary
 - 链路深度建议 ≤3 级，避免传递衰减
 
 ## 静默式 vs 定时式
@@ -55,16 +55,28 @@ if not alerts:
 
 ## 数据采集模式
 
-所有 cron job 统一使用 `execute_code`：
-```python
-import subprocess, json
-result = subprocess.run(
-    ['python3', 'script.py', '--json'],
-    capture_output=True, text=True, timeout=30
-)
-data = json.loads(result.stdout)
+仓库 manifest 中的 cron job 统一使用 `hermes_job_runner`：
+```json
+{
+  "command": "python scripts/hermes_job_runner.py capital-flow",
+  "context_scope": "cron",
+  "deliver": "origin",
+  "context_from": ["intraday-alert"],
+  "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+  "run": {
+    "command": "python skills/stock-triage/scripts/capital_flow_monitor.py --json",
+    "timeout_seconds": 60
+  }
+}
 ```
 
+runner 负责：
+- 启动隔离子进程执行 `run.command`
+- 写 `$HERMES_HOME/cron/output/{job_id}/{run_id}.json`
+- 写 `$HERMES_HOME/cron/output/job_runs.json`
+- 根据 `deliver` / `silent_when_no_signal` / `max_output_chars` 控制主线输出
+
+Agent prompt 型 cron 才使用 `delegate_task(...)`；主 cron agent 不直接抓数据、不直接重计算。
 **禁止**在 cron prompt 中直接使用 `terminal` 工具（会触发审批锁）。
 
 ## API 依赖设计
