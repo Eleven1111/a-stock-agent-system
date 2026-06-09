@@ -13,19 +13,16 @@ ls ~/.hermes/skills/<skill>/scripts/<script>.py
 
 ### 2. 创建 cron job
 ```bash
-hermes cron create \
-  --name "任务中文名" \
-  --schedule "25 9 * * 1-5" \
-  --skill <skill-a>,<skill-b> \
-  --model deepseek-v4-flash --provider deepseek \
-  --deliver "origin"
+python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
+python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERMES_HOME"
 ```
 
 ### 3. 关键参数
 - **`schedule`**: 用 cron 表达式。交易日的用 `1-5`，避开整点（如 `25 9` 而非 `0 9`）
 - **`repeat`**: 一次性任务用 `once`，重复任务用默认 `forever`
-- **`skills`**: 必须包含 workflow 运行所需的所有 skill（缺了会工具不可用）
-- **`model/provider`**: 如果用户有计费分离要求（如 OpenRouter vs DeepSeek 分开计费），必须显式指定对应 provider
+- **`command`**: 必须进入 `python scripts/hermes_job_runner.py <job-id>`，不要注册 skill/model/prompt 型 cron
+- **模板变量**: 禁止 `{code}` / `{query}` 这类 Gateway 动态注入；任务必须自包含
+- **Gateway 异常**: 如果出现 `cannot import name 'AIAgent'`，先跑 `python scripts/hermes_gateway_doctor.py --write-launcher`
 
 ### 4. 验证运行
 ```bash

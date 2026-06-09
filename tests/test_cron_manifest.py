@@ -69,7 +69,7 @@ def test_duplicate_ids():
         os.unlink(path)
 
 
-def test_placeholder_without_vars():
+def test_placeholders_are_rejected_without_vars():
     j = dict(VALID_JOB)
     j["command"] = "python scripts/hermes_job_runner.py test-job --var code={code} --var name={name}"
     manifest = {"jobs": [j]}
@@ -82,24 +82,9 @@ def test_placeholder_without_vars():
         os.unlink(path)
 
 
-def test_placeholder_with_vars():
+def test_placeholders_are_rejected_even_with_vars():
     j = dict(VALID_JOB)
     j["command"] = "python scripts/hermes_job_runner.py test-job --var code={code}"
-    j["template_vars"] = ["code"]
-    manifest = {"jobs": [j]}
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        json.dump(manifest, f)
-        path = f.name
-    try:
-        assert validate(path) is True
-    finally:
-        os.unlink(path)
-
-
-def test_placeholder_partial_cover():
-    """占位符 {code} {name} 但 template_vars=["code"] → 应拒绝"""
-    j = dict(VALID_JOB)
-    j["command"] = "python scripts/hermes_job_runner.py test-job --var code={code} --var name={name}"
     j["template_vars"] = ["code"]
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -111,17 +96,30 @@ def test_placeholder_partial_cover():
         os.unlink(path)
 
 
-def test_placeholder_extra_var_warns():
-    """template_vars=["code","name"] 但 command 只用了 {code} → 应通过但有警告"""
+def test_run_command_placeholders_are_rejected():
+    """run.command 也必须自包含，不能依赖 Gateway 动态注入。"""
     j = dict(VALID_JOB)
-    j["command"] = "python scripts/hermes_job_runner.py test-job --var code={code}"
+    j["run"] = dict(VALID_JOB["run"])
+    j["run"]["command"] = "python script.py {code}"
+    manifest = {"jobs": [j]}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
+def test_template_vars_are_rejected_without_placeholders():
+    j = dict(VALID_JOB)
     j["template_vars"] = ["code", "name"]
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(manifest, f)
         path = f.name
     try:
-        assert validate(path) is True
+        assert validate(path) is False
     finally:
         os.unlink(path)
 

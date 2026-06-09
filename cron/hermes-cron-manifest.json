@@ -177,7 +177,7 @@
       "name": "收盘四维打分",
       "schedule": "8 15 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py four-dim-scorer --var code={code} --var name={name}",
+      "command": "python scripts/hermes_job_runner.py four-dim-scorer",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -190,9 +190,8 @@
       "context_from": ["capital-flow", "hk-a-linkage"],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": ["$HERMES_HOME/cron/output/four-dim-scorer/", "$HERMES_HOME/cron/output/job_runs.json"],
-      "template_vars": ["code", "name"],
-      "run": {"command": "python skills/stock-triage/scripts/four_dim_scorer.py {code} {name} --json", "cwd": ".", "timeout_seconds": 90},
-      "external_note": "{code} {name} 由 cron prompt 动态替换；结果进入收盘 Triage context_from"
+      "run": {"command": "python skills/stock-triage/scripts/batch_four_dim_scorer.py --json", "cwd": ".", "timeout_seconds": 180},
+      "external_note": "批量扫描跟踪标的；结果进入收盘 Triage context_from"
     },
     {
       "id": "portfolio-check",
@@ -241,7 +240,7 @@
       "name": "资讯监控 — 政策/产业/地缘触发",
       "schedule": "0 9,11,13,14,15,20,22 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py news-monitor --var query={query}",
+      "command": "python scripts/hermes_job_runner.py news-monitor",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -254,9 +253,8 @@
       "context_from": ["global-preopen"],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": ["$HERMES_HOME/cron/output/news-monitor/", "$HERMES_HOME/cron/output/job_runs.json"],
-      "template_vars": ["query"],
-      "run": {"command": "python skills/news-to-sector/scripts/main.py \"{query}\"", "cwd": ".", "timeout_seconds": 60},
-      "external_note": "需 Hermes Agent + SerpAPI；无触发静默"
+      "run": {"command": "python skills/news-to-sector/scripts/scheduled_monitor.py --json", "cwd": ".", "timeout_seconds": 90},
+      "external_note": "需 Hermes Agent + SerpAPI；固定查询集，无触发静默"
     },
     {
       "id": "institution-weekly",
