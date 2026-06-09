@@ -392,15 +392,56 @@ def analyze_rotation(days=5):
 
 # ======================== 主入口 ========================
 
+def cache_signal_context(df_zt):
+    """把涨停池提炼为情绪上下文（板块涨停数 + 连板梯队 + 封板质量），
+    落入共享缓存供 four_dim 情绪面消费。失败不阻塞主输出。"""
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        '..', '..', 'common'))
+        from signal_context import update_signal_context
+
+        sector_limitups = df_zt.groupby('所属行业').size().to_dict() \
+            if '所属行业' in df_zt.columns else {}
+
+        ladder = {}
+        for _, r in df_zt.iterrows():
+            code = str(r.get('代码', '')).zfill(6)
+            if not code or code == '000000':
+                continue
+            seal = r.get('封板资金')
+            entry = {
+                "lianban": int(r.get('连板数', 0) or 0),
+                "sector": r.get('所属行业'),
+                "seal_yi": round(float(seal) / 1e8, 2) if pd.notna(seal) and seal else None,
+            }
+            first = r.get('首次封板时间')
+            if pd.notna(first) and first:
+                text = str(first).replace(':', '')
+                entry["first_seal"] = f"{text[:2]}:{text[2:4]}" if len(text) >= 4 else str(first)
+            ladder[code] = entry
+
+        update_signal_context({
+            "sector_limitups": {str(k): int(v) for k, v in sector_limitups.items()},
+            "lianban_ladder": ladder,
+            "limitup_total": len(df_zt),
+        })
+        print(f"✅ 情绪上下文已缓存：{len(ladder)}只涨停 / {len(sector_limitups)}个板块", file=sys.stderr)
+    except Exception as e:
+        print(f"signal_context 写入失败: {e}", file=sys.stderr)
+
+
 def main():
     date_str = datetime.now().strftime('%Y%m%d')
     do_rotation = False
     full_mode = False
+    do_cache = False
     for a in sys.argv[1:]:
         if a == '--all':
             full_mode = True
         elif a == '--rotation':
             do_rotation = True
+        elif a == '--cache':
+            do_cache = True
         elif a.isdigit() and len(a) == 8:
             date_str = a
 
@@ -417,6 +458,9 @@ def main():
     if df_zt.empty:
         print("⚠️ 无涨停板数据（可能非交易日）")
         return
+
+    if do_cache:
+        cache_signal_context(df_zt)
 
     df_all = get_all_stocks()
 

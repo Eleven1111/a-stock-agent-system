@@ -13,11 +13,13 @@ import argparse
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 SCRIPT_DIR = os.path.dirname(__file__)
 sys.path.insert(0, SCRIPT_DIR)
+sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 
 import four_dim_scorer  # noqa: E402
 
@@ -49,19 +51,36 @@ def parse_targets(value: str | None) -> List[Tuple[str, str]]:
     return targets
 
 
-def score_targets(targets: List[Tuple[str, str]]) -> Dict[str, Any]:
-    results = []
-    for code, name in targets:
+def _market_of(code: str) -> str:
+    return "sz" if code.startswith(("0", "3")) else "sh"
+
+
+def _prefetch_quotes(targets: List[Tuple[str, str]]) -> Dict[str, Any]:
+    """一次性批量抓全部标的实时行情（腾讯支持多代码），省去每票各抓一次。"""
+    try:
+        from a_stock_http import fetch_tencent_quote
+        codes = [f"{_market_of(c)}{c}" for c, _ in targets]
+        return fetch_tencent_quote(codes) or {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def score_targets(targets: List[Tuple[str, str]], max_workers: int = 5) -> Dict[str, Any]:
+    quote_map = _prefetch_quotes(targets)
+
+    def _one(target: Tuple[str, str]) -> Dict[str, Any]:
+        code, name = target
+        q = quote_map.get(f"{_market_of(code)}{code}")
+        if not (isinstance(q, dict) and q.get("price") is not None):
+            q = None  # 预取未命中/不完整 → 让 score_stock 自抓，保留原 error 处理
         try:
-            result = four_dim_scorer.score_stock(code, name)
-        except Exception as exc:
-            result = {
-                "code": code,
-                "name": name,
-                "status": "failed",
-                "error": str(exc),
-            }
-        results.append(result)
+            return four_dim_scorer.score_stock(code, name, quote=q)
+        except Exception as exc:  # noqa: BLE001
+            return {"code": code, "name": name, "status": "failed", "error": str(exc)}
+
+    workers = min(max_workers, len(targets)) or 1
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        results = list(executor.map(_one, targets))  # map 保持 targets 顺序
 
     actionable = [
         r for r in results

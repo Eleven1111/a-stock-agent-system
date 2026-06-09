@@ -919,6 +919,8 @@ if __name__ == "__main__":
     parser.add_argument("--summary", action="store_true", help="Human-readable summary")
     parser.add_argument("--news", action="store_true", help="Include news fetching")
     parser.add_argument("--all", action="store_true", help="Full data + news")
+    parser.add_argument("--cache", action="store_true",
+                        help="把大盘影响落入共享缓存，供 four_dim 个股评分 overlay")
     args = parser.parse_args()
 
     include_news = args.news or args.all
@@ -927,6 +929,18 @@ if __name__ == "__main__":
         USE_SERPAPI = True
 
     data = collect_all_data(include_news=include_news)
+
+    if args.cache:
+        impact = data.get("impact")
+        if isinstance(impact, dict) and impact.get("status") != "insufficient_data":
+            try:
+                import os as _os
+                import sys as _sys
+                _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "..", "..", "common"))
+                from market_context import write_market_context
+                write_market_context(impact)
+            except Exception as _e:  # noqa: BLE001
+                print(f"market_context 写入失败: {_e}", file=__import__("sys").stderr)
 
     if args.summary or args.all:
         print_summary(data)
