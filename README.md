@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-152%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-194%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -42,12 +42,12 @@ graph TD
 |--------|-------------|--------------|
 | **stock-analyst** | Multi-timeframe technical analysis (day/week/60m/30m), sector scanning, screener | Tencent, Sina, yfinance |
 | **hot-money-tactics** | Limit-up board analysis, sentiment cycles, sector rotation tracking | AkShare |
-| **daban-stock-picker** | Main-board 10cm limit-up candidate gate: first-board reseal, second-board weak-to-strong, six-question veto, tradeability | Structured quote/sector/portfolio JSON |
-| **chanlun-backtest** | Offline research gate for Chan Theory and strategy rules: IS/OOS wall, costs, controls, statistical tests | Local research-state JSON |
+| **daban-stock-picker** | Main-board 10cm limit-up candidate gate: first-board reseal, second-board weak-to-strong, six-question veto, tradeability. Thresholds read from a single source of truth shared with the backtest engine | `config/daban_thresholds.yaml`, structured JSON |
+| **chanlun-backtest** | Offline research gate (IS/OOS wall, costs, controls, statistical tests) **plus** `chan_structure` signal generator: fractals → strokes → pivots → third buy/sell → MACD divergence. Signals earn live weight only after the gate passes | Tencent qfq K-line, local research-state JSON |
 | **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share impact | yfinance, USGS, GDACS |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
-| **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit | cninfo, pypdf |
-| **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(25%) × catalyst(25%) × deep(20%) | All above |
+| **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit. The weighted scorecard flows back into the four-dim deep dimension via a freshness-decayed cache | cninfo, pypdf |
+| **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(25%) × catalyst(25%) × deep(20%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals | All above |
 | **hk-a-linkage** | AH premium spreads, HSI divergence, key HK stock movements | Tencent, yfinance |
 | **capital-flow-monitor** | Northbound flows, institutional/retail flows, sector-level flows | Eastmoney |
 | **portfolio-manager** | P&L tracking, stop-loss, trailing stops, concentration checks | Tencent |
@@ -245,7 +245,7 @@ a-stock-agent-system/
 │   ├── generate_system_crontab.py # System cron fallback generator
 │   ├── smoke_test.py           # 9-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 152 unit tests
+├── tests/                      # 194 unit tests
 ├── skills/
 │   ├── common/                 # Shared HTTP + atomic state store + runtime context
 │   ├── stock-triage/           # Orchestrator hub
@@ -271,6 +271,8 @@ a-stock-agent-system/
 **Scripts over services.** Every module is a standalone CLI script. No servers, no databases, no daemons. Pipe them together however you want.
 
 **State is atomic.** All JSON writes go through `state_store.atomic_write_json()` with backup and crash recovery.
+
+**Earn your weight.** Chan-structure signals and tuned thresholds carry **zero live weight** until they pass the offline research gate (out-of-sample walled), tracked in `strategy_registry`. Live performance can only *retire* a strategy (gating by expectancy), never *refit* its entry rules — that separation is what keeps the system from overfitting to recent noise.
 
 ## Two Scoring Engines — Don't Confuse Them
 

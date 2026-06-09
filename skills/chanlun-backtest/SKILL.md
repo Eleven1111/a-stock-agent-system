@@ -98,8 +98,37 @@ $PY $SDIR/fractal_chart.py 600011
 - 返回格式：`[date, open, close, high, low, volume_or_amount]`
 - 今日K线的volume字段可能是dict（含除权信息），脚本已处理
 
+## 缠论结构信号 CLI（chan_structure.py）
+
+`scripts/chan_structure.py` 把缠论从"画图"升级为"出信号"：在分型基础上做
+去包含 → 笔 → 中枢 → 三买/三卖 → MACD 背驰，输出**结构化 JSON 信号**供 `four_dim_scorer` 消费。
+
+```bash
+PY=~/.hermes/hermes-agent/venv/bin/python3
+SDIR=~/.hermes/skills/chanlun-backtest/scripts
+
+$PY $SDIR/chan_structure.py 002156 通富微电 --json
+$PY $SDIR/chan_structure.py 600011 --days 120
+```
+
+输出含 `structure`（笔/中枢统计、最新中枢 zd/zg）与 `signals`
+（`third_buy`/`third_sell`/`top_divergence`/`bottom_divergence`，各带 `strategy_id`）。
+
+**信号过闸才计权（铁律）：** chan_structure 只产出"研究假设"信号。四维技术面对这些信号，
+在对应 `strategy_id` 通过 `research_gate --register`（写入 `strategy_registry`，
+`allowed_in_live_agent=true`）之前，一律 display-only / 0 权重。把闸门结论登记进注册表：
+
+```bash
+$PY $SDIR/research_gate.py --input research_state.json --register --json
+```
+
 ## 接入规则
 
 `stock-triage` 可以引用本 skill 的研究结论，但不能把它当作实时选股器。实时打板候选由 `daban-stock-picker` 负责，且必须继续经过可成交性和持仓闸门。
 
 如果研究闸门返回 `blocked` 或 `failed`，对应参数只能标注为"研究假设"，不能标注为"已验证有效策略"。
+
+缠论结构信号同理：未经 `research_gate --register` 登记为 `allowed_in_live_agent` 的信号，
+在 `four_dim_scorer` 中只展示、不计权（由 `common/strategy_registry.py` 统一裁决）。
+打板阈值由 `config/daban_thresholds.yaml` 单一事实源管理，回测引擎与实盘候选共读，
+阈值变更只允许在 `research_gate` 通过后进行。

@@ -18,6 +18,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 from tradeability import assess_tradeability, limit_pct
+import daban_config as _cfg
+
+# 阈值走单一事实源 config/daban_thresholds.yaml（回退默认与历史硬编码一致），
+# 与回测引擎 daban_bt_engine 共读，确保"实盘用的窗口==回测验证过的窗口"。
+_UNI = _cfg.section("universe")
+_MKT = _cfg.section("market_gate")
+_FBR = _cfg.section("first_board_reseal")
+_SBW = _cfg.section("second_board_weak_to_strong")
 
 
 ENGINE = {
@@ -108,19 +116,19 @@ def _hard_pool_rejections(candidate: Dict[str, Any]) -> List[str]:
         rejections.append("仅支持A股主板10cm打板，排除创业板/科创板/北交所/ST")
     if _bool(candidate.get("is_st"), False):
         rejections.append("ST/*ST股票一票否决")
-    if _num(candidate.get("listed_days"), 9999) < 60:
+    if _num(candidate.get("listed_days"), 9999) < _UNI["listed_days_min"]:
         rejections.append("上市未满60天")
 
     float_cap = _num(candidate.get("float_market_cap") or candidate.get("float_mktcap"))
-    if float_cap is not None and not (1.5e9 <= float_cap <= 12.0e9):
+    if float_cap is not None and not (_UNI["float_mktcap_min"] <= float_cap <= _UNI["float_mktcap_max"]):
         rejections.append("流通市值不在15亿-120亿")
 
     avg_turnover = _num(candidate.get("avg_turnover_amount_20d") or candidate.get("avg_turnover_20d"))
-    if avg_turnover is not None and avg_turnover < 2e8:
+    if avg_turnover is not None and avg_turnover < _UNI["avg_turnover_20d_min"]:
         rejections.append("20日平均成交额低于2亿元")
 
     close_prev = _num(candidate.get("close_prev") or candidate.get("prev_close"))
-    if close_prev is not None and not (4.0 <= close_prev <= 35.0):
+    if close_prev is not None and not (_UNI["close_prev_min"] <= close_prev <= _UNI["close_prev_max"]):
         rejections.append("前收盘价不在4-35元打板价格带")
 
     return rejections
@@ -128,19 +136,19 @@ def _hard_pool_rejections(candidate: Dict[str, Any]) -> List[str]:
 
 def _market_rejections(market: Dict[str, Any], portfolio: Dict[str, Any]) -> List[str]:
     rejections = []
-    if _num(market.get("yday_limitup_index_open"), 0.0) < -2.0:
+    if _num(market.get("yday_limitup_index_open"), 0.0) < _MKT["yday_limitup_index_open_min"]:
         rejections.append("昨日涨停指数开盘低于-2%，强股反馈差")
-    if _num(market.get("broken_rate_first20m"), 0.0) > 35.0:
+    if _num(market.get("broken_rate_first20m"), 0.0) > _MKT["broken_rate_first20m_max"]:
         rejections.append("早盘20分钟炸板率高于35%")
     if _bool(portfolio.get("has_positions_to_dispose"), False):
         rejections.append("T+1处置优先：仍有持仓待处理，先卖后买")
-    if _num(portfolio.get("week_trades"), 0.0) >= 3:
+    if _num(portfolio.get("week_trades"), 0.0) >= _MKT["week_trades_max"]:
         rejections.append("本周新开仓已达3笔上限")
-    if _num(portfolio.get("day_loss_pct"), 0.0) <= -2.0:
+    if _num(portfolio.get("day_loss_pct"), 0.0) <= _MKT["day_loss_pct_stop"]:
         rejections.append("日度亏损达到-2%停手线")
-    if _num(portfolio.get("week_loss_pct"), 0.0) <= -5.0:
+    if _num(portfolio.get("week_loss_pct"), 0.0) <= _MKT["week_loss_pct_freeze"]:
         rejections.append("周度亏损达到-5%冻结线")
-    if _num(portfolio.get("consecutive_losses"), 0.0) >= 3:
+    if _num(portfolio.get("consecutive_losses"), 0.0) >= _MKT["consecutive_losses_max"]:
         rejections.append("连续错单3次，冻结交易")
     return rejections
 
@@ -151,37 +159,37 @@ def _pattern_rejections(candidate: Dict[str, Any], sector_limitups: int) -> List
     rejections = []
 
     if pattern == "first_board_reseal":
-        if first_time is None or first_time > parse_time_minutes("10:30"):
+        if first_time is None or first_time > parse_time_minutes(_FBR["first_limitup_latest"]):
             rejections.append("首板首次上板晚于10:30")
-        if _num(candidate.get("open_board_count"), 99) > 2:
+        if _num(candidate.get("open_board_count"), 99) > _FBR["open_board_max"]:
             rejections.append("炸板次数超过2次")
-        if _num(candidate.get("reseal_minutes") or candidate.get("reseal_time"), 99) > 15:
+        if _num(candidate.get("reseal_minutes") or candidate.get("reseal_time"), 99) > _FBR["reseal_minutes_max"]:
             rejections.append("回封耗时超过15分钟")
         seal_amount = _num(candidate.get("seal_amount") or candidate.get("seal_amt"), 0.0) or 0.0
         float_cap = _num(candidate.get("float_market_cap") or candidate.get("float_mktcap"), 0.0) or 0.0
-        if float_cap <= 0 or seal_amount / float_cap < 0.003:
+        if float_cap <= 0 or seal_amount / float_cap < _FBR["seal_amount_ratio_min"]:
             rejections.append("封单额/流通市值低于0.3%")
-        if _num(candidate.get("active_buy_ratio"), 0.0) < 0.60:
+        if _num(candidate.get("active_buy_ratio"), 0.0) < _FBR["active_buy_ratio_min"]:
             rejections.append("主动买入占比低于60%")
         inflow_ratio = _num(candidate.get("big_order_net_inflow_ratio"))
         if inflow_ratio is None:
             turnover = _num(candidate.get("turnover"), 0.0) or 0.0
             inflow = _num(candidate.get("big_order_net_inflow"), 0.0) or 0.0
             inflow_ratio = inflow / turnover if turnover > 0 else 0.0
-        if inflow_ratio < 0.08:
+        if inflow_ratio < _FBR["big_order_inflow_ratio_min"]:
             rejections.append("大单净流入/成交额低于8%")
-        if sector_limitups < 3:
+        if sector_limitups < _FBR["sector_limitup_min"]:
             rejections.append("板块涨停少于3只，缺少集群共振")
     elif pattern == "second_board_weak_to_strong":
         if not _bool(candidate.get("prev_day_limitup_close"), False):
             rejections.append("二板弱转强要求前一日涨停收盘")
         auction_gap = _num(candidate.get("auction_gap_pct"), 999.0)
-        if auction_gap is None or not (-1.0 <= auction_gap <= 3.0):
+        if auction_gap is None or not (_SBW["auction_gap_low"] <= auction_gap <= _SBW["auction_gap_high"]):
             rejections.append("竞价涨幅不在-1%到+3%弱转强窗口")
-        if first_time is None or first_time > parse_time_minutes("09:45"):
+        if first_time is None or first_time > parse_time_minutes(_SBW["first_limitup_latest"]):
             rejections.append("二板首次上板晚于09:45")
         companion = int(_num(candidate.get("sector_companion_count"), sector_limitups) or 0)
-        if companion < 2:
+        if companion < _SBW["sector_companion_min"]:
             rejections.append("同板块跟随涨停/冲板少于2只")
     else:
         rejections.append("未知打板模式，必须是first_board_reseal或second_board_weak_to_strong")
@@ -208,7 +216,7 @@ def _six_questions(candidate: Dict[str, Any], market: Dict[str, Any], sector_lim
         {
             "id": "sector_cluster",
             "question": "板块内涨停是否 >= 3只？",
-            "passed": sector_limitups >= 3,
+            "passed": sector_limitups >= _FBR["sector_limitup_min"],
             "reason": f"sector_limitup_count={sector_limitups}",
         },
         {

@@ -47,6 +47,17 @@ from a_stock_http import (
     fetch_tencent_kline as _http_kline,
 )
 from tradeability import assess_tradeability
+from deep_research_cache import read_deep_research, decay_stale_score
+
+# 缠论结构信号 + 策略闸门（过 research_gate 才计权，否则 display-only 标研究假设）
+_CHANLUN_DIR = os.path.join(os.path.dirname(SKILL_DIR), "chanlun-backtest", "scripts")
+if _CHANLUN_DIR not in sys.path:
+    sys.path.insert(0, _CHANLUN_DIR)
+try:
+    import chan_structure as _chan
+except Exception:  # noqa: BLE001
+    _chan = None
+from strategy_registry import is_allowed_in_live as _chan_allowed
 
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict[str, Any]:
@@ -171,6 +182,47 @@ def calc_kdj(highs, lows, closes, period=9):
 
 # ========== 四维评分 ==========
 
+_CHAN_LABELS = {
+    "third_buy": "缠论三买", "third_sell": "缠论三卖",
+    "top_divergence": "顶背驰", "bottom_divergence": "底背驰",
+}
+
+
+def chan_adjustment(signals, recent_window, total_bars, allow_fn):
+    """对最近的缠论结构信号计算技术面调整（纯函数，便于单测）。
+
+    allow_fn(strategy_id)->bool 决定该信号是否过 research_gate 计权；未过闸只标
+    "研究假设"、不改分（信号过闸才加权的红线执行点）。返回 (delta, lock_max, notes)。
+    """
+    delta = 0.0
+    lock_max = None
+    notes = []
+    for s in signals or []:
+        idx = s.get("idx")
+        if idx is None or idx < total_bars - recent_window:
+            continue  # 信号不够新，忽略
+        t = s.get("type")
+        label = _CHAN_LABELS.get(t, t)
+        if not allow_fn(s.get("strategy_id")):
+            notes.append(f"[研究假设]{label}(未过闸·0权重)")
+            continue
+        if t == "third_buy":
+            delta += 1.5
+            notes.append(f"{label}✅+1.5")
+        elif t == "bottom_divergence":
+            delta += 1.0
+            notes.append(f"{label}✅+1.0")
+        elif t == "third_sell":
+            delta -= 1.5
+            lock_max = 6.0 if lock_max is None else min(lock_max, 6.0)
+            notes.append(f"{label}⚠️-1.5锁分")
+        elif t == "top_divergence":
+            delta -= 1.5
+            lock_max = 5.0 if lock_max is None else min(lock_max, 5.0)
+            notes.append(f"{label}⚠️-1.5锁分")
+    return delta, lock_max, notes
+
+
 def score_technical(code: str, name: str) -> Dict[str, Any]:
     """技术面评分（0-10）"""
     market = "sz" if code.startswith(("0", "3")) else "sh"
@@ -261,7 +313,21 @@ def score_technical(code: str, name: str) -> Dict[str, Any]:
             score += 0.5
             signals.append(f"放量({vol_ratio:.1f}x)")
 
+    # 缠论结构信号（过 research_gate 才计权，否则 display-only 标研究假设）
+    chan_sigs = []
+    if _chan is not None:
+        try:
+            chan_sigs = _chan.analyze(klines).get("signals", [])
+        except Exception:  # noqa: BLE001
+            chan_sigs = []
+    chan_delta, chan_lock, chan_notes = chan_adjustment(
+        chan_sigs, recent_window=10, total_bars=len(klines), allow_fn=_chan_allowed)
+    score += chan_delta
+    signals.extend(chan_notes)
+
     score = max(-3, min(10, score))
+    if chan_lock is not None:
+        score = min(score, chan_lock)
 
     return {
         "score": round(score, 1),
@@ -370,15 +436,9 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     }
 
 
-def score_deep(code: str, name: str) -> Dict[str, Any]:
-    """深度面评分（0-10）——估值、基本面快照"""
-    market = "sz" if code.startswith(("0", "3")) else "sh"
-    rt = fetch_tencent_realtime(code, market)
-
+def _pe_snapshot_score(pe: Optional[float]) -> float:
+    """PE 估值快照分（0-10）——深研缓存缺失时的回退基准。"""
     score = 5.0
-    pe = rt.get("pe")
-    cap = rt.get("market_cap")
-
     if pe is not None:
         if 0 < pe < 15:
             score += 2.0
@@ -388,15 +448,62 @@ def score_deep(code: str, name: str) -> Dict[str, Any]:
             score -= 1.5
         elif pe < 0:
             score -= 1.0
+    return max(0, min(10, score))
 
+
+def score_deep(code: str, name: str) -> Dict[str, Any]:
+    """深度面评分（0-10）——优先读 Serenity 投研缓存，过期衰减，缺失回退 PE 快照。
+
+    断点修复：原实现仅做 PE 分桶，让"深度面 20%"形同虚设。现在优先消费
+    serenity-investment-research 产出的六维 scorecard（经 deep_research_cache 映射），
+    深研一次、日评复用；缓存过期则按新鲜度向 PE 快照线性回归。
+    """
+    market = "sz" if code.startswith(("0", "3")) else "sh"
+    rt = fetch_tencent_realtime(code, market)
+    pe = rt.get("pe")
+    cap = rt.get("market_cap")
+    pe_score = _pe_snapshot_score(pe)
+
+    deep = read_deep_research(code)
+    if deep and deep.get("deep_score") is not None:
+        raw = deep["deep_score"]
+        age = deep.get("age_days") or 0
+        if deep.get("stale"):
+            score = decay_stale_score(raw, pe_score, age)
+            source = "serenity_deep_stale"
+            tag = f"⚠️过期{age}天 "
+        else:
+            score = raw
+            source = "serenity_deep"
+            tag = ""
+        up = deep.get("valuation_upside_pct")
+        up_str = f", 中性赔率{up:+.0f}%" if isinstance(up, (int, float)) else ""
+        pe_str = f"; PE={pe:.1f}" if pe is not None else ""
+        return {
+            "score": round(score, 1),
+            "source": source,
+            "stale": bool(deep.get("stale")),
+            "asof": deep.get("asof"),
+            "age_days": age,
+            "scorecard_total": deep.get("scorecard_total"),
+            "rating": deep.get("rating"),
+            "valuation_upside_pct": up,
+            "dimensions": deep.get("dimensions", {}),
+            "pe": pe,
+            "market_cap_yi": round(cap, 1) if cap else None,
+            "detail": f"{tag}投研{deep.get('rating') or ''}"
+                      f"({deep.get('scorecard_total')}/100→{raw}){up_str}{pe_str}",
+        }
+
+    # 回退：PE 估值快照
     signals_detail = f"PE={pe:.1f}" if pe is not None else "PE缺失"
     if cap:
         signals_detail += f", 市值={cap:.0f}亿"
-
-    score = max(0, min(10, score))
-
+    signals_detail += "（无深研缓存，估值快照）"
     return {
-        "score": round(score, 1),
+        "score": round(pe_score, 1),
+        "source": "valuation_snapshot",
+        "stale": False,
         "pe": pe,
         "market_cap_yi": round(cap, 1) if cap else None,
         "detail": signals_detail,
@@ -497,7 +604,7 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
         "technical": technical["ma5"] is not None,        # 有K线
         "sentiment": sentiment.get("change_pct") is not None,  # 有实时
         "catalyst": catalyst.get("available", catalyst["news_count"] > 0),  # 数据源可用（无新闻=中性，仍纳入）
-        "deep": deep["pe"] is not None,                   # 有估值
+        "deep": deep.get("source", "").startswith("serenity") or deep.get("pe") is not None,  # 有深研或估值
     }
     # 在可用维度上重新归一化权重；无可用维度时回退原始权重
     eff = {k: WEIGHTS[k] for k in WEIGHTS if available.get(k, True)}
@@ -517,6 +624,7 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
         "kline": technical["ma5"] is not None,
         "news": catalyst["news_count"] > 0,
         "valuation": deep["pe"] is not None,
+        "deep_research": deep.get("source", "").startswith("serenity") and not deep.get("stale", False),
     }
 
     # 按配置规则判定置信度（从高到低匹配）
@@ -555,6 +663,7 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
         "weights": {k: f"{v*100:.0f}%" for k, v in WEIGHTS.items()},
         "effective_weights": {k: f"{eff.get(k, 0)*100:.0f}%" for k in WEIGHTS},
         "excluded_dims": excluded,
+        "deep_source": scores["deep"].get("source"),
     }
 
 
@@ -627,7 +736,21 @@ def score_short_term_entry(code: str, name: str) -> Dict:
                 score -= 1.0
                 signals.append(f"30分钟RSI超买({rsi_30[-1]:.0f})")
 
+    # 缠论结构（60分钟级别，过 research_gate 才计权）
+    c_lock = None
+    if _chan is not None and k60 and len(k60) >= 20:
+        try:
+            chan_sigs60 = _chan.analyze(k60).get("signals", [])
+        except Exception:  # noqa: BLE001
+            chan_sigs60 = []
+        c_delta, c_lock, c_notes = chan_adjustment(
+            chan_sigs60, recent_window=8, total_bars=len(k60), allow_fn=_chan_allowed)
+        score += c_delta
+        signals.extend(c_notes)
+
     score = max(0, min(10, score))
+    if c_lock is not None:
+        score = min(score, c_lock)
 
     suggestion = "可入场" if score >= 7 else ("等待" if score >= 5 else "暂不入场")
 
