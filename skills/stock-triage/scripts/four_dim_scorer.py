@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """
-四维打分引擎 — A股标的多维度自动评分
+四维打分引擎 — A股标的常规体检器
 ======================================
 技术面 × 情绪面 × 催化面 × 深度面 → S/A/B/C 分级 + 买卖建议
+
+⚠️ 定位说明（重要）：
+  本引擎是**常规个股体检器**（趋势/估值/催化的综合体检），含估值(深度面 20%)维度，
+  更贴合波段/中线持仓视角。它**不是打板引擎**——打板龙头的选股（连板梯队、封板质量、
+  竞价封板、游资情绪周期）由 `hot-money-tactics` 负责。打板标的常处于"均线尚未多头排列、
+  PE 高或无意义"的启动期，用本引擎打分会被技术/估值维度低估，请勿用本引擎给打板标的做
+  最终决策。两个引擎职责分离：体检走这里，打板走 hot-money-tactics。
 
 数据源（纯 urllib，cron-safe）：
 - 腾讯 qt.gtimg.cn — 实时行情 + 历史K线
@@ -19,72 +26,62 @@ import sys
 import os
 import urllib.request
 import urllib.parse
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from datetime import datetime
+from typing import Dict, Any, List, Tuple, Optional
 
 # ========== 路径 ==========
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STOCK_ANALYST = os.path.join(os.path.dirname(SKILL_DIR), "stock-analyst")
 sys.path.insert(0, STOCK_ANALYST)
 
-# ========== 数据抓取 ==========
+# ========== 数据抓取（统一走 a_stock_http）==========
+
+import sys as _sys
+_COMMON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                           "common")
+if _COMMON_DIR not in _sys.path:
+    _sys.path.insert(0, _COMMON_DIR)
+
+from a_stock_http import (
+    fetch_tencent_quote as _http_quote,
+    fetch_tencent_kline as _http_kline,
+)
+from tradeability import assess_tradeability
+
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict[str, Any]:
-    """腾讯实时行情"""
-    url = f"http://qt.gtimg.cn/q={market}{code}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    """腾讯实时行情 — 委托 a_stock_http"""
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("gbk")
-        parts = raw.split("=")[1].strip().strip('"').split("~")
-        if len(parts) < 40:
-            return {"error": "数据不完整"}
-        return {
-            "price": float(parts[3]) if parts[3] else None,
-            "prev_close": float(parts[4]) if parts[4] else None,
-            "open": float(parts[5]) if parts[5] else None,
-            "high": float(parts[33]) if parts[33] else None,
-            "low": float(parts[34]) if parts[34] else None,
-            "change_pct": float(parts[32]) if parts[32] else None,
-            "volume": float(parts[6]) if parts[6] else None,
-            "amount": float(parts[37]) * 10000 if parts[37] else None,
-            "turnover": float(parts[38]) if parts[38] else None,
-            "pe": float(parts[39]) if parts[39] else None,
-            "market_cap": float(parts[45]) if parts[45] else None,
-        }
+        full_code = f"{market}{code}"
+        result = _http_quote([full_code])
+        if result and isinstance(result, dict):
+            data = result.get(full_code)
+            if data and isinstance(data, dict) and data.get("price") is not None:
+                return data
+        return {"error": "数据不完整"}
     except Exception as e:
         return {"error": str(e)}
 
 
 def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60, ktype: str = "day") -> List[Dict]:
-    """腾讯历史K线 (day/week/month/60/30)"""
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={market}{code},{ktype},,,{days},qfq"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    """腾讯历史K线 — 委托 a_stock_http"""
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-        key_map = {"day": "qfqday", "week": "qfqweek", "month": "qfqmonth",
-                   "60": "qfq60", "30": "qfq30"}
-        key = key_map.get(ktype, "qfqday")
-        fallback = ktype if ktype in ("day","week","month") else "day"
-        klines = (data.get("data", {}).get(f"{market}{code}", {}).get(key, []) or
-                  data.get("data", {}).get(f"{market}{code}", {}).get(fallback, []))
-        result = []
-        for k in klines[-days:]:
-            result.append({
-                "date": k[0], "open": float(k[1]), "close": float(k[2]),
-                "high": float(k[3]), "low": float(k[4]), "volume": float(k[5]),
-            })
-        return result
+        return _http_kline(code, market, days, ktype)
     except Exception:
         return []
 
 
-def fetch_serpapi_news(query: str, num: int = 5) -> List[Dict]:
-    """SerpAPI新闻"""
+def fetch_serpapi_news(query: str, num: int = 5) -> Optional[List[Dict]]:
+    """SerpAPI新闻。
+
+    返回值区分"数据源不可用"与"可用但无新闻"：
+      · None  → 无 API key 或请求出错（数据源不可用，不应据此判定"无催化"）
+      · []    → 数据源可用但确实没有命中新闻（属于中性信息）
+      · list  → 命中的新闻条目
+    """
     api_key = os.environ.get("SERPAPI_API_KEY")
     if not api_key:
-        return []
+        return None
     url = f"https://serpapi.com/search?engine=google_news&q={urllib.parse.quote(query)}&num={num}&api_key={api_key}&gl=cn&hl=zh-cn"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
@@ -92,7 +89,7 @@ def fetch_serpapi_news(query: str, num: int = 5) -> List[Dict]:
             data = json.loads(resp.read().decode())
         return data.get("news_results", [])[:num]
     except Exception:
-        return []
+        return None
 
 
 # ========== 技术指标（纯numpy） ==========
@@ -330,7 +327,9 @@ def score_sentiment(code: str, name: str) -> Dict[str, Any]:
 
 def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     """催化面评分（0-10）——基于新闻和政策"""
-    news = fetch_serpapi_news(f"{name} {code} 政策 业绩 公告", num=5)
+    raw_news = fetch_serpapi_news(f"{name} {code} 政策 业绩 公告", num=5)
+    source_available = raw_news is not None   # None=数据源不可用；[]=可用但无新闻
+    news = raw_news or []
 
     score = 5.0
     signals = []
@@ -365,6 +364,7 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     return {
         "score": round(score, 1),
         "news_count": len(news),
+        "available": source_available,
         "catalysts": catalysts[:3],
         "detail": "; ".join(signals[:3]) if signals else "无显著催化",
     }
@@ -388,9 +388,6 @@ def score_deep(code: str, name: str) -> Dict[str, Any]:
             score -= 1.5
         elif pe < 0:
             score -= 1.0
-            signals_detail = f"PE为负({pe:.1f})"
-        else:
-            signals_detail = f"PE={pe:.1f}"
 
     signals_detail = f"PE={pe:.1f}" if pe is not None else "PE缺失"
     if cap:
@@ -408,26 +405,72 @@ def score_deep(code: str, name: str) -> Dict[str, Any]:
 
 # ========== 汇总 ==========
 
-WEIGHTS = {
-    "technical": 0.30,
-    "sentiment": 0.25,
-    "catalyst": 0.25,
-    "deep": 0.20,
-}
+# ========== 配置（从 scoring.yaml 加载）==========
+import yaml
+
+def _load_scoring_config():
+    config_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'config', 'scoring.yaml')
+    try:
+        with open(config_path) as f:
+            return yaml.safe_load(f)
+    except Exception:
+        return None
+
+_scoring_cfg = _load_scoring_config()
+
+if _scoring_cfg:
+    WEIGHTS = _scoring_cfg.get("scoring", {}).get("weights", {})
+    RISK = _scoring_cfg.get("risk", {})
+    _grades_cfg = _scoring_cfg.get("scoring", {}).get("grades", {})
+    _confidence_cfg = _scoring_cfg.get("scoring", {}).get("confidence", {})
+else:
+    WEIGHTS = {"technical": 0.30, "sentiment": 0.25, "catalyst": 0.25, "deep": 0.20}
+    RISK = {}
+    _grades_cfg = {}
+    _confidence_cfg = {}
+
+# 从配置加载分级标准（按 min 值降序排列）
+GRADES = sorted(
+    [
+        {
+            "name": name,
+            "min": cfg.get("min", 0),
+            "emoji": cfg.get("emoji", ""),
+            "advice": cfg.get("advice", ""),
+        }
+        for name, cfg in _grades_cfg.items()
+    ],
+    key=lambda x: x["min"],
+    reverse=True,
+) if _grades_cfg else [
+    {"name": "S", "min": 8.0, "emoji": "🟢🟢🟢", "advice": "强烈推荐 — 多维度共振看多"},
+    {"name": "A", "min": 6.0, "emoji": "🟢🟢", "advice": "推荐 — 技术面偏多，有催化支撑"},
+    {"name": "B", "min": 4.0, "emoji": "🟢", "advice": "观察 — 中性偏多，等待信号确认"},
+    {"name": "C", "min": 2.0, "emoji": "🔶", "advice": "谨慎 — 偏空信号，控制仓位"},
+    {"name": "D", "min": 0.0, "emoji": "🔴", "advice": "回避 — 多维度利空"},
+]
+
+# 从配置加载置信度规则（按顺序匹配）
+CONFIDENCE_RULES = {}
+if _confidence_cfg:
+    for level in ["high", "medium", "low"]:
+        cfg = _confidence_cfg.get(level)
+        if cfg:
+            CONFIDENCE_RULES[level] = {"requires": cfg.get("requires", [])}
+if not CONFIDENCE_RULES:
+    CONFIDENCE_RULES = {
+        "high": {"requires": ["realtime", "kline", "news", "valuation"]},
+        "medium": {"requires": ["realtime", "kline"]},
+        "low": {"requires": ["realtime"]},
+    }
 
 
 def grade(weighted_score: float) -> Tuple[str, str, str]:
-    """S/A/B/C 分级"""
-    if weighted_score >= 8.0:
-        return "S", "🟢🟢🟢", "强烈推荐 — 多维度共振看多"
-    elif weighted_score >= 6.0:
-        return "A", "🟢🟢", "推荐 — 技术面偏多，有催化支撑"
-    elif weighted_score >= 4.0:
-        return "B", "🟢", "观察 — 中性偏多，等待信号确认"
-    elif weighted_score >= 2.0:
-        return "C", "🔶", "谨慎 — 偏空信号，控制仓位"
-    else:
-        return "D", "🔴", "回避 — 多维度利空"
+    """S/A/B/C 分级 — 从 GRADES 配置读取阈值"""
+    for g in GRADES:
+        if weighted_score >= g["min"]:
+            return g["name"], g["emoji"], g["advice"]
+    return "D", "🔴", "回避 — 多维度利空"
 
 
 def score_stock(code: str, name: str) -> Dict[str, Any]:
@@ -446,30 +489,72 @@ def score_stock(code: str, name: str) -> Dict[str, Any]:
     deep = score_deep(code, name)
     print(f"  深度面: {deep['score']}/10", file=sys.stderr)
 
-    weighted = (
-        technical["score"] * WEIGHTS["technical"] +
-        sentiment["score"] * WEIGHTS["sentiment"] +
-        catalyst["score"] * WEIGHTS["catalyst"] +
-        deep["score"] * WEIGHTS["deep"]
-    )
+    scores = {"technical": technical, "sentiment": sentiment,
+              "catalyst": catalyst, "deep": deep}
+
+    # 各维度数据是否真实可用（避免缺失维度以中性 5.0 静默稀释总分）
+    available = {
+        "technical": technical["ma5"] is not None,        # 有K线
+        "sentiment": sentiment.get("change_pct") is not None,  # 有实时
+        "catalyst": catalyst.get("available", catalyst["news_count"] > 0),  # 数据源可用（无新闻=中性，仍纳入）
+        "deep": deep["pe"] is not None,                   # 有估值
+    }
+    # 在可用维度上重新归一化权重；无可用维度时回退原始权重
+    eff = {k: WEIGHTS[k] for k in WEIGHTS if available.get(k, True)}
+    total_w = sum(eff.values())
+    if total_w > 0:
+        eff = {k: v / total_w for k, v in eff.items()}
+    else:
+        eff = dict(WEIGHTS)
+    weighted = sum(scores[k]["score"] * eff.get(k, 0.0) for k in WEIGHTS)
+    excluded = [k for k in WEIGHTS if not available.get(k, True)]
 
     g, emoji, advice = grade(weighted)
+
+    # 计算置信度和数据覆盖率
+    data_coverage = {
+        "realtime": technical["price"] is not None,
+        "kline": technical["ma5"] is not None,
+        "news": catalyst["news_count"] > 0,
+        "valuation": deep["pe"] is not None,
+    }
+
+    # 按配置规则判定置信度（从高到低匹配）
+    confidence = "low"
+    for level in ["high", "medium", "low"]:
+        required = CONFIDENCE_RULES[level]["requires"]
+        if all(data_coverage.get(r, False) for r in required):
+            confidence = level
+            break
+
+    # 低置信度时不给强烈买卖建议
+    if confidence == "low":
+        advice = "数据不足，无法给出方向性判断"
+        emoji = "⚪"
+
+    # 可成交性：封死一字板/停牌时，分数再高也无法买入，必须在建议中点明
+    market = "sz" if code.startswith(("0", "3")) else "sh"
+    quote = fetch_tencent_realtime(code, market)
+    trade = assess_tradeability(quote, code, name) if "error" not in quote else \
+        {"tradeable": False, "status": "no_data", "reason": "行情缺失"}
+    if trade.get("tradeable") is False and confidence != "low":
+        advice = f"⛔ {trade['reason']}（{advice}）"
 
     return {
         "code": code,
         "name": name,
         "timestamp": datetime.now().isoformat(),
-        "scores": {
-            "technical": technical,
-            "sentiment": sentiment,
-            "catalyst": catalyst,
-            "deep": deep,
-        },
+        "confidence": confidence,
+        "data_coverage": data_coverage,
+        "tradeability": trade,
+        "scores": scores,
         "weighted": round(weighted, 1),
         "grade": g,
         "emoji": emoji,
         "advice": advice,
         "weights": {k: f"{v*100:.0f}%" for k, v in WEIGHTS.items()},
+        "effective_weights": {k: f"{eff.get(k, 0)*100:.0f}%" for k in WEIGHTS},
+        "excluded_dims": excluded,
     }
 
 

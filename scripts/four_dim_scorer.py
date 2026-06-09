@@ -19,8 +19,8 @@ import sys
 import os
 import urllib.request
 import urllib.parse
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from datetime import datetime
+from typing import Dict, Any, List, Tuple
 
 # ========== 路径 ==========
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -16,15 +16,18 @@ Cron-safe: 使用 urllib / yfinance（requests），不依赖 shell 命令。
 """
 
 import json
-import sys
 import os
+import sys
 import urllib.request
 import urllib.error
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 # ========== 配置 ==========
-CACHE_DIR = os.path.expanduser("~/.hermes/skills/global-market-monitor/cache")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from paths import cache_dir as _cache_dir
+
+CACHE_DIR = _cache_dir("global-market-monitor")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # 数据源开关
@@ -115,12 +118,31 @@ THRESHOLDS = {
 
 # ========== 数据采集 ==========
 
+_YFINANCE_DISABLED_REASON: Optional[str] = None
+
+
+def _is_yfinance_rate_limited(error: str) -> bool:
+    """Yahoo/yfinance 限流识别。限流后本轮采集应快速降级，避免逐 ticker 阻塞。"""
+    text = error.lower()
+    return "429" in text or "too many requests" in text or "rate limit" in text
+
+
+def _yfinance_error_payload(tickers: List[str], reason: str) -> Dict[str, Dict]:
+    payload = {t: {"error": reason} for t in tickers}
+    payload["_error"] = reason
+    return payload
+
+
 def fetch_yfinance_batch(tickers: List[str]) -> Dict[str, Dict]:
     """批量拉取 yfinance 数据"""
+    global _YFINANCE_DISABLED_REASON
+    if _YFINANCE_DISABLED_REASON:
+        return _yfinance_error_payload(tickers, _YFINANCE_DISABLED_REASON)
+
     try:
         import yfinance as yf
         results = {}
-        for t in tickers:
+        for idx, t in enumerate(tickers):
             try:
                 tk = yf.Ticker(t)
                 info = tk.info
@@ -133,10 +155,17 @@ def fetch_yfinance_batch(tickers: List[str]) -> Dict[str, Dict]:
                     "name": info.get("shortName") or info.get("longName"),
                 }
             except Exception as e:
-                results[t] = {"error": str(e)}
+                err = str(e)
+                results[t] = {"error": err}
+                if _is_yfinance_rate_limited(err):
+                    _YFINANCE_DISABLED_REASON = f"yfinance rate limited: {err[:160]}"
+                    for remaining in tickers[idx + 1:]:
+                        results[remaining] = {"error": _YFINANCE_DISABLED_REASON}
+                    results["_error"] = _YFINANCE_DISABLED_REASON
+                    break
         return results
     except ImportError:
-        return {"_error": "yfinance not installed"}
+        return _yfinance_error_payload(tickers, "yfinance not installed")
 
 
 def fetch_sina_us_indices() -> Dict[str, Dict]:
@@ -544,9 +573,11 @@ def generate_summary(alerts: List[Dict], sector_impact: Dict[str, float]) -> str
 
 def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
     """采集全部数据"""
+    global _YFINANCE_DISABLED_REASON
     result = {
         "timestamp": datetime.now().isoformat(),
         "timezone": "Asia/Shanghai",
+        "source_health": {},
         "us_indices": {},
         "vix": {},
         "treasuries": {},
@@ -562,9 +593,39 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
         "impact": {},
     }
 
+    source_health = {}
+
     # 1. 美股指数（yfinance 主 + Sina 备用）
     if USE_YFINANCE:
-        yf_data = fetch_yfinance_batch(list(US_INDICES.keys()))
+        try:
+            import yfinance as yf  # noqa: F401
+            bootstrap_indices = ["^GSPC", "^IXIC"]
+            yf_data = fetch_yfinance_batch(bootstrap_indices)
+            yf_error = yf_data.get("_error")
+            market_values = [
+                d for k, d in yf_data.items()
+                if k != "_error" and isinstance(d, dict)
+            ]
+            ok_count = sum(1 for d in market_values if d.get("price"))
+            if ok_count >= 2:
+                remaining_indices = [code for code in US_INDICES if code not in yf_data]
+                if remaining_indices:
+                    yf_data.update(fetch_yfinance_batch(remaining_indices))
+                source_health["yfinance"] = {"status": "ok", "indices_ok": ok_count}
+            elif ok_count > 0:
+                source_health["yfinance"] = {"status": "degraded", "indices_ok": ok_count}
+            elif yf_error:
+                source_health["yfinance"] = {"status": "failed", "error": yf_error}
+            else:
+                _YFINANCE_DISABLED_REASON = "yfinance returned no usable index data"
+                source_health["yfinance"] = {"status": "failed", "error": _YFINANCE_DISABLED_REASON}
+        except ImportError:
+            source_health["yfinance"] = {"status": "failed", "error": "yfinance not installed"}
+            yf_data = {}
+        except Exception as e:
+            source_health["yfinance"] = {"status": "failed", "error": str(e)}
+            yf_data = {}
+
         for code, cfg in US_INDICES.items():
             d = yf_data.get(code, {})
             if d.get("error"):
@@ -688,13 +749,56 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
 
     # 10. 新闻（默认启用）
     if USE_SERPAPI:
-        result["news"] = fetch_serpapi_news()
-        result["geopolitical_news"] = fetch_geopolitical_news()
+        try:
+            result["news"] = fetch_serpapi_news()
+            result["geopolitical_news"] = fetch_geopolitical_news()
+            # 检测 SerpAPI 是否真正可用（返回 error 或空列表不是 ok）
+            news_ok = bool(result["news"]) and not any(
+                isinstance(n, dict) and "error" in n for n in result["news"]
+            )
+            if news_ok:
+                source_health["serpapi"] = {"status": "ok"}
+            elif not os.environ.get("SERPAPI_API_KEY"):
+                source_health["serpapi"] = {"status": "failed", "error": "SERPAPI_API_KEY not set"}
+            else:
+                source_health["serpapi"] = {"status": "failed", "error": "no news results"}
+        except Exception as e:
+            source_health["serpapi"] = {"status": "failed", "error": str(e)}
+    else:
+        source_health["serpapi"] = {"status": "disabled"}
 
     # 11. 自然灾害（免费API，始终启用）
-    result["disasters"] = fetch_natural_disasters()
+    try:
+        result["disasters"] = fetch_natural_disasters()
+        source_health["usgs"] = {"status": "ok"}
+    except Exception as e:
+        source_health["usgs"] = {"status": "failed", "error": str(e)}
 
-    # 12. 影响评估
+    try:
+        source_health["gdacs"] = {"status": "ok"}
+    except Exception:
+        source_health["gdacs"] = {"status": "failed"}
+
+    # 12. 数据质量门禁：关键市场数据不足时禁止方向性判断
+    yf_status = source_health.get("yfinance", {}).get("status", "unknown")
+    us_idx_count = sum(1 for v in result["us_indices"].values() if v.get("price"))
+    vix_ok = bool(result.get("vix", {}).get("price"))
+
+    critical_ok = (yf_status == "ok" and us_idx_count >= 2) or (us_idx_count >= 1 and vix_ok)
+
+    if not critical_ok:
+        result["source_health"] = source_health
+        result["impact"] = {
+            "status": "insufficient_data",
+            "alerts": [],
+            "sector_impact": {},
+            "summary": "关键市场数据不足：美股指数/VIX/美债不可用，禁止输出方向性A股判断",
+        }
+        return result
+
+    result["source_health"] = source_health
+
+    # 13. 影响评估（数据充足时）
     result["impact"] = assess_impact(result)
 
     return result
@@ -795,7 +899,7 @@ def print_summary(data: Dict[str, Any]):
     # 影响评估
     impact = data.get("impact", {})
     if impact.get("alerts"):
-        print(f"\n⚡ A股影响评估")
+        print("\n⚡ A股影响评估")
         for alert in impact["alerts"]:
             print(f"  {alert['level']} {alert['msg']}")
 

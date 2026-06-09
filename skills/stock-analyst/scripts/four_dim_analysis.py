@@ -2,7 +2,9 @@
 """
 四维打分 + 深度技术分析 for 通富微电(002156)
 """
-import sys, os, json
+import sys
+import os
+import json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -223,7 +225,7 @@ elif vol_ratio > 1.5:
 elif vol_ratio < 0.5:
     print(f"   成交量信号: 缩量 ({vol_ratio:.1f}x)")
 else:
-    print(f"   成交量信号: 正常量能")
+    print("   成交量信号: 正常量能")
 
 # ===== 3. 周线分析 =====
 print("\n" + "─" * 70)
@@ -236,7 +238,7 @@ if wklines and len(wklines) >= 5:
     w_close = wdf['close'].values.astype(float)
     w_high = wdf['high'].values.astype(float)
     w_low = wdf['low'].values.astype(float)
-    
+
     w_ma5 = sma(w_close, 5)
     w_ma10 = sma(w_close, 10)
     w_ma20 = sma(w_close, 20)
@@ -244,9 +246,9 @@ if wklines and len(wklines) >= 5:
     w_macd = compute_macd(w_close)
     w_boll = compute_boll(w_close)
     w_kdj = compute_kdj(w_high, w_low, w_close)
-    
+
     wi = len(w_close) - 1
-    
+
     wma5_v = float(w_ma5[wi]) if not np.isnan(w_ma5[wi]) else None
     wma10_v = float(w_ma10[wi]) if not np.isnan(w_ma10[wi]) else None
     wma20_v = float(w_ma20[wi]) if not np.isnan(w_ma20[wi]) else None
@@ -256,7 +258,7 @@ if wklines and len(wklines) >= 5:
     wblow = float(w_boll['LOWER'][wi]) if not np.isnan(w_boll['LOWER'][wi]) else None
     wk = float(w_kdj['K'][wi]) if not np.isnan(w_kdj['K'][wi]) else None
     wd = float(w_kdj['D'][wi]) if not np.isnan(w_kdj['D'][wi]) else None
-    
+
     print(f"   周线数据: {len(wklines)}周")
     print(f"   周MA5 = {wma5_v:.2f}" if wma5_v else "   周MA5 = N/A")
     print(f"   周MA10 = {wma10_v:.2f}" if wma10_v else "   周MA10 = N/A")
@@ -264,7 +266,7 @@ if wklines and len(wklines) >= 5:
     print(f"   周RSI(14) = {wrsi_v:.1f}" if wrsi_v else "   周RSI = N/A")
     print(f"   周MACD: DIF={wdiff:.4f}" if wdiff else "")
     print(f"   周布林: 上轨={wbup:.2f}, 下轨={wblow:.2f}" if wbup else "")
-    
+
     if wma5_v and wma10_v and wma20_v:
         if wma5_v > wma10_v > wma20_v:
             print("   周线趋势: ✅ 多头排列 (中期趋势向上)")
@@ -272,11 +274,11 @@ if wklines and len(wklines) >= 5:
             print("   周线趋势: ❌ 空头排列 (中期趋势向下)")
         else:
             print("   周线趋势: ⚠️ 震荡整理")
-    
+
     if wi >= 1:
         weekly_pct = (w_close[wi] - w_close[wi-1]) / w_close[wi-1] * 100
         print(f"   本周涨跌幅: {weekly_pct:+.2f}%")
-    
+
     if wk is not None and wd is not None:
         print(f"   周KDJ: K={wk:.1f}, D={wd:.1f}")
 else:
@@ -309,11 +311,11 @@ if ma20_v:
 if ma60_v:
     print(f"   支撑1: {ma60_v:.2f} (MA60趋势支撑)")
 
-print(f"\n🔹 近60日高低点:")
+print("\n🔹 近60日高低点:")
 print(f"   近60日最高: {recent_high:.2f}")
 print(f"   近60日最低: {recent_low:.2f}")
 
-print(f"\n🔹 涨跌停价位:")
+print("\n🔹 涨跌停价位:")
 print(f"   涨停价: {limit_up:.2f} (今日涨停价)")
 print(f"   跌停价: {limit_down:.2f}")
 
@@ -393,12 +395,12 @@ tech_score += 1.0  # 涨停因子
 tech_score = min(max(tech_score, 0), 10)
 
 print(f"\n🔹 技术面评分: {tech_score:.1f}/10")
-print(f"   - 均线多头排列: 加分")
+print("   - 均线多头排列: 加分")
 print(f"   - MACD状态: {'多头' if dif and dea and dif > dea else '空头'}")
 print(f"   - RSI: {r14_val:.1f} (中性区)")
 print(f"   - KDJ: {'多头' if k_val > d_val else '空头'}")
 print(f"   - 布林位置: {boll_pos_pct:.0f}%")
-print(f"   - 涨停因子: +1.0")
+print("   - 涨停因子: +1.0")
 
 # 情绪面
 sentiment_score = 0.0
@@ -411,12 +413,12 @@ sentiment_score += 1.0   # 板块资金
 sentiment_score = min(max(sentiment_score, 0), 10)
 
 print(f"\n🔹 情绪面评分: {sentiment_score:.1f}/10")
-print(f"   - 板块集体爆发(长电+6.34%,华天+4.53%): +2.0")
-print(f"   - 封测龙头+AMD封装核心供应商: +1.5")
-print(f"   - 09:35早盘封板+全天未开板: +2.0")
-print(f"   - 成交122.8亿(巨量): +1.5")
-print(f"   - 换手11.63%(高换手): +0.5")
-print(f"   - 半导体/科创板资金活跃: +1.0")
+print("   - 板块集体爆发(长电+6.34%,华天+4.53%): +2.0")
+print("   - 封测龙头+AMD封装核心供应商: +1.5")
+print("   - 09:35早盘封板+全天未开板: +2.0")
+print("   - 成交122.8亿(巨量): +1.5")
+print("   - 换手11.63%(高换手): +0.5")
+print("   - 半导体/科创板资金活跃: +1.0")
 
 # 催化面
 catalyst_score = 0.0
@@ -427,10 +429,10 @@ catalyst_score -= 0.5   # 缺业绩催化
 catalyst_score = min(max(catalyst_score, 0), 10)
 
 print(f"\n🔹 催化面评分: {catalyst_score:.1f}/10")
-print(f"   - 科创板+2.11%领涨全市场: +1.5")
-print(f"   - AMD封装核心供应商(AI概念): +2.0")
-print(f"   - 封测行业景气度回升: +1.0")
-print(f"   - 近期无明确业绩催化事件: -0.5")
+print("   - 科创板+2.11%领涨全市场: +1.5")
+print("   - AMD封装核心供应商(AI概念): +2.0")
+print("   - 封测行业景气度回升: +1.0")
+print("   - 近期无明确业绩催化事件: -0.5")
 
 # 深度面(基本面)
 depth_score = 0.0
@@ -445,15 +447,15 @@ depth_score += 1.5   # 龙头地位
 depth_score = min(max(depth_score, 0), 10)
 
 print(f"\n🔹 深度面(基本面)评分: {depth_score:.1f}/10")
-print(f"   - PE=73.68(偏高): -0.5")
-print(f"   - 市值1066亿(大盘龙头): +1.0")
-print(f"   - ROE偏低: +0.0")
-print(f"   - 营收同比+14.75%: +1.0")
-print(f"   - 年净利15.18亿: +0.5")
-print(f"   - 封测行业龙头: +1.5")
+print("   - PE=73.68(偏高): -0.5")
+print("   - 市值1066亿(大盘龙头): +1.0")
+print("   - ROE偏低: +0.0")
+print("   - 营收同比+14.75%: +1.0")
+print("   - 年净利15.18亿: +0.5")
+print("   - 封测行业龙头: +1.5")
 
 # 综合
-total_score = (tech_score * 0.25 + sentiment_score * 0.25 + 
+total_score = (tech_score * 0.25 + sentiment_score * 0.25 +
                catalyst_score * 0.25 + depth_score * 0.25)
 
 if total_score >= 8:
@@ -472,7 +474,7 @@ print(f"   技术面: {tech_score:.1f}/10 (权重25%)")
 print(f"   情绪面: {sentiment_score:.1f}/10 (权重25%)")
 print(f"   催化面: {catalyst_score:.1f}/10 (权重25%)")
 print(f"   深度面: {depth_score:.1f}/10 (权重25%)")
-print(f"   ─────────────────────")
+print("   ─────────────────────")
 print(f"   综合评分: {total_score:.1f}/10 | 评级: {grade}")
 
 # ===== 7. 操作策略 =====
@@ -486,39 +488,39 @@ sl = ma20_v if ma20_v else 58.0
 esl = boll_low if boll_low else 50.0
 t1 = boll_up if boll_up else 72.0
 
-print(f"\n🔹 买入区间:")
+print("\n🔹 买入区间:")
 print(f"   - 高开回落至 {buy_low:.2f} ~ {buy_high:.2f} (中轨~MA10) 可低吸")
 print(f"   - 若低开至 {boll_low:.2f} ~ {ma60_v:.2f} 附近可加仓" if (boll_low and ma60_v) else "")
 print(f"   - 短线买入参考价: {buy_low:.2f} ~ {buy_high:.2f}")
 
-print(f"\n🔹 止损位:")
+print("\n🔹 止损位:")
 print(f"   - 严格止损: {sl:.2f} (跌破MA20止损)")
 print(f"   - 极端止损: {esl:.2f} (跌破布林下轨)")
 sl_pct = (price_now - sl) / price_now * 100
 print(f"   - 止损幅度: {sl_pct:.1f}% (约{sl:.2f}元)")
 
-print(f"\n🔹 目标位:")
+print("\n🔹 目标位:")
 print(f"   - 第一目标: {t1:.2f} (布林上轨)")
 print(f"   - 第二目标: {recent_high:.2f} (近60日高点)")
 print(f"   - 若连板: {limit_up * 1.1:.2f} ~ {limit_up * 1.21:.2f}")
 
-print(f"\n🔹 仓位建议:")
+print("\n🔹 仓位建议:")
 print("   - 激进型: 3成仓 (追高风险大)")
 print("   - 稳健型: 1-2成仓 (等回调低吸)")
 print("   - 保守型: 观望或极小仓位")
 print("   - ⚠️ 涨停次日通常高开，追高风险大，建议等回调")
 
-print(f"\n🔹 关键观察点:")
+print("\n🔹 关键观察点:")
 print("   1. 明日是否能高开 (情绪延续性)")
 print("   2. 封测板块(长电/华天)是否继续强势")
 print("   3. 科创板能否延续上涨")
 print("   4. 成交量是否持续放大")
 
-print(f"\n🔹 风险提示:")
+print("\n🔹 风险提示:")
 if i >= 5:
     pct_5d_str = (close[i] - close[i-5]) / close[i-5] * 100
-    print(f"   - PE=73.68偏高，估值压力大")
-    print(f"   - 近5日先跌后涨，今日涨停V反，短期波动大")
+    print("   - PE=73.68偏高，估值压力大")
+    print("   - 近5日先跌后涨，今日涨停V反，短期波动大")
 print("   - 涨停后获利盘兑现压力")
 print("   - 可能高开低走或次日回调")
 
