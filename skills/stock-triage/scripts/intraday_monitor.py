@@ -14,28 +14,14 @@ import json
 import sys
 import os
 import urllib.request
-from datetime import datetime, time as dtime
-from typing import Dict
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from state_store import read_json, atomic_write_json
-from paths import data_file
+from datetime import datetime
+from typing import Dict, Any, List
 
 TRACKED_CODES = ["600011", "002156", "600584", "002185", "000021", "600667"]
 TRACKED_NAMES = {"600011": "华能国际", "002156": "通富微电", "600584": "长电科技",
                  "002185": "华天科技", "000021": "深科技", "600667": "太极实业"}
 
-ALERT_CACHE = data_file("stock-triage", "intraday_alerts.json")
-
-
-def in_trading_session(now: datetime = None) -> bool:
-    """是否在 A股连续竞价时段（9:30-11:30 / 13:00-15:00）。
-    cron 即使在 9:00/14:xx 触发，盘前盘后也静默退出，避免基于停盘/隔夜数据误报。"""
-    now = now or datetime.now()
-    if now.weekday() >= 5:  # 周末
-        return False
-    t = now.time()
-    return (dtime(9, 30) <= t <= dtime(11, 30)) or (dtime(13, 0) <= t <= dtime(15, 0))
+ALERT_CACHE = os.path.expanduser("~/.hermes/skills/stock-triage/data/intraday_alerts.json")
 
 
 def fetch_realtime(code: str) -> Dict:
@@ -63,11 +49,16 @@ def fetch_realtime(code: str) -> Dict:
 
 
 def load_alert_cache() -> Dict:
-    return read_json(ALERT_CACHE, {})
+    if os.path.exists(ALERT_CACHE):
+        with open(ALERT_CACHE) as f:
+            return json.load(f)
+    return {}
 
 
 def save_alert_cache(cache: Dict):
-    atomic_write_json(ALERT_CACHE, cache)
+    os.makedirs(os.path.dirname(ALERT_CACHE), exist_ok=True)
+    with open(ALERT_CACHE, "w") as f:
+        json.dump(cache, f)
 
 
 def check_intraday() -> Dict:
@@ -76,11 +67,6 @@ def check_intraday() -> Dict:
     cache = load_alert_cache()
     now = datetime.now()
     now_str = now.strftime("%H:%M")
-
-    # 新的一天：进入检测前先清空昨日缓存，否则会在循环后把当天刚生成的告警一并清掉
-    today = now.strftime("%Y%m%d")
-    if cache.get("_date", "") != today:
-        cache = {"_date": today}
 
     for code in TRACKED_CODES:
         data = fetch_realtime(code)
@@ -124,6 +110,13 @@ def check_intraday() -> Dict:
                                "msg": f"{name} {direction}{abs(pct):.1f}%，现价{price}"})
                 cache[key] = now_str
 
+    # 清理过期缓存（新的一天）
+    today = now.strftime("%Y%m%d")
+    cache_date = cache.get("_date", "")
+    if cache_date != today:
+        cache = {"_date": today}
+        alerts = []  # 新的一天重新检测
+
     save_alert_cache(cache)
 
     return {
@@ -138,13 +131,7 @@ if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--json", action="store_true")
-    p.add_argument("--force", action="store_true",
-                   help="忽略交易时段守卫，强制运行（调试/测试用）")
     args = p.parse_args()
-
-    # 非交易时段静默退出（cron 高频触发，盘前盘后不应基于停盘数据误报）
-    if not args.force and not in_trading_session():
-        sys.exit(0)
 
     data = check_intraday()
 

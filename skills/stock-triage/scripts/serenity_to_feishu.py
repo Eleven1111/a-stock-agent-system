@@ -17,11 +17,8 @@ import re
 from datetime import datetime
 from typing import Optional, Dict
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from paths import cron_output_dir
-
 LARK_CLI = "lark-cli"
-REPORT_ROOT = cron_output_dir()
+REPORT_ROOT = os.path.expanduser("~/.hermes/cron/output")
 FEISHU_FOLDER = ""  # 不依赖 folder token，直接创建到飞书根目录
 
 

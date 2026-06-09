@@ -46,7 +46,7 @@ def _init_schema(conn):
         );
         CREATE INDEX IF NOT EXISTS idx_kline_code ON daily_kline(code);
         CREATE INDEX IF NOT EXISTS idx_kline_date ON daily_kline(date);
-
+        
         CREATE TABLE IF NOT EXISTS realtime_quotes (
             code TEXT PRIMARY KEY,
             name TEXT,
@@ -63,12 +63,12 @@ def _init_schema(conn):
             total_mv REAL,
             cached_at INTEGER DEFAULT (strftime('%s','now'))
         );
-
+        
         CREATE TABLE IF NOT EXISTS stock_list (
             code TEXT PRIMARY KEY,
             name TEXT
         );
-
+        
         CREATE TABLE IF NOT EXISTS daily_index (
             code TEXT,
             date TEXT,
@@ -117,7 +117,7 @@ def save_kline_cache(code: str, data: List[Dict], source="tencent"):
     now = int(time.time())
     for row in data:
         conn.execute("""
-            INSERT OR REPLACE INTO daily_kline
+            INSERT OR REPLACE INTO daily_kline 
             (code, date, open, high, low, close, volume, amount, source, cached_at)
             VALUES (?,?,?,?,?,?,?,?,?,?)
         """, (code, row['date'], row.get('open'), row.get('high'),
@@ -172,9 +172,9 @@ def fetch_kline_from_tencent(code: str, days=120, period="day") -> Optional[List
     api_code = code if code.startswith(('sh','sz')) else f"sh{code}" if code.startswith('6') else f"sz{code}"
     period_map = {"day": "day", "week": "week", "month": "month"}
     tz_period = period_map.get(period, "day")
-
+    
     url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={api_code},{tz_period},,,{days},qfq"
-
+    
     import urllib.request
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -183,7 +183,7 @@ def fetch_kline_from_tencent(code: str, days=120, period="day") -> Optional[List
 
         stock_data = data.get('data', {}).get(api_code, {})
         klines = stock_data.get('qfqday', []) or stock_data.get('day', [])
-
+        
         results = []
         for k in klines:
             results.append({
@@ -203,7 +203,7 @@ def fetch_kline_from_sina(code: str, days=120) -> Optional[List[Dict]]:
     """新浪历史K线"""
     api_code = code if code.startswith(('sh','sz')) else f"sh{code}" if code.startswith('6') else f"sz{code}"
     url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={api_code}&scale=240&ma=5&datalen={days}"
-
+    
     import urllib.request
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -269,7 +269,7 @@ def fetch_kline_from_baostock(code: str, days=120) -> Optional[List[Dict]]:
     api_code = f"sh.{code}" if code.startswith('6') else f"sz.{code}"
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=days + 30)).strftime("%Y-%m-%d")
-
+    
     code_str = f"""
 import baostock as bs
 import json
@@ -300,7 +300,7 @@ else:
             return None
         data = json.loads(result.stdout.strip())
         return data if data else None
-    except Exception:
+    except:
         return None
 
 def fetch_kline(code: str, days=120, force_refresh=False, period="day") -> List[Dict]:
@@ -312,7 +312,11 @@ def fetch_kline(code: str, days=120, force_refresh=False, period="day") -> List[
 
     data = fetch_kline_from_tencent(code, days, period)
     source = "tencent"
-
+    
+    if not data:
+        data = fetch_kline_from_akshare_tx(code, days)
+        source = "akshare_tx"
+    
     if not data:
         data = fetch_kline_from_akshare_tx(code, days)
         source = "akshare_tx"
@@ -320,14 +324,14 @@ def fetch_kline(code: str, days=120, force_refresh=False, period="day") -> List[
     if not data:
         data = fetch_kline_from_sina(code, days)
         source = "sina"
-
+    
     if not data:
         data = fetch_kline_from_baostock(code, days)
         source = "baostock"
-
+    
     if data and period == "day":
         save_kline_cache(code, data, source)
-
+    
     return data or []
 
 
@@ -342,7 +346,7 @@ def fetch_realtime(codes: List[str]) -> Dict:
         api = f"{prefix}{c}"
         api_codes.append(api)
         prefix_map[api] = c
-
+    
     url = f"http://qt.gtimg.cn/q={','.join(api_codes)}"
     import urllib.request
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -353,7 +357,7 @@ def fetch_realtime(codes: List[str]) -> Dict:
         text = raw.decode('gbk')
     except UnicodeDecodeError:
         text = raw.decode('utf-8', errors='replace')
-
+    
     results = {}
     for line in text.strip().split('\n'):
         if '=' not in line:
@@ -362,10 +366,10 @@ def fetch_realtime(codes: List[str]) -> Dict:
         parts = val.split('~')
         if len(parts) < 40:
             continue
-
+        
         api_code = line.split('=')[0].strip('_').strip()
         code = prefix_map.get(api_code, api_code[-6:] if len(api_code) >= 6 else api_code)
-
+        
         try:
             results[code] = {
                 'name': parts[1],
@@ -385,7 +389,7 @@ def fetch_realtime(codes: List[str]) -> Dict:
             }
         except (ValueError, IndexError):
             continue
-
+    
     return results
 
 
@@ -395,7 +399,7 @@ def fetch_zt_pool(date: str = None) -> List[Dict]:
     """涨停板池（AkShare stock_zt_pool_em，走 push2ex，通）"""
     if date is None:
         date = datetime.now().strftime("%Y%m%d")
-
+    
     code = f"""
 import akshare as ak, os, json, pandas as pd
 for k in ['HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy','ALL_PROXY','all_proxy']:
@@ -420,7 +424,7 @@ else:
     try:
         out = _run_python_with_retry(code)
         return json.loads(out) if out else []
-    except Exception:
+    except:
         return []
 
 
@@ -507,10 +511,10 @@ def fetch_index(code="sh000001") -> Dict:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=10) as resp:
         raw = resp.read().decode('gbk')
-
+    
     val = raw.split('=')[1].strip().strip('"')
     parts = val.split('~')
-
+    
     return {
         'name': parts[1],
         'price': float(parts[3]) if parts[3] else 0,
@@ -550,14 +554,14 @@ except Exception as e:
 if __name__ == "__main__":
     import sys
     cmd = sys.argv[1] if len(sys.argv) > 1 else "realtime"
-
+    
     if cmd == "realtime":
         codes = sys.argv[2].split(",") if len(sys.argv) > 2 else ["600519"]
         data = fetch_realtime(codes)
         for code, info in data.items():
             arrow = "🟢" if info['pct_change'] >= 0 else "🔴"
             print(f"{arrow} {info['name']}({code}): {info['price']:.2f} | {info['pct_change']:+.2f}% | 成交{info['amount']/1e8:.2f}亿 | 换手{info['turnover_rate']}%")
-
+    
     elif cmd == "kline":
         code = sys.argv[2] if len(sys.argv) > 2 else "600519"
         days = int(sys.argv[3]) if len(sys.argv) > 3 else 60
@@ -565,7 +569,7 @@ if __name__ == "__main__":
         print(f"{code} 近{days}日K线: {len(data)}条")
         for k in data[-10:]:
             print(f"  {k['date']} | O:{k['open']:.2f} H:{k['high']:.2f} L:{k['low']:.2f} C:{k['close']:.2f} V:{k['volume']:.0f}")
-
+    
     elif cmd == "zt":
         date = sys.argv[2] if len(sys.argv) > 2 else datetime.now().strftime("%Y%m%d")
         data = fetch_zt_pool(date)
@@ -591,7 +595,7 @@ if __name__ == "__main__":
         days = int(sys.argv[3]) if len(sys.argv) > 3 else 0
         clear_cache(code, days)
         print("Cache cleared")
-
+    
     elif cmd == "index":
         idx = fetch_index()
         arrow = "🟢" if idx['pct_change'] >= 0 else "🔴"

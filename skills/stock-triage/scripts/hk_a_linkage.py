@@ -12,9 +12,11 @@ Usage:
 """
 
 import json
+import sys
+import os
 import urllib.request
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 # ========== AH配对股 ==========
 # 选市值最大、流动性最好的 AH 股

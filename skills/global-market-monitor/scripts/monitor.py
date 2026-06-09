@@ -16,18 +16,15 @@ Cron-safe: 使用 urllib / yfinance（requests），不依赖 shell 命令。
 """
 
 import json
-import os
 import sys
+import os
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
 # ========== 配置 ==========
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from paths import cache_dir as _cache_dir
-
-CACHE_DIR = _cache_dir("global-market-monitor")
+CACHE_DIR = os.path.expanduser("~/.hermes/skills/global-market-monitor/cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # 数据源开关
@@ -577,7 +574,6 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
     result = {
         "timestamp": datetime.now().isoformat(),
         "timezone": "Asia/Shanghai",
-        "source_health": {},
         "us_indices": {},
         "vix": {},
         "treasuries": {},
@@ -592,8 +588,6 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
         "disasters": [],
         "impact": {},
     }
-
-    source_health = {}
 
     # 1. 美股指数（yfinance 主 + Sina 备用）
     if USE_YFINANCE:
@@ -749,56 +743,13 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
 
     # 10. 新闻（默认启用）
     if USE_SERPAPI:
-        try:
-            result["news"] = fetch_serpapi_news()
-            result["geopolitical_news"] = fetch_geopolitical_news()
-            # 检测 SerpAPI 是否真正可用（返回 error 或空列表不是 ok）
-            news_ok = bool(result["news"]) and not any(
-                isinstance(n, dict) and "error" in n for n in result["news"]
-            )
-            if news_ok:
-                source_health["serpapi"] = {"status": "ok"}
-            elif not os.environ.get("SERPAPI_API_KEY"):
-                source_health["serpapi"] = {"status": "failed", "error": "SERPAPI_API_KEY not set"}
-            else:
-                source_health["serpapi"] = {"status": "failed", "error": "no news results"}
-        except Exception as e:
-            source_health["serpapi"] = {"status": "failed", "error": str(e)}
-    else:
-        source_health["serpapi"] = {"status": "disabled"}
+        result["news"] = fetch_serpapi_news()
+        result["geopolitical_news"] = fetch_geopolitical_news()
 
     # 11. 自然灾害（免费API，始终启用）
-    try:
-        result["disasters"] = fetch_natural_disasters()
-        source_health["usgs"] = {"status": "ok"}
-    except Exception as e:
-        source_health["usgs"] = {"status": "failed", "error": str(e)}
+    result["disasters"] = fetch_natural_disasters()
 
-    try:
-        source_health["gdacs"] = {"status": "ok"}
-    except Exception:
-        source_health["gdacs"] = {"status": "failed"}
-
-    # 12. 数据质量门禁：关键市场数据不足时禁止方向性判断
-    yf_status = source_health.get("yfinance", {}).get("status", "unknown")
-    us_idx_count = sum(1 for v in result["us_indices"].values() if v.get("price"))
-    vix_ok = bool(result.get("vix", {}).get("price"))
-
-    critical_ok = (yf_status == "ok" and us_idx_count >= 2) or (us_idx_count >= 1 and vix_ok)
-
-    if not critical_ok:
-        result["source_health"] = source_health
-        result["impact"] = {
-            "status": "insufficient_data",
-            "alerts": [],
-            "sector_impact": {},
-            "summary": "关键市场数据不足：美股指数/VIX/美债不可用，禁止输出方向性A股判断",
-        }
-        return result
-
-    result["source_health"] = source_health
-
-    # 13. 影响评估（数据充足时）
+    # 12. 影响评估
     result["impact"] = assess_impact(result)
 
     return result
@@ -899,7 +850,7 @@ def print_summary(data: Dict[str, Any]):
     # 影响评估
     impact = data.get("impact", {})
     if impact.get("alerts"):
-        print("\n⚡ A股影响评估")
+        print(f"\n⚡ A股影响评估")
         for alert in impact["alerts"]:
             print(f"  {alert['level']} {alert['msg']}")
 

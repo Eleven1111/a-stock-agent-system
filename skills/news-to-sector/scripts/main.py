@@ -6,9 +6,7 @@
     python3 main.py "焦煤期货主力合约触及涨停，涨幅8%，报1387.5元/吨"
 """
 
-import os
-import sys
-import argparse
+import os, sys, argparse
 from datetime import datetime
 
 # 彻底绕过系统代理（macOS ClashX 等不影响东财API）
@@ -39,10 +37,10 @@ def _dfcf_req(params, retries=3):
     params.setdefault("ut", "bd1d9ddb04089700cf9c27f6f7426281")
     params.setdefault("fltt", "2")
     params.setdefault("invt", "2")
-
+    
     qs = urllib.parse.urlencode(params)
     full_url = f"{url}?{qs}"
-
+    
     for attempt in range(retries):
         result = subprocess.run(
             ["curl", "-s", "--noproxy", "*", "-H", "User-Agent: Mozilla/5.0", full_url],
@@ -156,7 +154,7 @@ def analyze_divergence(bullish, bearish, direction, board_map):
 def analyze_news(news_text):
     output = []
     parsed = parse_news(news_text)
-
+    
     output.append(f"📰 **资讯：** {news_text.strip()}")
     output.append("")
 
@@ -263,11 +261,11 @@ def analyze_news(news_text):
     top5 = sorted_boards[:5]
     bot5 = sorted_boards[-5:] if len(sorted_boards) >= 5 else sorted_boards
 
-    output.append("  🔥 涨幅 TOP 5：")
+    output.append(f"  🔥 涨幅 TOP 5：")
     for b in top5:
         cp = b.get("f3", 0)
         output.append(f"    {b['f14']:12s}  {'+' if cp>=0 else ''}{cp:.2f}%")
-    output.append("  🧊 跌幅 TOP 5：")
+    output.append(f"  🧊 跌幅 TOP 5：")
     for b in reversed(bot5):
         cp = b.get("f3", 0)
         output.append(f"    {b['f14']:12s}  {'+' if cp>=0 else ''}{cp:.2f}%")
