@@ -186,9 +186,59 @@ def _percentiles(items: Sequence[Mapping[str, Any]], key: str) -> Dict[str, floa
     return result
 
 
+def hot_money_bonus(code: str, item: Mapping[str, Any],
+                    signal_ctx: Mapping[str, Any] | None) -> Tuple[float, List[str]]:
+    """游资龙头身份加分（0~20，叠加在量价 daban 基分上）。
+
+    口径来自游资选股研究报告的龙头识别三条件：连板梯队在册（梯队龙头延续性）、
+    率先封板（≤09:45 真龙头时间窗）、封单/流通市值比（≥1%最低、≥3%理想）、
+    板块涨停集群（赚钱效应联动验证）。signal_ctx 缺失 → 0 分，排名退化为纯量价。
+    """
+    if not signal_ctx:
+        return 0.0, []
+    ladder = (signal_ctx.get("lianban_ladder") or {}).get(naked_code(code))
+    bonus = 0.0
+    notes: List[str] = []
+    sector = None
+    if isinstance(ladder, Mapping):
+        sector = ladder.get("sector")
+        lianban = int(ladder.get("lianban") or 0)
+        if lianban >= 2:
+            bonus += 8.0
+            notes.append(f"{lianban}连板梯队在册")
+        elif lianban == 1:
+            bonus += 5.0
+            notes.append("首板在册")
+        first_seal = str(ladder.get("first_seal") or "")
+        if first_seal and first_seal <= "09:45":
+            bonus += 4.0
+            notes.append(f"率先封板({first_seal})")
+        seal_yi = ladder.get("seal_yi")
+        float_cap = _num(item.get("float_mktcap") or item.get("market_cap"))
+        if isinstance(seal_yi, (int, float)) and float_cap > 0:
+            ratio = seal_yi * 1e8 / (float_cap * 1e8 if float_cap < 1e6 else float_cap)
+            if ratio >= 0.03:
+                bonus += 4.0
+                notes.append(f"封单比{ratio:.1%}(理想)")
+            elif ratio >= 0.01:
+                bonus += 2.0
+                notes.append(f"封单比{ratio:.1%}")
+    limitups = signal_ctx.get("sector_limitups") or {}
+    if sector and sector in limitups:
+        n = int(limitups[sector] or 0)
+        if n >= 5:
+            bonus += 4.0
+            notes.append(f"板块赚钱效应({sector}涨停{n}家)")
+        elif n >= 3:
+            bonus += 2.0
+            notes.append(f"板块共振({sector}涨停{n}家)")
+    return min(20.0, bonus), notes
+
+
 def rank_candidates(
     eligible: Sequence[Mapping[str, Any]],
     kline_by_code: Mapping[str, Sequence[Mapping[str, Any]]],
+    signal_ctx: Mapping[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     """Produce separate cross-sectional ranks for limit-up and trend strategies."""
     enriched: List[Dict[str, Any]] = []
@@ -231,6 +281,8 @@ def rank_candidates(
             + 0.10 * volume_p.get(code, 0.0)
             + 0.10 * _num(item.get("breakout_20d"))
         )
+        hm_bonus, hm_notes = hot_money_bonus(code, item, signal_ctx)
+        daban_score = min(100.0, daban_score + hm_bonus)
         if not daban_eligible or not item["feature_ready"]:
             daban_score = 0.0
 
@@ -252,6 +304,8 @@ def rank_candidates(
             "daban_eligible": daban_eligible,
             "daban_score": round(max(0.0, min(100.0, daban_score)), 2),
             "trend_score": round(max(0.0, min(100.0, trend_score)), 2),
+            "hot_money_bonus": round(hm_bonus, 1),
+            "hot_money_notes": hm_notes,
         })
 
     daban_order = sorted(enriched, key=lambda row: (-row["daban_score"], row["code"]))
@@ -271,6 +325,7 @@ def build_watch_pool(
     min_amount: float = 80_000_000,
     min_price: float = 2.0,
     min_listed_days: int = 60,
+    signal_ctx: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     eligible, rejected = filter_universe(
         quotes,
@@ -278,7 +333,7 @@ def build_watch_pool(
         min_price=min_price,
         min_listed_days=min_listed_days,
     )
-    ranked = rank_candidates(eligible, kline_by_code)
+    ranked = rank_candidates(eligible, kline_by_code, signal_ctx=signal_ctx)
     selectable = [item for item in ranked if item["feature_ready"]]
     daban_order = sorted(
         selectable,

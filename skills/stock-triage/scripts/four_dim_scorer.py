@@ -377,10 +377,23 @@ def _news_age_days(date_str: str, now: Optional[datetime] = None) -> Optional[fl
         return None
 
 
-def freshness_factor(age_days: Optional[float]) -> float:
-    """新闻新鲜度衰减：越旧的催化对短线越没意义。无法解析按 0.6 保守计。"""
+def freshness_factor(age_days: Optional[float], slow: bool = False) -> float:
+    """新闻新鲜度衰减：越旧的催化对短线越没意义。无法解析按 0.6 保守计。
+
+    半衰期按催化级别区分（游资选股研究报告口径）：
+    - slow=True（T1 中央级政策）：半衰期 15-30 个交易日，衰减慢，可催生跨月主线
+    - slow=False（T2/T3 订单业绩/泛利好）：半衰期 3-5 日，脉冲式，快速失效
+    """
     if age_days is None:
         return 0.6
+    if slow:
+        if age_days <= 10:
+            return 1.0
+        if age_days <= 30:
+            return 0.6
+        if age_days <= 60:
+            return 0.3
+        return 0.15
     if age_days <= 3:
         return 1.0
     if age_days <= 7:
@@ -390,20 +403,25 @@ def freshness_factor(age_days: Optional[float]) -> float:
     return 0.2
 
 
+# T1 权重值（中央级政策/重大资本动作）→ 慢衰减
+_T1_WEIGHT = 1.2
+
+
 def news_catalyst_score(news: List[Dict], now: Optional[datetime] = None) -> Dict[str, Any]:
-    """对一组新闻计算催化分增量（纯函数）：分级关键词权重 × 新鲜度衰减。
-    每条新闻只取多空各自命中的最高档，多空可同时计入（对冲）。"""
+    """对一组新闻计算催化分增量（纯函数）：分级关键词权重 × 分级新鲜度衰减。
+    每条新闻只取多空各自命中的最高档，多空可同时计入（对冲）。
+    T1（中央级）用慢衰减曲线，T2/T3 用快衰减——一级催化主线寿命远长于二级脉冲。"""
     delta = 0.0
     signals = []
     for item in news[:5]:
         title = item.get("title", "")
         text = title + " " + item.get("snippet", "")
         age = _news_age_days(item.get("date", ""), now)
-        fresh = freshness_factor(age)
         for direction, sign in (("bullish", 1), ("bearish", -1)):
             for weight, kws in CATALYST_TIERS[direction]:
                 hit = next((kw for kw in kws if kw in text), None)
                 if hit:
+                    fresh = freshness_factor(age, slow=(weight == _T1_WEIGHT))
                     contribution = sign * weight * fresh
                     delta += contribution
                     mark = "" if sign > 0 else "⚠️ "

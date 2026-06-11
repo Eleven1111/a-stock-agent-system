@@ -406,6 +406,20 @@ def run_discovery(
     if settle_previous:
         observe_recent_candidates(asof, quote_map)
     quotes = list(quote_map.values())
+
+    # 游资因子（连板梯队/板块赚钱效应）+ 情绪温度计（五档准入/仓位约束）
+    try:
+        from signal_context import read_signal_context
+        from market_temperature import compute_temperature
+        signal_ctx = read_signal_context()
+        temperature = compute_temperature(
+            ladder=(signal_ctx or {}).get("lianban_ladder"),
+            prev_ladder=(signal_ctx or {}).get("prev_lianban_ladder"),
+            limitup_total=(signal_ctx or {}).get("limitup_total"),
+        )
+    except Exception:  # noqa: BLE001
+        signal_ctx = None
+        temperature = None
     eligible, base_rejected = candidate_pipeline.filter_universe(
         quotes,
         min_amount=float(universe_config["min_amount"]),
@@ -424,6 +438,7 @@ def run_discovery(
         min_amount=float(universe_config["min_amount"]),
         min_price=float(universe_config["min_price"]),
         min_listed_days=int(universe_config["min_listed_days"]),
+        signal_ctx=signal_ctx,
     )
     evaluated = result.pop("evaluated_candidates")
     result.update({
@@ -431,6 +446,7 @@ def run_discovery(
         "status": "ready",
         "universe_source": "SSE+SZSE listings / Tencent quotes",
         "enriched_count": len(kline_by_code),
+        "market_temperature": temperature,
     })
     _persist_pool(asof, result)
 
@@ -467,10 +483,21 @@ def format_report(result: Mapping[str, Any]) -> str:
         f"## 动态候选池 | {result.get('asof')}",
         f"全市场 {result.get('scanned_count', 0)} | 可交易 {result.get('eligible_count', 0)} | "
         f"观察池 {result.get('candidate_count', 0)}",
+    ]
+    temp = result.get("market_temperature")
+    if isinstance(temp, Mapping) and temp.get("tier") not in (None, "neutral"):
+        promo = temp.get("promotion_rate")
+        promo_str = f"{promo:.0%}" if isinstance(promo, (int, float)) else "N/A"
+        lines.append(
+            f"🌡️ 情绪温度：**{temp['tier']}**（高度板{temp.get('height')} | 晋级率{promo_str}）"
+            f"→ {temp.get('advice')}｜打板仓位×{temp.get('position_multiplier')}"
+            + (f"｜当日最多{temp['top_n_limit']}只" if temp.get("top_n_limit") else "")
+        )
+    lines.extend([
         "",
         "| 代码 | 名称 | 打板排名 | 打板分 | 趋势排名 | 趋势分 |",
         "|------|------|----------|--------|----------|--------|",
-    ]
+    ])
     for item in result.get("candidates", [])[:20]:
         lines.append(
             f"| {item['code']} | {item['name']} | {item['daban_rank']} | "
@@ -491,6 +518,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "rejected_count": result.get("rejected_count", 0),
         "enriched_count": result.get("enriched_count", 0),
         "candidate_count": result.get("candidate_count", 0),
+        "market_temperature": result.get("market_temperature"),
         "rejection_reason_counts": _reason_counts(result.get("rejected", {})),
         "top_candidates": [
             {

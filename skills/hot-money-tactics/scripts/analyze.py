@@ -392,7 +392,7 @@ def analyze_rotation(days=5):
 
 # ======================== 主入口 ========================
 
-def cache_signal_context(df_zt):
+def cache_signal_context(df_zt, date_str=None):
     """把涨停池提炼为情绪上下文（板块涨停数 + 连板梯队 + 封板质量），
     落入共享缓存供 four_dim 情绪面消费。失败不阻塞主输出。"""
     try:
@@ -420,9 +420,14 @@ def cache_signal_context(df_zt):
                 entry["first_seal"] = f"{text[:2]}:{text[2:4]}" if len(text) >= 4 else str(first)
             ladder[code] = entry
 
+        if date_str and len(str(date_str)) == 8:
+            asof = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        else:
+            asof = datetime.now().strftime('%Y-%m-%d')
         update_signal_context({
             "sector_limitups": {str(k): int(v) for k, v in sector_limitups.items()},
             "lianban_ladder": ladder,
+            "ladder_asof": asof,
             "limitup_total": len(df_zt),
         })
         print(f"✅ 情绪上下文已缓存：{len(ladder)}只涨停 / {len(sector_limitups)}个板块", file=sys.stderr)
@@ -460,7 +465,7 @@ def main():
         return
 
     if do_cache:
-        cache_signal_context(df_zt)
+        cache_signal_context(df_zt, date_str)
 
     df_all = get_all_stocks()
 

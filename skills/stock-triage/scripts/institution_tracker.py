@@ -10,12 +10,11 @@ Usage:
 """
 
 import json
-import sys
 import os
 import urllib.request
 import urllib.parse
-from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from datetime import datetime
+from typing import Dict, List
 
 TRACKED_CODES = {
     "600011": "华能国际", "002156": "通富微电", "600584": "长电科技",

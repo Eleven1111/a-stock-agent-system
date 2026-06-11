@@ -280,6 +280,37 @@ def _score_candidate(
     return round(score, 1), grade
 
 
+def t1_scenario(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    """T+1 竞价证伪场景决策树（游资风控决策树，纯函数）。
+
+    按当日封板质量分三档，预案在次日 9:15-9:25 竞价阶段执行（T+1 制度下
+    竞价出局优于开盘后挨"核按钮"）：
+    - A 高位强封（零炸板）：竞价≥+3% 持有、跌破5日线减半；竞价<0% 开盘3分钟减半
+    - B 烂板回封（有炸板尾市封回）：竞价≤-4% 看大单承接可轻仓补（限1/3）；平开/微红 冲高全清
+    - C 收盘未封回：无论竞价，开盘3分钟无条件全清
+    """
+    sealed_at_close = _bool(candidate.get("sealed_at_close"), True)
+    open_boards = int(_num(candidate.get("open_board_count"), 0) or 0)
+    if not sealed_at_close:
+        return {
+            "scenario": "C",
+            "seal_quality": "收盘前开板未封回，封板失败",
+            "auction_plan": "无论竞价表现，开盘3分钟内无条件斩仓全清",
+        }
+    if open_boards >= 1:
+        return {
+            "scenario": "B",
+            "seal_quality": f"炸板{open_boards}次尾市封回，多空分歧大",
+            "auction_plan": "竞价≤-4%观察大单承接，有承接可轻仓补(限总仓1/3)；"
+                            "平开或微红即丧失向上动能，开盘冲高过程全清",
+        }
+    return {
+        "scenario": "A",
+        "seal_quality": "高位强封无炸板，筹码锁定良好",
+        "auction_plan": "竞价≥+3%持有(跌破5日线减半)；竞价<0%严重弱于预期，开盘3分钟内减仓50%",
+    }
+
+
 def evaluate_candidate(candidate: Dict[str, Any], market: Dict[str, Any], portfolio: Dict[str, Any]) -> Dict[str, Any]:
     code = str(candidate.get("code", "")).zfill(6)
     name = candidate.get("name", code)
@@ -337,7 +368,7 @@ def evaluate_candidate(candidate: Dict[str, Any], market: Dict[str, Any], portfo
         },
         "t1_exit_plan": {
             "priority": "先处理已有持仓，再考虑新开仓",
-            "low_open_exit": "T+1低开<-3%且主线走弱，集合竞价/开盘快速机械卖出",
+            **t1_scenario(candidate),
             "high_open_exit": "T+1高开6%-9%，09:30-09:45卖出1/2，余仓看封板/5日线",
             "broken_board_exit": "首次放量断板且15分钟内不能回封，退出剩余仓位",
         },

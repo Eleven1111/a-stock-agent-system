@@ -135,11 +135,26 @@ def position_guidance(
         })
         return guidance
 
+    # 情绪温度倍率：打板范式仓位随市场温度缩放（冰点0.3/发酵1.0/极热0，退潮信号归零）。
+    # 温度数据缺失 → 1.0 不影响；趋势/中线策略不受打板情绪温度约束。
+    temp_multiplier = 1.0
+    temp_tier = None
+    if sid.startswith("daban"):
+        try:
+            from market_temperature import read_temperature
+            temp = read_temperature()
+            if temp.get("tier") != "neutral":
+                temp_multiplier = float(temp.get("position_multiplier", 1.0))
+                temp_tier = temp.get("tier")
+        except Exception:  # noqa: BLE001
+            pass
+
     if odds is not None and stats["win_rate"] is not None and stats["total"] >= 10:
         p = stats["win_rate"]
         q = 1 - p
         kelly = max(0.0, (odds * p - q) / odds)
         execution = kelly / 2 if stats["total"] >= 20 else kelly / 4
+        execution *= temp_multiplier
         guidance.update({
             "method": "kelly_half" if stats["total"] >= 20 else "kelly_quarter",
             "kelly_fraction": round(kelly, 4),
@@ -147,16 +162,20 @@ def position_guidance(
             "recommended_position_pct": round(execution * 100, 2),
             "recommended_amount": round(total_asset * execution, 2),
         })
+        if temp_tier:
+            guidance["temperature"] = {"tier": temp_tier, "multiplier": temp_multiplier}
         return guidance
 
     lo, hi = DEFAULT_POSITION_RANGES.get(sid, DEFAULT_POSITION_RANGES.get(sid.split(":", 1)[0], (3.0, 5.0)))
-    midpoint = (lo + hi) / 2
+    midpoint = (lo + hi) / 2 * temp_multiplier
     guidance.update({
         "default_position_range_pct": [lo, hi],
-        "recommended_position_pct": midpoint,
+        "recommended_position_pct": round(midpoint, 2),
         "recommended_amount": round(total_asset * midpoint / 100, 2),
         "reason": "历史样本不足10笔或价格条件不足，使用启动阶段默认仓位",
     })
+    if temp_tier:
+        guidance["temperature"] = {"tier": temp_tier, "multiplier": temp_multiplier}
     return guidance
 
 
