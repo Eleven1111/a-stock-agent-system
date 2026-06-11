@@ -18,13 +18,17 @@ Cron-safe: 使用 urllib / yfinance（requests），不依赖 shell 命令。
 import json
 import sys
 import os
+import subprocess
 import urllib.request
 import urllib.error
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 # ========== 配置 ==========
-CACHE_DIR = os.path.expanduser("~/.hermes/skills/global-market-monitor/cache")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from paths import cache_dir as _cache_dir
+
+CACHE_DIR = _cache_dir("global-market-monitor")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # 数据源开关
@@ -138,6 +142,87 @@ def fetch_yfinance_batch(tickers: List[str]) -> Dict[str, Dict]:
 
     try:
         import yfinance as yf
+        if hasattr(yf, "download"):
+            try:
+                worker = r'''
+import json
+import math
+import sys
+import yfinance as yf
+
+tickers = json.loads(sys.stdin.read())
+frame = yf.download(
+    tickers=tickers,
+    period="5d",
+    interval="1d",
+    group_by="ticker",
+    auto_adjust=False,
+    progress=False,
+    threads=True,
+    timeout=8,
+)
+
+def number(value):
+    try:
+        result = float(value)
+        return result if math.isfinite(result) else None
+    except (TypeError, ValueError):
+        return None
+
+results = {}
+for ticker in tickers:
+    try:
+        if len(tickers) == 1:
+            ticker_frame = frame
+        elif ticker in frame.columns.get_level_values(0):
+            ticker_frame = frame[ticker]
+        else:
+            ticker_frame = frame.xs(ticker, axis=1, level=1)
+        closes = ticker_frame["Close"].dropna()
+        if closes.empty:
+            results[ticker] = {"error": "yfinance returned no prices"}
+            continue
+        price = number(closes.iloc[-1])
+        previous = number(closes.iloc[-2]) if len(closes) > 1 else price
+        latest = ticker_frame.loc[closes.index[-1]]
+        results[ticker] = {
+            "price": price,
+            "prev_close": previous,
+            "change_pct": ((price / previous) - 1) * 100 if price is not None and previous else None,
+            "day_high": number(latest.get("High")),
+            "day_low": number(latest.get("Low")),
+            "name": ticker,
+        }
+    except Exception as exc:
+        results[ticker] = {"error": str(exc)}
+print(json.dumps(results))
+'''
+                completed = subprocess.run(
+                    [sys.executable, "-c", worker],
+                    input=json.dumps(tickers),
+                    capture_output=True,
+                    text=True,
+                    timeout=12,
+                )
+                if completed.returncode != 0 or not completed.stdout.strip():
+                    raise RuntimeError(completed.stderr.strip() or "yfinance worker returned no data")
+                results = json.loads(completed.stdout.strip().splitlines()[-1])
+                if any(item.get("price") for item in results.values()):
+                    return results
+                _YFINANCE_DISABLED_REASON = "yfinance returned no usable batch data"
+                return _yfinance_error_payload(tickers, _YFINANCE_DISABLED_REASON)
+            except subprocess.TimeoutExpired:
+                _YFINANCE_DISABLED_REASON = "yfinance batch timed out after 12s"
+                return _yfinance_error_payload(tickers, _YFINANCE_DISABLED_REASON)
+            except Exception as exc:
+                error = str(exc)
+                if _is_yfinance_rate_limited(error):
+                    _YFINANCE_DISABLED_REASON = f"yfinance rate limited: {error[:160]}"
+                else:
+                    _YFINANCE_DISABLED_REASON = f"yfinance batch failed: {error[:160]}"
+                return _yfinance_error_payload(tickers, _YFINANCE_DISABLED_REASON)
+
+        # Lightweight test doubles may only implement Ticker.info.
         results = {}
         for idx, t in enumerate(tickers):
             try:
@@ -574,6 +659,7 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
     result = {
         "timestamp": datetime.now().isoformat(),
         "timezone": "Asia/Shanghai",
+        "source_health": {},
         "us_indices": {},
         "vix": {},
         "treasuries": {},
@@ -588,6 +674,7 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
         "disasters": [],
         "impact": {},
     }
+    source_health: Dict[str, Dict[str, Any]] = {}
 
     # 1. 美股指数（yfinance 主 + Sina 备用）
     if USE_YFINANCE:
@@ -743,13 +830,46 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
 
     # 10. 新闻（默认启用）
     if USE_SERPAPI:
-        result["news"] = fetch_serpapi_news()
-        result["geopolitical_news"] = fetch_geopolitical_news()
+        try:
+            result["news"] = fetch_serpapi_news()
+            result["geopolitical_news"] = fetch_geopolitical_news()
+            news_ok = bool(result["news"]) and not any(
+                isinstance(item, dict) and "error" in item for item in result["news"]
+            )
+            if news_ok:
+                source_health["serpapi"] = {"status": "ok"}
+            elif not os.environ.get("SERPAPI_API_KEY"):
+                source_health["serpapi"] = {"status": "failed", "error": "SERPAPI_API_KEY not set"}
+            else:
+                source_health["serpapi"] = {"status": "failed", "error": "no news results"}
+        except Exception as exc:
+            source_health["serpapi"] = {"status": "failed", "error": str(exc)}
+    else:
+        source_health["serpapi"] = {"status": "disabled"}
 
     # 11. 自然灾害（免费API，始终启用）
-    result["disasters"] = fetch_natural_disasters()
+    try:
+        result["disasters"] = fetch_natural_disasters()
+        source_health["usgs"] = {"status": "ok"}
+    except Exception as exc:
+        source_health["usgs"] = {"status": "failed", "error": str(exc)}
 
-    # 12. 影响评估
+    # 12. 数据质量门禁：关键市场数据不足时禁止方向性判断
+    yf_status = source_health.get("yfinance", {}).get("status", "unknown")
+    us_idx_count = sum(1 for value in result["us_indices"].values() if value.get("price"))
+    vix_ok = bool(result.get("vix", {}).get("price"))
+    critical_ok = (yf_status == "ok" and us_idx_count >= 2) or (us_idx_count >= 1 and vix_ok)
+    result["source_health"] = source_health
+    if not critical_ok:
+        result["impact"] = {
+            "status": "insufficient_data",
+            "alerts": [],
+            "sector_impact": {},
+            "summary": "关键市场数据不足：美股指数/VIX/美债不可用，禁止输出方向性A股判断",
+        }
+        return result
+
+    # 13. 影响评估
     result["impact"] = assess_impact(result)
 
     return result
@@ -850,7 +970,7 @@ def print_summary(data: Dict[str, Any]):
     # 影响评估
     impact = data.get("impact", {})
     if impact.get("alerts"):
-        print(f"\n⚡ A股影响评估")
+        print("\n⚡ A股影响评估")
         for alert in impact["alerts"]:
             print(f"  {alert['level']} {alert['msg']}")
 

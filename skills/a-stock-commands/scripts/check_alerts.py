@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 """价格提醒监控脚本。
-读取 ~/.hermes/cron/output/alerts.json，检查所有活跃提醒是否触发价格条件。
+读取 $HERMES_HOME/cron/output/alerts.json，检查所有活跃提醒是否触发价格条件。
 如果触发，输出触发信号供 triage cron 消费。
 """
-import json
 import os
 import sys
 import urllib.request
 from datetime import datetime, timezone, timedelta
 
-ALERTS_FILE = os.path.expanduser("~/.hermes/cron/output/alerts.json")
+_COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
+if _COMMON_DIR not in sys.path:
+    sys.path.insert(0, os.path.abspath(_COMMON_DIR))
+
+from paths import cron_output_dir
+from state_store import mutate_json, read_json
+
+ALERTS_FILE = os.path.join(cron_output_dir(), "alerts.json")
 TZ = timezone(timedelta(hours=8))
 
+
 def load_alerts():
-    if not os.path.exists(ALERTS_FILE):
-        return []
-    with open(ALERTS_FILE) as f:
-        return json.load(f)
+    data = read_json(ALERTS_FILE)
+    return data if isinstance(data, list) else []
+
 
 def get_price(code: str) -> float:
     """获取个股实时价格（腾讯 API）"""
@@ -31,57 +37,56 @@ def get_price(code: str) -> float:
     except Exception:
         return 0.0
 
-def main():
-    alerts = load_alerts()
-    if not alerts:
-        return
-    
+def apply_alert_triggers(alerts, prices):
     triggered = []
-    updated = False
-    
     for alert in alerts:
         if not alert.get("active", True):
             continue
-        
-        price = get_price(alert["code"])
+
+        price = prices.get(alert.get("code"), 0.0)
         if price == 0.0:
             continue
-        
+
         alert_type = alert.get("type", "")
         target = alert.get("price", 0)
-        triggered_flag = False
-        
+
         if alert_type == "stop_loss" and price <= target:
             triggered.append(f"🛑 {alert['name']}({alert['code']}) 止损触发: {price} ≤ {target}")
             alert["active"] = False
             alert["triggered_at"] = datetime.now(TZ).isoformat()
             alert["trigger_price"] = price
-            updated = True
         elif alert_type == "breakout" and price >= target:
             triggered.append(f"🚀 {alert['name']}({alert['code']}) 突破触发: {price} ≥ {target}")
             alert["active"] = False
             alert["triggered_at"] = datetime.now(TZ).isoformat()
             alert["trigger_price"] = price
-            updated = True
-        elif alert_type == "volatility":
-            # 需要历史数据对比，简化处理
-            pass
-    
-    if updated:
-        os.makedirs(os.path.dirname(ALERTS_FILE), exist_ok=True)
-        with open(ALERTS_FILE, "w") as f:
-            json.dump(alerts, f, ensure_ascii=False, indent=2)
-    
+
+    return triggered
+
+
+def main():
+    snapshot = load_alerts()
+    if not snapshot:
+        return
+
+    codes = {item.get("code") for item in snapshot if item.get("active", True) and item.get("code")}
+    prices = {code: get_price(code) for code in codes}
+    triggered = []
+
+    def _mutate(current):
+        nonlocal triggered
+        alerts = current if isinstance(current, list) else []
+        triggered = apply_alert_triggers(alerts, prices)
+        return alerts
+
+    mutate_json(ALERTS_FILE, _mutate, [])
+
     if triggered:
         print("=== 提醒触发 ===")
         for t in triggered:
             print(t)
         print(f"\n共 {len(triggered)} 条提醒触发。")
-        # 触发后建议启动 triage
         print("SIGNAL: ALERT_TRIGGERED")
-    else:
-        # 没有触发时静默
-        pass
 
 if __name__ == "__main__":
     main()
