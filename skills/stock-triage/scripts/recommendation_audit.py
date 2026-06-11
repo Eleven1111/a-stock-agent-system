@@ -139,12 +139,22 @@ def position_guidance(
     # 温度数据缺失 → 1.0 不影响；趋势/中线策略不受打板情绪温度约束。
     temp_multiplier = 1.0
     temp_tier = None
+    temp_allow_new = True
     if sid.startswith("daban"):
         try:
             from market_temperature import read_temperature
-            temp = read_temperature()
+
+            temp = read_temperature(
+                event_asof=date.today().isoformat(),
+                max_age_days=4,
+            )
             if temp.get("tier") != "neutral":
-                temp_multiplier = float(temp.get("position_multiplier", 1.0))
+                temp_allow_new = bool(temp.get("allow_new_daban", True))
+                temp_multiplier = (
+                    float(temp.get("position_multiplier", 1.0))
+                    if temp_allow_new
+                    else 0.0
+                )
                 temp_tier = temp.get("tier")
         except Exception:  # noqa: BLE001
             pass
@@ -163,7 +173,13 @@ def position_guidance(
             "recommended_amount": round(total_asset * execution, 2),
         })
         if temp_tier:
-            guidance["temperature"] = {"tier": temp_tier, "multiplier": temp_multiplier}
+            guidance["temperature"] = {
+                "tier": temp_tier,
+                "multiplier": temp_multiplier,
+                "allow_new_daban": temp_allow_new,
+            }
+            if not temp_allow_new:
+                guidance["reason"] = f"{temp_tier}阶段禁止新开打板仓"
         return guidance
 
     lo, hi = DEFAULT_POSITION_RANGES.get(sid, DEFAULT_POSITION_RANGES.get(sid.split(":", 1)[0], (3.0, 5.0)))
@@ -175,7 +191,13 @@ def position_guidance(
         "reason": "历史样本不足10笔或价格条件不足，使用启动阶段默认仓位",
     })
     if temp_tier:
-        guidance["temperature"] = {"tier": temp_tier, "multiplier": temp_multiplier}
+        guidance["temperature"] = {
+            "tier": temp_tier,
+            "multiplier": temp_multiplier,
+            "allow_new_daban": temp_allow_new,
+        }
+        if not temp_allow_new:
+            guidance["reason"] = f"{temp_tier}阶段禁止新开打板仓"
     return guidance
 
 

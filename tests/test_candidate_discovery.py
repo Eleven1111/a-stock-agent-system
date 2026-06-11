@@ -115,3 +115,23 @@ def test_exchange_universe_rejects_partial_single_exchange_result(tmp_path, monk
 
     with pytest.raises(discovery.DataSourceError, match="SZSE=2200"):
         discovery.fetch_exchange_universe()
+
+
+def test_discovery_ignores_stale_hot_money_context(monkeypatch):
+    import signal_context
+
+    monkeypatch.setattr(
+        signal_context,
+        "read_signal_context",
+        lambda: {
+            "ladder_asof": "2026-06-01",
+            "lianban_ladder": {"600001": {"lianban": 8}},
+            "prev_lianban_ladder": {"600001": {"lianban": 7}},
+        },
+    )
+
+    signal_ctx, temperature = discovery.load_signal_context_for_discovery("2026-06-11")
+
+    assert signal_ctx is None
+    assert temperature["tier"] == "neutral"
+    assert temperature["context_fresh"] is False

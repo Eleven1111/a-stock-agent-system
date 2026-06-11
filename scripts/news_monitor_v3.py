@@ -19,7 +19,6 @@ Usage:
 """
 
 import json
-import os
 import re
 import sys
 import urllib.request
@@ -143,7 +142,7 @@ def fetch_sina_finance() -> list:
                         "ctime": item.get("ctime", ""),
                         "source": "新浪财经",
                     })
-            except:
+            except Exception:
                 break
     return all_items
 
@@ -163,7 +162,7 @@ def fetch_eastmoney_news() -> list:
                     "ctime": article.get("date", ""),
                     "source": "东方财富",
                 })
-        except:
+        except Exception:
             break
     return items
 
@@ -186,7 +185,7 @@ def fetch_baidu_hot() -> list:
                     "ctime": "",
                     "source": "百度热搜",
                 })
-    except:
+    except Exception:
         pass
     return items
 

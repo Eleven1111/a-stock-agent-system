@@ -22,9 +22,13 @@ sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 from a_stock_http import DataSourceError, fetch_tencent_snapshot  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
+from market_temperature import temperature_from_context  # noqa: E402
 from paths import data_file  # noqa: E402
+from signal_context import read_signal_context  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 from tradeability import assess_tradeability  # noqa: E402
+
+QUOTE_BATCH_SIZE = 80
 
 
 def _naked_code(code: str) -> str:
@@ -96,6 +100,7 @@ def rank_confirmations(
     shortlist: Sequence[Mapping[str, Any]],
     confirmations: Sequence[Mapping[str, Any]],
     limit: int = 5,
+    temperature: Mapping[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     prior = {
         candidate_pipeline.naked_code(item.get("code")): dict(item)
@@ -130,7 +135,26 @@ def rank_confirmations(
         )
         eligible.append(merged)
 
+    temperature_active = bool(
+        temperature
+        and temperature.get("tier") != "neutral"
+        and temperature.get("context_fresh", True)
+    )
+    allow_new_daban = bool(
+        not temperature_active or temperature.get("allow_new_daban", True)
+    )
+    daban_quota = (limit + 1) // 2
+    if temperature_active:
+        top_n_limit = temperature.get("top_n_limit")
+        if not allow_new_daban:
+            daban_quota = 0
+        elif isinstance(top_n_limit, int):
+            daban_quota = min(daban_quota, max(0, top_n_limit))
+    trend_quota = max(0, limit - daban_quota)
+
     def _lane_member(item: Mapping[str, Any], lane: str) -> bool:
+        if lane == "daban" and not allow_new_daban:
+            return False
         selected_by = item.get("auction_selected_by") or item.get("selected_by")
         if isinstance(selected_by, Mapping):
             return bool(selected_by.get(lane))
@@ -168,8 +192,8 @@ def rank_confirmations(
             if added >= quota:
                 break
 
-    _add_lane("daban", (limit + 1) // 2)
-    _add_lane("trend", limit // 2)
+    _add_lane("daban", daban_quota)
+    _add_lane("trend", trend_quota)
     if len(selected) < limit:
         for item in sorted(
             eligible,
@@ -178,14 +202,16 @@ def rank_confirmations(
             code = candidate_pipeline.naked_code(item.get("code"))
             if code in selected:
                 continue
+            if temperature_active and not _lane_member(item, "trend"):
+                continue
             chosen = dict(item)
             chosen["open_selected_by"] = {
                 "daban": False,
-                "trend": False,
-                "balanced_fill": True,
+                "trend": temperature_active,
+                "balanced_fill": not temperature_active,
             }
             selected[code] = chosen
-            if len(selected) >= min(limit, len(eligible)):
+            if len(selected) >= limit:
                 break
 
     ranked = sorted(
@@ -214,6 +240,18 @@ def _rejection_reasons(
     return result
 
 
+def _fetch_snapshots(codes: Sequence[str]) -> Dict[str, Dict[str, Any]]:
+    unique_codes = list(dict.fromkeys(code for code in codes if code))
+    quotes: Dict[str, Dict[str, Any]] = {}
+    for index in range(0, len(unique_codes), QUOTE_BATCH_SIZE):
+        quotes.update(
+            fetch_tencent_snapshot(
+                unique_codes[index:index + QUOTE_BATCH_SIZE]
+            )
+        )
+    return quotes
+
+
 def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str, Any]:
     shortlist_result = load_shortlist(asof)
     factors = list(shortlist_result.get("shortlist", []))
@@ -223,21 +261,48 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
             factor for factor in factors
             if candidate_pipeline.naked_code(factor.get("code")) in wanted
         ]
-    quote_codes = [factor["code"] for factor in factors if factor.get("code") and not factor.get("error")]
-    quotes = fetch_tencent_snapshot(quote_codes) if quote_codes else {}
+    quote_codes = [
+        factor["code"]
+        for factor in factors
+        if factor.get("code") and not factor.get("error")
+    ]
+    signal_ctx = read_signal_context(max_age_hours=4 * 24) or {}
+    temperature = temperature_from_context(
+        signal_ctx,
+        event_asof=asof,
+        max_age_days=4,
+    )
+    if temperature.get("context_fresh"):
+        quote_codes.extend(
+            candidate_pipeline.market_code(code)
+            for code in (signal_ctx.get("lianban_ladder") or {})
+        )
+    quotes = _fetch_snapshots(quote_codes) if quote_codes else {}
+    temperature = temperature_from_context(
+        signal_ctx,
+        morning_quotes=quotes,
+        event_asof=asof,
+        max_age_days=4,
+    )
 
     confirmations = []
     for factor in factors:
         quote = quotes.get(factor.get("code"), {})
         confirmations.append(evaluate_open_confirmation(factor, quote))
 
-    signals = rank_confirmations(factors, confirmations, limit=limit)
+    signals = rank_confirmations(
+        factors,
+        confirmations,
+        limit=limit,
+        temperature=temperature,
+    )
     result = {
         "schema": "open_confirmation_v2",
         "asof": asof,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "status": "ready",
         "source_asof": shortlist_result.get("source_asof"),
+        "market_temperature": temperature,
         "confirmations": confirmations,
         "signals": signals,
         "signal_count": len(signals),

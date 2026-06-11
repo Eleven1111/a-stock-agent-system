@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-254%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-281%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
@@ -85,7 +85,7 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 
 ```bash
 python scripts/smoke_test.py      # 9项集成检查
-python -m pytest -q tests/        # 254项测试全部通过
+python -m pytest -q tests/        # 281项测试全部通过
 ```
 
 ### 运行
@@ -165,11 +165,12 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 
 ### 动态选股漏斗
 
-定时选股已取消固定代码列表，改为三级动态漏斗：
+定时选股已取消固定代码列表，改为四级动态漏斗：
 
-1. **15:05 候选发现**：读取上交所/深交所官方股票列表，批量获取腾讯全市场行情，完成流动性与可交易性过滤，再用前复权 K 线增强；打板与趋势两套排序器分别评分，平衡生成约 200 只观察池。
-2. **09:15–09:25 集合竞价**：次日自动读取观察池，采集腾讯五档快照，打板/趋势通道继续独立保留配额，剔除一字板和缺失数据后收敛为 20 只竞价短名单。
-3. **09:35 开盘确认**：结合实时行情和可成交性，在保留双策略通道的前提下最终留下不超过 5 只可执行观察标的。
+1. **15:02 游资上下文**：缓存当日涨停梯队、板块集群和梯队日期。消费端拒绝缺失、未来或过期缓存，避免历史梯队污染新一轮选股。
+2. **15:05 候选发现**：读取上交所/深交所官方股票列表，批量获取腾讯全市场行情，完成流动性与可交易性过滤，再用前复权 K 线增强；打板与趋势两套排序器分别评分，平衡生成约 200 只观察池。
+3. **09:15–09:25 集合竞价**：次日自动读取观察池，采集腾讯五档快照，打板/趋势通道继续独立保留配额，剔除一字板和缺失数据后收敛为 20 只竞价短名单。
+4. **09:35 开盘确认**：结合实时行情和可成交性留下不超过 5 只可执行观察标的；可信温度上下文会执行打板 `top_n_limit`，高度板或涨停梯队大面积低开会触发只出不进。
 
 所有通过基础过滤的候选都写入 `candidate_lifecycle/YYYY-MM-DD.json`，保留阶段历史、淘汰原因和增量 T+1/T+3 结果。完整状态写入 `HERMES_HOME`，cron artifact 只保留压缩摘要，避免污染主线对话。
 
@@ -182,6 +183,7 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 | 09:00–15:00 | 盘中异动告警 | 每5分钟 |
 | 09:45, 13:45, 14:45 | 港A联动 | 工作日 |
 | 10:30, 14:30 | 资金流向监控 | 工作日 |
+| 15:02 | 缓存涨停梯队和市场温度上下文 | 工作日 |
 | 15:05 | 全市场动态候选发现 | 工作日 |
 | 15:18 | 动态前20只四维复核 | 工作日 |
 | 15:25 | 持仓风控检查 | 工作日 |
@@ -250,14 +252,14 @@ a-stock-agent-system/
 ├── pyproject.toml              # 依赖管理
 ├── config/scoring.yaml         # 评分权重 & 风控参数
 ├── config/candidate_selection.json # 动态股票池与漏斗参数
-├── cron/hermes-cron-manifest.json  # 16个隔离定时任务
+├── cron/hermes-cron-manifest.json  # 17个隔离定时任务
 ├── scripts/
 │   ├── hermes_job_runner.py    # Cron隔离runner + artifact写入
 │   ├── hermes_gateway_doctor.py # 部署机Gateway导入/schedule诊断
 │   ├── generate_system_crontab.py # 系统cron兜底生成器
 │   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 254个单元测试
+├── tests/                      # 281个单元测试
 ├── skills/
 │   ├── common/                 # 共享HTTP/状态 + 候选排序/生命周期
 │   ├── stock-triage/           # 编排中枢
@@ -300,7 +302,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 254项测试
+python -m pytest -q tests/        # 281项测试
 python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```

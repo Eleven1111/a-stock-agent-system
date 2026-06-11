@@ -384,6 +384,41 @@ def observe_recent_candidates(
             )
 
 
+def load_signal_context_for_discovery(
+    asof: str,
+) -> tuple[Mapping[str, Any] | None, Dict[str, Any]]:
+    """Only expose same-day hot-money context to the ranking pipeline."""
+    try:
+        from market_temperature import temperature_from_context
+        from signal_context import read_signal_context
+
+        signal_ctx = read_signal_context() or {}
+        temperature = temperature_from_context(
+            signal_ctx,
+            event_asof=asof,
+            max_age_days=0,
+        )
+        return (
+            signal_ctx if temperature.get("context_fresh") else None,
+            temperature,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, {
+            "tier": "neutral",
+            "height": 0,
+            "promotion_rate": None,
+            "limitup_total": None,
+            "allow_new_daban": True,
+            "position_multiplier": 1.0,
+            "top_n_limit": None,
+            "retreat_signal": None,
+            "advice": "温度数据不可用，不施加情绪约束",
+            "notes": [f"情绪上下文读取失败: {exc}"],
+            "context_asof": None,
+            "context_fresh": False,
+        }
+
+
 def run_discovery(
     asof: str,
     watch_limit: int | None = None,
@@ -407,19 +442,8 @@ def run_discovery(
         observe_recent_candidates(asof, quote_map)
     quotes = list(quote_map.values())
 
-    # 游资因子（连板梯队/板块赚钱效应）+ 情绪温度计（五档准入/仓位约束）
-    try:
-        from signal_context import read_signal_context
-        from market_temperature import compute_temperature
-        signal_ctx = read_signal_context()
-        temperature = compute_temperature(
-            ladder=(signal_ctx or {}).get("lianban_ladder"),
-            prev_ladder=(signal_ctx or {}).get("prev_lianban_ladder"),
-            limitup_total=(signal_ctx or {}).get("limitup_total"),
-        )
-    except Exception:  # noqa: BLE001
-        signal_ctx = None
-        temperature = None
+    # 游资因子只能消费当日收盘缓存，避免历史梯队污染新的候选排名。
+    signal_ctx, temperature = load_signal_context_for_discovery(asof)
     eligible, base_rejected = candidate_pipeline.filter_universe(
         quotes,
         min_amount=float(universe_config["min_amount"]),

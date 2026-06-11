@@ -105,6 +105,10 @@ Hermes manifest 的 `command` **必须**走 `python scripts/hermes_job_runner.py
 业务脚本内所有数据抓取必须用 Python `urllib`，禁止在 cron prompt 中直接使用 `terminal` 工具
 （会触发安全审批锁，导致 cron 卡死）。
 
+选股链路使用 `signal_context.lianban_ladder` 前必须校验 `ladder_asof`。15:05 候选发现只接受
+当日缓存；次日开盘温度闸门只接受允许窗口内的最近交易日缓存。缺失、未来或过期上下文必须
+回退 neutral，禁止继续用旧梯队影响排名、仓位或打板名额。
+
 ### 3. 全量扫描
 用户说"全量"时必须真正穷尽，不能只扫预设板块。
 参考：`sector_scan.py` 遍历所有行业板块。

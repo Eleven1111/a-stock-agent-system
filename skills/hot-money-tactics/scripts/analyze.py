@@ -8,9 +8,11 @@
   python3 analyze.py                     # 今日分析
   python3 analyze.py 20260601            # 指定日期
   python3 analyze.py --all               # 今日完整报告
+  python3 analyze.py --cache-only        # 仅刷新共享情绪上下文并输出 JSON
 """
 
 import akshare as ak
+import json
 import os
 import sys
 import pandas as pd
@@ -431,8 +433,10 @@ def cache_signal_context(df_zt, date_str=None):
             "limitup_total": len(df_zt),
         })
         print(f"✅ 情绪上下文已缓存：{len(ladder)}只涨停 / {len(sector_limitups)}个板块", file=sys.stderr)
+        return True
     except Exception as e:
         print(f"signal_context 写入失败: {e}", file=sys.stderr)
+        return False
 
 
 def main():
@@ -440,6 +444,7 @@ def main():
     do_rotation = False
     full_mode = False
     do_cache = False
+    cache_only = False
     for a in sys.argv[1:]:
         if a == '--all':
             full_mode = True
@@ -447,6 +452,9 @@ def main():
             do_rotation = True
         elif a == '--cache':
             do_cache = True
+        elif a == '--cache-only':
+            do_cache = True
+            cache_only = True
         elif a.isdigit() and len(a) == 8:
             date_str = a
 
@@ -454,18 +462,35 @@ def main():
         print(analyze_rotation())
         return
 
-    print("═══════════════════════════════════")
-    print("  游资战法 · 涨停板全景  {}".format(date_str))
-    print("═══════════════════════════════════")
+    if not cache_only:
+        print("═══════════════════════════════════")
+        print("  游资战法 · 涨停板全景  {}".format(date_str))
+        print("═══════════════════════════════════")
 
     # 数据采集
     df_zt = get_zt_pool(date_str)
     if df_zt.empty:
-        print("⚠️ 无涨停板数据（可能非交易日）")
+        if cache_only:
+            print(json.dumps({
+                "status": "insufficient_data",
+                "asof": date_str,
+                "reason": "无涨停板数据（可能非交易日）",
+            }, ensure_ascii=False))
+        else:
+            print("⚠️ 无涨停板数据（可能非交易日）")
         return
 
     if do_cache:
-        cache_signal_context(df_zt, date_str)
+        cache_ok = cache_signal_context(df_zt, date_str)
+        if cache_only:
+            print(json.dumps({
+                "status": "ready" if cache_ok else "error",
+                "asof": f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}",
+                "limitup_total": len(df_zt),
+            }, ensure_ascii=False))
+            if not cache_ok:
+                raise SystemExit(1)
+            return
 
     df_all = get_all_stocks()
 

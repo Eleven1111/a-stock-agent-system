@@ -1,6 +1,7 @@
 """推荐审计档案测试（纯逻辑，不触网）"""
 
 import recommendation_audit as ra
+import market_temperature as mt
 from state_store import atomic_write_json
 
 
@@ -88,3 +89,29 @@ def test_position_guidance_uses_quarter_kelly_after_ten_trades(tmp_path, monkeyp
     assert sizing["history_win_rate"] == 0.7
     assert sizing["kelly_fraction"] == 0.55
     assert sizing["recommended_position_pct"] == 13.75
+
+
+def test_position_guidance_blocks_new_daban_when_temperature_disallows(monkeypatch, tmp_path):
+    _wire(tmp_path, monkeypatch, history=[])
+    monkeypatch.setattr(
+        mt,
+        "read_temperature",
+        lambda **kwargs: {
+            "tier": "冰点",
+            "allow_new_daban": False,
+            "position_multiplier": 0.3,
+            "context_fresh": True,
+        },
+    )
+
+    sizing = ra.position_guidance(
+        "daban:first_board_reseal",
+        11.0,
+        12.1,
+        10.45,
+        total_asset=100000,
+    )
+
+    assert sizing["recommended_position_pct"] == 0.0
+    assert sizing["recommended_amount"] == 0.0
+    assert sizing["temperature"]["allow_new_daban"] is False

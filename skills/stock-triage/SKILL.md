@@ -27,7 +27,7 @@ metadata:
 这是一个**决策中枢**，不会自己执行分析，而是判断 → 分发 → 汇总。
 它相当于整个 A股 Agent 系统的大脑。
 
-选股入口是动态全市场漏斗：15:05 由 `candidate_discovery.py` 生成约 200 只观察池，打板和趋势排序独立计算；次日 09:25 由 `auction_collector.py` 收敛至 20 只，09:35 由 `open_confirmation.py` 最终保留不超过 5 只。常规体检走 `four_dim_scorer.py`；游资打板候选走 `hot-money-tactics` 判断情绪和题材，再交给 `daban-stock-picker` 做机械候选过滤、六问否决和可成交性闸门。`chanlun-backtest` 只作为离线研究验证层，不作为实时买入信号源。
+选股入口是动态全市场漏斗：15:02 由 `hot-money-tactics/analyze.py --cache-only` 缓存当日涨停梯队，15:05 由 `candidate_discovery.py` 生成约 200 只观察池，打板和趋势排序独立计算；次日 09:25 由 `auction_collector.py` 收敛至 20 只，09:35 由 `open_confirmation.py` 最终保留不超过 5 只。梯队缓存必须通过 `ladder_asof` 新鲜度门禁，过期时回退 neutral；开盘报价触发高度板/梯队退潮时，禁止新开打板仓并执行 `top_n_limit`。常规体检走 `four_dim_scorer.py`；游资打板候选走 `hot-money-tactics` 判断情绪和题材，再交给 `daban-stock-picker` 做机械候选过滤、六问否决和可成交性闸门。`chanlun-backtest` 只作为离线研究验证层，不作为实时买入信号源。
 
 ## 核心逻辑
 
@@ -238,6 +238,7 @@ t6 = kanban_create(
 | 14:00 | 📡 资讯监控 | 🟡 | SerpAPI |
 | 14:30 | 💰 资金流向 | 🟡 | capital_flow_monitor.py |
 | 14:45 | 🇭🇰 港A联动 | 🟢 | hk_a_linkage.py |
+| 15:02 | 收盘涨停梯队缓存 | ⚪ | hot-money-tactics/analyze.py --cache-only |
 | 15:05 | 全市场动态候选发现（约200只） | ⚪ | candidate_discovery.py |
 | 15:18 | 📊 动态前20只四维复核 | 🟡 | batch_four_dim_scorer.py |
 | 15:25 | 🛡️ 持仓风控检查 | 🔴 | portfolio_manager.py |
