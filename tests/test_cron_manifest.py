@@ -175,6 +175,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     jobs = {job["id"]: job for job in manifest["jobs"]}
 
     for required in [
+        "hot-money-context",
         "candidate-discovery",
         "auction-snapshot",
         "auction-finalize",
@@ -188,6 +189,8 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert "--codes" not in jobs["auction-snapshot"]["run"]["command"]
     assert "--codes" not in jobs["auction-finalize"]["run"]["command"]
     assert "--codes" not in jobs["open-confirmation"]["run"]["command"]
+    assert jobs["candidate-discovery"]["context_from"][0] == "hot-money-context"
+    assert jobs["hot-money-context"]["run"]["command"].endswith("--cache-only")
     assert jobs["auction-snapshot"]["context_from"] == ["candidate-discovery"]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
     assert set(jobs["closing-triage"]["context_from"]) >= {"four-dim-scorer", "portfolio-check"}

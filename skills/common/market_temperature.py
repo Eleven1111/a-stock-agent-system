@@ -22,6 +22,7 @@
 
 import os
 import sys
+from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -109,17 +110,41 @@ def detect_retreat(prev_ladder: Optional[Mapping[str, Any]],
     entries = [(c, e) for c, e in prev_ladder.items() if isinstance(e, Mapping)]
     if not entries:
         return None
+    normalized_quotes = {
+        str(code).lower().removeprefix("sh").removeprefix("sz").zfill(6): quote
+        for code, quote in morning_quotes.items()
+        if isinstance(quote, Mapping)
+    }
+
+    def _morning_pct(code: str) -> Optional[float]:
+        quote = normalized_quotes.get(
+            str(code).lower().removeprefix("sh").removeprefix("sz").zfill(6)
+        )
+        if not isinstance(quote, Mapping):
+            return None
+        gap = quote.get("auction_gap_pct")
+        if isinstance(gap, (int, float)):
+            return float(gap)
+        open_price = quote.get("open")
+        prev_close = quote.get("prev_close")
+        if (
+            isinstance(open_price, (int, float))
+            and isinstance(prev_close, (int, float))
+            and prev_close > 0
+        ):
+            return (float(open_price) / float(prev_close) - 1.0) * 100
+        change_pct = quote.get("change_pct")
+        return float(change_pct) if isinstance(change_pct, (int, float)) else None
+
     max_lb = max(int(e.get("lianban") or 0) for _, e in entries)
     height_codes = [c for c, e in entries if int(e.get("lianban") or 0) == max_lb]
     for code in height_codes:
-        q = morning_quotes.get(code)
-        if isinstance(q, Mapping) and isinstance(q.get("change_pct"), (int, float)):
-            if q["change_pct"] <= height_drop_pct:
-                return f"昨日高度板{code}({max_lb}板)今晨{q['change_pct']:+.1f}%，退潮硬信号"
+        pct = _morning_pct(code)
+        if pct is not None and pct <= height_drop_pct:
+            return f"昨日高度板{code}({max_lb}板)今晨{pct:+.1f}%，退潮硬信号"
     observed = [
-        q["change_pct"] for c, _ in entries
-        if isinstance((q := morning_quotes.get(c)), Mapping)
-        and isinstance(q.get("change_pct"), (int, float))
+        pct for code, _ in entries
+        if (pct := _morning_pct(code)) is not None
     ]
     if len(observed) >= 5:
         low_open = sum(1 for pct in observed if pct < 0)
@@ -131,7 +156,8 @@ def detect_retreat(prev_ladder: Optional[Mapping[str, Any]],
 def compute_temperature(ladder: Optional[Mapping[str, Any]],
                         prev_ladder: Optional[Mapping[str, Any]] = None,
                         limitup_total: Optional[int] = None,
-                        morning_quotes: Optional[Mapping[str, Mapping[str, Any]]] = None
+                        morning_quotes: Optional[Mapping[str, Mapping[str, Any]]] = None,
+                        retreat_ladder: Optional[Mapping[str, Any]] = None,
                         ) -> Dict[str, Any]:
     """完整温度计（纯函数）。数据缺失 → neutral 回退，不瘫痪下游。"""
     if not ladder:
@@ -148,7 +174,7 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
     notes = cls["notes"]
     rules = dict(TIER_RULES[tier])
 
-    retreat = detect_retreat(prev_ladder, morning_quotes)
+    retreat = detect_retreat(retreat_ladder or prev_ladder, morning_quotes)
     if retreat:
         rules["allow_new_daban"] = False
         rules["position_multiplier"] = 0.0
@@ -167,15 +193,73 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
     }
 
 
-def read_temperature(morning_quotes: Optional[Mapping[str, Mapping[str, Any]]] = None
-                     ) -> Dict[str, Any]:
-    """从 signal_context 缓存读取梯队并计算温度。缓存缺失 → neutral。"""
-    ctx = read_signal_context() or {}
-    return compute_temperature(
-        ladder=ctx.get("lianban_ladder"),
-        prev_ladder=ctx.get("prev_lianban_ladder"),
-        limitup_total=ctx.get("limitup_total"),
+def _neutral(reason: str, context_asof: Optional[str] = None) -> Dict[str, Any]:
+    result = compute_temperature(None)
+    result.update({
+        "context_asof": context_asof,
+        "context_fresh": False,
+        "notes": [reason],
+    })
+    return result
+
+
+def temperature_from_context(
+    ctx: Optional[Mapping[str, Any]],
+    morning_quotes: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    event_asof: Optional[str] = None,
+    max_age_days: int = 4,
+) -> Dict[str, Any]:
+    """计算带日期门禁的温度；过期/未来/无日期缓存一律 neutral。"""
+    context = dict(ctx or {})
+    context_asof = str(context.get("ladder_asof") or "")
+    ladder = context.get("lianban_ladder")
+    if not ladder:
+        return _neutral("lianban_ladder 缺失", context_asof or None)
+    if event_asof:
+        try:
+            event_day = datetime.fromisoformat(str(event_asof)).date()
+            context_day = datetime.fromisoformat(context_asof).date()
+        except ValueError:
+            return _neutral("ladder_asof 缺失或无效", context_asof or None)
+        age_days = (event_day - context_day).days
+        if age_days < 0:
+            return _neutral(
+                f"情绪上下文来自未来日期: {context_asof}",
+                context_asof,
+            )
+        if age_days > max_age_days:
+            return _neutral(
+                f"情绪上下文已过期: {context_asof}，距事件日{age_days}天",
+                context_asof,
+            )
+
+    result = compute_temperature(
+        ladder=context.get("lianban_ladder"),
+        prev_ladder=context.get("prev_lianban_ladder"),
+        limitup_total=context.get("limitup_total"),
         morning_quotes=morning_quotes,
+        retreat_ladder=context.get("lianban_ladder") if morning_quotes else None,
+    )
+    result.update({
+        "context_asof": context_asof or None,
+        "context_fresh": True,
+    })
+    return result
+
+
+def read_temperature(
+    morning_quotes: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    event_asof: Optional[str] = None,
+    max_age_days: int = 4,
+) -> Dict[str, Any]:
+    """从 signal_context 读取温度；日期不可信时不施加交易约束。"""
+    return temperature_from_context(
+        read_signal_context(
+            max_age_hours=max(24, max_age_days * 24),
+        ) or {},
+        morning_quotes=morning_quotes,
+        event_asof=event_asof,
+        max_age_days=max_age_days,
     )
 
 

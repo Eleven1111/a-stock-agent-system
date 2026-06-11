@@ -123,6 +123,130 @@ def test_rank_confirmations_preserves_strategy_lanes():
     assert sum(item["open_selected_by"]["trend"] for item in ranked) >= 2
 
 
+def test_rank_confirmations_enforces_temperature_daban_gate():
+    shortlist = [
+        {
+            "code": "sh600001",
+            "name": "打板候选",
+            "auction_score": 99,
+            "auction_daban_score": 99,
+            "auction_trend_score": 10,
+            "auction_selected_by": {"daban": True, "trend": False},
+        },
+        {
+            "code": "sz300001",
+            "name": "趋势候选",
+            "auction_score": 80,
+            "auction_daban_score": 0,
+            "auction_trend_score": 80,
+            "auction_selected_by": {"daban": False, "trend": True},
+        },
+    ]
+    confirmations = [
+        {
+            "code": item["code"],
+            "name": item["name"],
+            "action": "trend_watch",
+            "change_pct": 5.0,
+            "tradeability": {"tradeable": True, "status": "normal"},
+            "reasons": [],
+        }
+        for item in shortlist
+    ]
+
+    ranked = oc.rank_confirmations(
+        shortlist,
+        confirmations,
+        limit=2,
+        temperature={
+            "tier": "极热",
+            "allow_new_daban": False,
+            "top_n_limit": 0,
+            "context_fresh": True,
+        },
+    )
+
+    assert [item["code"] for item in ranked] == ["sz300001"]
+    assert ranked[0]["open_selected_by"]["trend"] is True
+
+
+def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    shortlist = [
+        {
+            "code": "sh600001",
+            "name": "昨日高度板",
+            "auction_score": 99,
+            "auction_daban_score": 99,
+            "auction_trend_score": 10,
+            "auction_selected_by": {"daban": True, "trend": False},
+            "auction_gap_pct": 2.0,
+            "board_status": "high_open",
+            "is_yiziban": False,
+        },
+        {
+            "code": "sz300001",
+            "name": "趋势候选",
+            "auction_score": 80,
+            "auction_daban_score": 0,
+            "auction_trend_score": 80,
+            "auction_selected_by": {"daban": False, "trend": True},
+            "auction_gap_pct": 2.0,
+            "board_status": "high_open",
+            "is_yiziban": False,
+        },
+    ]
+    atomic_write_json(
+        oc._shortlist_path(event_asof),
+        {
+            "schema": "auction_finalize_v2",
+            "asof": event_asof,
+            "source_asof": source_asof,
+            "shortlist": shortlist,
+        },
+    )
+    monkeypatch.setattr(
+        oc,
+        "read_signal_context",
+        lambda **_kwargs: {
+            "ladder_asof": source_asof,
+            "lianban_ladder": {
+                "600001": {"lianban": 5},
+                "000002": {"lianban": 2},
+            },
+        },
+    )
+
+    requested = []
+
+    def _quotes(codes):
+        requested.extend(codes)
+        return {
+            code: {
+                "name": code,
+                "price": 10.5,
+                "prev_close": 10.0,
+                "open": 9.3 if code == "sh600001" else 10.4,
+                "high": 10.6,
+                "low": 9.2,
+                "volume": 1_000,
+                "change_pct": 5.0,
+            }
+            for code in codes
+        }
+
+    monkeypatch.setattr(oc, "fetch_tencent_snapshot", _quotes)
+
+    result = oc.build_confirmation([], event_asof, limit=2)
+
+    assert "sh600001" in requested
+    assert result["market_temperature"]["retreat_signal"]
+    assert result["market_temperature"]["allow_new_daban"] is False
+    assert [item["code"] for item in result["signals"]] == ["sz300001"]
+
+
 def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     source_asof = "2026-06-10"

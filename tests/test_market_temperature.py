@@ -81,3 +81,59 @@ def test_ladder_rolls_to_prev_on_new_day(tmp_path, monkeypatch):
     assert ctx["prev_ladder_asof"] == "2026-06-10"
     assert set(ctx["prev_lianban_ladder"].keys()) == {"000001", "000002"}
     assert mt.promotion_rate(ctx["lianban_ladder"], ctx["prev_lianban_ladder"]) == 0.5
+
+
+def test_stale_context_fails_closed_to_neutral():
+    ctx = {
+        "ladder_asof": "2026-06-01",
+        "lianban_ladder": _ladder({"000001": 8}),
+        "prev_lianban_ladder": _ladder({"000001": 7}),
+    }
+
+    out = mt.temperature_from_context(
+        ctx,
+        event_asof="2026-06-11",
+        max_age_days=4,
+    )
+
+    assert out["tier"] == "neutral"
+    assert out["context_fresh"] is False
+    assert "过期" in out["notes"][0]
+
+
+def test_retreat_detection_accepts_prefixed_quotes_and_open_gap():
+    yesterday = _ladder({"600001": 5, "000002": 2})
+    morning = {
+        "sh600001": {
+            "open": 9.3,
+            "prev_close": 10.0,
+            "change_pct": -1.0,
+        }
+    }
+
+    signal = mt.detect_retreat(yesterday, morning)
+
+    assert signal is not None
+    assert "600001" in signal
+
+
+def test_read_temperature_keeps_weekend_context_for_date_gate(monkeypatch):
+    captured = {}
+
+    def _read_signal_context(max_age_hours):
+        captured["max_age_hours"] = max_age_hours
+        return {
+            "ladder_asof": "2026-06-12",
+            "lianban_ladder": _ladder({"600001": 4}),
+        }
+
+    monkeypatch.setattr(mt, "read_signal_context", _read_signal_context)
+
+    out = mt.read_temperature(
+        event_asof="2026-06-15",
+        max_age_days=4,
+    )
+
+    assert captured["max_age_hours"] == 96
+    assert out["context_fresh"] is True
+    assert out["context_asof"] == "2026-06-12"

@@ -65,6 +65,35 @@
       "external_note": "需 Hermes Agent cron 运行时；默认仅归档，避免晚间例行输出污染主线"
     },
     {
+      "id": "hot-money-context",
+      "name": "收盘涨停梯队缓存",
+      "schedule": "2 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/hermes_job_runner.py hot-money-context",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1200,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$HERMES_HOME/skills/stock-triage/cache/signal_context.json",
+        "$HERMES_HOME/cron/output/hot-money-context/",
+        "$HERMES_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/hot-money-tactics/scripts/analyze.py --cache-only",
+        "cwd": ".",
+        "timeout_seconds": 120
+      },
+      "external_note": "15:02 缓存当日涨停梯队和板块热度；仅归档，供候选发现和次日开盘温度闸门读取"
+    },
+    {
       "id": "candidate-discovery",
       "name": "全市场动态候选发现",
       "schedule": "5 15 * * 1-5",
@@ -80,6 +109,7 @@
       "deliver": "local",
       "max_output_chars": 2500,
       "context_from": [
+        "hot-money-context",
         "capital-flow",
         "hk-a-linkage"
       ],
