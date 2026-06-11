@@ -19,7 +19,7 @@ import sys
 import os
 import urllib.request
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 
 # ========== 路径 ==========
@@ -63,61 +63,29 @@ from signal_context import read_signal_context, sentiment_boost
 
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict[str, Any]:
-    """腾讯实时行情"""
-    url = f"http://qt.gtimg.cn/q={market}{code}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    """腾讯实时行情 — 委托 a_stock_http。"""
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("gbk")
-        parts = raw.split("=")[1].strip().strip('"').split("~")
-        if len(parts) < 40:
-            return {"error": "数据不完整"}
-        return {
-            "price": float(parts[3]) if parts[3] else None,
-            "prev_close": float(parts[4]) if parts[4] else None,
-            "open": float(parts[5]) if parts[5] else None,
-            "high": float(parts[33]) if parts[33] else None,
-            "low": float(parts[34]) if parts[34] else None,
-            "change_pct": float(parts[32]) if parts[32] else None,
-            "volume": float(parts[6]) if parts[6] else None,
-            "amount": float(parts[37]) * 10000 if parts[37] else None,
-            "turnover": float(parts[38]) if parts[38] else None,
-            "pe": float(parts[39]) if parts[39] else None,
-            "market_cap": float(parts[45]) if parts[45] else None,
-        }
+        full_code = f"{market}{code}"
+        result = _http_quote([full_code])
+        data = result.get(full_code) if isinstance(result, dict) else None
+        return data if isinstance(data, dict) and data.get("price") is not None else {"error": "数据不完整"}
     except Exception as e:
         return {"error": str(e)}
 
 
 def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60, ktype: str = "day") -> List[Dict]:
-    """腾讯历史K线 (day/week/month/60/30)"""
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={market}{code},{ktype},,,{days},qfq"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    """腾讯历史K线 — 委托 a_stock_http。"""
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-        key_map = {"day": "qfqday", "week": "qfqweek", "month": "qfqmonth",
-                   "60": "qfq60", "30": "qfq30"}
-        key = key_map.get(ktype, "qfqday")
-        fallback = ktype if ktype in ("day","week","month") else "day"
-        klines = (data.get("data", {}).get(f"{market}{code}", {}).get(key, []) or
-                  data.get("data", {}).get(f"{market}{code}", {}).get(fallback, []))
-        result = []
-        for k in klines[-days:]:
-            result.append({
-                "date": k[0], "open": float(k[1]), "close": float(k[2]),
-                "high": float(k[3]), "low": float(k[4]), "volume": float(k[5]),
-            })
-        return result
+        return _http_kline(code, market, days, ktype)
     except Exception:
         return []
 
 
-def fetch_serpapi_news(query: str, num: int = 5) -> List[Dict]:
-    """SerpAPI新闻"""
+def fetch_serpapi_news(query: str, num: int = 5) -> Optional[List[Dict]]:
+    """SerpAPI 新闻；None 表示源不可用，空列表表示可用但无结果。"""
     api_key = os.environ.get("SERPAPI_API_KEY")
     if not api_key:
-        return []
+        return None
     url = f"https://serpapi.com/search?engine=google_news&q={urllib.parse.quote(query)}&num={num}&api_key={api_key}&gl=cn&hl=zh-cn"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
@@ -125,7 +93,7 @@ def fetch_serpapi_news(query: str, num: int = 5) -> List[Dict]:
             data = json.loads(resp.read().decode())
         return data.get("news_results", [])[:num]
     except Exception:
-        return []
+        return None
 
 
 # ========== 技术指标 → 统一走 common/indicators.py ==========
@@ -409,10 +377,23 @@ def _news_age_days(date_str: str, now: Optional[datetime] = None) -> Optional[fl
         return None
 
 
-def freshness_factor(age_days: Optional[float]) -> float:
-    """新闻新鲜度衰减：越旧的催化对短线越没意义。无法解析按 0.6 保守计。"""
+def freshness_factor(age_days: Optional[float], slow: bool = False) -> float:
+    """新闻新鲜度衰减：越旧的催化对短线越没意义。无法解析按 0.6 保守计。
+
+    半衰期按催化级别区分（游资选股研究报告口径）：
+    - slow=True（T1 中央级政策）：半衰期 15-30 个交易日，衰减慢，可催生跨月主线
+    - slow=False（T2/T3 订单业绩/泛利好）：半衰期 3-5 日，脉冲式，快速失效
+    """
     if age_days is None:
         return 0.6
+    if slow:
+        if age_days <= 10:
+            return 1.0
+        if age_days <= 30:
+            return 0.6
+        if age_days <= 60:
+            return 0.3
+        return 0.15
     if age_days <= 3:
         return 1.0
     if age_days <= 7:
@@ -422,20 +403,25 @@ def freshness_factor(age_days: Optional[float]) -> float:
     return 0.2
 
 
+# T1 权重值（中央级政策/重大资本动作）→ 慢衰减
+_T1_WEIGHT = 1.2
+
+
 def news_catalyst_score(news: List[Dict], now: Optional[datetime] = None) -> Dict[str, Any]:
-    """对一组新闻计算催化分增量（纯函数）：分级关键词权重 × 新鲜度衰减。
-    每条新闻只取多空各自命中的最高档，多空可同时计入（对冲）。"""
+    """对一组新闻计算催化分增量（纯函数）：分级关键词权重 × 分级新鲜度衰减。
+    每条新闻只取多空各自命中的最高档，多空可同时计入（对冲）。
+    T1（中央级）用慢衰减曲线，T2/T3 用快衰减——一级催化主线寿命远长于二级脉冲。"""
     delta = 0.0
     signals = []
     for item in news[:5]:
         title = item.get("title", "")
         text = title + " " + item.get("snippet", "")
         age = _news_age_days(item.get("date", ""), now)
-        fresh = freshness_factor(age)
         for direction, sign in (("bullish", 1), ("bearish", -1)):
             for weight, kws in CATALYST_TIERS[direction]:
                 hit = next((kw for kw in kws if kw in text), None)
                 if hit:
+                    fresh = freshness_factor(age, slow=(weight == _T1_WEIGHT))
                     contribution = sign * weight * fresh
                     delta += contribution
                     mark = "" if sign > 0 else "⚠️ "
@@ -466,6 +452,7 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     return {
         "score": round(score, 1),
         "news_count": len(news),
+        "available": source_available,
         "catalysts": catalysts[:3],
         "detail": "; ".join(scored["signals"][:3]) if scored["signals"] else "无显著催化",
     }
@@ -547,26 +534,68 @@ def score_deep(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> 
 
 # ========== 汇总 ==========
 
-WEIGHTS = {
-    "technical": 0.30,
-    "sentiment": 0.25,
-    "catalyst": 0.25,
-    "deep": 0.20,
+import yaml
+
+
+def _load_scoring_config() -> Optional[Dict[str, Any]]:
+    config_path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "..", "config", "scoring.yaml",
+    )
+    try:
+        with open(config_path, encoding="utf-8") as file:
+            return yaml.safe_load(file)
+    except Exception:
+        return None
+
+
+_scoring_cfg = _load_scoring_config()
+if _scoring_cfg:
+    WEIGHTS = _scoring_cfg.get("scoring", {}).get("weights", {})
+    _grades_cfg = _scoring_cfg.get("scoring", {}).get("grades", {})
+    _confidence_cfg = _scoring_cfg.get("scoring", {}).get("confidence", {})
+else:
+    WEIGHTS = {"technical": 0.30, "sentiment": 0.25, "catalyst": 0.25, "deep": 0.20}
+    _grades_cfg = {}
+    _confidence_cfg = {}
+
+GRADES = sorted(
+    [
+        {
+            "name": name,
+            "min": cfg.get("min", 0),
+            "emoji": cfg.get("emoji", ""),
+            "advice": cfg.get("advice", ""),
+        }
+        for name, cfg in _grades_cfg.items()
+    ],
+    key=lambda item: item["min"],
+    reverse=True,
+) if _grades_cfg else [
+    {"name": "S", "min": 8.0, "emoji": "🟢🟢🟢", "advice": "强烈推荐 — 多维度共振看多"},
+    {"name": "A", "min": 6.0, "emoji": "🟢🟢", "advice": "推荐 — 技术面偏多，有催化支撑"},
+    {"name": "B", "min": 4.0, "emoji": "🟢", "advice": "观察 — 中性偏多，等待信号确认"},
+    {"name": "C", "min": 2.0, "emoji": "🔶", "advice": "谨慎 — 偏空信号，控制仓位"},
+    {"name": "D", "min": 0.0, "emoji": "🔴", "advice": "回避 — 多维度利空"},
+]
+
+CONFIDENCE_RULES = {
+    level: {"requires": (_confidence_cfg.get(level) or {}).get("requires", [])}
+    for level in ("high", "medium", "low")
 }
+if not any(item["requires"] for item in CONFIDENCE_RULES.values()):
+    CONFIDENCE_RULES = {
+        "high": {"requires": ["realtime", "kline", "news", "valuation"]},
+        "medium": {"requires": ["realtime", "kline"]},
+        "low": {"requires": ["realtime"]},
+    }
 
 
 def grade(weighted_score: float) -> Tuple[str, str, str]:
-    """S/A/B/C 分级"""
-    if weighted_score >= 8.0:
-        return "S", "🟢🟢🟢", "强烈推荐 — 多维度共振看多"
-    elif weighted_score >= 6.0:
-        return "A", "🟢🟢", "推荐 — 技术面偏多，有催化支撑"
-    elif weighted_score >= 4.0:
-        return "B", "🟢", "观察 — 中性偏多，等待信号确认"
-    elif weighted_score >= 2.0:
-        return "C", "🔶", "谨慎 — 偏空信号，控制仓位"
-    else:
-        return "D", "🔴", "回避 — 多维度利空"
+    """S/A/B/C 分级 — 从配置读取阈值。"""
+    for item in GRADES:
+        if weighted_score >= item["min"]:
+            return item["name"], item["emoji"], item["advice"]
+    return "D", "🔴", "回避 — 多维度利空"
 
 
 def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
@@ -648,6 +677,9 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "code": code,
         "name": name,
         "timestamp": datetime.now().isoformat(),
+        "confidence": confidence,
+        "data_coverage": data_coverage,
+        "tradeability": trade,
         "scores": {
             "technical": technical,
             "sentiment": sentiment,

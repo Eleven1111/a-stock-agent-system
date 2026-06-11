@@ -9,9 +9,9 @@
 本采集器把单一手填的 `auction_gap_pct` 升级为 6 个可审计的真竞价因子，
 输出可直接并入 daban_candidate_api 的候选字段，不替代回测闸门，不自动下单。
 
-工作流（cron 9:15-9:25 每隔 ~10s）：
-  python auction_collector.py --codes sh600519,sz002156 --snapshot   # 多次，累积快照
-  python auction_collector.py --codes sh600519,sz002156 --finalize --json  # 9:25 收口算因子
+工作流（cron 9:15-9:25 每分钟）：
+  python auction_collector.py --snapshot   # 自动读取前一交易日动态观察池
+  python auction_collector.py --finalize --json  # 9:25 收口并筛出竞价前 20
 
 即时/调试：
   python auction_collector.py --codes sh600519 --once --json   # 单次抓取+计算（不落盘）
@@ -23,15 +23,19 @@ import json
 import os
 import sys
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 from a_stock_http import fetch_tencent_snapshot, DataSourceError  # noqa: E402
+import candidate_lifecycle  # noqa: E402
+import candidate_pipeline  # noqa: E402
 from tradeability import limit_pct, round_limit  # noqa: E402
-from state_store import mutate_json, read_json  # noqa: E402
+from state_store import atomic_write_json, mutate_json, read_json  # noqa: E402
 from paths import data_file  # noqa: E402
 
 AUCTION_OPEN_FREEZE = "09:20"  # 9:20 后委托不可撤单，9:20→9:25 委买净增 = 无撤单窗口真实意图
+QUOTE_BATCH_SIZE = 80
+MAX_POOL_AGE_DAYS = 4
 
 
 def _sum_vol(levels: List[Tuple[Optional[float], Optional[float]]]) -> float:
@@ -100,7 +104,9 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
 
 def take_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     """抓一次腾讯实时+五档，打上时间戳。"""
-    quotes = fetch_tencent_snapshot(codes)
+    quotes: Dict[str, Dict[str, Any]] = {}
+    for index in range(0, len(codes), QUOTE_BATCH_SIZE):
+        quotes.update(fetch_tencent_snapshot(codes[index:index + QUOTE_BATCH_SIZE]))
     now = datetime.now().strftime("%H:%M:%S")
     for q in quotes.values():
         q["t"] = now
@@ -109,6 +115,43 @@ def take_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
 
 def _state_path(asof: str) -> str:
     return data_file("daban-stock-picker", f"auction_{asof}.json")
+
+
+def _pool_path() -> str:
+    return data_file("stock-triage", "candidate_pool_latest.json")
+
+
+def _shortlist_path(asof: str) -> str:
+    return data_file("daban-stock-picker", f"auction_shortlist_{asof}.json")
+
+
+def _shortlist_latest_path() -> str:
+    return data_file("daban-stock-picker", "auction_shortlist_latest.json")
+
+
+def load_watch_pool(event_asof: str | None = None) -> Dict[str, Any]:
+    pool = read_json(_pool_path(), {})
+    if not isinstance(pool, dict) or pool.get("status") != "ready" or not pool.get("candidates"):
+        raise DataSourceError("candidate_pool", "动态观察池缺失或不可用，请先运行 candidate-discovery")
+    if event_asof:
+        try:
+            age = (
+                datetime.fromisoformat(event_asof).date()
+                - datetime.fromisoformat(str(pool.get("asof"))).date()
+            ).days
+        except ValueError as exc:
+            raise DataSourceError("candidate_pool", "动态观察池缺少有效日期", exc) from exc
+        if age < 0 or age > MAX_POOL_AGE_DAYS:
+            raise DataSourceError("candidate_pool", f"动态观察池已过期: source={pool.get('asof')}")
+    return pool
+
+
+def watch_pool_codes(pool: Mapping[str, Any]) -> List[str]:
+    return [
+        candidate_pipeline.market_code(item.get("code") or item.get("market_code"))
+        for item in pool.get("candidates", [])
+        if item.get("code") or item.get("market_code")
+    ]
 
 
 def append_snapshot(codes: List[str], asof: str) -> Dict[str, Any]:
@@ -125,9 +168,49 @@ def append_snapshot(codes: List[str], asof: str) -> Dict[str, Any]:
     return mutate_json(_state_path(asof), mutator, default={"asof": asof, "series": {}})
 
 
-def finalize(asof: str) -> Dict[str, Any]:
+def _rejection_map(records: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]:
+    return {
+        candidate_pipeline.naked_code(item.get("code")): list(item.get("rejection_reasons") or [])
+        for item in records
+        if item.get("code")
+    }
+
+
+def _persist_shortlist(result: Mapping[str, Any], asof: str) -> None:
+    atomic_write_json(_shortlist_path(asof), dict(result))
+    atomic_write_json(_shortlist_latest_path(), dict(result))
+
+
+def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
     state = read_json(_state_path(asof), default={"series": {}})
-    return _build_result(state.get("series", {}), asof)
+    result = _build_result(state.get("series", {}), asof)
+    pool = load_watch_pool(asof)
+    shortlist = candidate_pipeline.rank_auction_shortlist(
+        pool,
+        result["factors"],
+        limit=shortlist_limit,
+    )
+    result.update(shortlist)
+    result["schema"] = "auction_finalize_v2"
+    result["asof"] = asof
+    _persist_shortlist(result, asof)
+
+    selected = [item["code"] for item in result["shortlist"]]
+    candidate_lifecycle.transition(
+        str(pool["asof"]),
+        "auction_shortlist",
+        selected,
+        rejection_reasons=_rejection_map(result["rejected"]),
+        event_asof=asof,
+        details_by_code={
+            candidate_pipeline.naked_code(item["code"]): {
+                "auction_rank": item["auction_rank"],
+                "auction_score": item["auction_score"],
+            }
+            for item in result["shortlist"]
+        },
+    )
+    return result
 
 
 def _build_result(series: Dict[str, List[Dict[str, Any]]], asof: str) -> Dict[str, Any]:
@@ -175,6 +258,7 @@ def main() -> None:
     parser.add_argument("--finalize", action="store_true", help="读当日快照算因子")
     parser.add_argument("--once", action="store_true", help="单次抓取+计算，不落盘（调试）")
     parser.add_argument("--example", action="store_true", help="合成数据演示，不触网")
+    parser.add_argument("--shortlist-limit", type=int, default=20, help="竞价收口保留数量")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
 
@@ -193,7 +277,11 @@ def main() -> None:
         result = _build_result(series, args.asof)
     elif args.snapshot:
         if not codes:
-            parser.error("--snapshot 需要 --codes")
+            try:
+                codes = watch_pool_codes(load_watch_pool(args.asof))
+            except DataSourceError as e:
+                print(json.dumps({"status": "insufficient_data", "error": str(e)}, ensure_ascii=False))
+                sys.exit(1)
         try:
             state = append_snapshot(codes, args.asof)
         except DataSourceError as e:
@@ -203,7 +291,11 @@ def main() -> None:
         print(json.dumps({"ok": True, "asof": args.asof, "snapshot_counts": counts}, ensure_ascii=False))
         return
     elif args.finalize:
-        result = finalize(args.asof)
+        try:
+            result = finalize(args.asof, shortlist_limit=args.shortlist_limit)
+        except DataSourceError as e:
+            print(json.dumps({"status": "insufficient_data", "error": str(e)}, ensure_ascii=False))
+            sys.exit(1)
     else:
         parser.error("需指定 --snapshot / --finalize / --once / --example 之一")
 

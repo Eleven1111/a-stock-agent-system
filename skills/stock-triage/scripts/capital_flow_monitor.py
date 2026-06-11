@@ -15,17 +15,12 @@ import sys
 import os
 import urllib.request
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 
-# 加载 .env
-env_file = os.path.expanduser("~/.hermes/.env")
-if os.path.exists(env_file):
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                k, v = line.split('=', 1)
-                os.environ[k.strip()] = v.strip().strip('"').strip("'")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from a_stock_http import load_hermes_env
+
+load_hermes_env()
 
 # 用户跟踪标的
 TRACKED_STOCKS = [

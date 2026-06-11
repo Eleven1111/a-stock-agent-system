@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import subprocess
 import sys
 import types
 
@@ -36,6 +37,28 @@ def test_yfinance_rate_limit_trips_process_local_breaker(monkeypatch):
     second = monitor.fetch_yfinance_batch(["^DJI"])
     assert second["_error"].startswith("yfinance rate limited")
     assert second["^DJI"]["error"].startswith("yfinance rate limited")
+
+
+def test_yfinance_batch_timeout_trips_process_local_breaker(monkeypatch):
+    monitor = load_monitor_module("global_monitor_yfinance_timeout_test")
+    calls = []
+
+    fake_yfinance = types.SimpleNamespace(download=lambda **kwargs: None)
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance)
+
+    def timeout_worker(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(monitor.subprocess, "run", timeout_worker)
+
+    first = monitor.fetch_yfinance_batch(["^GSPC"])
+    assert first["_error"] == "yfinance batch timed out after 12s"
+    assert len(calls) == 1
+
+    second = monitor.fetch_yfinance_batch(["^IXIC"])
+    assert second["_error"] == "yfinance batch timed out after 12s"
+    assert len(calls) == 1
 
 
 def test_collect_all_data_marks_insufficient_when_yfinance_is_disabled(monkeypatch):

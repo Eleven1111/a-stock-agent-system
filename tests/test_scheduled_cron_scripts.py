@@ -1,6 +1,7 @@
 """Cron scripts that remove Gateway-side template injection."""
 
 import importlib.util
+from datetime import date
 from pathlib import Path
 
 
@@ -14,10 +15,19 @@ def load_module(name: str, relpath: str):
     return module
 
 
-def test_batch_four_dim_targets_parse_defaults_and_custom():
+def test_batch_four_dim_targets_parse_pool_and_custom(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     batch = load_module("batch_four_dim_scorer_test", "skills/stock-triage/scripts/batch_four_dim_scorer.py")
+    pool_path = tmp_path / "skills" / "stock-triage" / "data" / "candidate_pool_latest.json"
+    pool_path.parent.mkdir(parents=True)
+    pool_path.write_text(
+        f'{{"status":"ready","asof":"{date.today().isoformat()}","candidates":['
+        '{"code":"002156","name":"通富微电"},'
+        '{"code":"600011","name":"华能国际"}]}',
+        encoding="utf-8",
+    )
 
-    assert ("002156", "通富微电") in batch.parse_targets(None)
+    assert batch.parse_targets(None, limit=1) == [("002156", "通富微电")]
     assert batch.parse_targets("002156:通富微电,600011:华能国际") == [
         ("002156", "通富微电"),
         ("600011", "华能国际"),

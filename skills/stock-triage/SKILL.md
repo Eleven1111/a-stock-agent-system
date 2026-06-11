@@ -27,7 +27,7 @@ metadata:
 这是一个**决策中枢**，不会自己执行分析，而是判断 → 分发 → 汇总。
 它相当于整个 A股 Agent 系统的大脑。
 
-打板范式单独处理：常规体检走 `four_dim_scorer.py`；游资打板候选走 `hot-money-tactics` 判断情绪和题材，再交给 `daban-stock-picker` 做机械候选过滤、六问否决和可成交性闸门。`chanlun-backtest` 只作为离线研究验证层，不作为实时买入信号源。
+选股入口是动态全市场漏斗：15:05 由 `candidate_discovery.py` 生成约 200 只观察池，打板和趋势排序独立计算；次日 09:25 由 `auction_collector.py` 收敛至 20 只，09:35 由 `open_confirmation.py` 最终保留不超过 5 只。常规体检走 `four_dim_scorer.py`；游资打板候选走 `hot-money-tactics` 判断情绪和题材，再交给 `daban-stock-picker` 做机械候选过滤、六问否决和可成交性闸门。`chanlun-backtest` 只作为离线研究验证层，不作为实时买入信号源。
 
 ## 核心逻辑
 
@@ -238,19 +238,19 @@ t6 = kanban_create(
 | 14:00 | 📡 资讯监控 | 🟡 | SerpAPI |
 | 14:30 | 💰 资金流向 | 🟡 | capital_flow_monitor.py |
 | 14:45 | 🇭🇰 港A联动 | 🟢 | hk_a_linkage.py |
-| 15:05 | 封测核心标的跟踪 | 🟢 | stock-analyst |
-| 15:08 | 📊 四维打分（6只跟踪标的） | 🟡 | four_dim_scorer.py |
-| 15:10 | 🛡️ 持仓风控检查 | 🔴 | portfolio_manager.py |
+| 15:05 | 全市场动态候选发现（约200只） | ⚪ | candidate_discovery.py |
+| 15:18 | 📊 动态前20只四维复核 | 🟡 | batch_four_dim_scorer.py |
+| 15:25 | 🛡️ 持仓风控检查 | 🔴 | portfolio_manager.py |
 | 15:15 | 收板热门板块复盘 | 🟢 | stock-analyst |
 | 15:20 | 📡 资讯监控 | 🟡 | SerpAPI |
-| 15:25 | 🧠 收盘Triage→Kanban派发 | 🟡 | stock-triage |
+| 15:35 | 🧠 收盘Triage→Kanban派发 | 🟡 | stock-triage |
 | 20:00 | 📡 资讯监控 | 🟡 | SerpAPI |
 | 22:00 | 📡 资讯监控 | 🟡 | SerpAPI |
 | 22:30 | 🌙 全球市场晚间扫描 | 🟢 | global-market-monitor |
 | Sat 10:00 | 🏛️ 机构行为周报 | ⚪ | institution_tracker.py |
 | Sun 10:00 | 📈 信号胜率统计周报 | ⚪ | performance_tracker.py |
 
-收盘 Triage（15:25）的 `context_from` 链：[四维打分(15:08), 持仓风控(15:10), 资金流向(14:30)] → 只读取上游 artifact 摘要，不读取主线对话历史。
+收盘 Triage（15:35）的 `context_from` 链：[候选发现(15:05), 四维复核(15:18), 持仓风控(15:25), 资金流向(14:30)] → 只读取上游 artifact 摘要，不读取主线对话历史。
 
 **推送分层策略：**
 - 🔴 紧急：止损触发、跌停、地缘冲突 — 立即推送
@@ -262,6 +262,9 @@ t6 = kanban_create(
 
 | 脚本 | 用途 |
 |------|------|
+| `candidate_discovery.py` | 上交所/深交所全市场列表 + 腾讯批量行情/K线，基础过滤后分别计算打板与趋势排序（打板分叠加游资因子：连板在册/率先封板/封单比/板块集群），输出附情绪温度计裁决（五档仓位/top_n约束），生成动态观察池并维护候选生命周期 |
+| `../../common/market_temperature.py` | 情绪温度计：高度板×连板晋级率→冰点/修复/发酵/加速/极热，输出打板准入+仓位倍率+退潮硬信号 |
+| `batch_four_dim_scorer.py` | 默认读取动态观察池前20只做四维复核；仅在人工调试时使用 `--targets` |
 | `four_dim_scorer.py` | 四维打分引擎：技术(30%)×情绪(25%)×催化(25%)×深度(20%)→ S/A/B/C/D；深度面回流 Serenity、技术面接缠论(过闸才计权)、情绪面接连板梯队/板块赚钱效应/资金流(signal_context)、催化面分级×新鲜度衰减、出分后叠大盘 overlay(market_context)；支持 `--timeframe 60/30` 短线入场 |
 | `capital_flow_monitor.py` | 资金流向：北向资金 + 主力/散户净流 + 板块资金（东财API，需NO_PROXY）；`--cache` 落情绪上下文供四维消费 |
 | `portfolio_manager.py` | 持仓风控：`--add`开仓、`--close`清仓、`--check`止损止盈/仓位集中度 |

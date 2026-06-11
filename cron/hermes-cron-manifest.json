@@ -65,6 +65,41 @@
       "external_note": "需 Hermes Agent cron 运行时；默认仅归档，避免晚间例行输出污染主线"
     },
     {
+      "id": "candidate-discovery",
+      "name": "全市场动态候选发现",
+      "schedule": "5 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/hermes_job_runner.py candidate-discovery",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2500,
+      "context_from": [
+        "capital-flow",
+        "hk-a-linkage"
+      ],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$HERMES_HOME/skills/stock-triage/data/candidate_pool_latest.json",
+        "$HERMES_HOME/skills/stock-triage/data/candidate_pools/",
+        "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
+        "$HERMES_HOME/skills/stock-triage/data/exchange_universe.json",
+        "$HERMES_HOME/cron/output/candidate-discovery/",
+        "$HERMES_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/stock-triage/scripts/candidate_discovery.py --json",
+        "cwd": ".",
+        "timeout_seconds": 420
+      },
+      "external_note": "15:05 全市场扫描并生成约200只双策略观察池；仅归档，供次日竞价和收盘复核读取"
+    },
+    {
       "id": "auction-snapshot",
       "name": "集合竞价快照采集",
       "schedule": "15-24 9 * * 1-5",
@@ -79,7 +114,9 @@
       "context_scope": "cron",
       "deliver": "local",
       "max_output_chars": 800,
-      "context_from": [],
+      "context_from": [
+        "candidate-discovery"
+      ],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/skills/daban-stock-picker/data/auction_*.json",
@@ -87,7 +124,7 @@
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/daban-stock-picker/scripts/auction_collector.py --codes sh600011,sh600310,sz002156,sh600584,sz002185,sz000021,sh600667 --snapshot --json",
+        "command": "python skills/daban-stock-picker/scripts/auction_collector.py --snapshot --json",
         "cwd": ".",
         "timeout_seconds": 30
       },
@@ -113,11 +150,14 @@
       ],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
+        "$HERMES_HOME/skills/daban-stock-picker/data/auction_shortlist_*.json",
+        "$HERMES_HOME/skills/daban-stock-picker/data/auction_shortlist_latest.json",
+        "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
         "$HERMES_HOME/cron/output/auction-finalize/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/daban-stock-picker/scripts/auction_collector.py --codes sh600011,sh600310,sz002156,sh600584,sz002185,sz000021,sh600667 --finalize --json",
+        "command": "python skills/daban-stock-picker/scripts/auction_collector.py --finalize --shortlist-limit 20 --json",
         "cwd": ".",
         "timeout_seconds": 30
       },
@@ -143,11 +183,14 @@
       ],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
+        "$HERMES_HOME/skills/daban-stock-picker/data/open_confirmation_*.json",
+        "$HERMES_HOME/skills/daban-stock-picker/data/open_confirmation_latest.json",
+        "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
         "$HERMES_HOME/cron/output/open-confirmation/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/daban-stock-picker/scripts/open_confirmation.py --codes sh600011,sh600310,sz002156,sh600584,sz002185,sz000021,sh600667 --json",
+        "command": "python skills/daban-stock-picker/scripts/open_confirmation.py --limit 5 --json",
         "cwd": ".",
         "timeout_seconds": 45
       },
@@ -248,7 +291,7 @@
     {
       "id": "four-dim-scorer",
       "name": "收盘四维打分",
-      "schedule": "8 15 * * 1-5",
+      "schedule": "18 15 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/hermes_job_runner.py four-dim-scorer",
       "cwd": ".",
@@ -261,6 +304,7 @@
       "deliver": "origin",
       "max_output_chars": 4000,
       "context_from": [
+        "candidate-discovery",
         "capital-flow",
         "hk-a-linkage"
       ],
@@ -270,16 +314,16 @@
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/batch_four_dim_scorer.py --json",
+        "command": "python skills/stock-triage/scripts/batch_four_dim_scorer.py --limit 20 --json",
         "cwd": ".",
         "timeout_seconds": 180
       },
-      "external_note": "批量扫描跟踪标的；结果进入收盘 Triage context_from"
+      "external_note": "复核动态观察池前20只；结果进入收盘 Triage context_from"
     },
     {
       "id": "portfolio-check",
       "name": "持仓风控检查",
-      "schedule": "10 15 * * 1-5",
+      "schedule": "25 15 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/hermes_job_runner.py portfolio-check",
       "cwd": ".",
@@ -309,7 +353,7 @@
     {
       "id": "closing-triage",
       "name": "收盘Triage→Kanban派发",
-      "schedule": "25 15 * * 1-5",
+      "schedule": "35 15 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/hermes_job_runner.py closing-triage",
       "cwd": ".",

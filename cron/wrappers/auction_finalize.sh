@@ -1,6 +1,9 @@
 #!/bin/bash
-# 集合竞价收口 — 调用 auction_collector.py --finalize
-cd ~/.hermes
-~/.hermes/hermes-agent/venv/bin/python3 skills/daban-stock-picker/scripts/auction_collector.py \
-  --codes sh600011,sh600310,sz002156,sh600584,sz002185,sz000021,sh600667,sz001696,sh603859,sh601225,sh601898 \
-  --finalize 2>&1
+# 集合竞价收口 — 从动态观察池生成前20短名单
+set -euo pipefail
+
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+PY="${HERMES_PYTHON:-$HERMES_HOME/hermes-agent/venv/bin/python3}"
+SCRIPT="$HERMES_HOME/skills/daban-stock-picker/scripts/auction_collector.py"
+
+"$PY" "$SCRIPT" --finalize --shortlist-limit 20 --json 2>&1

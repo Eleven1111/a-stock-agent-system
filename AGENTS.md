@@ -54,6 +54,8 @@
 |----|------|------|------|
 | 腾讯实时 | `qt.gtimg.cn/q={market}{code}` | GBK | A股/港股实时行情 |
 | 腾讯K线 | `web.ifzq.gtimg.cn/appstock/app/fqkline/get` | JSON | 日/周/月/60/30 K线 |
+| 上交所股票列表 | `query.sse.com.cn/sseQuery/commonQuery.do` | JSON | 沪市A股完整证券列表 |
+| 深交所股票列表 | `szse.cn/api/report/ShowReport` | XLSX/XML | 深市A股完整证券列表 |
 | 新浪实时 | `hq.sinajs.cn/list={codes}` | GBK | A股实时行情 |
 | yfinance | Yahoo Finance | — | 美股/全球指数/期货/VIX/汇率 |
 
@@ -230,8 +232,21 @@ from typing import Dict, Any, List, Optional
    写入 `common/signal_context.py`；four_dim 情绪面按打板原生口径加成（连板在册/早盘强封/
    板块赚钱效应集群/主力流向）。缓存缺失时行为与历史完全一致。
 8. **催化面分级×时效**（2026-06-10）：`score_catalyst` 按 T1 政策战略(±1.2)/T2 订单业绩
-   (±0.8)/T3 泛利好(±0.4) 分级，乘新闻新鲜度衰减（≤3天全额，>30天两折）——旧版
-   关键词平权且不看日期。
+   (±0.8)/T3 泛利好(±0.4) 分级，乘新闻新鲜度衰减——半衰期按催化级别区分
+   (2026-06-11)：T1 中央级慢衰减（10天全额/30天0.6，主线寿命15-30交易日），
+   T2/T3 快衰减（3天全额/7天0.7，脉冲式3-5日）。
+9. **情绪温度计**（2026-06-11，游资方法论核心）：`common/market_temperature.py` 按
+   高度板×连板晋级率五档定位（冰点/修复/发酵/加速/极热）——超短先选情绪位置再选股。
+   晋级率靠 signal_context 梯队按日滚动（`prev_lianban_ladder`）。约束链路：
+   candidate_discovery 输出温度裁决（advice/top_n_limit）、recommendation_audit 对
+   daban 策略仓位乘温度倍率（冰点0.3/发酵1.0/加速0.8只做最强/极热0），退潮硬信号
+   （昨日高度板今晨跌>5%）强制只出不进。趋势策略不受打板温度约束。
+10. **打板排名游资因子**（2026-06-11）：`candidate_pipeline.hot_money_bonus`（0-20附加分）
+    注入连板梯队在册/率先封板≤09:45/封单比(≥1%最低≥3%理想)/板块涨停集群——龙头识别
+    三条件来自游资选股深度研究报告。signal_ctx 缺失时退化为纯量价排名（Codex 原行为）。
+11. **T+1 竞价证伪场景**（2026-06-11）：`daban_candidate_api.t1_scenario` 按封板质量
+    分场景 A(强封:竞价≥+3%持有/<0%减半)/B(烂板回封:-4%看承接限1/3补/平开冲高全清)/
+    C(未封回:无条件开盘3分钟斩仓)——T+1 制度下竞价出局优于盘中挨核按钮。
 
 ## 关键文件索引
 
@@ -243,6 +258,10 @@ from typing import Dict, Any, List, Optional
 | deep_research/{code}.json | `stock-triage/cache/` | Serenity 深研缓存（回流四维深度面） |
 | market_context.json | `stock-triage/cache/` | 大盘影响缓存（global-monitor --cache 写，四维 overlay 读） |
 | signal_context.json | `stock-triage/cache/` | 情绪上下文（hot-money/capital_flow --cache 写，情绪面读） |
+| candidate_pool_latest.json | `stock-triage/data/` | 全市场双策略动态观察池 |
+| candidate_lifecycle/YYYY-MM-DD.json | `stock-triage/data/` | 候选阶段、淘汰原因与T+1/T+3结果 |
+| auction_shortlist_latest.json | `daban-stock-picker/data/` | 09:25竞价前20短名单 |
+| open_confirmation_latest.json | `daban-stock-picker/data/` | 09:35最终确认结果 |
 | daban_thresholds.yaml | `config/` | 打板阈值单一事实源（实盘=回测，过闸才改） |
 | intraday_alerts.json | `stock-triage/data/` | 盘中告警去重缓存 |
 | alerts.json | `$HERMES_HOME/cron/output/` | 价格提醒数据 |

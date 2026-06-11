@@ -35,11 +35,22 @@ def context_file() -> str:
 
 
 def update_signal_context(partial: Dict[str, Any]) -> Dict[str, Any]:
-    """合并式写入：只更新提供的 key，保留其他写入方的数据（单锁事务）。"""
+    """合并式写入：只更新提供的 key，保留其他写入方的数据（单锁事务）。
+
+    梯队滚动：写入新交易日的 lianban_ladder（带 ladder_asof）时，把旧梯队滚动为
+    prev_lianban_ladder——这是温度计"连板晋级率"的分母。同日重复写入只覆盖不滚动。
+    """
 
     def _mut(data: Any) -> Dict[str, Any]:
         if not isinstance(data, dict):
             data = {}
+        new_asof = partial.get("ladder_asof")
+        if ("lianban_ladder" in partial and new_asof
+                and data.get("lianban_ladder")
+                and data.get("ladder_asof")
+                and data["ladder_asof"] != new_asof):
+            data["prev_lianban_ladder"] = data["lianban_ladder"]
+            data["prev_ladder_asof"] = data["ladder_asof"]
         data.update(partial)
         data["schema"] = "signal_context_v1"
         data["generated_at"] = datetime.now().isoformat()

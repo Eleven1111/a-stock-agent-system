@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-194%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-254%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -163,6 +163,16 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 
 Cron jobs in this repo must be fully self-contained. Do not deploy jobs that require Gateway-side `{template}` injection; it can route execution back through in-process agent cron and reintroduce `run_agent.AIAgent` import conflicts.
 
+### Dynamic stock-selection funnel
+
+The scheduled workflow no longer scans a fixed symbol list:
+
+1. **15:05 discovery** — official SSE/SZSE listings + Tencent full-market quotes, deterministic liquidity/tradeability filters, then qfq K-line enrichment. Separate limit-up and trend rankers build a balanced watch pool of about 200 stocks.
+2. **09:15–09:25 auction** — the next trading day collects Tencent five-level order-book snapshots for that pool and ranks an auction shortlist of 20. Limit-up and trend lanes remain separate; one-price limit-up and missing-data candidates are rejected explicitly.
+3. **09:35 confirmation** — current quotes and tradeability reduce the shortlist to at most five executable observations while preserving both strategy lanes.
+
+Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, including stage history, rejection reasons, and incremental T+1/T+3 outcomes. Full state is stored under `HERMES_HOME`; cron artifacts contain only compact summaries.
+
 | Time (CST) | Job | Frequency |
 |------------|-----|-----------|
 | 08:15 | Global pre-market scan | Workdays |
@@ -172,9 +182,10 @@ Cron jobs in this repo must be fully self-contained. Do not deploy jobs that req
 | 09:30–11:30, 13:00–15:00 | Intraday alerts | Every 5 min (session-guarded) |
 | 09:45, 13:45, 14:45 | HK-A linkage | Workdays |
 | 10:30, 14:30 | Capital flow monitor | Workdays |
-| 15:08 | Four-dim batch scoring | Workdays |
-| 15:10 | Portfolio risk check | Workdays |
-| 15:25 | Triage → Kanban dispatch | Workdays |
+| 15:05 | Full-market candidate discovery | Workdays |
+| 15:18 | Four-dim review of dynamic top 20 | Workdays |
+| 15:25 | Portfolio risk check | Workdays |
+| 15:35 | Triage → Kanban dispatch | Workdays |
 | 22:30 | Global evening scan | Workdays |
 | Sat 10:00 | Institution weekly | Weekly |
 | Sun 10:00 | Performance weekly | Weekly |
@@ -238,16 +249,17 @@ If critical data is missing:
 a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
-├── cron/hermes-cron-manifest.json  # 15 isolated scheduled jobs
+├── config/candidate_selection.json # Dynamic-universe and funnel limits
+├── cron/hermes-cron-manifest.json  # 16 isolated scheduled jobs
 ├── scripts/
 │   ├── hermes_job_runner.py    # Cron isolation runner + artifact writer
 │   ├── hermes_gateway_doctor.py # Deployment-side Gateway import/schedule diagnostics
 │   ├── generate_system_crontab.py # System cron fallback generator
 │   ├── smoke_test.py           # 9-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 194 unit tests
+├── tests/                      # 254 unit tests
 ├── skills/
-│   ├── common/                 # Shared HTTP + atomic state store + runtime context
+│   ├── common/                 # Shared HTTP/state + candidate ranking/lifecycle
 │   ├── stock-triage/           # Orchestrator hub
 │   ├── stock-analyst/          # Technical analysis engine
 │   ├── hot-money-tactics/      # Sentiment & limit-up analysis
@@ -324,7 +336,7 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 152 tests
+python -m pytest -q tests/        # 254 tests
 python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```
