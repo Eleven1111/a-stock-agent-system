@@ -143,6 +143,24 @@ main agent 只做编排+汇总输出。违反此条导致 token 浪费或上下�
 
 `no_agent=True` 的脚本任务（如价格提醒）例外，不需要 delegation。
 
+### 8. Agent cron 模型选型铁律（2026-06-11 事故修复）
+
+**事故：** DeepSeek 官方 API 在 cron 环境频繁 `ReadTimeout`（180s+ 无响应），
+导致 cron worker 输出被进度标记污染、JSON 解析失败，所有 agent-driven cron 连续多日全部报错。
+
+**排查路径：**
+1. ❌ `deepseek-v4-flash` via DeepSeek 官方 API → 频繁超时 180s+
+2. ❌ `deepseek-v4-flash` via OpenRouter 代理 → 同模型同推理服务，一样慢
+3. ❌ `google/gemini-2.5-flash` via OpenRouter → **HTTP 403 geo-block（中国区不可用）**
+4. ✅ `qwen/qwen3.6-flash` via OpenRouter → 首响应 3.4s，稳定通过
+
+**铁律：**
+- Agent-driven cron **禁止使用 DeepSeek 官方 API**（cron 环境不可靠）
+- **禁止使用 Google Gemini 系列** via OpenRouter（中国区 geo-block）
+- **统一使用 `qwen/qwen3.6-flash` via OpenRouter**（阿里出品，中国区无障碍，免费稳定）
+- 其他国产可用备选：`minimax/minimax-m1`
+- 切换模型后必须在 agent.log 确认 API 首轮调用成功（日志关键字：`API call #1`）
+
 7. **输出是否控制在 Discord 一屏内？** → 配置 `max_output_chars`，例行任务 `deliver=local`
 8. **无信号时是否静默？** → 高频 cron（盘中异动、资讯监控）必须静默
 
