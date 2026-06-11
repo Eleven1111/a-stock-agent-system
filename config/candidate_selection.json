@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "universe": {
+    "min_amount": 80000000,
+    "min_price": 2.0,
+    "min_listed_days": 60,
+    "prefilter_limit": 350,
+    "cache_max_age_days": 7,
+    "min_sse_count": 2000,
+    "min_szse_count": 2500
+  },
+  "pipeline": {
+    "watch_limit": 200,
+    "auction_shortlist_limit": 20,
+    "open_confirmation_limit": 5
+  },
+  "network": {
+    "quote_batch_size": 80,
+    "quote_workers": 8,
+    "kline_workers": 12,
+    "quote_min_coverage": 0.9,
+    "kline_min_coverage": 0.7,
+    "request_retries": 2
+  }
+}

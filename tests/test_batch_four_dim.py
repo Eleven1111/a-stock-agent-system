@@ -1,6 +1,9 @@
 """批量四维打分 — 批量预取行情 + 线程池并行 + 顺序保持 + 失败隔离。"""
 
+from datetime import date, timedelta
+
 import batch_four_dim_scorer as batch
+from state_store import atomic_write_json
 
 
 def test_score_targets_prefetch_inject_and_order(monkeypatch):
@@ -43,3 +46,26 @@ def test_prefetch_quotes_swallows_errors(monkeypatch):
     monkeypatch.setattr(a_stock_http, "fetch_tencent_quote",
                         lambda codes: (_ for _ in ()).throw(RuntimeError("boom")))
     assert batch._prefetch_quotes([("600011", "华能国际")]) == {}
+
+
+def test_empty_dynamic_pool_fails_closed():
+    out = batch.score_targets([])
+
+    assert out["status"] == "insufficient_data"
+    assert out["target_count"] == 0
+    assert out["signals"] == []
+
+
+def test_load_pool_targets_rejects_stale_pool(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    stale = (date.today() - timedelta(days=1)).isoformat()
+    atomic_write_json(
+        batch.data_file("stock-triage", "candidate_pool_latest.json"),
+        {
+            "status": "ready",
+            "asof": stale,
+            "candidates": [{"code": "600011", "name": "华能国际"}],
+        },
+    )
+
+    assert batch.load_pool_targets() == []

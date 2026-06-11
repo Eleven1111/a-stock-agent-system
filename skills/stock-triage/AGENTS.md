@@ -11,6 +11,19 @@
 ## 架构
 
 ```
+SSE/SZSE listings + Tencent full-market quotes
+                │
+                ▼
+       candidate_discovery
+       (daban rank + trend rank)
+                │ about 200
+                ▼
+       auction_collector (09:25)
+                │ top 20
+                ▼
+       open_confirmation (09:35)
+                │ top 5
+                ▼
                         ┌─────────────────┐
                         │   stock-triage   │  编排中枢
                         │  (决策 + 派发)    │
@@ -28,6 +41,9 @@
                capital_flow  portfolio    intraday   chanlun-backtest
                (资金流向)     (持仓风控)    (盘中异动)    (离线研究闸门)
 ```
+
+动态候选全过程写入 `stock-triage/data/candidate_lifecycle/`。cron artifact 只传摘要，
+完整观察池由业务脚本通过 `candidate_pool_latest.json` 读取，禁止从主线对话恢复候选列表。
 
 **技能树（12 个 skill）：**
 

@@ -4,6 +4,8 @@ import importlib.util
 from pathlib import Path
 
 from a_stock_http import parse_tencent_orderbook_line, _TENCENT_BID_BASE, _TENCENT_ASK_BASE
+import candidate_lifecycle
+from state_store import atomic_write_json, read_json
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "daban-stock-picker" / "scripts" / "auction_collector.py"
@@ -99,3 +101,63 @@ def test_build_result_shape():
     assert r["schema"] == "auction_factors_v1"
     assert len(r["factors"]) == 1
     assert "chanlun-backtest" in r["note"]
+
+
+def test_load_watch_pool_rejects_stale_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    atomic_write_json(
+        ac._pool_path(),
+        {"status": "ready", "asof": "2026-06-01", "candidates": [{"code": "600001"}]},
+    )
+
+    try:
+        ac.load_watch_pool("2026-06-11")
+    except ac.DataSourceError as exc:
+        assert "过期" in str(exc)
+    else:
+        raise AssertionError("stale pool should fail closed")
+
+
+def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    candidates = [
+        {
+            "code": f"600{i:03d}",
+            "name": f"股票{i}",
+            "daban_score": 90 - i,
+            "trend_score": 70 - i,
+            "selected_by": {"daban": True, "trend": False},
+        }
+        for i in range(8)
+    ]
+    pool = {
+        "status": "ready",
+        "asof": source_asof,
+        "candidates": candidates,
+    }
+    atomic_write_json(ac._pool_path(), pool)
+    candidate_lifecycle.initialize_day(source_asof, candidates)
+    series = {
+        f"sh{item['code']}": [{
+            "t": "09:24:50",
+            "name": item["name"],
+            "price": 10.5,
+            "prev_close": 10.0,
+            "volume": 20_000 - index * 100,
+            "market_cap": 100.0,
+            "bids": [(10.5, 5_000)] * 5,
+            "asks": [(10.51, 2_000)] * 5,
+        }]
+        for index, item in enumerate(candidates)
+    }
+    atomic_write_json(ac._state_path(event_asof), {"asof": event_asof, "series": series})
+
+    result = ac.finalize(event_asof, shortlist_limit=5)
+
+    assert result["schema"] == "auction_finalize_v2"
+    assert len(result["shortlist"]) == 5
+    assert read_json(ac._shortlist_path(event_asof), {})["asof"] == event_asof
+    lifecycle = candidate_lifecycle.load_day(source_asof)
+    assert sum(record["current_stage"] == "auction_shortlist" for record in lifecycle["records"]) == 5

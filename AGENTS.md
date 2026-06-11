@@ -54,6 +54,8 @@
 |----|------|------|------|
 | 腾讯实时 | `qt.gtimg.cn/q={market}{code}` | GBK | A股/港股实时行情 |
 | 腾讯K线 | `web.ifzq.gtimg.cn/appstock/app/fqkline/get` | JSON | 日/周/月/60/30 K线 |
+| 上交所股票列表 | `query.sse.com.cn/sseQuery/commonQuery.do` | JSON | 沪市A股完整证券列表 |
+| 深交所股票列表 | `szse.cn/api/report/ShowReport` | XLSX/XML | 深市A股完整证券列表 |
 | 新浪实时 | `hq.sinajs.cn/list={codes}` | GBK | A股实时行情 |
 | yfinance | Yahoo Finance | — | 美股/全球指数/期货/VIX/汇率 |
 
@@ -243,6 +245,10 @@ from typing import Dict, Any, List, Optional
 | deep_research/{code}.json | `stock-triage/cache/` | Serenity 深研缓存（回流四维深度面） |
 | market_context.json | `stock-triage/cache/` | 大盘影响缓存（global-monitor --cache 写，四维 overlay 读） |
 | signal_context.json | `stock-triage/cache/` | 情绪上下文（hot-money/capital_flow --cache 写，情绪面读） |
+| candidate_pool_latest.json | `stock-triage/data/` | 全市场双策略动态观察池 |
+| candidate_lifecycle/YYYY-MM-DD.json | `stock-triage/data/` | 候选阶段、淘汰原因与T+1/T+3结果 |
+| auction_shortlist_latest.json | `daban-stock-picker/data/` | 09:25竞价前20短名单 |
+| open_confirmation_latest.json | `daban-stock-picker/data/` | 09:35最终确认结果 |
 | daban_thresholds.yaml | `config/` | 打板阈值单一事实源（实盘=回测，过闸才改） |
 | intraday_alerts.json | `stock-triage/data/` | 盘中告警去重缓存 |
 | alerts.json | `$HERMES_HOME/cron/output/` | 价格提醒数据 |

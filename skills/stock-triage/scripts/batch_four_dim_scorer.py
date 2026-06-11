@@ -14,7 +14,7 @@ import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Tuple
 
 SCRIPT_DIR = os.path.dirname(__file__)
@@ -22,22 +22,33 @@ sys.path.insert(0, SCRIPT_DIR)
 sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 
 import four_dim_scorer  # noqa: E402
+from paths import data_file  # noqa: E402
+from state_store import read_json  # noqa: E402
 
 
-DEFAULT_TARGETS: List[Tuple[str, str]] = [
-    ("600011", "华能国际"),
-    ("600310", "广西能源"),
-    ("002156", "通富微电"),
-    ("600584", "长电科技"),
-    ("002185", "华天科技"),
-    ("000021", "深科技"),
-    ("600667", "太极实业"),
-]
+def load_pool_targets(limit: int = 20, asof: str | None = None) -> List[Tuple[str, str]]:
+    pool = read_json(data_file("stock-triage", "candidate_pool_latest.json"), {})
+    expected_asof = asof or date.today().isoformat()
+    if (
+        not isinstance(pool, dict)
+        or pool.get("status") != "ready"
+        or pool.get("asof") != expected_asof
+    ):
+        return []
+    return [
+        (str(item["code"]), str(item.get("name") or item["code"]))
+        for item in pool.get("candidates", [])[:limit]
+        if item.get("code")
+    ]
 
 
-def parse_targets(value: str | None) -> List[Tuple[str, str]]:
+def parse_targets(
+    value: str | None,
+    limit: int = 20,
+    asof: str | None = None,
+) -> List[Tuple[str, str]]:
     if not value:
-        return DEFAULT_TARGETS
+        return load_pool_targets(limit, asof=asof)
     targets = []
     for item in value.split(","):
         item = item.strip()
@@ -66,6 +77,17 @@ def _prefetch_quotes(targets: List[Tuple[str, str]]) -> Dict[str, Any]:
 
 
 def score_targets(targets: List[Tuple[str, str]], max_workers: int = 5) -> Dict[str, Any]:
+    if not targets:
+        return {
+            "schema": "four_dim_batch_v1",
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "status": "insufficient_data",
+            "error": "动态候选池缺失或为空",
+            "target_count": 0,
+            "signals": [],
+            "signal_count": 0,
+            "results": [],
+        }
     quote_map = _prefetch_quotes(targets)
 
     def _one(target: Tuple[str, str]) -> Dict[str, Any]:
@@ -113,10 +135,12 @@ def format_report(batch: Dict[str, Any]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cron-safe batch four-dimension scorer")
     parser.add_argument("--targets", help="逗号分隔 code:name，如 002156:通富微电")
+    parser.add_argument("--limit", type=int, default=20, help="从动态候选池读取的标的上限")
+    parser.add_argument("--asof", default=date.today().isoformat(), help="动态候选池交易日")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    result = score_targets(parse_targets(args.targets))
+    result = score_targets(parse_targets(args.targets, limit=args.limit, asof=args.asof))
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     else:

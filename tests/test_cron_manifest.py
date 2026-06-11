@@ -174,10 +174,20 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         manifest = json.load(f)
     jobs = {job["id"]: job for job in manifest["jobs"]}
 
-    for required in ["auction-snapshot", "auction-finalize", "open-confirmation", "closing-triage"]:
+    for required in [
+        "candidate-discovery",
+        "auction-snapshot",
+        "auction-finalize",
+        "open-confirmation",
+        "closing-triage",
+    ]:
         assert required in jobs
         assert jobs[required]["command"].startswith("python scripts/hermes_job_runner.py ")
         assert jobs[required]["context_scope"] == "cron"
 
+    assert "--codes" not in jobs["auction-snapshot"]["run"]["command"]
+    assert "--codes" not in jobs["auction-finalize"]["run"]["command"]
+    assert "--codes" not in jobs["open-confirmation"]["run"]["command"]
+    assert jobs["auction-snapshot"]["context_from"] == ["candidate-discovery"]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
     assert set(jobs["closing-triage"]["context_from"]) >= {"four-dim-scorer", "portfolio-check"}
