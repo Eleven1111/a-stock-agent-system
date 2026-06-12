@@ -22,7 +22,7 @@ VALID_DEPENDENCY_DATE_MODES = {
     "previous_trading_day",
 }
 ARTIFACT_TEMPLATE = "{cron_output_dir}/{job_id}/{run_id}.json"
-RUNNER_RE = re.compile(r"^python3?\s+scripts/hermes_job_runner\.py\s+[\w-]+")
+RUNNER_RE = re.compile(r"^python3?\s+scripts/agent_job_runner\.py\s+[\w-]+")
 FORBIDDEN_TOP_LEVEL_SCRIPTS = {
     "capital_flow_monitor.py",
     "event_calendar.py",
@@ -173,7 +173,7 @@ def validate(filepath):
 
         cmd = job.get("command", "")
         if job.get("enabled", True) and job.get("external") and not RUNNER_RE.match(cmd):
-            errors.append(f"job[{i}] ({jid}) command must route through scripts/hermes_job_runner.py")
+            errors.append(f"job[{i}] ({jid}) command must route through scripts/agent_job_runner.py")
 
         run = job.get("run")
         if not isinstance(run, dict):
@@ -184,7 +184,7 @@ def validate(filepath):
             if not isinstance(run_cmd, str) or not run_cmd.strip():
                 errors.append(f"job[{i}] ({jid}) run.command must be non-empty string")
             if RUNNER_RE.match(run_cmd):
-                errors.append(f"job[{i}] ({jid}) run.command must not call hermes_job_runner recursively")
+                errors.append(f"job[{i}] ({jid}) run.command must not call a job runner recursively")
             for script in FORBIDDEN_TOP_LEVEL_SCRIPTS:
                 if re.search(rf"python3?\s+scripts/{re.escape(script)}(\s|$)", run_cmd):
                     errors.append(

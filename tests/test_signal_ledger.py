@@ -40,6 +40,53 @@ def test_append_is_idempotent_and_projects_settlement(tmp_path):
     assert records[0]["settlement_id"]
 
 
+def test_projection_folds_provisional_then_final_settlement(tmp_path):
+    path = str(tmp_path / "signal_ledger.jsonl")
+    links = ledger.make_links("rec-stage")
+    opened = ledger.signal_opened_event(
+        {
+            "code": "002156",
+            "name": "通富微电",
+            "date": "2026-06-10",
+            "entry_price": 10.0,
+            "action": "buy",
+        },
+        links,
+    )
+    t1 = ledger.settlement_event(
+        {**opened["payload"], **links},
+        {
+            "outcome": "win",
+            "t1_close_ret": 3.0,
+            "settlement_status": "provisional",
+            "resolved": False,
+        },
+        stage="t1",
+    )
+    t3 = ledger.settlement_event(
+        {**opened["payload"], **links},
+        {
+            "outcome": "win",
+            "t1_close_ret": 3.0,
+            "horizon_ret": 8.0,
+            "settlement_status": "final",
+            "resolved": True,
+        },
+        stage="t3",
+    )
+
+    ledger.append_events([opened, t1, t3], ledger_file=path)
+
+    record = ledger.project_signals(ledger_file=path)[0]
+    assert record["settlement_status"] == "final"
+    assert record["horizon_ret"] == 8.0
+    assert [event["event_type"] for event in ledger.read_events(path)] == [
+        "signal.opened",
+        "signal.t1_settled",
+        "signal.t3_settled",
+    ]
+
+
 def test_concurrent_append_keeps_every_event(tmp_path):
     path = str(tmp_path / "signal_ledger.jsonl")
 

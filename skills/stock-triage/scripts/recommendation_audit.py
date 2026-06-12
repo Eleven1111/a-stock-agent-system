@@ -26,7 +26,9 @@ from state_store import read_json, update_json_list, mutate_json
 from paths import data_file
 from a_share_rules import t1_constraint
 from recommendation_quality import build_quality_report
+from decision_policy import evaluate_decision
 import signal_ledger
+import strategy_registry
 
 
 RECOMMENDATIONS_FILE = data_file("stock-triage", "recommendations.json")
@@ -327,9 +329,28 @@ def record_recommendation(
         announcements,
         asof=record_date,
     )
+    policy = evaluate_decision(
+        requested_action=action,
+        quality_report=quality,
+        strategy_record=strategy_registry.get(strategy_id or "default"),
+    )
+    effective_action = (
+        "avoid"
+        if policy["decision"] == "avoid"
+        else "hold"
+        if policy["decision"] == "watch"
+        else action
+    )
+    if policy["position_multiplier"] == 0:
+        sizing.update({
+            "recommended_position_pct": 0.0,
+            "recommended_amount": 0.0,
+            "policy_blocked": True,
+        })
     opens_signal = (
-        action in signal_ledger.SETTLEABLE_ACTIONS
+        effective_action in signal_ledger.SETTLEABLE_ACTIONS
         and quality.get("status") == "passed"
+        and policy["decision"] not in {"avoid", "watch"}
     )
 
     recommendation_id = source_id or _make_id(code)
@@ -348,7 +369,8 @@ def record_recommendation(
         "name": name,
         "date": record_date,
         "created_at": datetime.now().isoformat(),
-        "action": action,
+        "requested_action": action,
+        "action": effective_action,
         "entry_price": entry_price,
         "price_range": price_range,
         "rationale": rationale,
@@ -361,6 +383,7 @@ def record_recommendation(
         "strategy_id": strategy_id or "default",
         "position_sizing": sizing,
         "quality_report": quality,
+        "policy_decision": policy,
         "execution_constraints": quality["execution_constraints"],
         "settleable_signal": opens_signal,
         "outcome": "pending",
@@ -379,6 +402,7 @@ def record_recommendation(
             "links": links,
             "payload": {
                 "action": action,
+                "effective_action": effective_action,
                 "code": code,
                 "entry_price": entry_price,
                 "price_range": price_range,
@@ -386,6 +410,7 @@ def record_recommendation(
                 "status": "proposed",
                 "execution_status": "not_executed",
                 "quality_status": quality.get("status"),
+                "policy_decision": policy,
             },
             "idempotency_key": f"trade.proposed:{links['trade_id']}",
         })

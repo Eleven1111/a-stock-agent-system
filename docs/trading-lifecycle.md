@@ -23,10 +23,24 @@ Python 虚拟环境和 `.env`。两者不要混用。
 - `skills/stock-triage/data/monitor_registry.json`
 - `skills/stock-triage/data/trade_history.json`
 - `skills/stock-triage/data/signal_ledger.jsonl`
+- `market/snapshots/{trading_date}/{job_id}/{snapshot_id}.json`
+- `agent_state/agent_state_latest.json`
 
 跨模块生命周期以 append-only `signal_ledger.jsonl` 为规范账本。旧 JSON 文件继续作为
 兼容视图使用。完整事件和迁移说明见
 [`architecture-hardening.md`](architecture-hardening.md)。
+
+## Hermes / OpenClaw 执行入口
+
+两端都调用同一个 runtime-neutral 入口，不把业务脚本直接塞进 Agent 对话：
+
+```bash
+python scripts/run_agent_dag.py global-preopen --runtime hermes
+python scripts/run_agent_dag.py global-preopen --runtime openclaw
+```
+
+任务输出写 artifact 和不可变市场快照，依赖门禁失败时 fail-closed。Agent 解释和推送
+前读取 `agent_state_latest.json`，不从定时任务聊天上下文猜测持仓、监控或信号状态。
 
 ## T+1 执行约束
 
@@ -103,3 +117,13 @@ python skills/stock-triage/scripts/monitor_manager.py --cancel-theme AI算力
 
 全球映射只允许生成 `watch_only_pending_stock_qc`，不能绕过个股公告和可成交性
 质检直接升级为买入建议。
+
+## 自动结算与反馈
+
+交易日收盘后的 `performance-daily` 持续推进所有未 final 的信号：
+
+- T+1：写 `signal.t1_settled`，仅作 provisional 观察
+- T+3：写 `signal.t3_settled`，作为 final 绩效结果
+- 周度：按最终期望值更新 `strategy_registry.json`，负期望策略可被统一 Policy 停用
+
+人工修正仍追加新事件，不覆盖历史事件。

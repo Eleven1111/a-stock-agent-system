@@ -226,21 +226,40 @@ def settlement_event(
     result: Mapping[str, Any],
     *,
     settlement_id: Optional[str] = None,
+    stage: Optional[str] = None,
 ) -> dict[str, Any]:
     links = legacy_signal_links(record)
-    sid = str(settlement_id or links.get("settlement_id") or _stable_id(
-        "settle",
-        str(links["signal_id"]),
-    ))
+    normalized_stage = str(stage or "").lower()
+    sid = str(
+        settlement_id
+        or (
+            _stable_id("settle", f"{links['signal_id']}|{normalized_stage}")
+            if normalized_stage in {"t1", "t3"}
+            else links.get("settlement_id") or _stable_id("settle", str(links["signal_id"]))
+        )
+    )
     links["settlement_id"] = sid
     payload = dict(result)
-    payload.setdefault("resolved", True)
+    if normalized_stage == "t1":
+        payload.setdefault("settlement_status", "provisional")
+        payload.setdefault("resolved", False)
+    elif normalized_stage == "t3":
+        payload.setdefault("settlement_status", "final")
+        payload.setdefault("resolved", True)
+    else:
+        payload.setdefault("settlement_status", "final")
+        payload.setdefault("resolved", True)
     payload.setdefault("resolved_at", _now())
+    event_type = (
+        f"signal.{normalized_stage}_settled"
+        if normalized_stage in {"t1", "t3"}
+        else "signal.settled"
+    )
     return {
-        "event_type": "signal.settled",
+        "event_type": event_type,
         "links": links,
         "payload": payload,
-        "idempotency_key": f"signal.settled:{sid}",
+        "idempotency_key": f"{event_type}:{sid}",
     }
 
 
@@ -266,8 +285,13 @@ def project_signals(
                 **dict(event.get("payload") or {}),
                 **{key: value for key, value in links.items() if value is not None},
                 "outcome": "pending",
+                "settlement_status": "pending",
             }
-        elif event_type == "signal.settled" and signal_id in records:
+        elif event_type in {
+            "signal.settled",
+            "signal.t1_settled",
+            "signal.t3_settled",
+        } and signal_id in records:
             records[signal_id].update(dict(event.get("payload") or {}))
             records[signal_id].update(
                 {key: value for key, value in links.items() if value is not None}

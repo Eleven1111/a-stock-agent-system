@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Generate a system crontab fallback from the isolated Hermes manifest.
+Generate a Hermes system crontab fallback from the runtime-neutral manifest.
 
 Use this when Hermes Gateway's in-process cron scheduler is unhealthy. The
-generated lines run hermes_job_runner.py directly and therefore bypass Gateway
-AIAgent imports while keeping the same per-run artifacts.
+generated lines run the shared agent job runner directly and therefore bypass
+Gateway AIAgent imports while keeping the same per-run artifacts.
 """
 
 from __future__ import annotations
@@ -35,7 +35,10 @@ def crontab_lines(manifest: Dict[str, Any], repo_dir: str, hermes_home: str, pyt
         if "{" in job.get("command", "") or "}" in job.get("command", ""):
             raise ValueError(f"job {job['id']} is not self-contained: {job['command']}")
         schedule = job["schedule"]
-        command = f"cd {repo} && {py} scripts/hermes_job_runner.py {shlex.quote(job['id'])} >> {log_path} 2>&1"
+        command = (
+            f"cd {repo} && {py} scripts/agent_job_runner.py "
+            f"{shlex.quote(job['id'])} --runtime hermes >> {log_path} 2>&1"
+        )
         lines.append(f"{schedule} {command}")
     return lines
 

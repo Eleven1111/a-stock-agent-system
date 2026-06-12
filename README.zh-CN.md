@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-357%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-367%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
@@ -17,20 +17,29 @@ A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、
 ## 架构
 
 ```mermaid
-graph TD
-    TRIAGE[stock-triage<br/>编排中枢] --> ANALYST[stock-analyst<br/>技术分析引擎]
-    TRIAGE --> HOTMONEY[hot-money-tactics<br/>游资情绪]
-    TRIAGE --> GLOBAL[global-market-monitor<br/>全球宏观]
-    TRIAGE --> NEWS[news-to-sector<br/>催化映射]
-    TRIAGE --> SERENITY[serenity-investment-research<br/>深度投研]
-    TRIAGE --> DABAN[daban-stock-picker<br/>打板候选闸门]
-    TRIAGE --> CHANLUN[chanlun-backtest<br/>离线研究闸门]
-
-    ANALYST --> FLOW[capital_flow_monitor<br/>资金流向]
-    ANALYST --> PORT[portfolio_manager<br/>持仓风控]
-    ANALYST --> INTRA[intraday_monitor<br/>5分钟异动]
-    HOTMONEY --> FLOW
-    GLOBAL --> FLOW
+flowchart LR
+    S["外部数据源"] --> A["统一 Data Adapters"]
+    A --> M["带交易日和来源版本的不可变市场快照"]
+    C["A股交易日历"] --> O["跨运行时可恢复 DAG"]
+    O --> HM["情绪和涨停梯队"]
+    O --> CD["候选发现"]
+    O --> AU["集合竞价"]
+    O --> OC["开盘确认"]
+    M --> HM
+    M --> CD
+    M --> AU
+    M --> OC
+    HM --> P["统一决策与组合风险 Policy"]
+    CD --> P
+    AU --> P
+    OC --> P
+    P --> L["Append-only Signal Ledger"]
+    L --> ST["T+1 provisional / T+3 final 结算"]
+    ST --> E["绩效评估与策略门控"]
+    E --> P
+    L --> X["统一 Agent 状态投影"]
+    X --> H["Hermes"]
+    X --> W["OpenClaw"]
 ```
 
 ## 能力矩阵
@@ -85,7 +94,7 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 
 ```bash
 python scripts/smoke_test.py      # 9项集成检查
-python -m pytest -q tests/        # 304项测试全部通过
+python -m pytest -q tests/        # 367项测试全部通过
 ```
 
 ### Hermes / OpenClaw 共享状态
@@ -98,6 +107,14 @@ export A_STOCK_STATE_HOME="$HOME/.a-stock-agent"
 
 T+1 约束、推荐质检和动态订阅规则见
 [A股交易与监控生命周期](docs/trading-lifecycle.md)。
+
+两端使用相同执行入口：
+
+```bash
+python scripts/run_agent_dag.py global-preopen --runtime hermes
+python scripts/run_agent_dag.py global-preopen --runtime openclaw
+python scripts/agent_state_projector.py --json
+```
 
 ### 运行
 
@@ -153,13 +170,18 @@ export SERPAPI_API_KEY=your_key
 
 ## Cron 调度
 
-所有任务定义在 [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json)。调度依赖外部 [Hermes Agent](https://hermes-agent.nousresearch.com) 运行时——本仓库提供脚本，Hermes 提供时钟。
+所有任务定义在 [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json)。
+文件名为历史兼容命名，manifest 实际由 Hermes、OpenClaw、system cron 和本地运行共用。
 
-manifest 中每个定时任务都先进入 `scripts/hermes_job_runner.py`。runner 在隔离子进程中执行真实业务脚本，写入 `$HERMES_HOME/cron/output/{job_id}/{run_id}.json`，并维护 `$HERMES_HOME/cron/output/job_runs.json` 运行账本，再按 `deliver` 配置决定是否推送。例行数据任务可设为 `deliver=local`，避免定时任务输出污染主线对话。
+每个定时任务都先进入 `scripts/agent_job_runner.py`。runner 在隔离子进程中执行真实
+业务脚本，写入 `$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`，为 JSON
+输出创建不可变市场快照，并维护 `job_runs.json`。例行任务可设为 `deliver=local`，
+避免定时任务输出污染主线对话。
 
 artifact v2 还包含 `trading_date`、`batch_id` 和 `dependency_gate`。必需上游缺失、失败、
 过期或交易日不匹配时，runner 写入 `status=blocked` 并拒绝启动业务脚本。推荐、成交、
-监控和 T+1 结算统一写入 `signal_ledger.jsonl`；详细契约见
+监控、T+1 provisional 和 T+3 final 结算统一写入 `signal_ledger.jsonl`；
+`agent_state_projector.py` 向两端提供同一份当前状态。详细契约见
 [`docs/architecture-hardening.md`](docs/architecture-hardening.md)。
 
 ```bash
@@ -204,6 +226,8 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 | 15:18 | 动态前20只四维复核 | 工作日 |
 | 15:25 | 持仓风控检查 | 工作日 |
 | 15:35 | 收盘Triage→Kanban派发 | 工作日 |
+| 16:10 | T+1/T+3 信号结算 | 工作日 |
+| 09:40, 15:40, 16:40 | 统一 Agent 状态投影 | 工作日 |
 | 22:30 | 全球晚间扫描 | 工作日 |
 | 周六 10:00 | 机构行为周报 | 每周 |
 | 周日 10:00 | 胜率统计周报 | 每周 |
@@ -268,14 +292,17 @@ a-stock-agent-system/
 ├── pyproject.toml              # 依赖管理
 ├── config/scoring.yaml         # 评分权重 & 风控参数
 ├── config/candidate_selection.json # 动态股票池与漏斗参数
-├── cron/hermes-cron-manifest.json  # 17个隔离定时任务
+├── cron/hermes-cron-manifest.json  # 19个跨运行时隔离任务
 ├── scripts/
-│   ├── hermes_job_runner.py    # Cron隔离runner + artifact写入
+│   ├── agent_job_runner.py     # Hermes/OpenClaw共用任务入口
+│   ├── run_agent_dag.py        # 依赖排序、重试、断点续跑
+│   ├── agent_state_projector.py # 账本到Agent当前状态投影
+│   ├── hermes_job_runner.py    # 兼容保留的runner实现
 │   ├── hermes_gateway_doctor.py # 部署机Gateway导入/schedule诊断
 │   ├── generate_system_crontab.py # 系统cron兜底生成器
 │   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 304个单元测试
+├── tests/                      # 367个单元测试
 ├── skills/
 │   ├── common/                 # 共享HTTP/状态 + 候选排序/生命周期
 │   ├── stock-triage/           # 编排中枢
@@ -318,7 +345,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 304项测试
+python -m pytest -q tests/        # 367项测试
 python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```

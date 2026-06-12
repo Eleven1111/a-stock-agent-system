@@ -1,9 +1,8 @@
-"""
-Hermes runtime context helpers.
+"""Runtime context helpers shared by Hermes and OpenClaw.
 
 Cron jobs must not rely on the active user conversation for intermediate data.
 This module gives every job run a stable run id, an artifact path, upstream
-context lookup, and a compact run ledger under $HERMES_HOME/cron/output.
+context lookup, and a compact run ledger under $A_STOCK_STATE_HOME/cron/output.
 """
 
 from __future__ import annotations
@@ -271,6 +270,8 @@ def build_artifact(
     batch_id: Optional[str] = None,
     dependency_gate: Optional[Dict[str, Any]] = None,
     status_override: Optional[str] = None,
+    runtime: Optional[str] = None,
+    snapshot_ref: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     parsed = try_parse_json(stdout)
     has_signal = output_has_signal(parsed, stdout)
@@ -282,6 +283,7 @@ def build_artifact(
         "batch_id": batch_id,
         "trading_date": trading_date,
         "context_scope": job.get("context_scope", "cron"),
+        "runtime": runtime or os.environ.get("A_STOCK_RUNTIME") or "local",
         "execution_mode": job.get("execution_mode"),
         "deliver": job.get("deliver"),
         "status": status,
@@ -295,6 +297,7 @@ def build_artifact(
         "summary": summarize_output(parsed, stdout),
         "context_from": context_artifacts,
         "dependency_gate": dependency_gate,
+        "market_snapshot": snapshot_ref,
         "stdout": stdout,
         "stderr": stderr,
         "stdout_preview": _json_preview(stdout),
@@ -316,6 +319,7 @@ def record_run(artifact: Dict[str, Any], max_items: int = 1000) -> None:
         "run_id": artifact["run_id"],
         "batch_id": artifact.get("batch_id"),
         "trading_date": artifact.get("trading_date"),
+        "runtime": artifact.get("runtime"),
         "status": artifact["status"],
         "returncode": artifact["returncode"],
         "started_at": artifact["started_at"],

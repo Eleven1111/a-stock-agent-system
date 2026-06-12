@@ -29,8 +29,10 @@ from market_temperature import temperature_from_context  # noqa: E402
 import monitor_registry  # noqa: E402
 from paths import data_file  # noqa: E402
 from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
+from decision_policy import evaluate_decision  # noqa: E402
 import recommendation_audit  # noqa: E402
 import signal_ledger  # noqa: E402
+import strategy_registry  # noqa: E402
 from signal_context import read_signal_context  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 from tradeability import assess_tradeability  # noqa: E402
@@ -72,6 +74,30 @@ def _enrich_decision(
     item["execution_plan"] = plan
     item["decision"] = plan["decision"]
     return item
+
+
+def _apply_policy(item: Mapping[str, Any]) -> Dict[str, Any]:
+    result = dict(item)
+    selected_by = result.get("open_selected_by") or {}
+    strategy_id = (
+        "daban:first_board_reseal"
+        if selected_by.get("daban")
+        else "trend_pullback"
+    )
+    policy = evaluate_decision(
+        requested_action=str((result.get("execution_plan") or {}).get("decision") or "watch"),
+        quality_report=result.get("quality_report") or {"status": "conditional"},
+        strategy_record=strategy_registry.get(strategy_id),
+    )
+    result["strategy_id"] = strategy_id
+    result["policy_decision"] = policy
+    if policy["decision"] in {"avoid", "watch"}:
+        plan = dict(result.get("execution_plan") or {})
+        plan["decision"] = policy["decision"]
+        plan["position_pct"] = 0.0
+        result["execution_plan"] = plan
+        result["decision"] = policy["decision"]
+    return result
 
 
 def evaluate_open_confirmation(
@@ -350,11 +376,11 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
         for item in signals
     )
     signals = [
-        _enrich_decision(
+        _apply_policy(_enrich_decision(
             item,
             announcement_map.get(candidate_pipeline.naked_code(item.get("code"))),
             asof,
-        )
+        ))
         for item in signals
     ]
 
@@ -424,11 +450,7 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
             horizon=plan.get("horizon"),
             grade="A" if float(item.get("open_score") or 0) >= 80 else "B",
             confidence="medium",
-            strategy_id=(
-                "daban:first_board_reseal"
-                if (item.get("open_selected_by") or {}).get("daban")
-                else "trend_pullback"
-            ),
+            strategy_id=item["strategy_id"],
             announcements=item.get("announcements"),
             source_id=recommendation_id,
             asof=asof,

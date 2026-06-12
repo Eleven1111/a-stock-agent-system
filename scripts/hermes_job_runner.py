@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""
-Hermes cron job runner.
+"""Isolated job-runner implementation shared by Hermes and OpenClaw.
 
-The manifest should point Hermes at this runner, not directly at business
-scripts. The runner executes the business command in an isolated subprocess,
-writes a durable artifact, records a compact ledger entry, and emits only the
-configured delivery output.
+Use ``agent_job_runner.py`` as the public entrypoint. This module retains its
+historical filename for compatibility.
 """
 
 from __future__ import annotations
@@ -34,6 +31,7 @@ from runtime_context import (  # noqa: E402
     resolve_trading_date,
     write_artifact,
 )
+from market_snapshot import write_snapshot  # noqa: E402
 
 
 def _load_manifest(path: str) -> Dict[str, Any]:
@@ -65,6 +63,23 @@ class _SafeDict(dict):
 
 def _format_command(command: str, values: Dict[str, str]) -> str:
     return command.format_map(_SafeDict(values))
+
+
+def _producer_version() -> str:
+    configured = os.environ.get("A_STOCK_CODE_VERSION")
+    if configured:
+        return configured
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
 def _emit(job: Dict[str, Any], artifact: Dict[str, Any], emit_local: bool) -> None:
@@ -115,6 +130,7 @@ def run_job(args: argparse.Namespace) -> int:
     run_id = args.run_id or make_run_id(job["id"], started_at)
     trading_date = resolve_trading_date(args.trading_date or started_at)
     batch_id = args.batch_id or make_batch_id(trading_date)
+    runtime = args.runtime or os.environ.get("A_STOCK_RUNTIME") or "hermes"
     dependency_gate = evaluate_dependencies(
         job.get("context_from", []),
         trading_date=trading_date,
@@ -156,6 +172,7 @@ def run_job(args: argparse.Namespace) -> int:
             batch_id=batch_id,
             dependency_gate=dependency_gate,
             status_override="blocked",
+            runtime=runtime,
         )
         write_artifact(artifact)
         record_run(artifact)
@@ -170,6 +187,11 @@ def run_job(args: argparse.Namespace) -> int:
         "HERMES_TRADING_DATE": trading_date,
         "HERMES_CONTEXT_SCOPE": job.get("context_scope", "cron"),
         "HERMES_CONTEXT_FROM": json.dumps(context_artifacts, ensure_ascii=False),
+        "A_STOCK_RUNTIME": runtime,
+        "A_STOCK_JOB_ID": job["id"],
+        "A_STOCK_RUN_ID": run_id,
+        "A_STOCK_BATCH_ID": batch_id,
+        "A_STOCK_TRADING_DATE": trading_date,
     })
 
     start = time.monotonic()
@@ -194,6 +216,33 @@ def run_job(args: argparse.Namespace) -> int:
 
     finished_at = now_iso()
     duration = time.monotonic() - start
+    snapshot_ref = None
+    parsed_output = None
+    if returncode == 0:
+        try:
+            parsed_output = json.loads(stdout)
+        except (json.JSONDecodeError, TypeError):
+            parsed_output = None
+    if parsed_output is not None:
+        snapshot = write_snapshot(
+            job["id"],
+            parsed_output,
+            trading_date=trading_date,
+            batch_id=batch_id,
+            producer=job["id"],
+            producer_version=_producer_version(),
+            captured_at=finished_at,
+        )
+        snapshot_ref = {
+            key: snapshot[key]
+            for key in (
+                "schema",
+                "snapshot_id",
+                "snapshot_path",
+                "payload_hash",
+                "source_versions",
+            )
+        }
     artifact = build_artifact(
         job=job,
         run_id=run_id,
@@ -210,6 +259,8 @@ def run_job(args: argparse.Namespace) -> int:
         trading_date=trading_date,
         batch_id=batch_id,
         dependency_gate=dependency_gate,
+        runtime=runtime,
+        snapshot_ref=snapshot_ref,
     )
     write_artifact(artifact)
     record_run(artifact)
@@ -218,12 +269,13 @@ def run_job(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run one isolated Hermes cron job")
+    parser = argparse.ArgumentParser(description="Run one isolated A-stock agent job")
     parser.add_argument("job_id")
     parser.add_argument("--manifest", default=os.path.join(ROOT, "cron", "hermes-cron-manifest.json"))
     parser.add_argument("--run-id")
     parser.add_argument("--batch-id")
     parser.add_argument("--trading-date")
+    parser.add_argument("--runtime", choices=["hermes", "openclaw", "local"])
     parser.add_argument("--var", action="append", default=[], help="Template variable as key=value")
     parser.add_argument("--emit-local", action="store_true", help="Emit stdout even when deliver=local")
     parser.add_argument("--dry-run", action="store_true")

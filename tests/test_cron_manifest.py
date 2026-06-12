@@ -13,7 +13,7 @@ VALID_JOB = {
     "name": "Test",
     "schedule": "0 9 * * 1-5",
     "timezone": "Asia/Shanghai",
-    "command": "python scripts/hermes_job_runner.py test-job",
+    "command": "python scripts/agent_job_runner.py test-job",
     "cwd": ".",
     "enabled": True,
     "silent_when_no_signal": True,
@@ -71,7 +71,7 @@ def test_duplicate_ids():
 
 def test_placeholders_are_rejected_without_vars():
     j = dict(VALID_JOB)
-    j["command"] = "python scripts/hermes_job_runner.py test-job --var code={code} --var name={name}"
+    j["command"] = "python scripts/agent_job_runner.py test-job --var code={code} --var name={name}"
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(manifest, f)
@@ -84,7 +84,7 @@ def test_placeholders_are_rejected_without_vars():
 
 def test_placeholders_are_rejected_even_with_vars():
     j = dict(VALID_JOB)
-    j["command"] = "python scripts/hermes_job_runner.py test-job --var code={code}"
+    j["command"] = "python scripts/agent_job_runner.py test-job --var code={code}"
     j["template_vars"] = ["code"]
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -200,11 +200,11 @@ def test_unknown_dependency_rejected():
 def test_dependency_cycle_rejected():
     first = dict(VALID_JOB)
     first["id"] = "first"
-    first["command"] = "python scripts/hermes_job_runner.py first"
+    first["command"] = "python scripts/agent_job_runner.py first"
     first["context_from"] = ["second"]
     second = dict(VALID_JOB)
     second["id"] = "second"
-    second["command"] = "python scripts/hermes_job_runner.py second"
+    second["command"] = "python scripts/agent_job_runner.py second"
     second["context_from"] = ["first"]
     manifest = {"jobs": [first, second]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -233,7 +233,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "closing-triage",
     ]:
         assert required in jobs
-        assert jobs[required]["command"].startswith("python scripts/hermes_job_runner.py ")
+        assert jobs[required]["command"].startswith("python scripts/agent_job_runner.py ")
         assert jobs[required]["context_scope"] == "cron"
 
     assert "--codes" not in jobs["auction-snapshot"]["run"]["command"]
@@ -251,5 +251,8 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert any("signal_ledger.jsonl" in path for path in jobs["intraday-alert"]["allowed_state_writes"])
     assert set(jobs["closing-triage"]["context_from"]) >= {"four-dim-scorer", "portfolio-check"}
     assert jobs["performance-weekly"]["dependency_policy"]["trading_date"] == "same_trading_date"
+    assert jobs["performance-weekly"]["context_from"] == ["performance-daily"]
     assert jobs["performance-weekly"]["run"]["command"].endswith("--json --gate")
     assert any("strategy_registry.json" in path for path in jobs["performance-weekly"]["allowed_state_writes"])
+    assert jobs["performance-daily"]["run"]["command"].endswith("--json")
+    assert jobs["ledger-projector"]["run"]["command"].startswith("python scripts/agent_state_projector.py")

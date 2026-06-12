@@ -1,14 +1,52 @@
 # 运行门禁、统一账本与数据访问层
 
-本轮改造把三个原本分散在脚本约定中的架构能力变成确定性代码：
+本轮改造把原本分散在脚本约定中的架构能力变成确定性代码：
 
-1. cron 任务按 A 股交易日组成运行批次，并在启动业务子进程前验证依赖。
-2. 推荐、信号、拟议交易、真实成交、监控状态和 T+1 结算写入同一事件账本。
-3. 外部 HTTP 请求统一经过共享 transport/provider，关键阈值从集中配置读取。
+1. Hermes 与 OpenClaw 共用 runtime-neutral runner 和可恢复 DAG。
+2. cron 任务按 A 股交易日组成运行批次，并在启动业务子进程前验证依赖。
+3. 每个成功任务输出内容寻址、不可变的市场快照。
+4. 推荐、信号、拟议交易、真实成交、监控状态和分阶段结算写入同一事件账本。
+5. 方向性建议统一经过同一个质检、策略、T+1 和市场状态 Policy。
+6. 账本投影为 Hermes/OpenClaw 共用的当前决策状态。
+7. 外部 HTTP 请求统一经过共享 transport/provider，关键阈值从集中配置读取。
+
+## 跨运行时入口与 DAG
+
+manifest 不再直接绑定 Hermes：
+
+```bash
+python scripts/agent_job_runner.py global-preopen --runtime hermes
+python scripts/agent_job_runner.py global-preopen --runtime openclaw
+```
+
+需要补齐同批次依赖、失败重试和断点续跑时使用 DAG：
+
+```bash
+python scripts/run_agent_dag.py open-confirmation --runtime hermes
+python scripts/run_agent_dag.py open-confirmation --runtime openclaw
+```
+
+DAG 按 `context_from` 做拓扑排序，只自动展开 `same_trading_date` / `same_batch`
+依赖；`previous_trading_day` 依赖仍由 runner 的依赖门禁检查，避免把昨天的生产任务
+误当成今天的节点重跑。相同 `trading_date + batch_id` 下已有成功 artifact 会直接复用。
+
+## 不可变市场快照
+
+成功且 stdout 为 JSON 的任务会生成内容寻址快照：
+
+```text
+$A_STOCK_STATE_HOME/market/snapshots/{trading_date}/{job_id}/{snapshot_id}.json
+```
+
+快照包含来源 provider、adapter 版本、生产者 Git commit/部署版本、交易日、批次、
+抓取时间和 payload 哈希。
+相同内容重复写入会复用同一路径；不同内容不会覆盖旧快照。artifact 仅保存
+`market_snapshot` 引用，消费者可追溯到本次决策实际使用的数据版本。
 
 ## 运行批次与依赖门禁
 
-每个 artifact 使用 `hermes_cron_artifact_v2`，包含：
+每个 artifact 使用 `hermes_cron_artifact_v2`，名字为兼容历史 schema，不代表只能由
+Hermes 生成。artifact 额外记录 `runtime` 和 `market_snapshot`。
 
 - `trading_date`：任务所属的最近 A 股交易日。
 - `batch_id`：格式为 `a-share-YYYYMMDD`。
@@ -54,7 +92,9 @@ $A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl
 - `trade.proposed`
 - `trade.executed`
 - `monitor.activated` / `monitor.deactivated` / `monitor.cancelled` / `monitor.closed`
-- `signal.settled`
+- `signal.t1_settled`
+- `signal.t3_settled`
+- `signal.settled`（人工更正和旧版兼容）
 
 只有公告与交易质检通过的 `buy/add` 推荐才生成 `signal.opened`。`hold/watch/avoid`
 不会进入绩效样本。`trade.proposed` 不表示成交；只有 `portfolio_manager` 实际录入
@@ -70,13 +110,36 @@ $A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl
 它们是兼容视图和既有部署数据，不再是跨模块关联的唯一事实源。绩效统计优先投影
 `signal_ledger.jsonl`，再合并尚未迁移的旧 `signal_history.json` 记录。
 
-周度绩效任务现在执行：
+交易日 16:10 的 `performance-daily` 先写 T+1 provisional，再在第三个持有交易日写
+T+3 final。只有 final 结果进入最终策略门控；周度任务负责汇总并再次执行 gate：
 
 ```bash
 python skills/stock-triage/scripts/performance_tracker.py --json --gate
 ```
 
 因此结算完成后会自动按策略期望值更新 `strategy_registry.json`。
+
+## 统一 Policy 与 Agent 状态投影
+
+`skills/common/decision_policy.py` 是所有方向性建议的确定性门禁。它统一处理：
+
+- 公告和推荐质检未通过
+- 策略被 registry 停用或禁止用于实盘 Agent
+- A 股 T+1 卖出锁定
+- `risk_off` 市场状态
+
+被拦截的原始买入意图仍写入 `trade.proposed` 供审计，但
+`execution_status=not_executed`，不会生成 `signal.opened` 或进入绩效样本。
+
+两端通过同一个投影读取状态：
+
+```bash
+python scripts/agent_state_projector.py --json
+```
+
+输出写入 `$A_STOCK_STATE_HOME/agent_state/agent_state_latest.json`，包含当前信号、
+待结算信号、持仓、有效监控和策略门控。Hermes/OpenClaw 不应依赖各自对话历史
+重建这些事实。
 
 ## 数据 Provider 与配置
 
@@ -103,5 +166,5 @@ pytest -q
 python scripts/smoke_test.py
 ```
 
-Hermes 与 OpenClaw 必须设置相同的 `A_STOCK_STATE_HOME`，否则会各自生成账本和监控状态，
-闭环仍会被拆成两套。
+Hermes 与 OpenClaw 必须设置相同的 `A_STOCK_STATE_HOME`，并使用同一份仓库版本和
+Python 环境，否则会各自生成账本、快照和监控状态，闭环仍会被拆成两套。

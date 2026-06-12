@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-357%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-367%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -20,20 +20,29 @@ A multi-agent research system for China's A-share market. Eleven repository skil
 ## Architecture
 
 ```mermaid
-graph TD
-    TRIAGE[stock-triage<br/>Orchestrator] --> ANALYST[stock-analyst<br/>Technical Engine]
-    TRIAGE --> HOTMONEY[hot-money-tactics<br/>Sentiment]
-    TRIAGE --> GLOBAL[global-market-monitor<br/>Macro Surveillance]
-    TRIAGE --> NEWS[news-to-sector<br/>Catalyst Mapping]
-    TRIAGE --> SERENITY[serenity-investment-research<br/>Deep Research]
-    TRIAGE --> DABAN[daban-stock-picker<br/>Limit-up Candidate Gate]
-    TRIAGE --> CHANLUN[chanlun-backtest<br/>Offline Research Gate]
-
-    ANALYST --> FLOW[capital_flow_monitor<br/>Fund Flows]
-    ANALYST --> PORT[portfolio_manager<br/>Risk Control]
-    ANALYST --> INTRA[intraday_monitor<br/>5-min Alerts]
-    HOTMONEY --> FLOW
-    GLOBAL --> FLOW
+flowchart LR
+    S["External data"] --> A["Shared data adapters"]
+    A --> M["Versioned immutable market snapshots"]
+    C["A-share calendar"] --> O["Runtime-neutral resumable DAG"]
+    O --> HM["Sentiment and limit-up ladder"]
+    O --> CD["Candidate discovery"]
+    O --> AU["Call auction"]
+    O --> OC["Open confirmation"]
+    M --> HM
+    M --> CD
+    M --> AU
+    M --> OC
+    HM --> P["Unified decision and risk policy"]
+    CD --> P
+    AU --> P
+    OC --> P
+    P --> L["Append-only signal ledger"]
+    L --> ST["T+1 provisional / T+3 final settlement"]
+    ST --> E["Performance and strategy gate"]
+    E --> P
+    L --> X["Shared agent-state projection"]
+    X --> H["Hermes"]
+    X --> W["OpenClaw"]
 ```
 
 ## Capabilities
@@ -103,6 +112,14 @@ export A_STOCK_STATE_HOME="$HOME/.a-stock-agent"
 See [A-share trading and monitoring lifecycle](docs/trading-lifecycle.md) for
 T+1 enforcement, recommendation QC, and dynamic subscription behavior.
 
+Both runtimes use the same execution surface:
+
+```bash
+python scripts/run_agent_dag.py global-preopen --runtime hermes
+python scripts/run_agent_dag.py global-preopen --runtime openclaw
+python scripts/agent_state_projector.py --json
+```
+
 ### Run
 
 ```bash
@@ -154,13 +171,21 @@ Source health tracking is built-in. When critical data is missing (e.g., yfinanc
 
 ## Cron Schedule
 
-All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json). Scheduling requires an external [Hermes Agent](https://hermes-agent.nousresearch.com) runtime — this repo provides the scripts; Hermes provides the clock.
+All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json).
+Despite the historical filename, the manifest is shared by Hermes, OpenClaw,
+system cron, and local runs.
 
-The manifest routes every scheduled job through `scripts/hermes_job_runner.py`. The runner executes the business script in an isolated subprocess, writes `$HERMES_HOME/cron/output/{job_id}/{run_id}.json`, records `$HERMES_HOME/cron/output/job_runs.json`, and only emits the configured `deliver` output. Routine jobs can be archived with `deliver=local` so cron output does not pollute the active user conversation.
+The manifest routes every scheduled job through `scripts/agent_job_runner.py`.
+The runner executes the business script in an isolated subprocess, writes
+`$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`, creates an immutable
+market snapshot for JSON output, and records `job_runs.json`. Routine jobs can
+use `deliver=local` so scheduled output does not pollute active conversations.
 
 Artifact v2 also records `trading_date`, `batch_id`, and a fail-closed
 `dependency_gate`. Recommendations, executions, monitor lifecycle changes, and
-T+1 settlements are correlated in the append-only `signal_ledger.jsonl`.
+T+1 provisional and T+3 final settlements are correlated in the append-only
+`signal_ledger.jsonl`. `agent_state_projector.py` exposes the same current state
+to Hermes and OpenClaw.
 See [`docs/architecture-hardening.md`](docs/architecture-hardening.md).
 
 ```bash
@@ -207,6 +232,8 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 15:35 | Triage → Kanban dispatch | Workdays |
 | 22:30 | Global evening scan | Workdays |
 | Sat 10:00 | Institution weekly | Weekly |
+| 16:10 | T+1/T+3 signal settlement | Workdays |
+| 09:40, 15:40, 16:40 | Shared agent-state projection | Workdays |
 | Sun 10:00 | Performance weekly | Weekly |
 
 ## Output Format
@@ -269,14 +296,17 @@ a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── config/candidate_selection.json # Dynamic-universe and funnel limits
-├── cron/hermes-cron-manifest.json  # 17 isolated scheduled jobs
+├── cron/hermes-cron-manifest.json  # 19 runtime-neutral scheduled jobs
 ├── scripts/
-│   ├── hermes_job_runner.py    # Cron isolation runner + artifact writer
+│   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
+│   ├── run_agent_dag.py        # Dependency ordering, retry, resume
+│   ├── agent_state_projector.py # Ledger-to-agent current-state projection
+│   ├── hermes_job_runner.py    # Backward-compatible runner implementation
 │   ├── hermes_gateway_doctor.py # Deployment-side Gateway import/schedule diagnostics
 │   ├── generate_system_crontab.py # System cron fallback generator
 │   ├── smoke_test.py           # 9-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 304 unit tests
+├── tests/                      # 367 unit tests
 ├── skills/
 │   ├── common/                 # Shared HTTP/state + candidate ranking/lifecycle
 │   ├── stock-triage/           # Orchestrator hub

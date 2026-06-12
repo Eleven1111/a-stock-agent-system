@@ -26,7 +26,7 @@ def test_system_crontab_generation_uses_runner_only(tmp_path):
                 "id": "demo",
                 "schedule": "15 8 * * 1-5",
                 "enabled": True,
-                "command": "python scripts/hermes_job_runner.py demo",
+                "command": "python scripts/agent_job_runner.py demo",
             }
         ]
     }
@@ -35,7 +35,7 @@ def test_system_crontab_generation_uses_runner_only(tmp_path):
 
     joined = "\n".join(lines)
     assert "HERMES_HOME=/tmp/hermes" in joined
-    assert "scripts/hermes_job_runner.py demo" in joined
+    assert "scripts/agent_job_runner.py demo" in joined
     assert "15 8 * * 1-5" in joined
 
 

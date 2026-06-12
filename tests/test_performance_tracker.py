@@ -18,6 +18,8 @@ def test_evaluate_win_big_and_promoted():
     assert r["t1_close_ret"] == 10.0
     assert r["promoted"] is True
     assert r["outcome"] == "win_big"
+    assert r["settlement_status"] == "provisional"
+    assert r["resolved"] is False
 
 
 def test_evaluate_not_promoted():
@@ -58,6 +60,8 @@ def test_evaluate_horizon_metrics():
     assert r["max_gain"] == 25.0          # 最高 12.5 → +25%
     assert r["max_drawdown"] == -2.0      # 最低 9.8 → -2%
     assert r["bars_observed"] == 3
+    assert r["settlement_status"] == "final"
+    assert r["resolved"] is True
 
 
 def test_expectancy_positive():
@@ -91,6 +95,39 @@ def test_compute_stats_aggregates():
     assert s["by_strategy"]["four_dim"]["closed"] == 1
     assert s["by_strategy"]["daban:first_board_reseal"]["closed"] == 2
     assert s["by_strategy"]["daban:first_board_reseal"]["win_rate"] == 50.0
+
+
+def test_strategy_gating_uses_only_final_settlements():
+    records = [
+        {
+            "code": "1",
+            "name": "a",
+            "grade": "A",
+            "strategy_id": "daban:first_board_reseal",
+            "outcome": "loss",
+            "t1_close_ret": -8.0,
+            "t1_open_premium": -5.0,
+            "promoted": False,
+            "settlement_status": "provisional",
+        },
+        {
+            "code": "2",
+            "name": "b",
+            "grade": "A",
+            "strategy_id": "daban:first_board_reseal",
+            "outcome": "win",
+            "t1_close_ret": 3.0,
+            "t1_open_premium": 2.0,
+            "promoted": False,
+            "settlement_status": "final",
+        },
+    ]
+
+    stats = compute_stats(records)
+
+    assert stats["by_strategy"]["daban:first_board_reseal"]["closed"] == 2
+    assert stats["gating_by_strategy"]["daban:first_board_reseal"]["closed"] == 1
+    assert stats["gating_by_strategy"]["daban:first_board_reseal"]["expectancy"] == 3.0
 
 
 def test_compute_stats_no_closed():
@@ -212,6 +249,53 @@ def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):
     settled = next(record for record in canonical if record["code"] == "600001")
     assert settled["outcome"] == "win_big"
     assert settled["settlement_id"]
+    assert settled["settlement_status"] == "provisional"
+
+
+def test_update_outcomes_upgrades_t1_to_t3_final(tmp_path, monkeypatch):
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(pt, "limit_pct", lambda code, name: 10.0)
+    pt.record_signal(
+        "600001",
+        "阶段结算",
+        "A",
+        5.0,
+        10.0,
+        signal_date="2026-06-10",
+    )
+    one_bar = {
+        "signal_close": 10.0,
+        "future": [bar(10.5, 11.0, 11.0, 10.4)],
+    }
+    three_bars = {
+        "signal_close": 10.0,
+        "future": [
+            bar(10.5, 11.0, 11.0, 10.4),
+            bar(11.0, 10.0, 11.2, 9.9),
+            bar(10.0, 12.0, 12.5, 9.8),
+        ],
+    }
+    current = {"value": one_bar}
+
+    def fake_fetch(code, signal_date, market):
+        return None if code == pt.BENCH_CODE else current["value"]
+
+    monkeypatch.setattr(pt, "_fetch_future_bars", fake_fetch)
+
+    provisional = pt.update_outcomes()
+    assert provisional[0]["settlement_status"] == "provisional"
+    assert provisional[0]["resolved"] is False
+
+    current["value"] = three_bars
+    final = pt.update_outcomes()
+    assert final[0]["settlement_status"] == "final"
+    assert final[0]["resolved"] is True
+    assert final[0]["horizon_ret"] == 20.0
+
+    events = signal_ledger.read_events(pt.LEDGER_FILE)
+    assert [event["event_type"] for event in events].count("signal.t1_settled") == 1
+    assert [event["event_type"] for event in events].count("signal.t3_settled") == 1
 
 
 def test_gate_stats_include_recommendation_ledger_signals(tmp_path, monkeypatch):

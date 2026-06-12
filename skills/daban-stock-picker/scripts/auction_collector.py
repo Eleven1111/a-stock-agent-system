@@ -33,6 +33,8 @@ import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import monitor_registry  # noqa: E402
 from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
+from decision_policy import evaluate_decision  # noqa: E402
+import strategy_registry  # noqa: E402
 from tradeability import limit_pct, round_limit  # noqa: E402
 from state_store import atomic_write_json, mutate_json, read_json  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -238,11 +240,26 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
             asof=asof,
             stage="auction",
         )
+        strategy_id = (
+            "daban:first_board_reseal"
+            if (item.get("auction_selected_by") or {}).get("daban")
+            else "trend_pullback"
+        )
+        policy = evaluate_decision(
+            requested_action=plan["decision"],
+            quality_report=quality,
+            strategy_record=strategy_registry.get(strategy_id),
+        )
+        if policy["decision"] in {"avoid", "watch"}:
+            plan["decision"] = policy["decision"]
+            plan["position_pct"] = 0.0
         decision = {
             **item,
             "decision": plan["decision"],
             "execution_plan": plan,
             "quality_report": quality,
+            "policy_decision": policy,
+            "strategy_id": strategy_id,
             "announcements": announcement_map.get(code),
         }
         decisions.append(decision)

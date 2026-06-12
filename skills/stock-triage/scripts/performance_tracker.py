@@ -98,6 +98,7 @@ def evaluate_signal(
         idx_t1 = round((index_future_bars[0]["close"] / index_signal_close - 1) * 100, 2)
         alpha_t1 = round(t1_close_ret - idx_t1, 2)
 
+    final = len(window) >= hold_days
     return {
         "outcome": outcome,
         "t1_open_premium": t1_open_prem,
@@ -108,7 +109,8 @@ def evaluate_signal(
         "max_drawdown": max_drawdown,
         "alpha_t1": alpha_t1,
         "bars_observed": len(window),
-        "resolved": True,
+        "settlement_status": "final" if final else "provisional",
+        "resolved": final,
     }
 
 
@@ -209,7 +211,7 @@ def update_outcomes() -> List[Dict]:
     records_by_id: Dict[str, Dict[str, Any]] = {}
 
     for r in snapshot:
-        if r.get("outcome") != "pending":
+        if r.get("settlement_status") == "final":
             continue
 
         code, sdate = r["code"], r["signal_date"]
@@ -242,9 +244,10 @@ def update_outcomes() -> List[Dict]:
     for signal_id, resolution in resolutions.items():
         record = records_by_id[signal_id]
         links = signal_ledger.legacy_signal_links(record)
+        stage = "t3" if resolution.get("settlement_status") == "final" else "t1"
         ledger_events.extend([
             signal_ledger.signal_opened_event(record, links),
-            signal_ledger.settlement_event(record, resolution),
+            signal_ledger.settlement_event(record, resolution, stage=stage),
         ])
     signal_ledger.append_events(ledger_events, ledger_file=LEDGER_FILE)
 
@@ -253,7 +256,7 @@ def update_outcomes() -> List[Dict]:
             records = []
         seen = set()
         for r in records:
-            if r.get("outcome") != "pending":
+            if r.get("settlement_status") == "final":
                 seen.add(signal_ledger.legacy_signal_links(r)["signal_id"])
                 continue
             signal_id = str(signal_ledger.legacy_signal_links(r)["signal_id"])
@@ -343,6 +346,23 @@ def compute_stats(records: List[Dict]) -> Dict:
             **_expectancy(s_rets),
         }
 
+    # T+1 provisional is useful for observation, but strategy enable/disable
+    # decisions must wait for the final T+3 settlement.
+    final_closed = [
+        r for r in closed
+        if r.get("settlement_status") != "provisional"
+    ]
+    gating_by_strategy = {}
+    for strategy_id in sorted({r.get("strategy_id", "default") for r in records}):
+        s_closed = [
+            r for r in final_closed
+            if r.get("strategy_id", "default") == strategy_id
+        ]
+        gating_by_strategy[strategy_id] = {
+            "closed": len(s_closed),
+            **_expectancy([r["t1_close_ret"] for r in s_closed]),
+        }
+
     return {
         "metric": "打板口径(T+1隔日)",
         "total_signals": len(records),
@@ -359,6 +379,7 @@ def compute_stats(records: List[Dict]) -> Dict:
         **_expectancy(rets),
         "by_grade": by_grade,
         "by_strategy": by_strategy,
+        "gating_by_strategy": gating_by_strategy,
     }
 
 
@@ -477,7 +498,7 @@ if __name__ == "__main__":
         stats = compute_stats(records)
         if args.gate:
             stats["gating_applied"] = apply_strategy_gating(
-                evaluate_strategy_gating(stats.get("by_strategy", {})))
+                evaluate_strategy_gating(stats.get("gating_by_strategy", {})))
         if args.json:
             print(json.dumps(stats, ensure_ascii=False, indent=2))
         else:

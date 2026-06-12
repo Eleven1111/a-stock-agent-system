@@ -1,4 +1,4 @@
-"""Hermes job runner context isolation tests."""
+"""Runtime-neutral job runner context isolation tests."""
 
 import json
 import os
@@ -23,7 +23,7 @@ def _base_job(job_id, deliver="origin"):
         "name": job_id,
         "schedule": "0 9 * * 1-5",
         "timezone": "Asia/Shanghai",
-        "command": f"python scripts/hermes_job_runner.py {job_id}",
+        "command": f"python scripts/agent_job_runner.py {job_id}",
         "cwd": ".",
         "enabled": True,
         "external": True,
@@ -40,7 +40,7 @@ def _base_job(job_id, deliver="origin"):
     }
 
 
-def test_runner_writes_artifact_and_ledger(tmp_path):
+def test_openclaw_runner_writes_artifact_ledger_and_snapshot(tmp_path):
     worker = tmp_path / "worker.py"
     worker.write_text(
         "import json\nprint(json.dumps({'schema':'demo_v1','alerts':[{'x':1}]}))\n",
@@ -52,9 +52,17 @@ def test_runner_writes_artifact_and_ledger(tmp_path):
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
     env = os.environ.copy()
-    env["HERMES_HOME"] = str(tmp_path / "hermes")
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
     result = subprocess.run(
-        [sys.executable, os.path.join(ROOT, "scripts", "hermes_job_runner.py"), "demo", "--manifest", str(manifest)],
+        [
+            sys.executable,
+            os.path.join(ROOT, "scripts", "agent_job_runner.py"),
+            "demo",
+            "--manifest",
+            str(manifest),
+            "--runtime",
+            "openclaw",
+        ],
         env=env,
         capture_output=True,
         text=True,
@@ -63,13 +71,16 @@ def test_runner_writes_artifact_and_ledger(tmp_path):
 
     assert result.returncode == 0
     assert '"alerts": [{"x": 1}]' in result.stdout
-    ledger = read_json(str(tmp_path / "hermes" / "cron" / "output" / "job_runs.json"), [])
+    ledger = read_json(str(tmp_path / "state" / "cron" / "output" / "job_runs.json"), [])
     assert len(ledger) == 1
     artifact = read_json(ledger[0]["artifact_path"], {})
     assert artifact["schema"] == "hermes_cron_artifact_v2"
     assert artifact["job_id"] == "demo"
+    assert artifact["runtime"] == "openclaw"
     assert artifact["has_signal"] is True
     assert artifact["summary"]["alerts_count"] == 1
+    assert artifact["market_snapshot"]["schema"] == "market_snapshot_v1"
+    assert os.path.exists(artifact["market_snapshot"]["snapshot_path"])
 
 
 def test_runner_local_delivery_suppresses_stdout_but_keeps_artifact(tmp_path):
