@@ -13,12 +13,13 @@ Usage:
 import json
 import sys
 import os
-import urllib.request
 from datetime import datetime
 from typing import Dict, Any, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from a_stock_http import load_hermes_env
+from data_provider import fetch_tencent_quote
+from http_client import DataSourceError, request_json
 
 load_hermes_env()
 
@@ -43,10 +44,15 @@ TRACKED_SECTORS = {
 def fetch_eastmoney(url: str) -> Optional[Dict]:
     """东方财富 API（需要 NO_PROXY）"""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode())
-    except Exception:
+        result = request_json(
+            url,
+            source="eastmoney",
+            timeout=10,
+            max_attempts=2,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        return result.data if isinstance(result.data, dict) else {}
+    except (DataSourceError, AttributeError, TypeError):
         return {}
 
 
@@ -54,35 +60,33 @@ def fetch_sina_northbound() -> Dict:
     """新浪财经北向资金汇总"""
     try:
         url = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/MoneyFlow/GetNorthboundFlow"
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0",
-            "Referer": "https://finance.sina.com.cn"
-        })
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode())
-    except Exception:
+        result = request_json(
+            url,
+            source="sina_northbound",
+            timeout=10,
+            max_attempts=2,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://finance.sina.com.cn",
+            },
+        )
+        return result.data if isinstance(result.data, dict) else {}
+    except (DataSourceError, AttributeError, TypeError):
         return {}
 
 
 def fetch_tencent_flow(code: str, market: str) -> Dict:
     """腾讯实时行情作为量价替代指标"""
-    full_code = f"{market}{code}"
-    url = f"http://qt.gtimg.cn/q={full_code}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("gbk")
-        parts = raw.split("=")[1].strip().strip('"').split("~")
-        if len(parts) < 40:
-            return {}
+        quote = fetch_tencent_quote(f"{market}{code}")
         return {
-            "price": float(parts[3]) if parts[3] else None,
-            "change_pct": float(parts[32]) if parts[32] else None,
-            "volume": float(parts[6]) if parts[6] else None,
-            "amount": float(parts[37]) * 10000 if parts[37] else None,
-            "turnover": float(parts[38]) if parts[38] else None,
+            "price": quote.get("price"),
+            "change_pct": quote.get("change_pct"),
+            "volume": quote.get("volume"),
+            "amount": quote.get("amount"),
+            "turnover": quote.get("turnover"),
         }
-    except Exception:
+    except (DataSourceError, AttributeError, TypeError):
         return {}
 
 

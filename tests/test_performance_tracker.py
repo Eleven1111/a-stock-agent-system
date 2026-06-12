@@ -3,6 +3,7 @@
 import threading
 
 import performance_tracker as pt
+import signal_ledger
 from performance_tracker import evaluate_signal, _expectancy, compute_stats
 
 
@@ -17,6 +18,8 @@ def test_evaluate_win_big_and_promoted():
     assert r["t1_close_ret"] == 10.0
     assert r["promoted"] is True
     assert r["outcome"] == "win_big"
+    assert r["settlement_status"] == "provisional"
+    assert r["resolved"] is False
 
 
 def test_evaluate_not_promoted():
@@ -57,6 +60,8 @@ def test_evaluate_horizon_metrics():
     assert r["max_gain"] == 25.0          # 最高 12.5 → +25%
     assert r["max_drawdown"] == -2.0      # 最低 9.8 → -2%
     assert r["bars_observed"] == 3
+    assert r["settlement_status"] == "final"
+    assert r["resolved"] is True
 
 
 def test_expectancy_positive():
@@ -92,6 +97,39 @@ def test_compute_stats_aggregates():
     assert s["by_strategy"]["daban:first_board_reseal"]["win_rate"] == 50.0
 
 
+def test_strategy_gating_uses_only_final_settlements():
+    records = [
+        {
+            "code": "1",
+            "name": "a",
+            "grade": "A",
+            "strategy_id": "daban:first_board_reseal",
+            "outcome": "loss",
+            "t1_close_ret": -8.0,
+            "t1_open_premium": -5.0,
+            "promoted": False,
+            "settlement_status": "provisional",
+        },
+        {
+            "code": "2",
+            "name": "b",
+            "grade": "A",
+            "strategy_id": "daban:first_board_reseal",
+            "outcome": "win",
+            "t1_close_ret": 3.0,
+            "t1_open_premium": 2.0,
+            "promoted": False,
+            "settlement_status": "final",
+        },
+    ]
+
+    stats = compute_stats(records)
+
+    assert stats["by_strategy"]["daban:first_board_reseal"]["closed"] == 2
+    assert stats["gating_by_strategy"]["daban:first_board_reseal"]["closed"] == 1
+    assert stats["gating_by_strategy"]["daban:first_board_reseal"]["expectancy"] == 3.0
+
+
 def test_compute_stats_no_closed():
     s = compute_stats([{"code": "1", "outcome": "pending"}])
     assert s["closed"] == 0
@@ -124,6 +162,7 @@ def test_compute_stats_all_legacy():
 def test_record_signal_concurrent_no_loss(tmp_path, monkeypatch):
     """40 个并发 record_signal 不得丢记录（读-追加-写回必须在单锁内）。"""
     monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
 
     n = 40
     threads = [
@@ -143,12 +182,15 @@ def test_record_signal_concurrent_no_loss(tmp_path, monkeypatch):
 
 def test_record_signal_persists_strategy_id(tmp_path, monkeypatch):
     monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
 
     result = pt.record_signal("002156", "通富微电", "S", 9.7, 11.0, "daban:first_board_reseal")
 
     history = pt.load_history()
     assert result["ok"] is True
     assert history[0]["strategy_id"] == "daban:first_board_reseal"
+    assert history[0]["signal_id"]
+    assert signal_ledger.project_signals(ledger_file=pt.LEDGER_FILE)[0]["outcome"] == "pending"
 
 
 def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):
@@ -158,6 +200,7 @@ def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):
     旧实现会把快照原样写回，吞掉新追加的记录。修复后用 mutate_json 在单锁内重读最新历史。
     """
     monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(pt, "limit_pct", lambda code, name: 10.0)
 
     # 初始一条 pending（信号日 P1）
@@ -202,3 +245,87 @@ def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):
     p2 = next(r for r in history if r["code"] == "600002")
     assert p1["outcome"] != "pending", "P1 应被结算"
     assert p2["outcome"] == "pending", "P2 刚追加应仍为 pending"
+    canonical = signal_ledger.project_signals(ledger_file=pt.LEDGER_FILE)
+    settled = next(record for record in canonical if record["code"] == "600001")
+    assert settled["outcome"] == "win_big"
+    assert settled["settlement_id"]
+    assert settled["settlement_status"] == "provisional"
+
+
+def test_update_outcomes_upgrades_t1_to_t3_final(tmp_path, monkeypatch):
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(pt, "limit_pct", lambda code, name: 10.0)
+    pt.record_signal(
+        "600001",
+        "阶段结算",
+        "A",
+        5.0,
+        10.0,
+        signal_date="2026-06-10",
+    )
+    one_bar = {
+        "signal_close": 10.0,
+        "future": [bar(10.5, 11.0, 11.0, 10.4)],
+    }
+    three_bars = {
+        "signal_close": 10.0,
+        "future": [
+            bar(10.5, 11.0, 11.0, 10.4),
+            bar(11.0, 10.0, 11.2, 9.9),
+            bar(10.0, 12.0, 12.5, 9.8),
+        ],
+    }
+    current = {"value": one_bar}
+
+    def fake_fetch(code, signal_date, market):
+        return None if code == pt.BENCH_CODE else current["value"]
+
+    monkeypatch.setattr(pt, "_fetch_future_bars", fake_fetch)
+
+    provisional = pt.update_outcomes()
+    assert provisional[0]["settlement_status"] == "provisional"
+    assert provisional[0]["resolved"] is False
+
+    current["value"] = three_bars
+    final = pt.update_outcomes()
+    assert final[0]["settlement_status"] == "final"
+    assert final[0]["resolved"] is True
+    assert final[0]["horizon_ret"] == 20.0
+
+    events = signal_ledger.read_events(pt.LEDGER_FILE)
+    assert [event["event_type"] for event in events].count("signal.t1_settled") == 1
+    assert [event["event_type"] for event in events].count("signal.t3_settled") == 1
+
+
+def test_gate_stats_include_recommendation_ledger_signals(tmp_path, monkeypatch):
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    links = signal_ledger.make_links("rec-auto")
+    opened = signal_ledger.signal_opened_event(
+        {
+            "code": "002156",
+            "name": "通富微电",
+            "date": "2026-06-10",
+            "entry_price": 10.0,
+            "grade": "A",
+            "strategy_id": "trend_pullback",
+            "action": "buy",
+        },
+        links,
+    )
+    signal_ledger.append_events(
+        [
+            opened,
+            signal_ledger.settlement_event(
+                {**opened["payload"], **links},
+                {"outcome": "win", "t1_close_ret": 4.0, "t1_open_premium": 2.0, "promoted": False},
+            ),
+        ],
+        ledger_file=pt.LEDGER_FILE,
+    )
+
+    stats = pt.compute_stats(pt.load_history())
+
+    assert stats["by_strategy"]["trend_pullback"]["closed"] == 1
+    assert stats["by_strategy"]["trend_pullback"]["expectancy"] == 4.0

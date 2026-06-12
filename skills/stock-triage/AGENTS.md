@@ -73,7 +73,7 @@ SSE/SZSE listings + Tencent full-market quotes
 | 新浪实时 | `hq.sinajs.cn/list={codes}` | GBK | A股实时行情 |
 | yfinance | Yahoo Finance | — | 美股/全球指数/期货/VIX/汇率 |
 
-### ⚠️ 需 Hermes Agent 环境（cron 内自动可用，终端需手动加载 .env）
+### ⚠️ 需部署环境变量（Hermes/OpenClaw 定时任务需加载同一份密钥配置）
 
 | 源 | 端点 | 需要 |
 |----|------|------|
@@ -110,11 +110,20 @@ Hermes → ~/.hermes/
 **改配置前必须确认目标工具。**
 
 ### 2. Cron 运行隔离
-Hermes manifest 的 `command` **必须**走 `python scripts/hermes_job_runner.py <job-id>`，
-真实业务命令放在 `run.command`，并写入 `$HERMES_HOME/cron/output/{job_id}/{run_id}.json` artifact。
+manifest 的 `command` **必须**走
+`python scripts/run_agent_dag.py <job-id> --emit-target`，运行时通过
+`A_STOCK_RUNTIME=hermes|openclaw` 传入。真实业务命令放在 `run.command`。
+`agent_job_runner.py` 只由 DAG 内部调用，`hermes_job_runner.py` 仅保留为底层兼容实现，
+不得由 manifest 直接调用。artifact 统一写入
+`$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`。
 
 如果 cron 由 Agent prompt 实现，主 cron agent 只能编排/汇总，数据采集和重计算必须委托子代理；
-如果 cron 由仓库脚本实现，只能通过 `hermes_job_runner` 启动隔离子进程。
+如果 cron 由仓库脚本实现，只能通过 `run_agent_dag` 启动；DAG 内部通过
+`agent_job_runner` 启动隔离子进程并持有跨运行时租约。
+
+主线对话、定时汇总和其他 Agent 在解释持仓或信号前，必须运行
+`python scripts/agent_runtime_context.py`。同机 Hermes/OpenClaw 共用
+`A_STOCK_STATE_HOME`；跨机器必须是同一个共享挂载卷，不能只是相同路径字符串。
 
 业务脚本内所有数据抓取必须用 Python `urllib`，禁止在 cron prompt 中直接使用 `terminal` 工具
 （会触发安全审批锁，导致 cron 卡死）。
@@ -145,9 +154,9 @@ Hermes manifest 的 `command` **必须**走 `python scripts/hermes_job_runner.py
 ## 添加新功能的检查清单
 
 1. **数据源是否在可用列表内？** → 不在则先验证端点
-2. **是否需要新的 Python 依赖？** → 先 `pip install` 到 Hermes venv
+2. **是否需要新的 Python 依赖？** → 安装到 Hermes/OpenClaw 实际调用的同一项目 venv
 3. **脚本是否 cron-safe？** → 只用 `urllib`，别用 `requests`（除非加载 `.env`）
-4. **Manifest 是否隔离？** → `command` 走 `hermes_job_runner`，`run.command` 指向 canonical `skills/.../scripts/...`
+4. **Manifest 是否隔离？** → `command` 走 `run_agent_dag --emit-target`，`run.command` 指向 canonical `skills/.../scripts/...`
 5. **Cron 时间是否与现有冲突？** → 查 `cronjob list`，并跑 `validate_cron_manifest.py`
 6. **是否需要更新 AGENTS.md？** → 数据源/铁律有变化必须更新
 7. **输出是否控制在 Discord 一屏内？** → 配置 `max_output_chars`，例行任务 `deliver=local`
@@ -199,6 +208,7 @@ from typing import Dict, Any, List, Optional
 | portfolio.json | `stock-triage/data/` | 持仓数据 |
 | signal_history.json | `stock-triage/data/` | 历史信号记录 |
 | recommendations.json | `stock-triage/data/` | 推荐审计档案 |
+| monitor_registry.json | `stock-triage/data/` | 股票/板块/主题监控订阅及取消墓碑 |
 | intraday_alerts.json | `stock-triage/data/` | 盘中告警去重缓存 |
 | alerts.json | `$HERMES_HOME/cron/output/` | 价格提醒数据 |
 | job_runs.json | `$HERMES_HOME/cron/output/` | Cron 运行账本 |
@@ -206,6 +216,18 @@ from typing import Dict, Any, List, Optional
 | .env | `~/.hermes/` | API keys + NO_PROXY |
 
 ## 推荐审计铁律（REC-002 事故修复）
+
+### 0. A股 T+1 与质检门禁
+
+- 买入/加仓当天禁止生成卖出、减仓、止损成交建议。
+- 必须读取持仓 lots 的 `acquired_on`，输出 `earliest_sell_date`；T+1 锁定期间只允许
+  `hold_locked` 或“次交易日处置”。
+- 买入建议必须附 `quality_report`：公告扫描、可成交性、买入区间、最高追价、
+  止损、目标、持有周期、仓位和风险清单。
+- `quality_report.status != passed` 时不得输出无条件买入；`rejected` 必须回避，
+  `conditional` 只能关注。
+- 用户明确取消股票/主题/板块后，必须调用 `monitor_manager.py --cancel-*` 写入取消墓碑，
+  不得仅在对话里口头确认。
 
 ### 1. 每条推荐必须写入审计档案
 每一条买入/卖出/加仓/减仓建议，必须同步写入 `data/recommendations.json`：

@@ -8,25 +8,37 @@ from state_store import atomic_write_json
 def _wire(tmp_path, monkeypatch, history=None):
     monkeypatch.setattr(ra, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(ra, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(ra, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(ra, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     if history is not None:
         atomic_write_json(ra.HISTORY_FILE, history)
+
+
+def _passed_buy(**overrides):
+    values = {
+        "code": "002156",
+        "name": "通富微电",
+        "action": "buy",
+        "price_range": "10.80-11.00",
+        "rationale": "半导体主线早盘回封",
+        "risks": ["T+1低开风险"],
+        "entry_price": 11.0,
+        "target_price": 12.1,
+        "stop_price": 10.45,
+        "horizon": "T+1到T+3",
+        "grade": "A",
+        "confidence": "medium",
+        "strategy_id": "daban:first_board_reseal",
+        "announcements": [],
+    }
+    values.update(overrides)
+    return values
 
 
 def test_record_recommendation_writes_audit_file(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch)
 
-    result = ra.record_recommendation(
-        code="2156",
-        name="通富微电",
-        action="buy",
-        price_range="10.80-11.00",
-        rationale="半导体主线早盘回封",
-        risks=["T+1低开风险"],
-        entry_price=11.0,
-        target_price=12.1,
-        stop_price=10.45,
-        strategy_id="daban:first_board_reseal",
-    )
+    result = ra.record_recommendation(**_passed_buy(code="2156"))
 
     records = ra.load_recommendations()
     assert result["ok"] is True
@@ -34,6 +46,15 @@ def test_record_recommendation_writes_audit_file(tmp_path, monkeypatch):
     assert records[0]["code"] == "002156"
     assert records[0]["outcome"] == "pending"
     assert records[0]["position_sizing"]["odds_b"] == 2.0
+    assert records[0]["correlation_id"]
+    assert records[0]["signal_id"]
+    assert records[0]["trade_id"]
+    events = ra.signal_ledger.read_events(ra.LEDGER_FILE)
+    assert [event["event_type"] for event in events] == [
+        "recommendation.created",
+        "signal.opened",
+        "trade.proposed",
+    ]
 
 
 def test_query_filters_by_code_and_outcome(tmp_path, monkeypatch):
@@ -50,7 +71,7 @@ def test_query_filters_by_code_and_outcome(tmp_path, monkeypatch):
 
 def test_update_outcome_is_atomic_mutation(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch)
-    result = ra.record_recommendation("002156", "通富微电", "buy", "10.80-11.00", "封测催化", risks=[])
+    result = ra.record_recommendation(**_passed_buy(rationale="封测催化"))
     rec_id = result["record"]["id"]
 
     updated = ra.update_outcome(rec_id, "loss", pnl_pct=-3.2, note="T+1低开止损")
@@ -60,6 +81,72 @@ def test_update_outcome_is_atomic_mutation(tmp_path, monkeypatch):
     assert record["outcome"] == "loss"
     assert record["pnl_pct"] == -3.2
     assert record["outcome_note"] == "T+1低开止损"
+    signals = ra.signal_ledger.project_signals(ledger_file=ra.LEDGER_FILE)
+    assert signals[0]["outcome"] == "loss"
+    assert signals[0]["pnl_pct"] == -3.2
+    assert signals[0]["settlement_id"]
+
+
+def test_outcome_correction_appends_new_settlement_event(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    result = ra.record_recommendation(**_passed_buy(rationale="封测催化"))
+    rec_id = result["record"]["id"]
+
+    ra.update_outcome(rec_id, "loss", pnl_pct=-2.0)
+    ra.update_outcome(rec_id, "profit", pnl_pct=4.0, note="复核更正")
+
+    settlements = [
+        event for event in ra.signal_ledger.read_events(ra.LEDGER_FILE)
+        if event["event_type"] == "signal.settled"
+    ]
+    signals = ra.signal_ledger.project_signals(ledger_file=ra.LEDGER_FILE)
+    assert len(settlements) == 2
+    assert signals[0]["outcome"] == "win"
+    assert signals[0]["pnl_pct"] == 4.0
+
+
+def test_avoid_recommendation_does_not_open_signal(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    result = ra.record_recommendation(
+        "002156",
+        "通富微电",
+        "avoid",
+        "N/A",
+        "公告风险",
+        risks=["重大风险"],
+    )
+
+    ra.update_outcome(result["record"]["id"], "invalidated")
+
+    assert ra.signal_ledger.project_signals(ledger_file=ra.LEDGER_FILE) == []
+
+
+def test_hold_and_conditional_buy_do_not_open_performance_signal(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    ra.record_recommendation(
+        "002156",
+        "通富微电",
+        "hold",
+        "10.80-11.00",
+        "继续观察",
+        risks=[],
+        announcements=[],
+    )
+    conditional = ra.record_recommendation(
+        **_passed_buy(
+            source_id="conditional-buy",
+            announcements=None,
+        )
+    )
+
+    events = ra.signal_ledger.read_events(ra.LEDGER_FILE)
+    assert ra.signal_ledger.project_signals(events) == []
+    assert conditional["record"]["quality_report"]["status"] == "conditional"
+    assert conditional["record"]["settleable_signal"] is False
+    assert sum(event["event_type"] == "trade.proposed" for event in events) == 1
+    assert all(event["event_type"] != "trade.executed" for event in events)
+    proposed = next(event for event in events if event["event_type"] == "trade.proposed")
+    assert proposed["payload"]["execution_status"] == "not_executed"
 
 
 def test_position_guidance_uses_startup_default_when_history_insufficient(tmp_path, monkeypatch):
@@ -115,3 +202,30 @@ def test_position_guidance_blocks_new_daban_when_temperature_disallows(monkeypat
     assert sizing["recommended_position_pct"] == 0.0
     assert sizing["recommended_amount"] == 0.0
     assert sizing["temperature"]["allow_new_daban"] is False
+
+
+def test_sell_recommendation_is_blocked_for_same_day_buy(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    atomic_write_json(
+        ra.PORTFOLIO_FILE,
+        {
+            "positions": [{
+                "code": "002156",
+                "name": "通富微电",
+                "shares": 1000,
+                "lots": [{"shares": 1000, "acquired_on": "2026-06-12"}],
+            }]
+        },
+    )
+
+    result = ra.record_recommendation(
+        "002156",
+        "通富微电",
+        "sell",
+        "10.80-11.00",
+        "盘中波动",
+        asof="2026-06-12",
+    )
+
+    assert result["code"] == "T1_LOCKED"
+    assert result["earliest_sell_date"] == "2026-06-15"

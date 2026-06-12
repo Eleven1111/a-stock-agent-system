@@ -71,6 +71,8 @@ def test_run_discovery_persists_pool_and_lifecycle(tmp_path, monkeypatch):
     assert lifecycle["metadata"]["scanned_count"] == 12
     assert len(lifecycle["records"]) == 12
     assert sum(record["current_stage"] == "watch_pool" for record in lifecycle["records"]) == 6
+    assert latest["input_snapshot"]["snapshot_id"].startswith("snap-")
+    assert latest["input_snapshot"]["consumed_from_snapshot"] is True
     report = discovery.json_report(result)
     assert "rejected" not in report
     assert len(report["top_candidates"]) == 5

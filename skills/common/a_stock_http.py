@@ -10,24 +10,13 @@
 其他业务脚本可能仍使用自己的 urllib 实现，欢迎逐步收敛至此模块。
 """
 
-import json
 import os
 import sys
-import urllib.request
-import urllib.error
 from typing import Dict, Any, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from http_client import DataSourceError, ErrorType, request_json, request_text
 from paths import env_file as _env_file
-
-
-class DataSourceError(Exception):
-    """数据源异常，携带源名称和错误信息"""
-    def __init__(self, source: str, message: str, original: Exception = None):
-        self.source = source
-        self.message = message
-        self.original = original
-        super().__init__(f"[{source}] {message}")
 
 
 def load_hermes_env() -> Dict[str, str]:
@@ -52,21 +41,23 @@ def http_get_json(url: str, headers: Dict = None, timeout: int = 10,
     default_headers = {"User-Agent": "Mozilla/5.0 (Hermes A-Stock Agent)"}
     if headers:
         default_headers.update(headers)
-
-    req = urllib.request.Request(url, headers=default_headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            text = raw.decode(encoding)
-            return json.loads(text)
-    except urllib.error.HTTPError as e:
-        raise DataSourceError(url, f"HTTP {e.code}: {e.reason}", e)
-    except urllib.error.URLError as e:
-        raise DataSourceError(url, f"网络错误: {e.reason}", e)
-    except json.JSONDecodeError as e:
-        raise DataSourceError(url, "JSON解析失败", e)
-    except Exception as e:
-        raise DataSourceError(url, str(e), e)
+    result = request_json(
+        url,
+        source=url,
+        timeout=timeout,
+        max_attempts=2,
+        encoding=encoding,
+        headers=default_headers,
+    )
+    if not isinstance(result.data, dict):
+        raise DataSourceError(
+            url,
+            "expected a JSON object",
+            error_type=ErrorType.INVALID_RESPONSE,
+            attempts=result.attempts,
+            timestamp=result.fetched_at,
+        )
+    return result.data
 
 
 # 腾讯行情字段下标（GBK，~ 分隔）。集中定义，便于在腾讯改版时单点维护。
@@ -143,12 +134,25 @@ def fetch_tencent_quote(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     返回: {code: {price, change_pct, volume, amount, ...}}
     """
     url = "http://qt.gtimg.cn/q=" + ",".join(codes)
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("gbk")
-    except Exception as e:
-        raise DataSourceError("tencent", f"行情请求失败: {e}", e)
+        raw = request_text(
+            url,
+            source="tencent",
+            timeout=10,
+            max_attempts=2,
+            encoding="gbk",
+            headers={"User-Agent": "Mozilla/5.0"},
+        ).data
+    except DataSourceError as exc:
+        raise DataSourceError(
+            "tencent",
+            f"行情请求失败: {exc.message}",
+            exc,
+            error_type=exc.error_type,
+            attempts=exc.attempts,
+            timestamp=exc.timestamp,
+            status_code=exc.status_code,
+        ) from exc
 
     results = {}
     for line in raw.strip().split("\n"):
@@ -164,12 +168,25 @@ def fetch_tencent_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     返回: {code: {price, prev_close, volume, market_cap, name, ..., bids, asks}}
     """
     url = "http://qt.gtimg.cn/q=" + ",".join(codes)
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("gbk")
-    except Exception as e:
-        raise DataSourceError("tencent", f"行情请求失败: {e}", e)
+        raw = request_text(
+            url,
+            source="tencent",
+            timeout=10,
+            max_attempts=2,
+            encoding="gbk",
+            headers={"User-Agent": "Mozilla/5.0"},
+        ).data
+    except DataSourceError as exc:
+        raise DataSourceError(
+            "tencent",
+            f"行情请求失败: {exc.message}",
+            exc,
+            error_type=exc.error_type,
+            attempts=exc.attempts,
+            timestamp=exc.timestamp,
+            status_code=exc.status_code,
+        ) from exc
 
     results: Dict[str, Dict[str, Any]] = {}
     for line in raw.strip().split("\n"):
@@ -226,12 +243,25 @@ def fetch_tencent_hk_quote(code_hk: str) -> Dict[str, Any]:
     """港股实时行情"""
     code = code_hk.replace("hk", "")
     url = f"http://qt.gtimg.cn/q=hk{code}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("gbk")
-    except Exception as e:
-        raise DataSourceError("tencent_hk", f"港股行情失败: {e}", e)
+        raw = request_text(
+            url,
+            source="tencent_hk",
+            timeout=10,
+            max_attempts=2,
+            encoding="gbk",
+            headers={"User-Agent": "Mozilla/5.0"},
+        ).data
+    except DataSourceError as exc:
+        raise DataSourceError(
+            "tencent_hk",
+            f"港股行情失败: {exc.message}",
+            exc,
+            error_type=exc.error_type,
+            attempts=exc.attempts,
+            timestamp=exc.timestamp,
+            status_code=exc.status_code,
+        ) from exc
 
     parts = raw.split("=")[1].strip().strip('"').split("~")
     if len(parts) < 30:

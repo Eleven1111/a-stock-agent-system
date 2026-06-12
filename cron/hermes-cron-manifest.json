@@ -1,6 +1,6 @@
 {
-  "version": "1.1",
-  "description": "A股Agent系统 Cron Manifest — 运行级上下文隔离",
+  "version": "1.2",
+  "description": "A股Agent系统运行清单 — Hermes/OpenClaw 共用 DAG 与状态协议",
   "timezone": "Asia/Shanghai",
   "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
   "jobs": [
@@ -9,7 +9,7 @@
       "name": "全球市场盘前扫描",
       "schedule": "15 8 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py global-preopen",
+      "command": "python scripts/run_agent_dag.py global-preopen --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -22,9 +22,9 @@
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/global-preopen/",
-        "$HERMES_HOME/cron/output/job_runs.json",
-        "$HERMES_HOME/skills/stock-triage/cache/market_context.json"
+        "$A_STOCK_STATE_HOME/cron/output/global-preopen/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/market_context.json"
       ],
       "run": {
         "command": "python skills/global-market-monitor/scripts/monitor.py --json --cache",
@@ -38,7 +38,7 @@
       "name": "全球市场晚间扫描",
       "schedule": "30 22 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py global-evening",
+      "command": "python scripts/run_agent_dag.py global-evening --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -51,11 +51,15 @@
       "context_from": [
         "global-preopen"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 900
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/global-evening/",
-        "$HERMES_HOME/cron/output/job_runs.json",
-        "$HERMES_HOME/skills/stock-triage/cache/market_context.json"
+        "$A_STOCK_STATE_HOME/cron/output/global-evening/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/market_context.json"
       ],
       "run": {
         "command": "python skills/global-market-monitor/scripts/monitor.py --json --cache",
@@ -69,7 +73,7 @@
       "name": "收盘涨停梯队缓存",
       "schedule": "2 15 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py hot-money-context",
+      "command": "python scripts/run_agent_dag.py hot-money-context --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -82,9 +86,9 @@
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/skills/stock-triage/cache/signal_context.json",
-        "$HERMES_HOME/cron/output/hot-money-context/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/signal_context.json",
+        "$A_STOCK_STATE_HOME/cron/output/hot-money-context/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/hot-money-tactics/scripts/analyze.py --cache-only",
@@ -98,7 +102,7 @@
       "name": "全市场动态候选发现",
       "schedule": "5 15 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py candidate-discovery",
+      "command": "python scripts/run_agent_dag.py candidate-discovery --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -113,14 +117,18 @@
         "capital-flow",
         "hk-a-linkage"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 180
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/skills/stock-triage/data/candidate_pool_latest.json",
-        "$HERMES_HOME/skills/stock-triage/data/candidate_pools/",
-        "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
-        "$HERMES_HOME/skills/stock-triage/data/exchange_universe.json",
-        "$HERMES_HOME/cron/output/candidate-discovery/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_pool_latest.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_pools/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_lifecycle/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/exchange_universe.json",
+        "$A_STOCK_STATE_HOME/cron/output/candidate-discovery/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/stock-triage/scripts/candidate_discovery.py --json",
@@ -134,7 +142,7 @@
       "name": "集合竞价快照采集",
       "schedule": "15-24 9 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py auction-snapshot",
+      "command": "python scripts/run_agent_dag.py auction-snapshot --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -147,11 +155,15 @@
       "context_from": [
         "candidate-discovery"
       ],
+      "dependency_policy": {
+        "trading_date": "previous_trading_day",
+        "max_age_minutes": 7200
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/skills/daban-stock-picker/data/auction_*.json",
-        "$HERMES_HOME/cron/output/auction-snapshot/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/auction_*.json",
+        "$A_STOCK_STATE_HOME/cron/output/auction-snapshot/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/daban-stock-picker/scripts/auction_collector.py --snapshot --json",
@@ -163,9 +175,9 @@
     {
       "id": "auction-finalize",
       "name": "集合竞价收口+候选池",
-      "schedule": "25 9 * * 1-5",
+      "schedule": "26 9 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py auction-finalize",
+      "command": "python scripts/run_agent_dag.py auction-finalize --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -178,27 +190,33 @@
       "context_from": [
         "auction-snapshot"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 15
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/skills/daban-stock-picker/data/auction_shortlist_*.json",
-        "$HERMES_HOME/skills/daban-stock-picker/data/auction_shortlist_latest.json",
-        "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
-        "$HERMES_HOME/cron/output/auction-finalize/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/auction_shortlist_*.json",
+        "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/auction_shortlist_latest.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_lifecycle/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/cron/output/auction-finalize/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/daban-stock-picker/scripts/auction_collector.py --finalize --shortlist-limit 20 --json",
         "cwd": ".",
         "timeout_seconds": 30
       },
-      "external_note": "09:25 收口竞价因子，供 09:35 开盘确认读取"
+      "external_note": "09:26 收口竞价因子，输出条件买入/关注计划和公告质检，并把重点标的加入动态监控"
     },
     {
       "id": "open-confirmation",
       "name": "开盘确认+上车判定",
       "schedule": "35 9 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py open-confirmation",
+      "command": "python scripts/run_agent_dag.py open-confirmation --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -211,27 +229,34 @@
       "context_from": [
         "auction-finalize"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 15
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/skills/daban-stock-picker/data/open_confirmation_*.json",
-        "$HERMES_HOME/skills/daban-stock-picker/data/open_confirmation_latest.json",
-        "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
-        "$HERMES_HOME/cron/output/open-confirmation/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/open_confirmation_*.json",
+        "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/open_confirmation_latest.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_lifecycle/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/recommendations.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/cron/output/open-confirmation/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/daban-stock-picker/scripts/open_confirmation.py --limit 5 --json",
         "cwd": ".",
         "timeout_seconds": 45
       },
-      "external_note": "09:35 读取 09:25 竞价因子并做开盘确认；不自动下单"
+      "external_note": "09:35 输出买入区间/追价线/止损/目标/T+1约束和公告质检；不自动下单"
     },
     {
       "id": "intraday-alert",
       "name": "盘中异动监控（5分钟）",
       "schedule": "*/5 9-11,13-14 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py intraday-alert",
+      "command": "python scripts/run_agent_dag.py intraday-alert --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -244,25 +269,31 @@
       "context_from": [
         "open-confirmation"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 480
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/skills/stock-triage/data/intraday_alerts.json",
-        "$HERMES_HOME/cron/output/intraday-alert/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/intraday_alerts.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/cron/output/intraday-alert/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/stock-triage/scripts/intraday_monitor.py --json",
         "cwd": ".",
         "timeout_seconds": 30
       },
-      "external_note": "只输出告警；脚本内置交易时段守卫(9:30-11:30/13:00-15:00)"
+      "external_note": "只监控当前持仓和动态订阅；清仓/取消后自动退订；脚本内置交易时段守卫"
     },
     {
       "id": "capital-flow",
       "name": "资金流向监控",
       "schedule": "30 10,14 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py capital-flow",
+      "command": "python scripts/run_agent_dag.py capital-flow --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -275,11 +306,15 @@
       "context_from": [
         "intraday-alert"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 180
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/capital-flow/",
-        "$HERMES_HOME/cron/output/job_runs.json",
-        "$HERMES_HOME/skills/stock-triage/cache/signal_context.json"
+        "$A_STOCK_STATE_HOME/cron/output/capital-flow/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/signal_context.json"
       ],
       "run": {
         "command": "python skills/stock-triage/scripts/capital_flow_monitor.py --json --cache",
@@ -293,7 +328,7 @@
       "name": "港A联动监控",
       "schedule": "45 9,13,14 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py hk-a-linkage",
+      "command": "python scripts/run_agent_dag.py hk-a-linkage --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -306,10 +341,14 @@
       "context_from": [
         "global-preopen"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 420
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/hk-a-linkage/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/hk-a-linkage/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/stock-triage/scripts/hk_a_linkage.py --json",
@@ -323,7 +362,7 @@
       "name": "收盘四维打分",
       "schedule": "18 15 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py four-dim-scorer",
+      "command": "python scripts/run_agent_dag.py four-dim-scorer --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -338,10 +377,14 @@
         "capital-flow",
         "hk-a-linkage"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 180
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/four-dim-scorer/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/four-dim-scorer/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/stock-triage/scripts/batch_four_dim_scorer.py --limit 20 --json",
@@ -355,7 +398,7 @@
       "name": "持仓风控检查",
       "schedule": "25 15 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py portfolio-check",
+      "command": "python scripts/run_agent_dag.py portfolio-check --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -368,10 +411,14 @@
       "context_from": [
         "four-dim-scorer"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 30
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/portfolio-check/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/portfolio-check/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/stock-triage/scripts/portfolio_manager.py --check --json",
@@ -385,7 +432,7 @@
       "name": "收盘Triage→Kanban派发",
       "schedule": "35 15 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py closing-triage",
+      "command": "python scripts/run_agent_dag.py closing-triage --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -400,10 +447,14 @@
         "portfolio-check",
         "capital-flow"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 90
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/closing-triage/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/closing-triage/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/stock-triage/scripts/context_digest.py --kind closing-triage --json",
@@ -417,7 +468,7 @@
       "name": "资讯监控 — 政策/产业/地缘触发",
       "schedule": "0 9,11,13,14,15,20,22 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py news-monitor",
+      "command": "python scripts/run_agent_dag.py news-monitor --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -430,24 +481,29 @@
       "context_from": [
         "global-preopen"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 900
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/news-monitor/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$A_STOCK_STATE_HOME/cron/output/news-monitor/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/news-to-sector/scripts/scheduled_monitor.py --json",
         "cwd": ".",
         "timeout_seconds": 90
       },
-      "external_note": "需 Hermes Agent + SerpAPI；固定查询集，无触发静默"
+      "external_note": "需 Hermes Agent + SerpAPI；固定宏观查询 + 当前股票/板块/主题动态订阅，无触发静默"
     },
     {
       "id": "institution-weekly",
       "name": "机构行为追踪（周报）",
       "schedule": "0 10 * * 6",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py institution-weekly",
+      "command": "python scripts/run_agent_dag.py institution-weekly --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -460,8 +516,8 @@
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/institution-weekly/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/institution-weekly/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/stock-triage/scripts/institution_tracker.py --json",
@@ -475,7 +531,7 @@
       "name": "事件日历提醒",
       "schedule": "0 8 * * 1",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py event-calendar",
+      "command": "python scripts/run_agent_dag.py event-calendar --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -488,8 +544,8 @@
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/cron/output/event-calendar/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/event-calendar/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
         "command": "python skills/stock-triage/scripts/event_calendar.py --json",
@@ -499,11 +555,78 @@
       "external_note": "需 Hermes Agent + NO_PROXY；无事件静默"
     },
     {
+      "id": "performance-daily",
+      "name": "信号T+1/T+3每日结算",
+      "schedule": "10 16 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py performance-daily --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2500,
+      "context_from": [
+        "closing-triage"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 60
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_history.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/performance-daily/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/stock-triage/scripts/performance_tracker.py --json",
+        "cwd": ".",
+        "timeout_seconds": 120
+      },
+      "external_note": "每个交易日收盘后推进 provisional T+1 至 final T+3；Hermes/OpenClaw 共用"
+    },
+    {
+      "id": "ledger-projector",
+      "name": "统一Agent状态投影",
+      "schedule": "40 9,15,16 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py ledger-projector --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 3000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/agent_state/agent_state_latest.json",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/ledger-projector/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/agent_state_projector.py --json",
+        "cwd": ".",
+        "timeout_seconds": 30
+      },
+      "external_note": "从Signal Ledger生成Hermes/OpenClaw共用的当前建议、持仓、监控、待结算状态"
+    },
+    {
       "id": "performance-weekly",
       "name": "胜率统计（周报）",
       "schedule": "0 10 * * 7",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/hermes_job_runner.py performance-weekly",
+      "command": "python scripts/run_agent_dag.py performance-weekly --emit-target",
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -514,16 +637,22 @@
       "deliver": "local",
       "max_output_chars": 3000,
       "context_from": [
-        "closing-triage"
+        "performance-daily"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 10080
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$HERMES_HOME/skills/stock-triage/data/signal_history.json",
-        "$HERMES_HOME/cron/output/performance-weekly/",
-        "$HERMES_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_history.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_registry.json",
+        "$A_STOCK_STATE_HOME/cron/output/performance-weekly/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/performance_tracker.py --json",
+        "command": "python skills/stock-triage/scripts/performance_tracker.py --json --gate",
         "cwd": ".",
         "timeout_seconds": 120
       },

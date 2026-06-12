@@ -26,16 +26,24 @@ def test_system_crontab_generation_uses_runner_only(tmp_path):
                 "id": "demo",
                 "schedule": "15 8 * * 1-5",
                 "enabled": True,
-                "command": "python scripts/hermes_job_runner.py demo",
+                "command": "python scripts/run_agent_dag.py demo --emit-target",
             }
         ]
     }
 
-    lines = crontab_lines(manifest, "/repo/a-stock", "/tmp/hermes", sys.executable)
+    lines = crontab_lines(
+        manifest,
+        "/repo/a-stock",
+        "/tmp/hermes",
+        sys.executable,
+        "/mnt/a-stock-state",
+    )
 
     joined = "\n".join(lines)
     assert "HERMES_HOME=/tmp/hermes" in joined
-    assert "scripts/hermes_job_runner.py demo" in joined
+    assert "A_STOCK_STATE_HOME=/mnt/a-stock-state" in joined
+    assert "A_STOCK_RUNTIME=hermes" in joined
+    assert "scripts/run_agent_dag.py demo --emit-target" in joined
     assert "15 8 * * 1-5" in joined
 
 

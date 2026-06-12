@@ -17,7 +17,7 @@
   · 结算与信号价均取自**前复权 K 线**，规避送转除权导致的收益失真
   · 阈值对称（±5% / 0）
 
-数据源（纯 urllib，cron-safe）：腾讯前复权 K 线 + 沪深300 指数。
+数据源（共享 data-access 层，cron-safe）：腾讯前复权 K 线 + 沪深300 指数。
 
 Usage:
   python3 performance_tracker.py                          # 查看统计
@@ -37,8 +37,10 @@ from state_store import read_json, atomic_write_json, update_json_list, mutate_j
 from paths import data_file
 from tradeability import limit_pct, round_limit
 from a_stock_http import fetch_tencent_kline, DataSourceError
+import signal_ledger
 
 HISTORY_FILE = data_file("stock-triage", "signal_history.json")
+LEDGER_FILE = signal_ledger.LEDGER_FILE
 
 # 沪深300 基准（腾讯指数代码 sh000300）
 BENCH_MARKET = "sh"
@@ -96,6 +98,7 @@ def evaluate_signal(
         idx_t1 = round((index_future_bars[0]["close"] / index_signal_close - 1) * 100, 2)
         alpha_t1 = round(t1_close_ret - idx_t1, 2)
 
+    final = len(window) >= hold_days
     return {
         "outcome": outcome,
         "t1_open_premium": t1_open_prem,
@@ -106,14 +109,17 @@ def evaluate_signal(
         "max_drawdown": max_drawdown,
         "alpha_t1": alpha_t1,
         "bars_observed": len(window),
-        "resolved": True,
+        "settlement_status": "final" if final else "provisional",
+        "resolved": final,
     }
 
 
 # ========== 持久化 ==========
 
 def load_history() -> List[Dict]:
-    return read_json(HISTORY_FILE, [])
+    canonical = signal_ledger.project_signals(ledger_file=LEDGER_FILE)
+    legacy = read_json(HISTORY_FILE, [])
+    return signal_ledger.merge_legacy_signals(canonical, legacy)
 
 
 def save_history(records: List[Dict]):
@@ -127,20 +133,49 @@ def record_signal(
     score: float,
     price: float,
     strategy_id: Optional[str] = None,
+    signal_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+    recommendation_id: Optional[str] = None,
+    trade_id: Optional[str] = None,
+    monitor_id: Optional[str] = None,
+    signal_date: Optional[str] = None,
 ) -> Dict:
     """记录一个新信号。price 为信号日收盘价（仅留档；结算以前复权 K 线为准）。
 
     用 update_json_list 在单锁内完成"读-追加-写回"，避免并发 --record 互相覆盖丢记录。
     """
+    links = signal_ledger.make_links(
+        recommendation_id,
+        correlation_id=correlation_id,
+        signal_id=signal_id,
+        trade_id=trade_id,
+        monitor_id=monitor_id,
+    )
+    if not links.get("signal_id"):
+        seed = {
+            "code": code,
+            "signal_date": signal_date or date.today().isoformat(),
+            "strategy_id": strategy_id or "default",
+            "grade": grade,
+        }
+        links = signal_ledger.legacy_signal_links(seed)
     record = {
         "code": code, "name": name, "grade": grade, "score": score,
-        "signal_date": date.today().isoformat(),
+        "signal_date": signal_date or date.today().isoformat(),
         "signal_price": price,
+        **{key: value for key, value in links.items() if value is not None},
         "outcome": "pending",
     }
     if strategy_id:
         record["strategy_id"] = strategy_id
-    update_json_list(HISTORY_FILE, record)
+    signal_ledger.append_event(
+        "signal.opened",
+        links,
+        signal_ledger.signal_opened_event(record, links)["payload"],
+        idempotency_key=f"signal.opened:{links['signal_id']}",
+        ledger_file=LEDGER_FILE,
+    )
+    update_json_list(HISTORY_FILE, record, unique_key="signal_id")
     suffix = f" [{strategy_id}]" if strategy_id else ""
     return {"ok": True, "recorded": f"{name}({code}) {grade}级 @ {price}{suffix}"}
 
@@ -172,10 +207,11 @@ def update_outcomes() -> List[Dict]:
     """
     snapshot = load_history()
     bench_cache: Dict[str, Optional[Dict[str, Any]]] = {}
-    resolutions: Dict[tuple, Dict[str, Any]] = {}
+    resolutions: Dict[str, Dict[str, Any]] = {}
+    records_by_id: Dict[str, Dict[str, Any]] = {}
 
     for r in snapshot:
-        if r.get("outcome") != "pending":
+        if r.get("settlement_status") == "final":
             continue
 
         code, sdate = r["code"], r["signal_date"]
@@ -197,21 +233,57 @@ def update_outcomes() -> List[Dict]:
             index_future_bars=bench["future"] if bench else None,
         )
         if result:
-            resolutions[(code, sdate)] = result
+            signal_id = signal_ledger.legacy_signal_links(r)["signal_id"]
+            resolutions[str(signal_id)] = result
+            records_by_id[str(signal_id)] = r
 
     if not resolutions:
         return snapshot
 
+    ledger_events = []
+    for signal_id, resolution in resolutions.items():
+        record = records_by_id[signal_id]
+        links = signal_ledger.legacy_signal_links(record)
+        stage = "t3" if resolution.get("settlement_status") == "final" else "t1"
+        ledger_events.extend([
+            signal_ledger.signal_opened_event(record, links),
+            signal_ledger.settlement_event(record, resolution, stage=stage),
+        ])
+    signal_ledger.append_events(ledger_events, ledger_file=LEDGER_FILE)
+
     def _apply(records: List[Dict]) -> List[Dict]:
+        if not isinstance(records, list):
+            records = []
+        seen = set()
         for r in records:
-            if r.get("outcome") != "pending":
+            if r.get("settlement_status") == "final":
+                seen.add(signal_ledger.legacy_signal_links(r)["signal_id"])
                 continue
-            res = resolutions.get((r["code"], r["signal_date"]))
+            signal_id = str(signal_ledger.legacy_signal_links(r)["signal_id"])
+            seen.add(signal_id)
+            res = resolutions.get(signal_id)
             if res:
                 r.update(res)
+                r.update({
+                    key: value
+                    for key, value in signal_ledger.legacy_signal_links(r).items()
+                    if value is not None
+                })
+        for signal_id, res in resolutions.items():
+            if signal_id in seen:
+                continue
+            compat = dict(records_by_id[signal_id])
+            compat.update(res)
+            compat.update({
+                key: value
+                for key, value in signal_ledger.legacy_signal_links(compat).items()
+                if value is not None
+            })
+            records.append(compat)
         return records
 
-    return mutate_json(HISTORY_FILE, _apply, [])
+    mutate_json(HISTORY_FILE, _apply, [])
+    return load_history()
 
 
 # ========== 统计 ==========
@@ -274,6 +346,23 @@ def compute_stats(records: List[Dict]) -> Dict:
             **_expectancy(s_rets),
         }
 
+    # T+1 provisional is useful for observation, but strategy enable/disable
+    # decisions must wait for the final T+3 settlement.
+    final_closed = [
+        r for r in closed
+        if r.get("settlement_status") != "provisional"
+    ]
+    gating_by_strategy = {}
+    for strategy_id in sorted({r.get("strategy_id", "default") for r in records}):
+        s_closed = [
+            r for r in final_closed
+            if r.get("strategy_id", "default") == strategy_id
+        ]
+        gating_by_strategy[strategy_id] = {
+            "closed": len(s_closed),
+            **_expectancy([r["t1_close_ret"] for r in s_closed]),
+        }
+
     return {
         "metric": "打板口径(T+1隔日)",
         "total_signals": len(records),
@@ -290,6 +379,7 @@ def compute_stats(records: List[Dict]) -> Dict:
         **_expectancy(rets),
         "by_grade": by_grade,
         "by_strategy": by_strategy,
+        "gating_by_strategy": gating_by_strategy,
     }
 
 
@@ -408,7 +498,7 @@ if __name__ == "__main__":
         stats = compute_stats(records)
         if args.gate:
             stats["gating_applied"] = apply_strategy_gating(
-                evaluate_strategy_gating(stats.get("by_strategy", {})))
+                evaluate_strategy_gating(stats.get("gating_by_strategy", {})))
         if args.json:
             print(json.dumps(stats, ensure_ascii=False, indent=2))
         else:

@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-281%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-367%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -20,20 +20,29 @@ A multi-agent research system for China's A-share market. Eleven repository skil
 ## Architecture
 
 ```mermaid
-graph TD
-    TRIAGE[stock-triage<br/>Orchestrator] --> ANALYST[stock-analyst<br/>Technical Engine]
-    TRIAGE --> HOTMONEY[hot-money-tactics<br/>Sentiment]
-    TRIAGE --> GLOBAL[global-market-monitor<br/>Macro Surveillance]
-    TRIAGE --> NEWS[news-to-sector<br/>Catalyst Mapping]
-    TRIAGE --> SERENITY[serenity-investment-research<br/>Deep Research]
-    TRIAGE --> DABAN[daban-stock-picker<br/>Limit-up Candidate Gate]
-    TRIAGE --> CHANLUN[chanlun-backtest<br/>Offline Research Gate]
-
-    ANALYST --> FLOW[capital_flow_monitor<br/>Fund Flows]
-    ANALYST --> PORT[portfolio_manager<br/>Risk Control]
-    ANALYST --> INTRA[intraday_monitor<br/>5-min Alerts]
-    HOTMONEY --> FLOW
-    GLOBAL --> FLOW
+flowchart LR
+    S["External data"] --> A["Shared data adapters"]
+    A --> M["Versioned immutable market snapshots"]
+    C["A-share calendar"] --> O["Runtime-neutral resumable DAG"]
+    O --> HM["Sentiment and limit-up ladder"]
+    O --> CD["Candidate discovery"]
+    O --> AU["Call auction"]
+    O --> OC["Open confirmation"]
+    M --> HM
+    M --> CD
+    M --> AU
+    M --> OC
+    HM --> P["Unified decision and risk policy"]
+    CD --> P
+    AU --> P
+    OC --> P
+    P --> L["Append-only signal ledger"]
+    L --> ST["T+1 provisional / T+3 final settlement"]
+    ST --> E["Performance and strategy gate"]
+    E --> P
+    L --> X["Shared agent-state projection"]
+    X --> H["Hermes"]
+    X --> W["OpenClaw"]
 ```
 
 ## Capabilities
@@ -44,14 +53,14 @@ graph TD
 | **hot-money-tactics** | Limit-up board analysis, sentiment cycles, sector rotation tracking | AkShare |
 | **daban-stock-picker** | Main-board 10cm limit-up candidate gate: first-board reseal, second-board weak-to-strong, six-question veto, tradeability. Thresholds read from a single source of truth shared with the backtest engine | `config/daban_thresholds.yaml`, structured JSON |
 | **chanlun-backtest** | Offline research gate (IS/OOS wall, costs, controls, statistical tests) **plus** `chan_structure` signal generator: fractals → strokes → pivots → third buy/sell → MACD divergence. Signals earn live weight only after the gate passes | Tencent qfq K-line, local research-state JSON |
-| **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share impact | yfinance, USGS, GDACS |
+| **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share sector views and stock watch mappings | yfinance, USGS, GDACS |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
 | **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit. The weighted scorecard flows back into the four-dim deep dimension via a freshness-decayed cache | cninfo, pypdf |
 | **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(25%) × catalyst(25%) × deep(20%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals | All above |
 | **hk-a-linkage** | AH premium spreads, HSI divergence, key HK stock movements | Tencent, yfinance |
 | **capital-flow-monitor** | Northbound flows, institutional/retail flows, sector-level flows | Eastmoney |
-| **portfolio-manager** | P&L tracking, stop-loss, trailing stops, concentration checks | Tencent |
-| **intraday-monitor** | 5-minute alerts: limit-up/down, volume spikes, sudden moves | Tencent |
+| **portfolio-manager** | Lot-level P&L, A-share T+1 enforcement, stop-loss, trailing stops, concentration checks | Tencent |
+| **intraday-monitor** | Dynamic portfolio/subscription alerts; sold and cancelled names are removed automatically | Tencent |
 | **institution-tracker** | Research visits, analyst reports, insider trades | Eastmoney |
 | **event-calendar** | Lockup expirations, dividends, policy windows | Eastmoney |
 | **performance-tracker** | Signal accuracy tracking with grade-level breakdown | Tencent |
@@ -90,6 +99,30 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 python scripts/smoke_test.py
 python -m pytest -q tests/
 ```
+
+### Shared Hermes/OpenClaw state
+
+Set the same state root in both runtimes so portfolio, recommendations, and
+monitor subscriptions stay consistent:
+
+```bash
+export A_STOCK_STATE_HOME="$HOME/.a-stock-agent"
+```
+
+See [A-share trading and monitoring lifecycle](docs/trading-lifecycle.md) for
+T+1 enforcement, recommendation QC, and dynamic subscription behavior.
+
+Both runtimes use the same execution surface:
+
+```bash
+python scripts/run_agent_dag.py global-preopen --runtime hermes
+python scripts/run_agent_dag.py global-preopen --runtime openclaw
+python scripts/agent_runtime_context.py
+```
+
+Across two machines, `A_STOCK_STATE_HOME` must be the same mounted filesystem,
+not merely the same path string. Run leases and the canonical ledger cannot
+coordinate two independent local disks.
 
 ### Run
 
@@ -142,9 +175,24 @@ Source health tracking is built-in. When critical data is missing (e.g., yfinanc
 
 ## Cron Schedule
 
-All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json). Scheduling requires an external [Hermes Agent](https://hermes-agent.nousresearch.com) runtime — this repo provides the scripts; Hermes provides the clock.
+All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json).
+Despite the historical filename, the manifest is shared by Hermes, OpenClaw,
+system cron, and local runs.
 
-The manifest routes every scheduled job through `scripts/hermes_job_runner.py`. The runner executes the business script in an isolated subprocess, writes `$HERMES_HOME/cron/output/{job_id}/{run_id}.json`, records `$HERMES_HOME/cron/output/job_runs.json`, and only emits the configured `deliver` output. Routine jobs can be archived with `deliver=local` so cron output does not pollute the active user conversation.
+The manifest routes every scheduled job through `scripts/run_agent_dag.py`.
+The DAG reuses successful dependencies, reruns the scheduled target, and invokes
+`agent_job_runner.py` internally under an atomic run lease. The runner writes
+`$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`, creates an immutable
+market snapshot for JSON output, and records `job_runs.json`. D0/D1 nodes also
+persist raw inputs and read them back before ranking or policy evaluation. Routine jobs can
+use `deliver=local` so scheduled output does not pollute active conversations.
+
+Artifact v2 also records `trading_date`, `batch_id`, and a fail-closed
+`dependency_gate`. Recommendations, executions, monitor lifecycle changes, and
+T+1 provisional and T+3 final settlements are correlated in the append-only
+`signal_ledger.jsonl`. `agent_state_projector.py` exposes the same current state
+to Hermes and OpenClaw.
+See [`docs/architecture-hardening.md`](docs/architecture-hardening.md).
 
 ```bash
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
@@ -190,6 +238,8 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 15:35 | Triage → Kanban dispatch | Workdays |
 | 22:30 | Global evening scan | Workdays |
 | Sat 10:00 | Institution weekly | Weekly |
+| 16:10 | T+1/T+3 signal settlement | Workdays |
+| 09:40, 15:40, 16:40 | Shared agent-state projection | Workdays |
 | Sun 10:00 | Performance weekly | Weekly |
 
 ## Output Format
@@ -252,16 +302,20 @@ a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── config/candidate_selection.json # Dynamic-universe and funnel limits
-├── cron/hermes-cron-manifest.json  # 17 isolated scheduled jobs
+├── cron/hermes-cron-manifest.json  # 19 runtime-neutral scheduled jobs
 ├── scripts/
-│   ├── hermes_job_runner.py    # Cron isolation runner + artifact writer
+│   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
+│   ├── run_agent_dag.py        # Dependency ordering, retry, resume
+│   ├── agent_state_projector.py # Ledger-to-agent current-state projection
+│   ├── agent_runtime_context.py # Required state refresh for agent reasoning
+│   ├── hermes_job_runner.py    # Backward-compatible runner implementation
 │   ├── hermes_gateway_doctor.py # Deployment-side Gateway import/schedule diagnostics
 │   ├── generate_system_crontab.py # System cron fallback generator
 │   ├── smoke_test.py           # 9-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 281 unit tests
+├── tests/                      # 384 unit tests
 ├── skills/
-│   ├── common/                 # Shared HTTP/state + candidate ranking/lifecycle
+│   ├── common/                 # Adapters, snapshots, policy, ledger, shared state
 │   ├── stock-triage/           # Orchestrator hub
 │   ├── stock-analyst/          # Technical analysis engine
 │   ├── hot-money-tactics/      # Sentiment & limit-up analysis
@@ -338,7 +392,7 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 281 tests
+python -m pytest -q tests/        # 304 tests
 python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```

@@ -33,6 +33,19 @@ def test_catalyst_available_with_bullish_news(monkeypatch):
     assert c["score"] > 5.0   # 命中利好关键词 → 加分
 
 
+def test_clarification_language_blocks_embedded_bullish_keywords():
+    out = fds.news_catalyst_score([
+        {
+            "title": "公司澄清重大突破传闻",
+            "snippet": "公司未涉及相关业务，传闻不属实，尚未形成收入",
+            "date": "1 day ago",
+        }
+    ])
+
+    assert out["delta"] < 0
+    assert any("澄清" in signal for signal in out["signals"])
+
+
 def test_fetch_serpapi_news_no_key_returns_none(monkeypatch):
     """无 API key 应返回 None（数据源不可用），而非 []（可用但无新闻）。"""
     monkeypatch.delenv("SERPAPI_API_KEY", raising=False)

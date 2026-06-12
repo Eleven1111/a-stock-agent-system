@@ -13,7 +13,7 @@ VALID_JOB = {
     "name": "Test",
     "schedule": "0 9 * * 1-5",
     "timezone": "Asia/Shanghai",
-    "command": "python scripts/hermes_job_runner.py test-job",
+    "command": "python scripts/run_agent_dag.py test-job --emit-target",
     "cwd": ".",
     "enabled": True,
     "silent_when_no_signal": True,
@@ -25,7 +25,7 @@ VALID_JOB = {
     "max_output_chars": 2000,
     "context_from": [],
     "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
-    "allowed_state_writes": ["$HERMES_HOME/cron/output/test-job/"],
+    "allowed_state_writes": ["$A_STOCK_STATE_HOME/cron/output/test-job/"],
     "run": {
         "command": "python skills/stock-triage/scripts/context_digest.py --json",
         "cwd": ".",
@@ -71,7 +71,7 @@ def test_duplicate_ids():
 
 def test_placeholders_are_rejected_without_vars():
     j = dict(VALID_JOB)
-    j["command"] = "python scripts/hermes_job_runner.py test-job --var code={code} --var name={name}"
+    j["command"] = "python scripts/run_agent_dag.py test-job --emit-target --var code={code}"
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(manifest, f)
@@ -84,7 +84,7 @@ def test_placeholders_are_rejected_without_vars():
 
 def test_placeholders_are_rejected_even_with_vars():
     j = dict(VALID_JOB)
-    j["command"] = "python scripts/hermes_job_runner.py test-job --var code={code}"
+    j["command"] = "python scripts/run_agent_dag.py test-job --var code={code}"
     j["template_vars"] = ["code"]
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -138,6 +138,19 @@ def test_direct_business_command_rejected():
         os.unlink(path)
 
 
+def test_business_state_writes_cannot_use_hermes_install_home():
+    j = dict(VALID_JOB)
+    j["allowed_state_writes"] = ["$HERMES_HOME/cron/output/test-job/"]
+    manifest = {"jobs": [j]}
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
 def test_top_level_duplicate_runtime_script_rejected():
     """run.command 必须指向 canonical skills 路径，不能用顶层重复脚本。"""
     j = dict(VALID_JOB)
@@ -166,6 +179,56 @@ def test_missing_isolation_contract_rejected():
         os.unlink(path)
 
 
+def test_invalid_dependency_policy_rejected():
+    j = dict(VALID_JOB)
+    j["context_from"] = ["upstream"]
+    j["dependency_policy"] = {
+        "required": True,
+        "max_age_minutes": 0,
+        "trading_date": "tomorrow",
+    }
+    manifest = {"jobs": [j]}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
+def test_unknown_dependency_rejected():
+    j = dict(VALID_JOB)
+    j["context_from"] = ["does-not-exist"]
+    manifest = {"jobs": [j]}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
+def test_dependency_cycle_rejected():
+    first = dict(VALID_JOB)
+    first["id"] = "first"
+    first["command"] = "python scripts/run_agent_dag.py first --emit-target"
+    first["context_from"] = ["second"]
+    second = dict(VALID_JOB)
+    second["id"] = "second"
+    second["command"] = "python scripts/run_agent_dag.py second --emit-target"
+    second["context_from"] = ["first"]
+    manifest = {"jobs": [first, second]}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
 def test_repo_manifest_keeps_runtime_isolation_contract():
     manifest_path = os.path.join(ROOT, "cron", "hermes-cron-manifest.json")
     assert validate(manifest_path) is True
@@ -183,7 +246,9 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "closing-triage",
     ]:
         assert required in jobs
-        assert jobs[required]["command"].startswith("python scripts/hermes_job_runner.py ")
+        assert jobs[required]["command"] == (
+            f"python scripts/run_agent_dag.py {required} --emit-target"
+        )
         assert jobs[required]["context_scope"] == "cron"
 
     assert "--codes" not in jobs["auction-snapshot"]["run"]["command"]
@@ -193,4 +258,16 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["hot-money-context"]["run"]["command"].endswith("--cache-only")
     assert jobs["auction-snapshot"]["context_from"] == ["candidate-discovery"]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
+    assert jobs["auction-finalize"]["schedule"] == "26 9 * * 1-5"
+    assert any("monitor_registry.json" in path for path in jobs["auction-finalize"]["allowed_state_writes"])
+    assert any("signal_ledger.jsonl" in path for path in jobs["auction-finalize"]["allowed_state_writes"])
+    assert any("recommendations.json" in path for path in jobs["open-confirmation"]["allowed_state_writes"])
+    assert any("signal_ledger.jsonl" in path for path in jobs["open-confirmation"]["allowed_state_writes"])
+    assert any("signal_ledger.jsonl" in path for path in jobs["intraday-alert"]["allowed_state_writes"])
     assert set(jobs["closing-triage"]["context_from"]) >= {"four-dim-scorer", "portfolio-check"}
+    assert jobs["performance-weekly"]["dependency_policy"]["trading_date"] == "same_trading_date"
+    assert jobs["performance-weekly"]["context_from"] == ["performance-daily"]
+    assert jobs["performance-weekly"]["run"]["command"].endswith("--json --gate")
+    assert any("strategy_registry.json" in path for path in jobs["performance-weekly"]["allowed_state_writes"])
+    assert jobs["performance-daily"]["run"]["command"].endswith("--json")
+    assert jobs["ledger-projector"]["run"]["command"].startswith("python scripts/agent_state_projector.py")

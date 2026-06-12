@@ -118,8 +118,34 @@ def test_load_watch_pool_rejects_stale_state(tmp_path, monkeypatch):
         raise AssertionError("stale pool should fail closed")
 
 
+def test_append_snapshot_consumes_immutable_input_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        ac,
+        "take_snapshot",
+        lambda codes: {
+            codes[0]: {
+                "t": "09:20:00",
+                "name": "测试股票",
+                "price": 10.5,
+                "prev_close": 10.0,
+                "bids": [],
+                "asks": [],
+            }
+        },
+    )
+
+    state = ac.append_snapshot(["sh600001"], "2026-06-12")
+
+    assert state["input_snapshots"][-1]["snapshot_id"].startswith("snap-")
+    assert state["series"]["sh600001"][0]["price"] == 10.5
+
+
 def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"
     candidates = [
@@ -158,6 +184,8 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
 
     assert result["schema"] == "auction_finalize_v2"
     assert len(result["shortlist"]) == 5
+    assert len(result["preopen_decisions"]) == 5
+    assert all(item["execution_plan"]["same_day_sell_allowed"] is False for item in result["preopen_decisions"])
     assert read_json(ac._shortlist_path(event_asof), {})["asof"] == event_asof
     lifecycle = candidate_lifecycle.load_day(source_asof)
     assert sum(record["current_stage"] == "auction_shortlist" for record in lifecycle["records"]) == 5

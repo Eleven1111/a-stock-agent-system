@@ -18,8 +18,6 @@ import json
 import os
 import sys
 import time
-import urllib.parse
-import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,8 +31,12 @@ sys.path.insert(0, COMMON)
 
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
-from a_stock_http import DataSourceError, fetch_tencent_kline, fetch_tencent_quote  # noqa: E402
+from a_stock_http import DataSourceError  # noqa: E402
+from market_adapters import fetch_tencent_kline, fetch_tencent_quote  # noqa: E402
+from http_client import request_bytes  # noqa: E402
+from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
+from research_evidence import build_research_evidence  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 
 
@@ -62,22 +64,16 @@ def _request_bytes(
     url: str,
     headers: Mapping[str, str] | None = None,
     timeout: int = 20,
-    attempts: int = 3,
+    attempts: int = 2,
 ) -> bytes:
-    last_error: Exception | None = None
-    for attempt in range(attempts):
-        request = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (Hermes A-Stock Agent)", **dict(headers or {})},
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                return response.read()
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            if attempt + 1 < attempts:
-                time.sleep(0.5 * (2 ** attempt))
-    raise last_error or RuntimeError(f"request failed: {url}")
+    result = request_bytes(
+        url,
+        source="exchange_listing",
+        timeout=timeout,
+        max_attempts=min(attempts, 2),
+        headers={"User-Agent": "Mozilla/5.0 (Hermes A-Stock Agent)", **dict(headers or {})},
+    )
+    return result.data
 
 
 def _fetch_sse_type(stock_type: str) -> List[Dict[str, Any]]:
@@ -96,7 +92,9 @@ def _fetch_sse_type(stock_type: str) -> List[Dict[str, Any]]:
         "pageHelp.pageNo": "1",
         "pageHelp.endPage": "1",
     }
-    url = "https://query.sse.com.cn/sseQuery/commonQuery.do?" + urllib.parse.urlencode(params)
+    url = "https://query.sse.com.cn/sseQuery/commonQuery.do?" + "&".join(
+        f"{key}={value}" for key, value in params.items()
+    )
     raw = _request_bytes(
         url,
         headers={
@@ -200,7 +198,9 @@ def fetch_szse_universe() -> List[Dict[str, Any]]:
         "TABKEY": "tab1",
         "random": f"{time.time():.6f}",
     }
-    url = "https://www.szse.cn/api/report/ShowReport?" + urllib.parse.urlencode(params)
+    url = "https://www.szse.cn/api/report/ShowReport?" + "&".join(
+        f"{key}={value}" for key, value in params.items()
+    )
     return parse_szse_workbook(_request_bytes(url, timeout=30))
 
 
@@ -284,12 +284,13 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
 
     def _fetch(batch: List[str]) -> Dict[str, Dict[str, Any]]:
         last_error = None
-        for attempt in range(retries + 1):
+        attempts = min(retries + 1, 2)
+        for attempt in range(attempts):
             try:
                 return fetch_tencent_quote(batch)
             except DataSourceError as exc:
                 last_error = exc
-                if attempt < retries:
+                if attempt + 1 < attempts:
                     time.sleep(0.5 * (2 ** attempt))
         raise last_error or DataSourceError("tencent", "unknown quote failure")
 
@@ -321,11 +322,12 @@ def fetch_candidate_klines(candidates: Sequence[Mapping[str, Any]]) -> Dict[str,
     def _fetch(item: Mapping[str, Any]) -> tuple[str, List[Dict[str, Any]]]:
         code = candidate_pipeline.naked_code(item["code"])
         market = "sh" if code.startswith("6") else "sz"
-        for attempt in range(retries + 1):
+        attempts = min(retries + 1, 2)
+        for attempt in range(attempts):
             bars = fetch_tencent_kline(code, market=market, days=70)
             if bars:
                 return code, bars
-            if attempt < retries:
+            if attempt + 1 < attempts:
                 time.sleep(0.25 * (2 ** attempt))
         return code, []
 
@@ -438,12 +440,10 @@ def run_discovery(
 
     universe = list(universe_fetcher())
     quote_map = dict(quote_fetcher(universe))
-    if settle_previous:
-        observe_recent_candidates(asof, quote_map)
-    quotes = list(quote_map.values())
 
     # 游资因子只能消费当日收盘缓存，避免历史梯队污染新的候选排名。
     signal_ctx, temperature = load_signal_context_for_discovery(asof)
+    quotes = list(quote_map.values())
     eligible, base_rejected = candidate_pipeline.filter_universe(
         quotes,
         min_amount=float(universe_config["min_amount"]),
@@ -455,6 +455,33 @@ def run_discovery(
         limit=prefilter_limit,
     )
     kline_by_code = dict(kline_fetcher(enrichment_universe))
+    input_snapshot = materialize_input_snapshot(
+        "candidate-discovery-input",
+        {
+            "schema": "candidate_discovery_inputs_v1",
+            "universe": universe,
+            "quotes": quote_map,
+            "klines": kline_by_code,
+            "signal_context": signal_ctx,
+            "market_temperature": temperature,
+        },
+        trading_date=asof,
+        batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
+        producer="candidate-discovery",
+        source_versions={
+            "exchange_listing": "exchange-listing-v1",
+            "tencent": "tencent-adapter-v2",
+            "tencent_kline": "tencent-kline-adapter-v2",
+        },
+    )
+    inputs = input_snapshot["payload"]
+    quote_map = dict(inputs["quotes"])
+    kline_by_code = dict(inputs["klines"])
+    signal_ctx = inputs.get("signal_context")
+    temperature = dict(inputs["market_temperature"])
+    if settle_previous:
+        observe_recent_candidates(asof, quote_map)
+    quotes = list(quote_map.values())
     result = candidate_pipeline.build_watch_pool(
         quotes,
         kline_by_code,
@@ -464,6 +491,20 @@ def run_discovery(
         min_listed_days=int(universe_config["min_listed_days"]),
         signal_ctx=signal_ctx,
     )
+    for item in result.get("candidates", []):
+        selected_by = item.get("selected_by") or {}
+        strategy_id = (
+            "daban:first_board_reseal"
+            if selected_by.get("daban")
+            else "trend_pullback"
+        )
+        code = candidate_pipeline.naked_code(item.get("code"))
+        item["research_evidence"] = build_research_evidence(
+            code,
+            strategy_id=strategy_id,
+            asof=asof,
+            bars=list(kline_by_code.get(code) or []),
+        )
     evaluated = result.pop("evaluated_candidates")
     result.update({
         "asof": asof,
@@ -471,6 +512,7 @@ def run_discovery(
         "universe_source": "SSE+SZSE listings / Tencent quotes",
         "enriched_count": len(kline_by_code),
         "market_temperature": temperature,
+        "input_snapshot": compact_ref(input_snapshot),
     })
     _persist_pool(asof, result)
 

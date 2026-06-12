@@ -18,12 +18,26 @@ from typing import Any, Dict, List, Mapping, Sequence
 SCRIPT_DIR = os.path.dirname(__file__)
 sys.path.insert(0, SCRIPT_DIR)
 sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
+sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "stock-triage", "scripts"))
 
-from a_stock_http import DataSourceError, fetch_tencent_snapshot  # noqa: E402
+from a_stock_http import DataSourceError  # noqa: E402
+from market_adapters import fetch_tencent_snapshot  # noqa: E402
+from announcement_risk import scan_many  # noqa: E402
+from a_share_rules import add_trading_days  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 from market_temperature import temperature_from_context  # noqa: E402
+import monitor_registry  # noqa: E402
 from paths import data_file  # noqa: E402
+from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
+from decision_policy import evaluate_decision  # noqa: E402
+from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
+from market_context import market_regime, read_market_context  # noqa: E402
+from portfolio_policy import evaluate_candidate  # noqa: E402
+import recommendation_audit  # noqa: E402
+from research_evidence import build_research_evidence  # noqa: E402
+import signal_ledger  # noqa: E402
+import strategy_registry  # noqa: E402
 from signal_context import read_signal_context  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 from tradeability import assess_tradeability  # noqa: E402
@@ -35,7 +49,100 @@ def _naked_code(code: str) -> str:
     return code[2:] if code.startswith(("sh", "sz")) else code
 
 
-def evaluate_open_confirmation(factor: Dict[str, Any], quote: Dict[str, Any]) -> Dict[str, Any]:
+def _enrich_decision(
+    candidate: Mapping[str, Any],
+    announcements: Sequence[Mapping[str, Any]] | None,
+    asof: str,
+) -> Dict[str, Any]:
+    item = dict(candidate)
+    provisional_quality = {
+        "status": "passed",
+        "execution_constraints": {},
+    }
+    provisional = build_execution_plan(item, provisional_quality, asof=asof, stage="open")
+    recommendation = {
+        **item,
+        "action": "buy" if item.get("action") == "trend_watch" else "hold",
+        "entry_price": item.get("price"),
+        "price_range": provisional["entry_range"],
+        "stop_price": provisional["stop_price"],
+        "target_price": provisional["target_price"],
+        "horizon": provisional["horizon"],
+        "grade": "A" if float(item.get("open_score") or 0) >= 80 else "B",
+        "confidence": "medium",
+        "position_pct": provisional["position_pct"] or 4.0,
+    }
+    quality = build_quality_report(recommendation, announcements, asof=asof)
+    plan = build_execution_plan(item, quality, asof=asof, stage="open")
+    item["announcements"] = list(announcements) if announcements is not None else None
+    item["quality_report"] = quality
+    item["execution_plan"] = plan
+    item["decision"] = plan["decision"]
+    return item
+
+
+def _apply_policy(
+    item: Mapping[str, Any],
+    asof: str | None = None,
+    portfolio: Mapping[str, Any] | None = None,
+    regime: Mapping[str, Any] | None = None,
+) -> Dict[str, Any]:
+    result = dict(item)
+    selected_by = result.get("open_selected_by") or {}
+    strategy_id = (
+        "daban:first_board_reseal"
+        if selected_by.get("daban")
+        else "trend_pullback"
+    )
+    lane = "daban" if selected_by.get("daban") else "trend"
+    evidence = build_research_evidence(
+        _naked_code(str(result.get("code") or "")),
+        strategy_id=strategy_id,
+        asof=asof,
+    )
+    prior_chanlun = ((result.get("research_evidence") or {}).get("chanlun") or {})
+    for key in (
+        "structure_summary",
+        "signals",
+        "live_bullish_signals",
+        "live_bearish_signals",
+        "display_only_signals",
+    ):
+        if key in prior_chanlun:
+            evidence["chanlun"][key] = prior_chanlun[key]
+    portfolio_risk = evaluate_candidate(
+        portfolio or {"cash": 100000, "positions": []},
+        result,
+        float((result.get("execution_plan") or {}).get("position_pct") or 0),
+    )
+    policy = evaluate_decision(
+        requested_action=str((result.get("execution_plan") or {}).get("decision") or "watch"),
+        quality_report=result.get("quality_report") or {"status": "conditional"},
+        strategy_record=strategy_registry.get(strategy_id),
+        market_regime=regime,
+        portfolio_risk=portfolio_risk,
+        research_evidence=evidence,
+        strategy_lane=lane,
+    )
+    result["strategy_id"] = strategy_id
+    result["research_evidence"] = evidence
+    result["portfolio_risk"] = portfolio_risk
+    result["market_regime"] = dict(regime or {})
+    result["policy_decision"] = policy
+    if policy["decision"] in {"avoid", "watch"}:
+        plan = dict(result.get("execution_plan") or {})
+        plan["decision"] = policy["decision"]
+        plan["position_pct"] = 0.0
+        result["execution_plan"] = plan
+        result["decision"] = policy["decision"]
+    return result
+
+
+def evaluate_open_confirmation(
+    factor: Dict[str, Any],
+    quote: Dict[str, Any],
+    asof: str | None = None,
+) -> Dict[str, Any]:
     code = factor.get("code", "")
     name = factor.get("name") or quote.get("name") or code
     tradeability = assess_tradeability(quote, _naked_code(code), name)
@@ -64,10 +171,11 @@ def evaluate_open_confirmation(factor: Dict[str, Any], quote: Dict[str, Any]) ->
     else:
         reasons.append("开盘确认不足")
 
-    return {
+    result = {
         "code": code,
         "name": name,
         "price": price,
+        "prev_close": quote.get("prev_close"),
         "change_pct": change_pct,
         "auction_gap_pct": factor.get("auction_gap_pct"),
         "board_status": factor.get("board_status"),
@@ -75,6 +183,11 @@ def evaluate_open_confirmation(factor: Dict[str, Any], quote: Dict[str, Any]) ->
         "tradeability": tradeability,
         "reasons": reasons,
     }
+    return _enrich_decision(
+        result,
+        factor.get("announcements") if "announcements" in factor else None,
+        asof or date.today().isoformat(),
+    )
 
 
 def _shortlist_path(asof: str) -> str:
@@ -277,7 +390,24 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
             candidate_pipeline.market_code(code)
             for code in (signal_ctx.get("lianban_ladder") or {})
         )
-    quotes = _fetch_snapshots(quote_codes) if quote_codes else {}
+    raw_quotes = _fetch_snapshots(quote_codes) if quote_codes else {}
+    input_snapshot = materialize_input_snapshot(
+        "open-confirmation-input",
+        {
+            "schema": "open_confirmation_inputs_v1",
+            "quotes": raw_quotes,
+            "signal_context": signal_ctx,
+        },
+        trading_date=asof,
+        batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
+        producer="open-confirmation",
+        source_versions={
+            "tencent": "tencent-adapter-v2",
+            "akshare": "akshare-adapter-v1",
+        },
+    )
+    quotes = dict(input_snapshot["payload"]["quotes"])
+    signal_ctx = dict(input_snapshot["payload"].get("signal_context") or {})
     temperature = temperature_from_context(
         signal_ctx,
         morning_quotes=quotes,
@@ -288,7 +418,7 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
     confirmations = []
     for factor in factors:
         quote = quotes.get(factor.get("code"), {})
-        confirmations.append(evaluate_open_confirmation(factor, quote))
+        confirmations.append(evaluate_open_confirmation(factor, quote, asof=asof))
 
     signals = rank_confirmations(
         factors,
@@ -296,13 +426,110 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
         limit=limit,
         temperature=temperature,
     )
+    announcement_map = scan_many(
+        candidate_pipeline.naked_code(item.get("code"))
+        for item in signals
+    )
+    portfolio = read_json(
+        data_file("stock-triage", "portfolio.json"),
+        {"cash": 100000, "positions": []},
+    )
+    regime = market_regime(read_market_context())
+    signals = [
+        _apply_policy(_enrich_decision(
+            item,
+            announcement_map.get(candidate_pipeline.naked_code(item.get("code"))),
+            asof,
+        ), asof=asof, portfolio=portfolio, regime=regime)
+        for item in signals
+    ]
+
+    monitor_expiry = add_trading_days(asof, 2)
+    for item in signals:
+        code = candidate_pipeline.naked_code(item.get("code"))
+        recommendation_id = f"open-{asof}-{code}"
+        recommendation_action = (
+            "buy" if item.get("decision") == "buy"
+            else "avoid" if item.get("decision") == "avoid"
+            else "hold"
+        )
+        links = signal_ledger.make_links(
+            recommendation_id,
+            monitor_id=f"stock:{code}",
+            include_trade=recommendation_action in signal_ledger.TRADE_ACTIONS,
+        )
+        item["ledger_links"] = {
+            key: value for key, value in links.items() if value is not None
+        }
+        if item.get("decision") == "avoid":
+            monitor_registry.deactivate_automatic(
+                "stock",
+                code,
+                reason="open_confirmation_rejected",
+            )
+        else:
+            monitor_registry.activate(
+                "stock",
+                code,
+                str(item.get("name") or code),
+                source="open_confirmation",
+                expires_at=monitor_expiry,
+                metadata={
+                    "decision": item.get("decision"),
+                    "open_rank": item.get("open_rank"),
+                    "quality_status": (item.get("quality_report") or {}).get("status"),
+                    **item["ledger_links"],
+                },
+            )
+        sector = str(item.get("sector") or "").strip()
+        if sector and item.get("decision") != "avoid":
+            monitor_registry.activate(
+                "sector",
+                sector,
+                sector,
+                source="open_confirmation",
+                expires_at=monitor_expiry,
+                metadata={
+                    "correlation_id": links["correlation_id"],
+                    "recommendation_id": links["recommendation_id"],
+                    "signal_id": links["signal_id"],
+                },
+            )
+        plan = item.get("execution_plan") or {}
+        quality = item.get("quality_report") or {}
+        recommendation_audit.record_recommendation(
+            code=code,
+            name=str(item.get("name") or code),
+            action=recommendation_action,
+            price_range=str(plan.get("entry_range") or "N/A"),
+            rationale="；".join(item.get("reasons") or ["09:35开盘确认"]),
+            risks=list(quality.get("risk_warnings") or []) + list(plan.get("invalidation") or []),
+            entry_price=item.get("price"),
+            target_price=plan.get("target_price"),
+            stop_price=plan.get("stop_price"),
+            horizon=plan.get("horizon"),
+            grade="A" if float(item.get("open_score") or 0) >= 80 else "B",
+            confidence="medium",
+            strategy_id=item["strategy_id"],
+            announcements=item.get("announcements"),
+            source_id=recommendation_id,
+            asof=asof,
+            correlation_id=links["correlation_id"],
+            signal_id=links["signal_id"],
+            trade_id=links["trade_id"],
+            monitor_id=links["monitor_id"],
+            research_evidence=item.get("research_evidence"),
+            portfolio_risk=item.get("portfolio_risk"),
+        )
     result = {
-        "schema": "open_confirmation_v2",
+        "schema": "open_confirmation_v3",
         "asof": asof,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "status": "ready",
         "source_asof": shortlist_result.get("source_asof"),
         "market_temperature": temperature,
+        "market_regime": regime,
+        "input_snapshot": compact_ref(input_snapshot),
         "confirmations": confirmations,
         "signals": signals,
         "signal_count": len(signals),
@@ -344,6 +571,18 @@ def format_report(result: Dict[str, Any]) -> str:
             f"现价={item.get('price')} 涨幅={item.get('change_pct')}% "
             f"竞价={item.get('auction_gap_pct')}% | {'；'.join(item['reasons'])}"
         )
+    if result.get("signals"):
+        lines.append("\n### 可执行建议")
+        for item in result["signals"]:
+            plan = item.get("execution_plan") or {}
+            quality = item.get("quality_report") or {}
+            lines.append(
+                f"- {item['name']}({item['code']}): {item.get('decision')} | "
+                f"买入区间={plan.get('entry_range')} 最高追价={plan.get('max_chase_price')} "
+                f"止损={plan.get('stop_price')} 目标={plan.get('target_price')} "
+                f"仓位={plan.get('position_pct')}% | 质检={quality.get('status')} | "
+                f"A股T+1，最早卖出={plan.get('earliest_sell_date')}"
+            )
     return "\n".join(lines)
 
 

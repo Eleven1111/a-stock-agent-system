@@ -4,7 +4,7 @@
 ======================================
 技术面 × 情绪面 × 催化面 × 深度面 → S/A/B/C 分级 + 买卖建议
 
-数据源（纯 urllib，cron-safe）：
+数据源（统一共享 HTTP 层，cron-safe）：
 - 腾讯 qt.gtimg.cn — 实时行情 + 历史K线
 - SerpAPI — 新闻催化
 - stock-analyst 技术指标模块 — numpy 计算
@@ -17,8 +17,6 @@ Usage:
 import json
 import sys
 import os
-import urllib.request
-import urllib.parse
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -39,6 +37,8 @@ from a_stock_http import (
     fetch_tencent_quote as _http_quote,
     fetch_tencent_kline as _http_kline,
 )
+from data_provider import fetch_serpapi_news as _fetch_serpapi_news
+from http_client import DataSourceError
 from tradeability import assess_tradeability
 from deep_research_cache import read_deep_research, decay_stale_score
 
@@ -86,13 +86,19 @@ def fetch_serpapi_news(query: str, num: int = 5) -> Optional[List[Dict]]:
     api_key = os.environ.get("SERPAPI_API_KEY")
     if not api_key:
         return None
-    url = f"https://serpapi.com/search?engine=google_news&q={urllib.parse.quote(query)}&num={num}&api_key={api_key}&gl=cn&hl=zh-cn"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
-        return data.get("news_results", [])[:num]
-    except Exception:
+        result = _fetch_serpapi_news(query, api_key, num)
+        return [
+            {
+                "title": item.get("title", ""),
+                "snippet": item.get("snippet", ""),
+                "source": {"name": item.get("source", "")},
+                "date": item.get("date", ""),
+                "link": item.get("link"),
+            }
+            for item in result.data
+        ]
+    except (DataSourceError, AttributeError, TypeError):
         return None
 
 
@@ -405,6 +411,18 @@ def freshness_factor(age_days: Optional[float], slow: bool = False) -> float:
 
 # T1 权重值（中央级政策/重大资本动作）→ 慢衰减
 _T1_WEIGHT = 1.2
+CLARIFICATION_RISK_TERMS = [
+    "澄清",
+    "不属实",
+    "未涉及",
+    "不存在相关",
+    "无相关业务",
+    "尚未形成收入",
+    "未形成收入",
+    "对业绩影响较小",
+    "风险提示",
+    "异常波动",
+]
 
 
 def news_catalyst_score(news: List[Dict], now: Optional[datetime] = None) -> Dict[str, Any]:
@@ -417,6 +435,17 @@ def news_catalyst_score(news: List[Dict], now: Optional[datetime] = None) -> Dic
         title = item.get("title", "")
         text = title + " " + item.get("snippet", "")
         age = _news_age_days(item.get("date", ""), now)
+        clarification = next((term for term in CLARIFICATION_RISK_TERMS if term in text), None)
+        if clarification:
+            fresh = freshness_factor(age, slow=False)
+            contribution = -_T1_WEIGHT * fresh
+            delta += contribution
+            age_str = f"{age:.0f}d" if age is not None else "?d"
+            signals.append(
+                f"⚠️ 澄清否定({clarification},{contribution:+.1f},{age_str}): {title[:24]}"
+            )
+            # 澄清公告里的“重大突破/订单”等是被否定对象，不能再计正向分。
+            continue
         for direction, sign in (("bullish", 1), ("bearish", -1)):
             for weight, kws in CATALYST_TIERS[direction]:
                 hit = next((kw for kw in kws if kw in text), None)
@@ -438,7 +467,10 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     "国家战略"同分。现按 T1/T2/T3 分级（政策战略>订单业绩>泛利好），并按
     新闻时间衰减（≤3天全额，>30天两折），更贴合打板/高成长对催化时效的要求。
     """
-    raw_news = fetch_serpapi_news(f"{name} {code} 政策 业绩 公告", num=5)
+    raw_news = fetch_serpapi_news(
+        f"{name} {code} 公告 澄清 风险提示 政策 业绩",
+        num=5,
+    )
     source_available = raw_news is not None   # None=数据源不可用；[]=可用但无新闻
     news = raw_news or []
 

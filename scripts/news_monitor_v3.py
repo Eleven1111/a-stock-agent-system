@@ -19,10 +19,16 @@ Usage:
 """
 
 import json
+import os
 import re
 import sys
-import urllib.request
 from datetime import datetime, timezone, timedelta
+
+COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "skills", "common"))
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
+
+from http_client import request_bytes, request_json
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 BJ = timezone(timedelta(hours=8))
@@ -130,9 +136,12 @@ def fetch_sina_finance() -> list:
         for page in range(3):  # 每类3页 × 50条 = 150条
             try:
                 url = f"https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid={lid}&num=50&versionNumber=1.2.4&page={page+1}"
-                req = urllib.request.Request(url, headers=UA)
-                with urllib.request.urlopen(req, timeout=10) as r:
-                    data = json.loads(r.read())
+                data = request_json(
+                    url,
+                    source="sina",
+                    timeout=10,
+                    headers=UA,
+                ).data
                 items = data.get("result", {}).get("data", [])
                 if not items:
                     break
@@ -153,9 +162,12 @@ def fetch_eastmoney_news() -> list:
     for page in range(3):  # 3页 × 30条 = 90条
         try:
             url = f"https://push2ex.eastmoney.com/getNews?type=1&page={page+1}&pageSize=30"
-            req = urllib.request.Request(url, headers=UA)
-            with urllib.request.urlopen(req, timeout=10) as r:
-                news_data = json.loads(r.read())
+            news_data = request_json(
+                url,
+                source="eastmoney",
+                timeout=10,
+                headers=UA,
+            ).data
             for article in news_data.get("data", {}).get("list", []):
                 items.append({
                     "title": article.get("title", ""),
@@ -172,9 +184,12 @@ def fetch_baidu_hot() -> list:
     items = []
     try:
         url = "https://top.baidu.com/board?tab=realtime&sa=fyb_realtime_31065"
-        req = urllib.request.Request(url, headers=UA)
-        with urllib.request.urlopen(req, timeout=10) as r:
-            html = r.read().decode("utf-8", errors="ignore")
+        html = request_bytes(
+            url,
+            source="baidu",
+            timeout=10,
+            headers=UA,
+        ).data.decode("utf-8", errors="ignore")
         # 从HTML中提取热搜标题
         titles = re.findall(r'<div[^>]*class="c-single-text-ellipsis"[^>]*>(.*?)</div>', html)
         for t in titles[:30]:

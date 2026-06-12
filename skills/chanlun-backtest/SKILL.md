@@ -126,6 +126,14 @@ $PY $SDIR/research_gate.py --input research_state.json --register --json
 
 `stock-triage` 可以引用本 skill 的研究结论，但不能把它当作实时选股器。实时打板候选由 `daban-stock-picker` 负责，且必须继续经过可成交性和持仓闸门。
 
+在主线架构中，本 skill 位于 **Research Validation / Strategy Admission** 层：
+
+1. `research_gate --register` 决定某类缠论结构信号是否允许进入实盘 Policy。
+2. `candidate-discovery` 只对已固化的 K 线输入快照运行 `chan_structure.analyze`。
+3. 近期结构证据随候选池进入 09:26 竞价和 09:35 开盘确认。
+4. 未过闸信号只展示；已过闸的三卖/顶背驰可以阻断买入。
+5. 已过闸的三买/底背驰只能增强证据，不得绕过公告、可成交性、组合风险和市场状态。
+
 如果研究闸门返回 `blocked` 或 `failed`，对应参数只能标注为"研究假设"，不能标注为"已验证有效策略"。
 
 缠论结构信号同理：未经 `research_gate --register` 登记为 `allowed_in_live_agent` 的信号，

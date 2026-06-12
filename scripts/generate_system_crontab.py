@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Generate a system crontab fallback from the isolated Hermes manifest.
+Generate a Hermes system crontab fallback from the runtime-neutral manifest.
 
 Use this when Hermes Gateway's in-process cron scheduler is unhealthy. The
-generated lines run hermes_job_runner.py directly and therefore bypass Gateway
-AIAgent imports while keeping the same per-run artifacts.
+generated lines run the shared agent job runner directly and therefore bypass
+Gateway AIAgent imports while keeping the same per-run artifacts.
 """
 
 from __future__ import annotations
@@ -21,10 +21,17 @@ def load_manifest(path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def crontab_lines(manifest: Dict[str, Any], repo_dir: str, hermes_home: str, python: str) -> List[str]:
+def crontab_lines(
+    manifest: Dict[str, Any],
+    repo_dir: str,
+    hermes_home: str,
+    python: str,
+    state_home: str | None = None,
+) -> List[str]:
     lines = [
         "# A-stock isolated cron fallback. Generated from cron/hermes-cron-manifest.json.",
         f"HERMES_HOME={shlex.quote(hermes_home)}",
+        f"A_STOCK_STATE_HOME={shlex.quote(state_home or hermes_home)}",
     ]
     log_path = "$HERMES_HOME/cron/system-cron.log"
     repo = shlex.quote(repo_dir)
@@ -35,7 +42,10 @@ def crontab_lines(manifest: Dict[str, Any], repo_dir: str, hermes_home: str, pyt
         if "{" in job.get("command", "") or "}" in job.get("command", ""):
             raise ValueError(f"job {job['id']} is not self-contained: {job['command']}")
         schedule = job["schedule"]
-        command = f"cd {repo} && {py} scripts/hermes_job_runner.py {shlex.quote(job['id'])} >> {log_path} 2>&1"
+        command = (
+            f"cd {repo} && A_STOCK_RUNTIME=hermes {py} scripts/run_agent_dag.py "
+            f"{shlex.quote(job['id'])} --emit-target >> {log_path} 2>&1"
+        )
         lines.append(f"{schedule} {command}")
     return lines
 
@@ -45,6 +55,7 @@ def main() -> None:
     parser.add_argument("--manifest", default="cron/hermes-cron-manifest.json")
     parser.add_argument("--repo-dir", default=os.getcwd())
     parser.add_argument("--hermes-home", default=os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"))
+    parser.add_argument("--state-home", default=os.environ.get("A_STOCK_STATE_HOME"))
     parser.add_argument("--python", default=os.environ.get("HERMES_CRON_PYTHON") or "python")
     args = parser.parse_args()
 
@@ -54,6 +65,11 @@ def main() -> None:
         os.path.abspath(args.repo_dir),
         os.path.abspath(os.path.expanduser(args.hermes_home)),
         args.python,
+        (
+            os.path.abspath(os.path.expanduser(args.state_home))
+            if args.state_home
+            else None
+        ),
     )))
 
 

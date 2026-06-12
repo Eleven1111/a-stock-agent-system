@@ -24,10 +24,20 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from state_store import read_json, update_json_list, mutate_json
 from paths import data_file
+from a_share_rules import t1_constraint
+from recommendation_quality import build_quality_report
+from decision_policy import evaluate_decision
+from market_context import market_regime, read_market_context
+from portfolio_policy import evaluate_candidate
+from research_evidence import build_research_evidence
+import signal_ledger
+import strategy_registry
 
 
 RECOMMENDATIONS_FILE = data_file("stock-triage", "recommendations.json")
 HISTORY_FILE = data_file("stock-triage", "trade_history.json")
+PORTFOLIO_FILE = data_file("stock-triage", "portfolio.json")
+LEDGER_FILE = signal_ledger.LEDGER_FILE
 
 VALID_ACTIONS = {"buy", "sell", "add", "reduce", "hold", "avoid"}
 VALID_OUTCOMES = {"pending", "profit", "loss", "breakeven", "invalidated"}
@@ -46,7 +56,35 @@ def load_recommendations() -> List[Dict[str, Any]]:
 
 
 def load_trade_history() -> List[Dict[str, Any]]:
-    return read_json(HISTORY_FILE, [])
+    legacy = read_json(HISTORY_FILE, [])
+    canonical = [
+        {
+            **record,
+            "pnl": record.get("t1_close_ret", record.get("pnl_pct")),
+        }
+        for record in signal_ledger.project_signals(ledger_file=LEDGER_FILE)
+        if record.get("outcome") not in {None, "pending"}
+    ]
+    seen = {
+        (
+            record.get("signal_id"),
+            record.get("trade_id"),
+            record.get("recommendation_id"),
+        )
+        for record in canonical
+    }
+    for record in legacy if isinstance(legacy, list) else []:
+        identity = (
+            record.get("signal_id"),
+            record.get("trade_id"),
+            record.get("recommendation_id"),
+        )
+        if any(identity) and identity in seen:
+            continue
+        canonical.append(record)
+        if any(identity):
+            seen.add(identity)
+    return canonical
 
 
 def _clean_list(values: Optional[List[str]]) -> List[str]:
@@ -55,6 +93,39 @@ def _clean_list(values: Optional[List[str]]) -> List[str]:
 
 def _make_id(code: str) -> str:
     return f"rec-{date.today().isoformat()}-{code}-{uuid.uuid4().hex[:8]}"
+
+
+def _sell_t1_block(code: str, asof: str) -> Dict[str, Any] | None:
+    portfolio = read_json(PORTFOLIO_FILE, {})
+    positions = portfolio.get("positions", []) if isinstance(portfolio, dict) else []
+    position = next((item for item in positions if str(item.get("code")).zfill(6) == code), None)
+    if not position:
+        return None
+    known_dates = [
+        str(value)
+        for value in (position.get("buy_date"), position.get("add_date"))
+        if value
+    ]
+    lots = position.get("lots") or [{
+        "shares": position.get("shares"),
+        "acquired_on": max(known_dates) if known_dates else "1970-01-01",
+    }]
+    locked = [
+        {**lot, "constraint": t1_constraint(lot.get("acquired_on"), asof)}
+        for lot in lots
+        if not t1_constraint(lot.get("acquired_on"), asof)["sell_allowed"]
+    ]
+    if not locked:
+        return None
+    return {
+        "error": "A股T+1限制：当日买入/加仓股份不能当日卖出",
+        "code": "T1_LOCKED",
+        "earliest_sell_date": max(
+            item["constraint"]["earliest_sell_date"]
+            for item in locked
+        ),
+        "locked_shares": sum(int(item.get("shares") or 0) for item in locked),
+    }
 
 
 def calculate_odds(entry_price: Optional[float], target_price: Optional[float], stop_price: Optional[float]) -> Optional[float]:
@@ -216,6 +287,15 @@ def record_recommendation(
     confidence: Optional[str] = None,
     strategy_id: Optional[str] = None,
     total_asset: float = 100000.0,
+    announcements: Optional[List[Dict[str, Any]]] = None,
+    source_id: Optional[str] = None,
+    asof: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+    signal_id: Optional[str] = None,
+    trade_id: Optional[str] = None,
+    monitor_id: Optional[str] = None,
+    research_evidence: Optional[Dict[str, Any]] = None,
+    portfolio_risk: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -223,14 +303,107 @@ def record_recommendation(
         return {"error": f"非法建议动作: {action}"}
     if not name or not price_range or not rationale:
         return {"error": "name、price_range、rationale 为必填字段"}
+    record_date = asof or date.today().isoformat()
+    if action in {"sell", "reduce"}:
+        t1_block = _sell_t1_block(code, record_date)
+        if t1_block:
+            return t1_block
 
+    sizing = position_guidance(
+        strategy_id,
+        entry_price,
+        target_price,
+        stop_price,
+        total_asset,
+    )
+    quality = build_quality_report(
+        {
+            "code": code,
+            "name": name,
+            "action": action,
+            "entry_price": entry_price,
+            "price_range": price_range,
+            "stop_price": stop_price,
+            "target_price": target_price,
+            "horizon": horizon,
+            "grade": grade,
+            "confidence": confidence,
+            "position_pct": sizing.get("recommended_position_pct"),
+            "tradeability": {"tradeable": True, "status": "not_checked"},
+        },
+        announcements,
+        asof=record_date,
+    )
+    sid = strategy_id or "default"
+    lane = "daban" if sid.startswith("daban") else "trend"
+    evidence = research_evidence or build_research_evidence(
+        code,
+        strategy_id=sid,
+        asof=record_date,
+    )
+    risk = portfolio_risk or evaluate_candidate(
+        read_json(PORTFOLIO_FILE, {"cash": total_asset, "positions": []}),
+        {"code": code},
+        float(sizing.get("recommended_position_pct") or 0),
+    )
+    policy = evaluate_decision(
+        requested_action=action,
+        quality_report=quality,
+        strategy_record=strategy_registry.get(sid),
+        market_regime=market_regime(read_market_context()),
+        portfolio_risk=risk,
+        research_evidence=evidence,
+        strategy_lane=lane,
+    )
+    effective_action = (
+        "avoid"
+        if policy["decision"] == "avoid"
+        else "hold"
+        if policy["decision"] == "watch"
+        else action
+    )
+    if policy["position_multiplier"] == 0:
+        sizing.update({
+            "recommended_position_pct": 0.0,
+            "recommended_amount": 0.0,
+            "policy_blocked": True,
+        })
+    elif policy["position_multiplier"] < 1:
+        sizing["recommended_position_pct"] = round(
+            float(sizing.get("recommended_position_pct") or 0)
+            * float(policy["position_multiplier"]),
+            2,
+        )
+        sizing["recommended_amount"] = round(
+            float(sizing.get("recommended_amount") or 0)
+            * float(policy["position_multiplier"]),
+            2,
+        )
+    opens_signal = (
+        effective_action in signal_ledger.SETTLEABLE_ACTIONS
+        and quality.get("status") == "passed"
+        and policy["decision"] not in {"avoid", "watch"}
+    )
+
+    recommendation_id = source_id or _make_id(code)
+    links = signal_ledger.make_links(
+        recommendation_id,
+        correlation_id=correlation_id,
+        signal_id=signal_id,
+        trade_id=trade_id,
+        monitor_id=monitor_id,
+        include_trade=action in signal_ledger.TRADE_ACTIONS,
+    )
     record = {
-        "id": _make_id(code),
+        "id": recommendation_id,
+        **{key: value for key, value in links.items() if value is not None},
         "code": code,
         "name": name,
-        "date": date.today().isoformat(),
+        "date": record_date,
         "created_at": datetime.now().isoformat(),
-        "action": action,
+        "requested_action": action,
+        "action": effective_action,
+        "entry_price": entry_price,
         "price_range": price_range,
         "rationale": rationale,
         "risks": _clean_list(risks),
@@ -240,9 +413,42 @@ def record_recommendation(
         "grade": grade,
         "confidence": confidence,
         "strategy_id": strategy_id or "default",
-        "position_sizing": position_guidance(strategy_id, entry_price, target_price, stop_price, total_asset),
+        "position_sizing": sizing,
+        "quality_report": quality,
+        "policy_decision": policy,
+        "portfolio_risk": risk,
+        "research_evidence": evidence,
+        "execution_constraints": quality["execution_constraints"],
+        "settleable_signal": opens_signal,
         "outcome": "pending",
     }
+    ledger_events = [{
+        "event_type": "recommendation.created",
+        "links": links,
+        "payload": record,
+        "idempotency_key": f"recommendation.created:{recommendation_id}",
+    }]
+    if opens_signal:
+        ledger_events.append(signal_ledger.signal_opened_event(record, links))
+    if links.get("trade_id"):
+        ledger_events.append({
+            "event_type": "trade.proposed",
+            "links": links,
+            "payload": {
+                "action": action,
+                "effective_action": effective_action,
+                "code": code,
+                "entry_price": entry_price,
+                "price_range": price_range,
+                "strategy_id": record["strategy_id"],
+                "status": "proposed",
+                "execution_status": "not_executed",
+                "quality_status": quality.get("status"),
+                "policy_decision": policy,
+            },
+            "idempotency_key": f"trade.proposed:{links['trade_id']}",
+        })
+    signal_ledger.append_events(ledger_events, ledger_file=LEDGER_FILE)
     update_json_list(RECOMMENDATIONS_FILE, record, unique_key="id")
     return {"ok": True, "record": record}
 
@@ -262,6 +468,44 @@ def update_outcome(rec_id: str, outcome: str, pnl_pct: Optional[float] = None, n
     if outcome not in VALID_OUTCOMES:
         return {"error": f"非法结果: {outcome}"}
     result: Dict[str, Any] = {"error": f"未找到推荐记录: {rec_id}"}
+    existing = next((record for record in load_recommendations() if record.get("id") == rec_id), None)
+    if not existing:
+        return result
+    opens_signal = existing.get("settleable_signal")
+    if opens_signal is None:
+        opens_signal = (
+            existing.get("action") in signal_ledger.SETTLEABLE_ACTIONS
+            and (existing.get("quality_report") or {}).get("status") == "passed"
+        )
+    if existing.get("signal_id") and opens_signal:
+        mapped_outcome = {
+            "profit": "win",
+            "loss": "loss",
+            "breakeven": "win",
+            "invalidated": "invalidated",
+            "pending": "pending",
+        }[outcome]
+        settlement = {
+            "outcome": mapped_outcome,
+            "pnl_pct": pnl_pct,
+            "outcome_note": note,
+        }
+        signal_ledger.append_events(
+            [
+                signal_ledger.signal_opened_event(existing, signal_ledger.legacy_signal_links(existing)),
+                signal_ledger.settlement_event(
+                    existing,
+                    settlement,
+                    settlement_id=signal_ledger.make_settlement_id(
+                        rec_id,
+                        outcome,
+                        pnl_pct,
+                        note or "",
+                    ),
+                ),
+            ],
+            ledger_file=LEDGER_FILE,
+        )
 
     def _mut(records: Any) -> List[Dict[str, Any]]:
         nonlocal result

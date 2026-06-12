@@ -5,10 +5,19 @@ import os
 import subprocess
 import sys
 
+from http_client import HttpResult
+from runtime_context import resolve_runtime_name
 from state_store import atomic_write_json, read_json, update_json_list
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def test_runtime_name_prefers_explicit_and_detects_host_runtime():
+    assert resolve_runtime_name("openclaw", {"HERMES_HOME": "/tmp/hermes"}) == "openclaw"
+    assert resolve_runtime_name(env={"OPENCLAW_HOME": "/tmp/openclaw"}) == "openclaw"
+    assert resolve_runtime_name(env={"HERMES_HOME": "/tmp/hermes"}) == "hermes"
+    assert resolve_runtime_name(env={}) == "local"
 
 
 def load_module(name: str, relpath: str):
@@ -93,6 +102,41 @@ def test_check_alerts_runs_directly_with_hermes_home(tmp_path):
     assert result.returncode == 0
     assert result.stdout == ""
     assert result.stderr == ""
+
+
+def test_check_alerts_price_fetch_uses_shared_http_client(monkeypatch):
+    check_alerts = load_module(
+        "check_alerts_http_client_test",
+        "skills/a-stock-commands/scripts/check_alerts.py",
+    )
+
+    def fake_request_text(url, **kwargs):
+        assert url == "http://qt.gtimg.cn/q=sh600001"
+        assert kwargs == {
+            "source": "tencent",
+            "timeout": 10,
+            "encoding": "gbk",
+            "headers": {"User-Agent": "Mozilla/5.0"},
+        }
+        return HttpResult('v_sh600001="1~示例~600001~12.34~";', "2026-06-12T06:00:00+00:00", 1)
+
+    monkeypatch.setattr(check_alerts, "request_text", fake_request_text)
+
+    assert check_alerts.get_price("600001") == 12.34
+
+
+def test_check_alerts_price_fetch_preserves_zero_fallback(monkeypatch):
+    check_alerts = load_module(
+        "check_alerts_http_error_test",
+        "skills/a-stock-commands/scripts/check_alerts.py",
+    )
+    monkeypatch.setattr(
+        check_alerts,
+        "request_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("slow")),
+    )
+
+    assert check_alerts.get_price("000001") == 0.0
 
 
 def test_check_alerts_preserves_concurrent_append(tmp_path, monkeypatch, capsys):

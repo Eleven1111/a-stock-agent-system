@@ -26,9 +26,20 @@ from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
-from a_stock_http import fetch_tencent_snapshot, DataSourceError  # noqa: E402
+from a_stock_http import DataSourceError  # noqa: E402
+from market_adapters import fetch_tencent_snapshot  # noqa: E402
+from announcement_risk import scan_many  # noqa: E402
+from a_share_rules import add_trading_days  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
+import monitor_registry  # noqa: E402
+from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
+from decision_policy import evaluate_decision  # noqa: E402
+from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
+from market_context import market_regime, read_market_context  # noqa: E402
+from portfolio_policy import evaluate_candidate  # noqa: E402
+from research_evidence import build_research_evidence  # noqa: E402
+import strategy_registry  # noqa: E402
 from tradeability import limit_pct, round_limit  # noqa: E402
 from state_store import atomic_write_json, mutate_json, read_json  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -90,6 +101,8 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     return {
         "code": code,
         "name": name,
+        "indicative_price": price,
+        "prev_close": prev_close,
         "auction_gap_pct": gap_pct,
         "auction_volume": round(volume, 1),
         "auction_amount": round(price * volume * 100, 0),
@@ -156,10 +169,26 @@ def watch_pool_codes(pool: Mapping[str, Any]) -> List[str]:
 
 def append_snapshot(codes: List[str], asof: str) -> Dict[str, Any]:
     """事务式把一次快照追加到当日状态文件（单锁 read-modify-write）。"""
-    quotes = take_snapshot(codes)
+    raw_quotes = take_snapshot(codes)
+    input_snapshot = materialize_input_snapshot(
+        "auction-quote-input",
+        {
+            "schema": "auction_quote_inputs_v1",
+            "quotes": raw_quotes,
+        },
+        trading_date=asof,
+        batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
+        producer="auction-snapshot",
+        source_versions={"tencent": "tencent-adapter-v2"},
+    )
+    quotes = dict(input_snapshot["payload"]["quotes"])
+    snapshot_ref = compact_ref(input_snapshot)
 
     def mutator(state: Dict[str, Any]) -> Dict[str, Any]:
         state.setdefault("asof", asof)
+        refs = state.setdefault("input_snapshots", [])
+        refs.append(snapshot_ref)
+        state["input_snapshots"] = refs[-20:]
         series = state.setdefault("series", {})
         for code, q in quotes.items():
             series.setdefault(code, []).append(q)
@@ -193,6 +222,121 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
     result.update(shortlist)
     result["schema"] = "auction_finalize_v2"
     result["asof"] = asof
+    top_candidates = list(result["shortlist"][:5])
+    announcement_map = scan_many(
+        candidate_pipeline.naked_code(item.get("code"))
+        for item in top_candidates
+    )
+    decisions = []
+    portfolio = read_json(
+        data_file("stock-triage", "portfolio.json"),
+        {"cash": 100000, "positions": []},
+    )
+    regime = market_regime(read_market_context())
+    monitor_expiry = add_trading_days(asof, 2)
+    for item in top_candidates:
+        code = candidate_pipeline.naked_code(item.get("code"))
+        provisional = build_execution_plan(
+            {**item, "action": "trend_watch", "price": item.get("indicative_price")},
+            {"status": "passed", "execution_constraints": {}},
+            asof=asof,
+            stage="auction",
+        )
+        recommendation = {
+            **item,
+            "action": "buy",
+            "entry_price": item.get("indicative_price"),
+            "price_range": provisional["entry_range"],
+            "stop_price": provisional["stop_price"],
+            "target_price": provisional["target_price"],
+            "horizon": provisional["horizon"],
+            "grade": "A" if float(item.get("auction_score") or 0) >= 80 else "B",
+            "confidence": "medium",
+            "position_pct": provisional["position_pct"] or 4.0,
+            "tradeability": {"tradeable": not item.get("is_yiziban"), "status": "auction"},
+        }
+        quality = build_quality_report(
+            recommendation,
+            announcement_map.get(code),
+            asof=asof,
+        )
+        plan = build_execution_plan(
+            {**item, "action": "trend_watch", "price": item.get("indicative_price")},
+            quality,
+            asof=asof,
+            stage="auction",
+        )
+        strategy_id = (
+            "daban:first_board_reseal"
+            if (item.get("auction_selected_by") or {}).get("daban")
+            else "trend_pullback"
+        )
+        lane = "daban" if strategy_id.startswith("daban") else "trend"
+        evidence = build_research_evidence(code, strategy_id=strategy_id, asof=asof)
+        prior_chanlun = ((item.get("research_evidence") or {}).get("chanlun") or {})
+        for key in (
+            "structure_summary",
+            "signals",
+            "live_bullish_signals",
+            "live_bearish_signals",
+            "display_only_signals",
+        ):
+            if key in prior_chanlun:
+                evidence["chanlun"][key] = prior_chanlun[key]
+        portfolio_risk = evaluate_candidate(
+            portfolio,
+            item,
+            float(plan.get("position_pct") or 0),
+        )
+        policy = evaluate_decision(
+            requested_action=plan["decision"],
+            quality_report=quality,
+            strategy_record=strategy_registry.get(strategy_id),
+            market_regime=regime,
+            portfolio_risk=portfolio_risk,
+            research_evidence=evidence,
+            strategy_lane=lane,
+        )
+        if policy["decision"] in {"avoid", "watch"}:
+            plan["decision"] = policy["decision"]
+            plan["position_pct"] = 0.0
+        decision = {
+            **item,
+            "decision": plan["decision"],
+            "execution_plan": plan,
+            "quality_report": quality,
+            "policy_decision": policy,
+            "portfolio_risk": portfolio_risk,
+            "research_evidence": evidence,
+            "market_regime": regime,
+            "strategy_id": strategy_id,
+            "announcements": announcement_map.get(code),
+        }
+        decisions.append(decision)
+        if plan["decision"] != "avoid":
+            monitor_registry.activate(
+                "stock",
+                code,
+                str(item.get("name") or code),
+                source="auction_finalize",
+                expires_at=monitor_expiry,
+                metadata={
+                    "decision": plan["decision"],
+                    "auction_rank": item.get("auction_rank"),
+                    "quality_status": quality["status"],
+                },
+            )
+        sector = str(item.get("sector") or "").strip()
+        if sector and plan["decision"] != "avoid":
+            monitor_registry.activate(
+                "sector",
+                sector,
+                sector,
+                source="auction_finalize",
+                expires_at=monitor_expiry,
+            )
+    result["preopen_decisions"] = decisions
+    result["decision_count"] = len(decisions)
     _persist_shortlist(result, asof)
 
     selected = [item["code"] for item in result["shortlist"]]
