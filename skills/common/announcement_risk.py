@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import json
 import io
 import re
-import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Iterable
+from urllib.parse import urlencode, urljoin
+
+try:
+    from .http_client import build_request, request_bytes, request_json
+except ImportError:
+    from http_client import build_request, request_bytes, request_json
 
 
 QUERY_URL = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
@@ -22,9 +25,9 @@ RISK_TITLE_TERMS = ("澄清", "异常波动", "风险提示", "问询", "监管"
 @lru_cache(maxsize=512)
 def lookup_org_id(stock_code: str, timeout: int = 8) -> str:
     code = str(stock_code).zfill(6)
-    request = urllib.request.Request(
+    request = build_request(
         TOP_SEARCH_URL,
-        data=urllib.parse.urlencode({"keyWord": code, "maxNum": "10"}).encode("utf-8"),
+        data=urlencode({"keyWord": code, "maxNum": "10"}).encode("utf-8"),
         headers={
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "User-Agent": "Mozilla/5.0 A-Stock-Agent",
@@ -32,8 +35,12 @@ def lookup_org_id(stock_code: str, timeout: int = 8) -> str:
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        items = json.loads(response.read().decode("utf-8"))
+    items = request_json(
+        request,
+        source="cninfo",
+        timeout=timeout,
+        encoding="utf-8",
+    ).data
     match = next(
         (
             item for item in items
@@ -60,13 +67,16 @@ def _extract_pdf_text(url: str, timeout: int = 8, max_pages: int = 5) -> str:
         from pypdf import PdfReader
     except ImportError:
         return ""
-    request = urllib.request.Request(
+    request = build_request(
         url,
         headers={"User-Agent": "Mozilla/5.0 A-Stock-Agent"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = response.read(6 * 1024 * 1024)
+        payload = request_bytes(
+            request,
+            source="cninfo",
+            timeout=timeout,
+        ).data[:6 * 1024 * 1024]
         reader = PdfReader(io.BytesIO(payload))
         return "\n".join(
             (page.extract_text() or "")
@@ -97,9 +107,9 @@ def fetch_announcements(stock_code: str, page_size: int = 30, timeout: int = 8) 
         "seDate": "",
         "isHLtitle": "true",
     }
-    request = urllib.request.Request(
+    request = build_request(
         QUERY_URL,
-        data=urllib.parse.urlencode(payload).encode("utf-8"),
+        data=urlencode(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "User-Agent": "Mozilla/5.0 A-Stock-Agent",
@@ -107,14 +117,18 @@ def fetch_announcements(stock_code: str, page_size: int = 30, timeout: int = 8) 
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    data = request_json(
+        request,
+        source="cninfo",
+        timeout=timeout,
+        encoding="utf-8",
+    ).data
     result = []
     enriched = 0
     for item in (data.get("announcements") or []):
         title = re.sub(r"<[^>]+>", "", str(item.get("announcementTitle") or ""))
         adjunct = str(item.get("adjunctUrl") or "")
-        url = urllib.parse.urljoin(PDF_BASE, adjunct) if adjunct else ""
+        url = urljoin(PDF_BASE, adjunct) if adjunct else ""
         text = ""
         if enriched < 1 and any(term in title for term in RISK_TITLE_TERMS):
             text = _extract_pdf_text(url, timeout=min(timeout, 4))

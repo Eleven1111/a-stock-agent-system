@@ -18,6 +18,7 @@ def test_new_day_first_run_keeps_alerts(tmp_path, monkeypatch):
     monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
     monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     _stub_market(monkeypatch)
 
     # 注入陈旧缓存（昨天 + 已记录的告警键）
@@ -33,6 +34,7 @@ def test_same_day_dedup_still_works(tmp_path, monkeypatch):
     monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
     monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     _stub_market(monkeypatch)
 
     first = im.check_intraday()
@@ -47,6 +49,7 @@ def test_sold_stock_is_removed_from_dynamic_universe(tmp_path, monkeypatch):
     monkeypatch.setattr(im, "TRACKED_NAMES", {})
     monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     atomic_write_json(im.PORTFOLIO_FILE, {"positions": []})
     im.monitor_registry.activate(
         "stock",

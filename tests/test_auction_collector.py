@@ -121,6 +121,7 @@ def test_load_watch_pool_rejects_stale_state(tmp_path, monkeypatch):
 def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"

@@ -30,6 +30,7 @@ import monitor_registry  # noqa: E402
 from paths import data_file  # noqa: E402
 from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
 import recommendation_audit  # noqa: E402
+import signal_ledger  # noqa: E402
 from signal_context import read_signal_context  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 from tradeability import assess_tradeability  # noqa: E402
@@ -360,6 +361,20 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
     monitor_expiry = add_trading_days(asof, 2)
     for item in signals:
         code = candidate_pipeline.naked_code(item.get("code"))
+        recommendation_id = f"open-{asof}-{code}"
+        recommendation_action = (
+            "buy" if item.get("decision") == "buy"
+            else "avoid" if item.get("decision") == "avoid"
+            else "hold"
+        )
+        links = signal_ledger.make_links(
+            recommendation_id,
+            monitor_id=f"stock:{code}",
+            include_trade=recommendation_action in signal_ledger.TRADE_ACTIONS,
+        )
+        item["ledger_links"] = {
+            key: value for key, value in links.items() if value is not None
+        }
         if item.get("decision") == "avoid":
             monitor_registry.deactivate_automatic(
                 "stock",
@@ -377,6 +392,7 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
                     "decision": item.get("decision"),
                     "open_rank": item.get("open_rank"),
                     "quality_status": (item.get("quality_report") or {}).get("status"),
+                    **item["ledger_links"],
                 },
             )
         sector = str(item.get("sector") or "").strip()
@@ -387,17 +403,18 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
                 sector,
                 source="open_confirmation",
                 expires_at=monitor_expiry,
+                metadata={
+                    "correlation_id": links["correlation_id"],
+                    "recommendation_id": links["recommendation_id"],
+                    "signal_id": links["signal_id"],
+                },
             )
         plan = item.get("execution_plan") or {}
         quality = item.get("quality_report") or {}
         recommendation_audit.record_recommendation(
             code=code,
             name=str(item.get("name") or code),
-            action=(
-                "buy" if item.get("decision") == "buy"
-                else "avoid" if item.get("decision") == "avoid"
-                else "hold"
-            ),
+            action=recommendation_action,
             price_range=str(plan.get("entry_range") or "N/A"),
             rationale="；".join(item.get("reasons") or ["09:35开盘确认"]),
             risks=list(quality.get("risk_warnings") or []) + list(plan.get("invalidation") or []),
@@ -413,8 +430,12 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
                 else "trend_pullback"
             ),
             announcements=item.get("announcements"),
-            source_id=f"open-{asof}-{code}",
+            source_id=recommendation_id,
             asof=asof,
+            correlation_id=links["correlation_id"],
+            signal_id=links["signal_id"],
+            trade_id=links["trade_id"],
+            monitor_id=links["monitor_id"],
         )
     result = {
         "schema": "open_confirmation_v3",

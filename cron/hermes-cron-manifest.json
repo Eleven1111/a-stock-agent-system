@@ -51,6 +51,10 @@
       "context_from": [
         "global-preopen"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 900
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/cron/output/global-evening/",
@@ -113,6 +117,10 @@
         "capital-flow",
         "hk-a-linkage"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 180
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/skills/stock-triage/data/candidate_pool_latest.json",
@@ -147,6 +155,10 @@
       "context_from": [
         "candidate-discovery"
       ],
+      "dependency_policy": {
+        "trading_date": "previous_trading_day",
+        "max_age_minutes": 7200
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/skills/daban-stock-picker/data/auction_*.json",
@@ -178,12 +190,17 @@
       "context_from": [
         "auction-snapshot"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 15
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/skills/daban-stock-picker/data/auction_shortlist_*.json",
         "$HERMES_HOME/skills/daban-stock-picker/data/auction_shortlist_latest.json",
         "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
         "$HERMES_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$HERMES_HOME/skills/stock-triage/data/signal_ledger.jsonl",
         "$HERMES_HOME/cron/output/auction-finalize/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
@@ -212,6 +229,10 @@
       "context_from": [
         "auction-finalize"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 15
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/skills/daban-stock-picker/data/open_confirmation_*.json",
@@ -219,6 +240,7 @@
         "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
         "$HERMES_HOME/skills/stock-triage/data/monitor_registry.json",
         "$HERMES_HOME/skills/stock-triage/data/recommendations.json",
+        "$HERMES_HOME/skills/stock-triage/data/signal_ledger.jsonl",
         "$HERMES_HOME/cron/output/open-confirmation/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
@@ -247,10 +269,15 @@
       "context_from": [
         "open-confirmation"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 480
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/skills/stock-triage/data/intraday_alerts.json",
         "$HERMES_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$HERMES_HOME/skills/stock-triage/data/signal_ledger.jsonl",
         "$HERMES_HOME/cron/output/intraday-alert/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
@@ -279,6 +306,10 @@
       "context_from": [
         "intraday-alert"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 180
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/cron/output/capital-flow/",
@@ -310,6 +341,10 @@
       "context_from": [
         "global-preopen"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 420
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/cron/output/hk-a-linkage/",
@@ -342,6 +377,10 @@
         "capital-flow",
         "hk-a-linkage"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 180
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/cron/output/four-dim-scorer/",
@@ -372,6 +411,10 @@
       "context_from": [
         "four-dim-scorer"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 30
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/cron/output/portfolio-check/",
@@ -404,6 +447,10 @@
         "portfolio-check",
         "capital-flow"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 90
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/cron/output/closing-triage/",
@@ -434,6 +481,10 @@
       "context_from": [
         "global-preopen"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 900
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/skills/stock-triage/data/monitor_registry.json",
@@ -521,14 +572,20 @@
       "context_from": [
         "closing-triage"
       ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 10080
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/skills/stock-triage/data/signal_history.json",
+        "$HERMES_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$HERMES_HOME/skills/stock-triage/data/strategy_registry.json",
         "$HERMES_HOME/cron/output/performance-weekly/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/performance_tracker.py --json",
+        "command": "python skills/stock-triage/scripts/performance_tracker.py --json --gate",
         "cwd": ".",
         "timeout_seconds": 120
       },

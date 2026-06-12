@@ -5,7 +5,6 @@
 """
 import os
 import sys
-import urllib.request
 from datetime import datetime, timezone, timedelta
 
 _COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
@@ -13,6 +12,7 @@ if _COMMON_DIR not in sys.path:
     sys.path.insert(0, os.path.abspath(_COMMON_DIR))
 
 from paths import cron_output_dir
+from http_client import request_text
 from state_store import mutate_json, read_json
 
 ALERTS_FILE = os.path.join(cron_output_dir(), "alerts.json")
@@ -28,10 +28,14 @@ def get_price(code: str) -> float:
     """获取个股实时价格（腾讯 API）"""
     prefix = "sh" if code.startswith("6") else "sz"
     url = f"http://qt.gtimg.cn/q={prefix}{code}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("gbk")
+        raw = request_text(
+            url,
+            source="tencent",
+            timeout=10,
+            encoding="gbk",
+            headers={"User-Agent": "Mozilla/5.0"},
+        ).data
         parts = raw.split("=")[1].strip().strip('"').split("~")
         return float(parts[3])
     except Exception:

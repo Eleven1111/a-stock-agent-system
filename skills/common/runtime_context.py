@@ -11,20 +11,37 @@ from __future__ import annotations
 import glob
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Optional
+from zoneinfo import ZoneInfo
 
+from a_share_rules import latest_trading_day, previous_trading_day
 from paths import cron_output_dir
 from state_store import atomic_write_json, read_json, update_json_list
 
 
-ARTIFACT_SCHEMA = "hermes_cron_artifact_v1"
-RUN_LEDGER_SCHEMA = "hermes_cron_run_ledger_v1"
+ARTIFACT_SCHEMA = "hermes_cron_artifact_v2"
+RUN_LEDGER_SCHEMA = "hermes_cron_run_ledger_v2"
 ARTIFACT_TEMPLATE = "{cron_output_dir}/{job_id}/{run_id}.json"
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 def now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now(SHANGHAI).isoformat(timespec="seconds")
+
+
+def resolve_trading_date(value: date | datetime | str | None = None) -> str:
+    if value is None:
+        day = latest_trading_day(datetime.now(SHANGHAI))
+    elif isinstance(value, str):
+        day = latest_trading_day(date.fromisoformat(value[:10]))
+    else:
+        day = latest_trading_day(value)
+    return day.isoformat()
+
+
+def make_batch_id(trading_date: str) -> str:
+    return f"a-share-{trading_date.replace('-', '')}"
 
 
 def make_run_id(job_id: str, started_at: Optional[str] = None) -> str:
@@ -95,16 +112,127 @@ def summarize_output(parsed: Any, stdout: str) -> Dict[str, Any]:
     return {"text_preview": _json_preview(stdout, 300)}
 
 
-def load_latest_artifact(job_id: str) -> Optional[Dict[str, Any]]:
-    files = sorted(glob.glob(os.path.join(artifact_dir(job_id), "*.json")), key=os.path.getmtime)
-    if not files:
-        return None
-    path = files[-1]
-    data = read_json(path, None)
-    if isinstance(data, dict):
+def load_latest_artifact(
+    job_id: str,
+    *,
+    trading_date: Optional[str] = None,
+    batch_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    files = sorted(
+        glob.glob(os.path.join(artifact_dir(job_id), "*.json")),
+        key=os.path.getmtime,
+        reverse=True,
+    )
+    for path in files:
+        data = read_json(path, None)
+        if not isinstance(data, dict):
+            continue
+        if trading_date is not None and data.get("trading_date") != trading_date:
+            continue
+        if batch_id is not None and data.get("batch_id") != batch_id:
+            continue
         data.setdefault("artifact_path", path)
         return data
     return None
+
+
+def _parse_datetime(value: str | datetime) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=SHANGHAI)
+    return parsed
+
+
+def _dependency_expected_date(trading_date: str, mode: str) -> Optional[str]:
+    if mode == "latest":
+        return None
+    if mode in {"same_trading_date", "same_batch"}:
+        return trading_date
+    if mode == "previous_trading_day":
+        return previous_trading_day(trading_date).isoformat()
+    raise ValueError(f"unsupported dependency trading_date mode: {mode}")
+
+
+def evaluate_dependencies(
+    job_ids: Iterable[str],
+    *,
+    trading_date: str,
+    batch_id: str,
+    policy: Optional[Dict[str, Any]] = None,
+    now: str | datetime | None = None,
+) -> Dict[str, Any]:
+    """Validate upstream artifacts before the business subprocess can start."""
+    policy = dict(policy or {})
+    mode = policy.get("trading_date", "same_trading_date")
+    optional_jobs = set(policy.get("optional_jobs") or [])
+    max_age = policy.get("max_age_minutes")
+    accepted_statuses = set(policy.get("accepted_statuses") or ["ok"])
+    expected_date = _dependency_expected_date(trading_date, mode)
+    current = _parse_datetime(now or now_iso())
+    dependencies: List[Dict[str, Any]] = []
+    gate_passed = True
+
+    for job_id in job_ids or []:
+        required = job_id not in optional_jobs
+        artifact = load_latest_artifact(
+            job_id,
+            trading_date=expected_date,
+            batch_id=batch_id if mode == "same_batch" else None,
+        )
+        reasons: List[str] = []
+        if not artifact:
+            reasons.append("missing")
+            entry: Dict[str, Any] = {"job_id": job_id}
+        else:
+            entry = {
+                "job_id": job_id,
+                "run_id": artifact.get("run_id"),
+                "batch_id": artifact.get("batch_id"),
+                "trading_date": artifact.get("trading_date"),
+                "artifact_path": artifact.get("artifact_path"),
+                "status": artifact.get("status"),
+                "finished_at": artifact.get("finished_at"),
+                "summary": artifact.get("summary", {}),
+            }
+            if artifact.get("status") not in accepted_statuses:
+                reasons.append(f"status_{artifact.get('status') or 'missing'}")
+            if expected_date is not None and artifact.get("trading_date") != expected_date:
+                reasons.append("trading_date_mismatch")
+            if mode == "same_batch" and artifact.get("batch_id") != batch_id:
+                reasons.append("batch_mismatch")
+            if max_age is not None:
+                try:
+                    age_minutes = (current - _parse_datetime(artifact["finished_at"])).total_seconds() / 60
+                    entry["age_minutes"] = round(age_minutes, 3)
+                    if age_minutes < 0:
+                        reasons.append("future_artifact")
+                    elif age_minutes > float(max_age):
+                        reasons.append("stale")
+                except (KeyError, TypeError, ValueError):
+                    reasons.append("invalid_finished_at")
+
+        entry["required"] = required
+        entry["reasons"] = reasons
+        entry["gate_status"] = "passed" if not reasons else ("blocked" if required else "optional_failed")
+        if required and reasons:
+            gate_passed = False
+        dependencies.append(entry)
+
+    return {
+        "passed": gate_passed,
+        "trading_date": trading_date,
+        "batch_id": batch_id,
+        "policy": {
+            "trading_date": mode,
+            "max_age_minutes": max_age,
+            "optional_jobs": sorted(optional_jobs),
+            "accepted_statuses": sorted(accepted_statuses),
+        },
+        "dependencies": dependencies,
+    }
 
 
 def load_context_from(job_ids: Iterable[str]) -> List[Dict[str, Any]]:
@@ -139,14 +267,20 @@ def build_artifact(
     duration_seconds: float,
     context_artifacts: List[Dict[str, Any]],
     timed_out: bool = False,
+    trading_date: Optional[str] = None,
+    batch_id: Optional[str] = None,
+    dependency_gate: Optional[Dict[str, Any]] = None,
+    status_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     parsed = try_parse_json(stdout)
     has_signal = output_has_signal(parsed, stdout)
-    status = "timeout" if timed_out else ("ok" if returncode == 0 else "failed")
+    status = status_override or ("timeout" if timed_out else ("ok" if returncode == 0 else "failed"))
     return {
         "schema": ARTIFACT_SCHEMA,
         "job_id": job["id"],
         "run_id": run_id,
+        "batch_id": batch_id,
+        "trading_date": trading_date,
         "context_scope": job.get("context_scope", "cron"),
         "execution_mode": job.get("execution_mode"),
         "deliver": job.get("deliver"),
@@ -160,6 +294,7 @@ def build_artifact(
         "has_signal": has_signal,
         "summary": summarize_output(parsed, stdout),
         "context_from": context_artifacts,
+        "dependency_gate": dependency_gate,
         "stdout": stdout,
         "stderr": stderr,
         "stdout_preview": _json_preview(stdout),
@@ -179,6 +314,8 @@ def record_run(artifact: Dict[str, Any], max_items: int = 1000) -> None:
         "schema": RUN_LEDGER_SCHEMA,
         "job_id": artifact["job_id"],
         "run_id": artifact["run_id"],
+        "batch_id": artifact.get("batch_id"),
+        "trading_date": artifact.get("trading_date"),
         "status": artifact["status"],
         "returncode": artifact["returncode"],
         "started_at": artifact["started_at"],

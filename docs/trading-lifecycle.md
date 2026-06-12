@@ -22,6 +22,11 @@ Python 虚拟环境和 `.env`。两者不要混用。
 - `skills/stock-triage/data/recommendations.json`
 - `skills/stock-triage/data/monitor_registry.json`
 - `skills/stock-triage/data/trade_history.json`
+- `skills/stock-triage/data/signal_ledger.jsonl`
+
+跨模块生命周期以 append-only `signal_ledger.jsonl` 为规范账本。旧 JSON 文件继续作为
+兼容视图使用。完整事件和迁移说明见
+[`architecture-hardening.md`](architecture-hardening.md)。
 
 ## T+1 执行约束
 

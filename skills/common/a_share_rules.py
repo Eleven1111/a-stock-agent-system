@@ -52,6 +52,22 @@ def next_trading_day(value: date | datetime | str) -> date:
     raise RuntimeError(f"无法在 {day.isoformat()} 后 31 天内找到交易日")
 
 
+def previous_trading_day(value: date | datetime | str) -> date:
+    day = _as_date(value)
+    for offset in range(1, 32):
+        candidate = day - timedelta(days=offset)
+        if is_trading_day(candidate):
+            return candidate
+    raise RuntimeError(f"无法在 {day.isoformat()} 前 31 天内找到交易日")
+
+
+def latest_trading_day(value: date | datetime | str | None = None) -> date:
+    day = _as_date(value)
+    if is_trading_day(day):
+        return day
+    return previous_trading_day(day + timedelta(days=1))
+
+
 def add_trading_days(value: date | datetime | str, count: int) -> date:
     if count < 0:
         raise ValueError("count must be non-negative")
@@ -79,4 +95,3 @@ def t1_constraint(
         "calendar_covered": acquired.year in _calendar()["covered_years"],
         "calendar_source": _calendar().get("source"),
     }
-

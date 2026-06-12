@@ -14,8 +14,6 @@ import argparse
 import json
 import os
 import sys
-import urllib.parse
-import urllib.request
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -24,16 +22,16 @@ sys.path.insert(0, SCRIPT_DIR)
 sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 
 from a_stock_http import load_hermes_env  # noqa: E402
+from data_access_config import news_monitor_settings  # noqa: E402
+from data_provider import fetch_serpapi_news  # noqa: E402
+from http_client import DataSourceError  # noqa: E402
 from monitor_registry import active_entries  # noqa: E402
 from recommendation_quality import scan_announcement_risks  # noqa: E402
 
 
-DEFAULT_QUERIES = [
-    "国务院 发改委 工信部 A股 产业政策",
-    "半导体 封测 AI算力 A股 订单",
-    "高温 电力 电网 空调 A股",
-    "地缘冲突 能源 黄金 航运 A股",
-]
+_NEWS_CONFIG = news_monitor_settings()
+DEFAULT_QUERIES = list(_NEWS_CONFIG["queries"])
+DEFAULT_LIMIT = int(_NEWS_CONFIG["default_limit"])
 
 
 def build_queries(base_queries: List[str] | None = None) -> List[str]:
@@ -56,33 +54,7 @@ def _serpapi_key() -> str | None:
 
 
 def fetch_news(query: str, api_key: str, limit: int) -> List[Dict[str, Any]]:
-    params = urllib.parse.urlencode({
-        "engine": "google_news",
-        "q": query,
-        "hl": "zh-cn",
-        "gl": "cn",
-        "api_key": api_key,
-    })
-    url = f"https://serpapi.com/search.json?{params}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Hermes A-Stock Agent"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
-    items = payload.get("news_results") or []
-    events = []
-    for item in items[:limit]:
-        title = item.get("title") or ""
-        snippet = item.get("snippet") or ""
-        if not title and not snippet:
-            continue
-        events.append({
-            "query": query,
-            "title": title,
-            "snippet": snippet,
-            "source": (item.get("source") or {}).get("name") if isinstance(item.get("source"), dict) else item.get("source"),
-            "date": item.get("date"),
-            "link": item.get("link"),
-        })
-    return events
+    return fetch_serpapi_news(query, api_key, limit).data
 
 
 def classify_event(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -114,8 +86,16 @@ def run_monitor(queries: List[str], limit: int) -> Dict[str, Any]:
     for query in queries:
         try:
             events.extend(fetch_news(query, api_key, limit))
+        except DataSourceError as exc:
+            errors.append({"query": query, **exc.to_dict()})
         except Exception as exc:
-            errors.append({"query": query, "error": str(exc)})
+            errors.append({
+                "query": query,
+                "source": "serpapi",
+                "error_type": "unexpected",
+                "error": str(exc),
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+            })
 
     seen = set()
     deduped = []
@@ -159,7 +139,7 @@ def format_report(result: Dict[str, Any]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cron-safe scheduled news monitor")
     parser.add_argument("--queries", help="逗号分隔查询词；默认使用A股固定监控词")
-    parser.add_argument("--limit", type=int, default=3)
+    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 

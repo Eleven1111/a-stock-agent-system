@@ -166,6 +166,56 @@ def test_missing_isolation_contract_rejected():
         os.unlink(path)
 
 
+def test_invalid_dependency_policy_rejected():
+    j = dict(VALID_JOB)
+    j["context_from"] = ["upstream"]
+    j["dependency_policy"] = {
+        "required": True,
+        "max_age_minutes": 0,
+        "trading_date": "tomorrow",
+    }
+    manifest = {"jobs": [j]}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
+def test_unknown_dependency_rejected():
+    j = dict(VALID_JOB)
+    j["context_from"] = ["does-not-exist"]
+    manifest = {"jobs": [j]}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
+def test_dependency_cycle_rejected():
+    first = dict(VALID_JOB)
+    first["id"] = "first"
+    first["command"] = "python scripts/hermes_job_runner.py first"
+    first["context_from"] = ["second"]
+    second = dict(VALID_JOB)
+    second["id"] = "second"
+    second["command"] = "python scripts/hermes_job_runner.py second"
+    second["context_from"] = ["first"]
+    manifest = {"jobs": [first, second]}
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
 def test_repo_manifest_keeps_runtime_isolation_contract():
     manifest_path = os.path.join(ROOT, "cron", "hermes-cron-manifest.json")
     assert validate(manifest_path) is True
@@ -195,5 +245,11 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
     assert jobs["auction-finalize"]["schedule"] == "26 9 * * 1-5"
     assert any("monitor_registry.json" in path for path in jobs["auction-finalize"]["allowed_state_writes"])
+    assert any("signal_ledger.jsonl" in path for path in jobs["auction-finalize"]["allowed_state_writes"])
     assert any("recommendations.json" in path for path in jobs["open-confirmation"]["allowed_state_writes"])
+    assert any("signal_ledger.jsonl" in path for path in jobs["open-confirmation"]["allowed_state_writes"])
+    assert any("signal_ledger.jsonl" in path for path in jobs["intraday-alert"]["allowed_state_writes"])
     assert set(jobs["closing-triage"]["context_from"]) >= {"four-dim-scorer", "portfolio-check"}
+    assert jobs["performance-weekly"]["dependency_policy"]["trading_date"] == "same_trading_date"
+    assert jobs["performance-weekly"]["run"]["command"].endswith("--json --gate")
+    assert any("strategy_registry.json" in path for path in jobs["performance-weekly"]["allowed_state_writes"])

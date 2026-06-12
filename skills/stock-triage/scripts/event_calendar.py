@@ -15,11 +15,15 @@ Usage:
 import json
 import os
 import sys
-import urllib.request
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional
 
 HERMES_HOME = os.path.expanduser("~/.hermes")
+COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
+
+from http_client import DataSourceError, request_json
 
 # 默认跟踪标的（不持有时也会关注，用于空仓期监控）
 DEFAULT_TRACKED = {
@@ -58,10 +62,15 @@ POLICY_WINDOWS = [
 
 def fetch_eastmoney_api(url: str) -> Dict:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode())
-    except Exception:
+        result = request_json(
+            url,
+            source="eastmoney",
+            timeout=10,
+            max_attempts=2,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        return result.data if isinstance(result.data, dict) else {}
+    except DataSourceError:
         return {}
 
 

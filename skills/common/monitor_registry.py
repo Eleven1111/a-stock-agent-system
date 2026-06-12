@@ -7,9 +7,11 @@ from typing import Any, Iterable, Mapping
 
 from paths import data_file
 from state_store import mutate_json, read_json
+import signal_ledger
 
 
 REGISTRY_FILE = data_file("stock-triage", "monitor_registry.json")
+LEDGER_FILE = signal_ledger.LEDGER_FILE
 VALID_KINDS = {"stock", "sector", "theme"}
 
 
@@ -26,6 +28,41 @@ def _key(kind: str, value: str) -> str:
 
 def _entry_id(kind: str, key: str) -> str:
     return f"{kind}:{_key(kind, key)}"
+
+
+def _ledger_links(entry: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = dict(entry.get("metadata") or {})
+    return signal_ledger.make_links(
+        metadata.get("recommendation_id"),
+        correlation_id=metadata.get("correlation_id"),
+        signal_id=metadata.get("signal_id") or f"monitor:{entry['id']}",
+        trade_id=metadata.get("trade_id"),
+        monitor_id=entry["id"],
+    )
+
+
+def _record_monitor_event(event_type: str, entry: Mapping[str, Any]) -> None:
+    signal_ledger.append_event(
+        event_type,
+        _ledger_links(entry),
+        {
+            "kind": entry.get("kind"),
+            "key": entry.get("key"),
+            "label": entry.get("label"),
+            "status": entry.get("status"),
+            "source": entry.get("source"),
+            "reason": entry.get("reason"),
+            "expires_at": entry.get("expires_at"),
+            "manual_cancelled": entry.get("manual_cancelled", False),
+        },
+        idempotency_key=":".join([
+            event_type,
+            str(entry.get("id")),
+            str(entry.get("updated_at")),
+            str(entry.get("status")),
+        ]),
+        ledger_file=LEDGER_FILE,
+    )
 
 
 def load_registry() -> list[dict[str, Any]]:
@@ -80,6 +117,8 @@ def activate(
         return items
 
     mutate_json(REGISTRY_FILE, _mut, [])
+    if outcome.get("changed") and outcome.get("entry"):
+        _record_monitor_event("monitor.activated", outcome["entry"])
     return outcome
 
 
@@ -89,6 +128,7 @@ def cancel(
     reason: str,
     manual: bool = True,
     status: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized = _key(kind, key)
     entry_id = _entry_id(kind, normalized)
@@ -107,16 +147,28 @@ def cancel(
                 "created_at": now,
             }
             items.append(existing)
+        entry_metadata = dict(existing.get("metadata") or {})
+        entry_metadata.update(dict(metadata or {}))
         existing.update({
             "status": status or ("cancelled" if manual else "closed"),
             "reason": reason,
             "manual_cancelled": bool(manual),
             "updated_at": now,
+            "metadata": entry_metadata,
         })
         outcome.update(changed=True, entry=dict(existing))
         return items
 
     mutate_json(REGISTRY_FILE, _mut, [])
+    if outcome.get("changed") and outcome.get("entry"):
+        event_type = (
+            "monitor.cancelled"
+            if manual
+            else "monitor.closed"
+            if outcome["entry"].get("status") == "closed"
+            else "monitor.deactivated"
+        )
+        _record_monitor_event(event_type, outcome["entry"])
     return outcome
 
 

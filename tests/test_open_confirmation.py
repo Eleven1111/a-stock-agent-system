@@ -177,9 +177,11 @@ def test_rank_confirmations_enforces_temperature_daban_gate():
 def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"
@@ -259,9 +261,11 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
 def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"
@@ -318,5 +322,12 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
 
     assert result["signal_count"] == 3
     assert read_json(oc._confirmation_path(event_asof), {})["signal_count"] == 3
+    assert all(item["ledger_links"]["correlation_id"] for item in result["signals"])
+    events = oc.signal_ledger.read_events(oc.recommendation_audit.LEDGER_FILE)
+    assert sum(event["event_type"] == "signal.opened" for event in events) == 3
+    assert sum(event["event_type"] == "monitor.activated" for event in events) == 3
+    signal = oc.signal_ledger.project_signals(events)[0]
+    assert signal["recommendation_id"].startswith(f"open-{event_asof}-")
+    assert signal["monitor_id"].startswith("stock:")
     lifecycle = candidate_lifecycle.load_day(source_asof)
     assert sum(record["current_stage"] == "open_confirmed" for record in lifecycle["records"]) == 3

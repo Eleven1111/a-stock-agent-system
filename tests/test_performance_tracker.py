@@ -3,6 +3,7 @@
 import threading
 
 import performance_tracker as pt
+import signal_ledger
 from performance_tracker import evaluate_signal, _expectancy, compute_stats
 
 
@@ -124,6 +125,7 @@ def test_compute_stats_all_legacy():
 def test_record_signal_concurrent_no_loss(tmp_path, monkeypatch):
     """40 个并发 record_signal 不得丢记录（读-追加-写回必须在单锁内）。"""
     monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
 
     n = 40
     threads = [
@@ -143,12 +145,15 @@ def test_record_signal_concurrent_no_loss(tmp_path, monkeypatch):
 
 def test_record_signal_persists_strategy_id(tmp_path, monkeypatch):
     monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
 
     result = pt.record_signal("002156", "通富微电", "S", 9.7, 11.0, "daban:first_board_reseal")
 
     history = pt.load_history()
     assert result["ok"] is True
     assert history[0]["strategy_id"] == "daban:first_board_reseal"
+    assert history[0]["signal_id"]
+    assert signal_ledger.project_signals(ledger_file=pt.LEDGER_FILE)[0]["outcome"] == "pending"
 
 
 def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):
@@ -158,6 +163,7 @@ def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):
     旧实现会把快照原样写回，吞掉新追加的记录。修复后用 mutate_json 在单锁内重读最新历史。
     """
     monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(pt, "limit_pct", lambda code, name: 10.0)
 
     # 初始一条 pending（信号日 P1）
@@ -202,3 +208,40 @@ def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):
     p2 = next(r for r in history if r["code"] == "600002")
     assert p1["outcome"] != "pending", "P1 应被结算"
     assert p2["outcome"] == "pending", "P2 刚追加应仍为 pending"
+    canonical = signal_ledger.project_signals(ledger_file=pt.LEDGER_FILE)
+    settled = next(record for record in canonical if record["code"] == "600001")
+    assert settled["outcome"] == "win_big"
+    assert settled["settlement_id"]
+
+
+def test_gate_stats_include_recommendation_ledger_signals(tmp_path, monkeypatch):
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    links = signal_ledger.make_links("rec-auto")
+    opened = signal_ledger.signal_opened_event(
+        {
+            "code": "002156",
+            "name": "通富微电",
+            "date": "2026-06-10",
+            "entry_price": 10.0,
+            "grade": "A",
+            "strategy_id": "trend_pullback",
+            "action": "buy",
+        },
+        links,
+    )
+    signal_ledger.append_events(
+        [
+            opened,
+            signal_ledger.settlement_event(
+                {**opened["payload"], **links},
+                {"outcome": "win", "t1_close_ret": 4.0, "t1_open_premium": 2.0, "promoted": False},
+            ),
+        ],
+        ledger_file=pt.LEDGER_FILE,
+    )
+
+    stats = pt.compute_stats(pt.load_history())
+
+    assert stats["by_strategy"]["trend_pullback"]["closed"] == 1
+    assert stats["by_strategy"]["trend_pullback"]["expectancy"] == 4.0

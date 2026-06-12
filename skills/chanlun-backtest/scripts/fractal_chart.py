@@ -8,15 +8,19 @@
 
 输出: 含分形图的 Markdown，可直接输出到终端或管道到文件。
 
-依赖: 无第三方库（仅用 urllib + json）
+依赖: 无第三方库（使用共享 http_client）
 数据源: 腾讯 ifzq.gtimg.cn（前复权日线，免费全天候）
 """
 import os
 import sys
-import urllib.request
-import json
 
 os.environ["NO_PROXY"] = ".gtimg.cn,.eastmoney.com"
+
+COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
+
+from http_client import request_json
 
 import argparse
 parser = argparse.ArgumentParser(description="缠论分形图")
@@ -34,10 +38,14 @@ CHART_HEIGHT = args.height
 # ===== 1. 腾讯K线 =====
 PREFIX = "sh" if CODE.startswith("6") else "sz"
 url = f"https://ifzq.gtimg.cn/appstock/app/fqkline/get?param={PREFIX}{CODE},day,,,{DAYS * 2},qfq"
-req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
 try:
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        raw = json.loads(resp.read().decode("utf-8"))
+    raw = request_json(
+        url,
+        source="tencent",
+        timeout=15,
+        encoding="utf-8",
+        headers={"User-Agent": "Mozilla/5.0"},
+    ).data
     data = raw.get("data", {})
     klines = data.get(f"{PREFIX}{CODE}", {}).get("qfqday", [])
 except Exception as e:

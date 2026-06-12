@@ -1,10 +1,12 @@
 from datetime import date
 
 import monitor_registry as registry
+import signal_ledger
 
 
 def _wire(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
 
 
 def test_manual_cancel_is_not_reactivated_by_automation(tmp_path, monkeypatch):
@@ -76,3 +78,17 @@ def test_open_rejection_deactivates_only_automatic_subscription(tmp_path, monkey
 
     assert result["changed"] is True
     assert registry.active_stock_map() == {}
+
+
+def test_monitor_lifecycle_is_written_to_canonical_ledger(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+
+    registry.activate("theme", "AI算力", "AI算力", source="manual", force=True)
+    registry.cancel("theme", "AI算力", reason="用户明确取消", manual=True)
+
+    events = signal_ledger.read_events(registry.LEDGER_FILE)
+    assert [event["event_type"] for event in events] == [
+        "monitor.activated",
+        "monitor.cancelled",
+    ]
+    assert events[0]["links"]["monitor_id"] == "theme:AI算力"

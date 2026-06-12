@@ -15,6 +15,12 @@ VALID_OUTPUTS = {"json", "text", "none"}
 VALID_EXECUTION_MODES = {"isolated_subprocess"}
 VALID_CONTEXT_SCOPES = {"cron"}
 VALID_DELIVER = {"origin", "local", "silent"}
+VALID_DEPENDENCY_DATE_MODES = {
+    "latest",
+    "same_trading_date",
+    "same_batch",
+    "previous_trading_day",
+}
 ARTIFACT_TEMPLATE = "{cron_output_dir}/{job_id}/{run_id}.json"
 RUNNER_RE = re.compile(r"^python3?\s+scripts/hermes_job_runner\.py\s+[\w-]+")
 FORBIDDEN_TOP_LEVEL_SCRIPTS = {
@@ -74,6 +80,7 @@ def validate(filepath):
         errors.append("no jobs defined")
 
     ids = set()
+    dependency_graph = {}
     schedule_slots = {}
     for i, job in enumerate(jobs):
         jid = job.get("id", f"#{i}")
@@ -85,6 +92,14 @@ def validate(filepath):
         if jid in ids:
             errors.append(f"job[{i}] duplicate id: {jid}")
         ids.add(jid)
+        dependency_mode = (job.get("dependency_policy") or {}).get(
+            "trading_date",
+            "same_trading_date",
+        )
+        dependency_graph[jid] = {
+            "dependencies": list(job.get("context_from") or []),
+            "mode": dependency_mode,
+        }
 
         if job.get("schedule"):
             parts = job["schedule"].split()
@@ -131,6 +146,22 @@ def validate(filepath):
             errors.append(f"job[{i}] ({jid}) context_from must be list")
         elif not all(isinstance(x, str) for x in job["context_from"]):
             errors.append(f"job[{i}] ({jid}) context_from entries must be strings")
+
+        dependency_policy = job.get("dependency_policy", {})
+        if not isinstance(dependency_policy, dict):
+            errors.append(f"job[{i}] ({jid}) dependency_policy must be object")
+        else:
+            date_mode = dependency_policy.get("trading_date", "same_trading_date")
+            if date_mode not in VALID_DEPENDENCY_DATE_MODES:
+                errors.append(f"job[{i}] ({jid}) invalid dependency trading_date: {date_mode}")
+            max_age = dependency_policy.get("max_age_minutes")
+            if max_age is not None and (not isinstance(max_age, int) or max_age <= 0):
+                errors.append(f"job[{i}] ({jid}) dependency max_age_minutes must be positive int")
+            optional = dependency_policy.get("optional_jobs", [])
+            if not isinstance(optional, list) or not all(isinstance(x, str) for x in optional):
+                errors.append(f"job[{i}] ({jid}) dependency optional_jobs must be a string list")
+            elif any(x not in job.get("context_from", []) for x in optional):
+                errors.append(f"job[{i}] ({jid}) dependency optional_jobs must exist in context_from")
 
         if job.get("artifact_path_template") != ARTIFACT_TEMPLATE:
             errors.append(f"job[{i}] ({jid}) artifact_path_template must be {ARTIFACT_TEMPLATE}")
@@ -179,6 +210,34 @@ def validate(filepath):
             errors.append(
                 f"cron slot overload dow={dow} {hour:02d}:{minute:02d}: {', '.join(slot_jobs)}"
             )
+
+    for jid, node in dependency_graph.items():
+        for dependency in node["dependencies"]:
+            if dependency not in ids:
+                errors.append(f"job ({jid}) references unknown dependency: {dependency}")
+
+    visiting = set()
+    visited = set()
+
+    def _visit(jid, path):
+        if jid in visiting:
+            cycle = " -> ".join(path + [jid])
+            errors.append(f"dependency cycle: {cycle}")
+            return
+        if jid in visited or jid not in dependency_graph:
+            return
+        visiting.add(jid)
+        node = dependency_graph[jid]
+        # A previous-trading-day edge deliberately links two batches. It cannot
+        # form an execution cycle inside the current batch.
+        dependencies = [] if node["mode"] == "previous_trading_day" else node["dependencies"]
+        for dependency in dependencies:
+            _visit(dependency, path + [jid])
+        visiting.remove(jid)
+        visited.add(jid)
+
+    for jid in dependency_graph:
+        _visit(jid, [])
 
     if errors:
         for e in errors:

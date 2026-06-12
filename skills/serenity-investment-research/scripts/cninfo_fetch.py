@@ -11,11 +11,17 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import urllib.parse
-import urllib.request
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode, urljoin
+
+COMMON_DIR = Path(__file__).resolve().parents[2] / "common"
+if str(COMMON_DIR) not in sys.path:
+    sys.path.insert(0, str(COMMON_DIR))
+
+from http_client import build_request, request_bytes, request_json
 
 QUERY_URL = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
 TOP_SEARCH_URL = "https://www.cninfo.com.cn/new/information/topSearch/query"
@@ -23,8 +29,8 @@ PDF_BASE = "https://static.cninfo.com.cn/"
 
 
 def post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
-    body = urllib.parse.urlencode(data).encode("utf-8")
-    req = urllib.request.Request(
+    body = urlencode(data).encode("utf-8")
+    req = build_request(
         url,
         data=body,
         headers={
@@ -34,8 +40,12 @@ def post_form(url: str, data: dict[str, str]) -> dict[str, Any]:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return request_json(
+        req,
+        source="cninfo",
+        timeout=30,
+        encoding="utf-8",
+    ).data
 
 
 def safe_name(name: str) -> str:
@@ -62,9 +72,13 @@ def infer_org_id(stock_code: str) -> str:
 
 
 def download(url: str, out: Path) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 serenity-investment-research"})
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        out.write_bytes(resp.read())
+    payload = request_bytes(
+        url,
+        source="cninfo",
+        timeout=60,
+        headers={"User-Agent": "Mozilla/5.0 serenity-investment-research"},
+    ).data
+    out.write_bytes(payload)
 
 
 def millis_to_date(value: Any) -> str:
@@ -110,7 +124,7 @@ def main() -> int:
     manifest = []
     for item in announcements:
         adjunct = item.get("adjunctUrl") or ""
-        pdf_url = urllib.parse.urljoin(PDF_BASE, adjunct)
+        pdf_url = urljoin(PDF_BASE, adjunct)
         title = re.sub(r"<[^>]+>", "", item.get("announcementTitle", "announcement"))
         row = {
             "title": title,

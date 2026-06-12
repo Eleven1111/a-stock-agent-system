@@ -270,6 +270,7 @@ from typing import Dict, Any, List, Optional
 |------|------|------|
 | portfolio.json | `stock-triage/data/` | 持仓数据 |
 | signal_history.json | `stock-triage/data/` | 历史信号记录 |
+| signal_ledger.jsonl | `stock-triage/data/` | 推荐/信号/成交/监控/结算规范事件账本 |
 | strategy_registry.json | `stock-triage/data/` | 策略闸门+门控状态（缠论信号过闸/负期望淘汰） |
 | deep_research/{code}.json | `stock-triage/cache/` | Serenity 深研缓存（回流四维深度面） |
 | market_context.json | `stock-triage/cache/` | 大盘影响缓存（global-monitor --cache 写，四维 overlay 读） |
@@ -284,6 +285,10 @@ from typing import Dict, Any, List, Optional
 | job_runs.json | `$HERMES_HOME/cron/output/` | Cron 运行账本 |
 | `{job_id}/{run_id}.json` | `$HERMES_HOME/cron/output/` | 每次 cron 的隔离 artifact |
 | .env | `~/.hermes/` | API keys + NO_PROXY |
+
+Cron artifact 必须包含 `trading_date`、`batch_id` 和依赖门禁结果。必需依赖失败时
+只能产出 `status=blocked`，禁止启动下游业务脚本。业务模块禁止裸写
+`urllib.request.urlopen`，外部请求统一走 `common/http_client.py` 或 provider adapter。
 
 ## 用户偏好（来自记忆）
 

@@ -4,7 +4,7 @@
 ======================================
 技术面 × 情绪面 × 催化面 × 深度面 → S/A/B/C 分级 + 买卖建议
 
-数据源（纯 urllib，cron-safe）：
+数据源（统一共享 HTTP 层，cron-safe）：
 - 腾讯 qt.gtimg.cn — 实时行情 + 历史K线
 - SerpAPI — 新闻催化
 - stock-analyst 技术指标模块 — numpy 计算
@@ -17,8 +17,6 @@ Usage:
 import json
 import sys
 import os
-import urllib.request
-import urllib.parse
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -39,6 +37,8 @@ from a_stock_http import (
     fetch_tencent_quote as _http_quote,
     fetch_tencent_kline as _http_kline,
 )
+from data_provider import fetch_serpapi_news as _fetch_serpapi_news
+from http_client import DataSourceError
 from tradeability import assess_tradeability
 from deep_research_cache import read_deep_research, decay_stale_score
 
@@ -86,13 +86,19 @@ def fetch_serpapi_news(query: str, num: int = 5) -> Optional[List[Dict]]:
     api_key = os.environ.get("SERPAPI_API_KEY")
     if not api_key:
         return None
-    url = f"https://serpapi.com/search?engine=google_news&q={urllib.parse.quote(query)}&num={num}&api_key={api_key}&gl=cn&hl=zh-cn"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
-        return data.get("news_results", [])[:num]
-    except Exception:
+        result = _fetch_serpapi_news(query, api_key, num)
+        return [
+            {
+                "title": item.get("title", ""),
+                "snippet": item.get("snippet", ""),
+                "source": {"name": item.get("source", "")},
+                "date": item.get("date", ""),
+                "link": item.get("link"),
+            }
+            for item in result.data
+        ]
+    except (DataSourceError, AttributeError, TypeError):
         return None
 
 

@@ -26,10 +26,12 @@ sys.path.insert(0, COMMON)
 from runtime_context import (  # noqa: E402
     ARTIFACT_TEMPLATE,
     build_artifact,
-    load_context_from,
+    evaluate_dependencies,
+    make_batch_id,
     make_run_id,
     now_iso,
     record_run,
+    resolve_trading_date,
     write_artifact,
 )
 
@@ -111,23 +113,61 @@ def run_job(args: argparse.Namespace) -> int:
     timeout = int(run.get("timeout_seconds") or job.get("timeout_seconds") or 120)
     started_at = now_iso()
     run_id = args.run_id or make_run_id(job["id"], started_at)
-    context_artifacts = load_context_from(job.get("context_from", []))
+    trading_date = resolve_trading_date(args.trading_date or started_at)
+    batch_id = args.batch_id or make_batch_id(trading_date)
+    dependency_gate = evaluate_dependencies(
+        job.get("context_from", []),
+        trading_date=trading_date,
+        batch_id=batch_id,
+        policy=job.get("dependency_policy"),
+        now=started_at,
+    )
+    context_artifacts = dependency_gate["dependencies"]
 
     if args.dry_run:
         print(json.dumps({
             "job_id": job["id"],
             "run_id": run_id,
+            "batch_id": batch_id,
+            "trading_date": trading_date,
             "command": command,
             "cwd": cwd,
             "context_from": context_artifacts,
+            "dependency_gate": dependency_gate,
             "artifact_path_template": ARTIFACT_TEMPLATE,
         }, ensure_ascii=False, indent=2))
         return 0
+
+    if not dependency_gate["passed"]:
+        finished_at = now_iso()
+        artifact = build_artifact(
+            job=job,
+            run_id=run_id,
+            command=command,
+            cwd=cwd,
+            returncode=75,
+            stdout="",
+            stderr=json.dumps(dependency_gate, ensure_ascii=False),
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_seconds=0,
+            context_artifacts=context_artifacts,
+            trading_date=trading_date,
+            batch_id=batch_id,
+            dependency_gate=dependency_gate,
+            status_override="blocked",
+        )
+        write_artifact(artifact)
+        record_run(artifact)
+        _emit(job, artifact, args.emit_local)
+        return 75
 
     env = os.environ.copy()
     env.update({
         "HERMES_JOB_ID": job["id"],
         "HERMES_RUN_ID": run_id,
+        "HERMES_BATCH_ID": batch_id,
+        "HERMES_TRADING_DATE": trading_date,
         "HERMES_CONTEXT_SCOPE": job.get("context_scope", "cron"),
         "HERMES_CONTEXT_FROM": json.dumps(context_artifacts, ensure_ascii=False),
     })
@@ -167,6 +207,9 @@ def run_job(args: argparse.Namespace) -> int:
         duration_seconds=duration,
         context_artifacts=context_artifacts,
         timed_out=timed_out,
+        trading_date=trading_date,
+        batch_id=batch_id,
+        dependency_gate=dependency_gate,
     )
     write_artifact(artifact)
     record_run(artifact)
@@ -179,6 +222,8 @@ def main() -> None:
     parser.add_argument("job_id")
     parser.add_argument("--manifest", default=os.path.join(ROOT, "cron", "hermes-cron-manifest.json"))
     parser.add_argument("--run-id")
+    parser.add_argument("--batch-id")
+    parser.add_argument("--trading-date")
     parser.add_argument("--var", action="append", default=[], help="Template variable as key=value")
     parser.add_argument("--emit-local", action="store_true", help="Emit stdout even when deliver=local")
     parser.add_argument("--dry-run", action="store_true")

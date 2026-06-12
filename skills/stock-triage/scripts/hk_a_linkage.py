@@ -12,9 +12,20 @@ Usage:
 """
 
 import json
-import urllib.request
+import os
+import sys
 from datetime import datetime
 from typing import Dict, Any
+
+COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
+
+from a_stock_http import (
+    fetch_tencent_hk_quote as _http_hk_quote,
+    fetch_tencent_quote as _http_quote,
+)
+from http_client import DataSourceError
 
 # ========== AH配对股 ==========
 # 选市值最大、流动性最好的 AH 股
@@ -56,47 +67,30 @@ HK_SECTORS = {
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict:
     """腾讯实时行情"""
-    url = f"http://qt.gtimg.cn/q={market}{code.lstrip('hk') if market == 'sz' else code}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("gbk")
-        parts = raw.split("=")[1].strip().strip('"').split("~")
-        if len(parts) < 40:
+        full_code = f"{market}{code.lstrip('hk')}"
+        result = _http_quote([full_code])
+        quote = result.get(full_code) if isinstance(result, dict) else None
+        if not isinstance(quote, dict):
             return {"error": "数据不完整"}
         return {
-            "price": float(parts[3]) if parts[3] else None,
-            "prev_close": float(parts[4]) if parts[4] else None,
-            "change_pct": float(parts[32]) if parts[32] else None,
-            "high": float(parts[33]) if parts[33] else None,
-            "low": float(parts[34]) if parts[34] else None,
-            "amount": float(parts[37]) * 10000 if parts[37] else None,
-            "turnover": float(parts[38]) if parts[38] else None,
+            "price": quote.get("price"),
+            "prev_close": quote.get("prev_close"),
+            "change_pct": quote.get("change_pct"),
+            "high": quote.get("high"),
+            "low": quote.get("low"),
+            "amount": quote.get("amount"),
+            "turnover": quote.get("turnover"),
         }
-    except Exception as e:
+    except (DataSourceError, IndexError, TypeError, ValueError) as e:
         return {"error": str(e)}
 
 
 def fetch_tencent_hk(code_hk: str) -> Dict:
     """港股实时行情（腾讯格式）"""
-    code = code_hk.replace("hk", "")
-    url = f"http://qt.gtimg.cn/q=hk{code}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode("gbk")
-        parts = raw.split("=")[1].strip().strip('"').split("~")
-        if len(parts) < 30:
-            return {"error": "HK数据不完整"}
-        return {
-            "price": float(parts[3]) if parts[3] else None,
-            "prev_close": float(parts[4]) if parts[4] else None,
-            "change_pct": float(parts[32]) if parts[32] else None,
-            "amount": float(parts[37]) * 10000 if parts[37] else None,
-            "pe": float(parts[39]) if parts[39] else None,
-            "market_cap": float(parts[44]) if parts[44] else None,
-        }
-    except Exception as e:
+        return _http_hk_quote(code_hk)
+    except (DataSourceError, IndexError, TypeError, ValueError) as e:
         return {"error": str(e)}
 
 

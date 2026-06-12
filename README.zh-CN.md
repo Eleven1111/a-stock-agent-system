@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-304%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-357%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
@@ -156,6 +156,11 @@ export SERPAPI_API_KEY=your_key
 所有任务定义在 [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json)。调度依赖外部 [Hermes Agent](https://hermes-agent.nousresearch.com) 运行时——本仓库提供脚本，Hermes 提供时钟。
 
 manifest 中每个定时任务都先进入 `scripts/hermes_job_runner.py`。runner 在隔离子进程中执行真实业务脚本，写入 `$HERMES_HOME/cron/output/{job_id}/{run_id}.json`，并维护 `$HERMES_HOME/cron/output/job_runs.json` 运行账本，再按 `deliver` 配置决定是否推送。例行数据任务可设为 `deliver=local`，避免定时任务输出污染主线对话。
+
+artifact v2 还包含 `trading_date`、`batch_id` 和 `dependency_gate`。必需上游缺失、失败、
+过期或交易日不匹配时，runner 写入 `status=blocked` 并拒绝启动业务脚本。推荐、成交、
+监控和 T+1 结算统一写入 `signal_ledger.jsonl`；详细契约见
+[`docs/architecture-hardening.md`](docs/architecture-hardening.md)。
 
 ```bash
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json

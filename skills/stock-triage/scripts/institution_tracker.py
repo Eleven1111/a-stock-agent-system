@@ -11,10 +11,16 @@ Usage:
 
 import json
 import os
-import urllib.request
-import urllib.parse
+import sys
 from datetime import datetime
 from typing import Dict, List
+
+COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
+
+from data_provider import fetch_serpapi_news as _fetch_serpapi_news
+from http_client import DataSourceError, request_json
 
 TRACKED_CODES = {
     "600011": "华能国际", "002156": "通富微电", "600584": "长电科技",
@@ -24,10 +30,15 @@ TRACKED_CODES = {
 
 def fetch_eastmoney_api(url: str) -> Dict:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode())
-    except Exception:
+        result = request_json(
+            url,
+            source="eastmoney",
+            timeout=10,
+            max_attempts=2,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        return result.data if isinstance(result.data, dict) else {}
+    except DataSourceError:
         return {}
 
 
@@ -97,20 +108,17 @@ def fetch_serpapi_inst_news(code: str, name: str) -> List[Dict]:
     if not api_key:
         return []
     query = f"{name} {code} 券商研报 机构调研 评级 目标价"
-    url = f"https://serpapi.com/search?engine=google_news&q={urllib.parse.quote(query)}&num=3&api_key={api_key}&gl=cn&hl=zh-cn"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-        results = []
-        for item in data.get("news_results", [])[:3]:
-            results.append({
+        result = _fetch_serpapi_news(query, api_key, 3)
+        return [
+            {
                 "title": item.get("title", ""),
-                "source": item.get("source", {}).get("name", ""),
+                "source": item.get("source", ""),
                 "date": item.get("date", ""),
-            })
-        return results
-    except Exception:
+            }
+            for item in result.data
+        ]
+    except (DataSourceError, AttributeError, TypeError):
         return []
 
 

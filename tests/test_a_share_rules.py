@@ -6,6 +6,7 @@ import a_share_rules as rules
 def test_2026_exchange_holiday_is_not_a_trading_day():
     assert rules.is_trading_day(date(2026, 6, 19)) is False
     assert rules.next_trading_day(date(2026, 6, 18)) == date(2026, 6, 22)
+    assert rules.previous_trading_day(date(2026, 6, 22)) == date(2026, 6, 18)
 
 
 def test_t1_constraint_blocks_same_day_sale():
@@ -28,4 +29,3 @@ def test_t1_constraint_unlocks_on_next_trading_day():
     )
 
     assert constraint["sell_allowed"] is True
-

@@ -4,17 +4,16 @@
 """
 
 import os
-import json
 import re
 import sys
-import urllib.request
-import urllib.parse
 from typing import Optional, List, Dict
 
 _COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
 if _COMMON_DIR not in sys.path:
     sys.path.insert(0, os.path.abspath(_COMMON_DIR))
 from paths import env_file
+from data_provider import fetch_serpapi_news as _fetch_serpapi_news
+from http_client import DataSourceError
 
 # SerpAPI multi-key rotation
 SERPAPI_KEYS = []
@@ -63,17 +62,22 @@ def _serpapi_request(params: dict) -> Optional[Dict]:
     if not api_key:
         return {"error": "SERPAPI_KEYS 未配置"}
 
-    params["api_key"] = api_key
-    params["hl"] = "zh-CN"
-    params["gl"] = "cn"
-
-    url = f"https://serpapi.com/search.json?{urllib.parse.urlencode(params)}"
-
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
+        limit = int(params.get("num", 10))
+        result = _fetch_serpapi_news(str(params.get("q", "")), api_key, limit)
+        return {
+            "news_results": [
+                {
+                    "title": item.get("title", ""),
+                    "snippet": item.get("snippet", ""),
+                    "source": {"name": item.get("source", "")},
+                    "date": item.get("date", ""),
+                    "link": item.get("link"),
+                }
+                for item in result.data
+            ]
+        }
+    except (DataSourceError, AttributeError, TypeError, ValueError) as e:
         return {"error": str(e)}
 
 

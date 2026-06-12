@@ -18,6 +18,12 @@ import sys
 import pandas as pd
 from datetime import datetime, timedelta
 
+COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
+
+from http_client import DataSourceError, request_bytes
+
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 320)
 pd.set_option('display.max_colwidth', 30)
@@ -58,13 +64,16 @@ def get_all_stocks():
 
 def _tencent_market_fallback():
     """Tencent API 降级获取大盘数据（GBK编码）"""
-    import urllib.request
-
     try:
         url = 'http://qt.gtimg.cn/q=sh000001,sz399001,sz399006'
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            text = resp.read().decode('gbk', errors='ignore')
+        response = request_bytes(
+            url,
+            source="tencent",
+            timeout=10,
+            max_attempts=2,
+            headers={'User-Agent': 'Mozilla/5.0'},
+        )
+        text = response.data.decode('gbk', errors='ignore')
         lines = text.strip().split('\n')
         rows = []
         for line in lines:
@@ -88,7 +97,7 @@ def _tencent_market_fallback():
                 '昨收': float(parts[4]) if parts[4] else 0,
             })
         return pd.DataFrame(rows)
-    except Exception:
+    except (DataSourceError, IndexError, TypeError, UnicodeDecodeError, ValueError):
         return pd.DataFrame()
 
 # ======================== 分析函数 ========================

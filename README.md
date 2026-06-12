@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-304%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-357%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -157,6 +157,11 @@ Source health tracking is built-in. When critical data is missing (e.g., yfinanc
 All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json). Scheduling requires an external [Hermes Agent](https://hermes-agent.nousresearch.com) runtime — this repo provides the scripts; Hermes provides the clock.
 
 The manifest routes every scheduled job through `scripts/hermes_job_runner.py`. The runner executes the business script in an isolated subprocess, writes `$HERMES_HOME/cron/output/{job_id}/{run_id}.json`, records `$HERMES_HOME/cron/output/job_runs.json`, and only emits the configured `deliver` output. Routine jobs can be archived with `deliver=local` so cron output does not pollute the active user conversation.
+
+Artifact v2 also records `trading_date`, `batch_id`, and a fail-closed
+`dependency_gate`. Recommendations, executions, monitor lifecycle changes, and
+T+1 settlements are correlated in the append-only `signal_ledger.jsonl`.
+See [`docs/architecture-hardening.md`](docs/architecture-hardening.md).
 
 ```bash
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json

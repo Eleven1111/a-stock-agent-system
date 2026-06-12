@@ -4,6 +4,7 @@ import threading
 from datetime import date
 
 import portfolio_manager as pm
+import signal_ledger
 
 
 def _wire(tmp_path, monkeypatch, initial=None):
@@ -12,6 +13,8 @@ def _wire(tmp_path, monkeypatch, initial=None):
     monkeypatch.setattr(pm, "CASHFLOW_FILE", str(tmp_path / "cash_flow.json"))
     monkeypatch.setattr(pm, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(pm.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(pm, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(pm.monitor_registry, "LEDGER_FILE", pm.LEDGER_FILE)
     if initial is not None:
         pm.save_portfolio(initial)
 
@@ -98,6 +101,21 @@ def test_add_then_close_cash_roundtrip(tmp_path, monkeypatch):
     assert pm.load_portfolio()["cash"] == 102000
     assert pm.load_portfolio()["positions"] == []
     assert pm.monitor_registry.active_stock_map() == {}
+    events = signal_ledger.read_events(pm.LEDGER_FILE)
+    event_types = [event["event_type"] for event in events]
+    assert event_types.count("trade.executed") == 2
+    assert "monitor.activated" in event_types
+    assert "monitor.closed" in event_types
+    buy_event = next(
+        event for event in events
+        if event["event_type"] == "trade.executed" and event["payload"]["side"] == "buy"
+    )
+    sell_event = next(
+        event for event in events
+        if event["event_type"] == "trade.executed" and event["payload"]["side"] == "sell"
+    )
+    assert buy_event["links"]["correlation_id"] == sell_event["links"]["correlation_id"]
+    assert buy_event["links"]["trade_id"] != sell_event["links"]["trade_id"]
 
 
 def test_add_weighted_average_cost(tmp_path, monkeypatch):
@@ -108,6 +126,22 @@ def test_add_weighted_average_cost(tmp_path, monkeypatch):
     r = pm.add_position("600011", "华能", 12.0, 1000)  # 12000 → 均价11
     assert r["action"] == "加仓"
     assert r["cost"] == 11.0 and r["shares"] == 2000
+
+
+def test_identical_same_day_executions_are_not_deduplicated(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, initial={
+        "cash": 100000, "positions": [], "total_cost": 0, "cash_reconciled": True,
+    })
+
+    pm.add_position("600011", "华能", 10.0, 100, trade_date="2026-06-11")
+    pm.add_position("600011", "华能", 10.0, 100, trade_date="2026-06-11")
+
+    executions = [
+        event for event in signal_ledger.read_events(pm.LEDGER_FILE)
+        if event["event_type"] == "trade.executed"
+    ]
+    assert len(executions) == 2
+    assert executions[0]["links"]["trade_id"] != executions[1]["links"]["trade_id"]
 
 
 def test_same_day_close_is_rejected_by_t1(tmp_path, monkeypatch):

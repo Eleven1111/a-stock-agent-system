@@ -11,9 +11,17 @@
 import sqlite3
 import os
 import json
+import subprocess
+import sys
 import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
+
+COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
+
+from http_client import DataSourceError, request_bytes, request_json, request_text
 
 CACHE_DIR = os.path.expanduser("~/.hermes/data")
 CACHE_DB = os.path.join(CACHE_DIR, "stock_cache.db")
@@ -129,9 +137,6 @@ def save_kline_cache(code: str, data: List[Dict], source="tencent"):
 
 # ─── 数据源层 ───
 
-import subprocess
-import sys
-
 def _run_python(code_str: str) -> str:
     """在 Hermes venv 中执行 Python 代码"""
     result = subprocess.run(
@@ -142,12 +147,13 @@ def _run_python(code_str: str) -> str:
         raise RuntimeError(f"Python error: {result.stderr[:200]}")
     return result.stdout.strip()
 
-def _run_python_with_retry(code_str: str, max_retries=3, base_delay=1.0, timeout=60) -> str:
+def _run_python_with_retry(code_str: str, max_retries=2, base_delay=1.0, timeout=60) -> str:
     """带重试的 _run_python（CDN 间歇性 Empty reply 时自动重试）"""
     import time
     import random
     last_error = None
-    for attempt in range(max_retries):
+    attempts = min(max(int(max_retries), 1), 2)
+    for attempt in range(attempts):
         try:
             result = subprocess.run(
                 [sys.executable, "-c", code_str],
@@ -158,7 +164,7 @@ def _run_python_with_retry(code_str: str, max_retries=3, base_delay=1.0, timeout
             return result.stdout.strip()
         except (RuntimeError, subprocess.TimeoutExpired) as e:
             last_error = e
-            if attempt < max_retries - 1:
+            if attempt < attempts - 1:
                 delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
                 time.sleep(delay)
     raise last_error
@@ -175,11 +181,14 @@ def fetch_kline_from_tencent(code: str, days=120, period="day") -> Optional[List
 
     url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={api_code},{tz_period},,,{days},qfq"
 
-    import urllib.request
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
+        data = request_json(
+            url,
+            source="tencent_kline",
+            timeout=10,
+            max_attempts=2,
+            headers={"User-Agent": "Mozilla/5.0"},
+        ).data
 
         stock_data = data.get('data', {}).get(api_code, {})
         klines = stock_data.get('qfqday', []) or stock_data.get('day', [])
@@ -196,7 +205,7 @@ def fetch_kline_from_tencent(code: str, days=120, period="day") -> Optional[List
                 'amount': float(k[6]) if len(k) > 6 else 0,
             })
         return results
-    except Exception as e:
+    except (DataSourceError, AttributeError, IndexError, KeyError, TypeError, ValueError):
         return None  # fall through
 
 def fetch_kline_from_sina(code: str, days=120) -> Optional[List[Dict]]:
@@ -204,12 +213,15 @@ def fetch_kline_from_sina(code: str, days=120) -> Optional[List[Dict]]:
     api_code = code if code.startswith(('sh','sz')) else f"sh{code}" if code.startswith('6') else f"sz{code}"
     url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={api_code}&scale=240&ma=5&datalen={days}"
 
-    import urllib.request
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read().decode('gbk')
-        data = json.loads(raw)
+        data = request_json(
+            url,
+            source="sina_kline",
+            timeout=10,
+            max_attempts=2,
+            encoding="gbk",
+            headers={"User-Agent": "Mozilla/5.0"},
+        ).data
         results = []
         for k in data:
             results.append({
@@ -222,7 +234,7 @@ def fetch_kline_from_sina(code: str, days=120) -> Optional[List[Dict]]:
                 'amount': 0,
             })
         return results
-    except Exception as e:
+    except (DataSourceError, AttributeError, IndexError, KeyError, TypeError, ValueError):
         return None
 
 def fetch_kline_from_akshare_tx(code: str, days=120) -> Optional[List[Dict]]:
@@ -348,10 +360,13 @@ def fetch_realtime(codes: List[str]) -> Dict:
         prefix_map[api] = c
 
     url = f"http://qt.gtimg.cn/q={','.join(api_codes)}"
-    import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        raw = resp.read()
+    raw = request_bytes(
+        url,
+        source="tencent",
+        timeout=10,
+        max_attempts=2,
+        headers={"User-Agent": "Mozilla/5.0"},
+    ).data
 
     try:
         text = raw.decode('gbk')
@@ -507,10 +522,14 @@ except Exception as e:
 def fetch_index(code="sh000001") -> Dict:
     """腾讯指数行情"""
     url = f"http://qt.gtimg.cn/q={code}"
-    import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        raw = resp.read().decode('gbk')
+    raw = request_text(
+        url,
+        source="tencent",
+        timeout=10,
+        max_attempts=2,
+        encoding="gbk",
+        headers={"User-Agent": "Mozilla/5.0"},
+    ).data
 
     val = raw.split('=')[1].strip().strip('"')
     parts = val.split('~')
