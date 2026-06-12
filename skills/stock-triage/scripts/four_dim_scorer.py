@@ -405,6 +405,18 @@ def freshness_factor(age_days: Optional[float], slow: bool = False) -> float:
 
 # T1 权重值（中央级政策/重大资本动作）→ 慢衰减
 _T1_WEIGHT = 1.2
+CLARIFICATION_RISK_TERMS = [
+    "澄清",
+    "不属实",
+    "未涉及",
+    "不存在相关",
+    "无相关业务",
+    "尚未形成收入",
+    "未形成收入",
+    "对业绩影响较小",
+    "风险提示",
+    "异常波动",
+]
 
 
 def news_catalyst_score(news: List[Dict], now: Optional[datetime] = None) -> Dict[str, Any]:
@@ -417,6 +429,17 @@ def news_catalyst_score(news: List[Dict], now: Optional[datetime] = None) -> Dic
         title = item.get("title", "")
         text = title + " " + item.get("snippet", "")
         age = _news_age_days(item.get("date", ""), now)
+        clarification = next((term for term in CLARIFICATION_RISK_TERMS if term in text), None)
+        if clarification:
+            fresh = freshness_factor(age, slow=False)
+            contribution = -_T1_WEIGHT * fresh
+            delta += contribution
+            age_str = f"{age:.0f}d" if age is not None else "?d"
+            signals.append(
+                f"⚠️ 澄清否定({clarification},{contribution:+.1f},{age_str}): {title[:24]}"
+            )
+            # 澄清公告里的“重大突破/订单”等是被否定对象，不能再计正向分。
+            continue
         for direction, sign in (("bullish", 1), ("bearish", -1)):
             for weight, kws in CATALYST_TIERS[direction]:
                 hit = next((kw for kw in kws if kw in text), None)
@@ -438,7 +461,10 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     "国家战略"同分。现按 T1/T2/T3 分级（政策战略>订单业绩>泛利好），并按
     新闻时间衰减（≤3天全额，>30天两折），更贴合打板/高成长对催化时效的要求。
     """
-    raw_news = fetch_serpapi_news(f"{name} {code} 政策 业绩 公告", num=5)
+    raw_news = fetch_serpapi_news(
+        f"{name} {code} 公告 澄清 风险提示 政策 业绩",
+        num=5,
+    )
     source_available = raw_news is not None   # None=数据源不可用；[]=可用但无新闻
     news = raw_news or []
 

@@ -116,6 +116,32 @@ THRESHOLDS = {
     "adr_move_notable": 3.0,    # 中概股ADR变动超过此%视为值得关注
 }
 
+# 仅用于全球因子到A股的观察映射，不构成个股推荐；个股必须继续通过公告、
+# 可成交性和交易计划质检。
+A_SHARE_SECTOR_STOCK_MAP = {
+    "AI算力": [("000977", "浪潮信息"), ("603019", "中科曙光")],
+    "半导体": [("002371", "北方华创"), ("688981", "中芯国际")],
+    "消费电子": [("002475", "立讯精密"), ("002241", "歌尔股份")],
+    "黄金": [("600547", "山东黄金"), ("600489", "中金黄金")],
+    "贵金属": [("600547", "山东黄金"), ("600489", "中金黄金")],
+    "石油": [("601857", "中国石油"), ("600938", "中国海油")],
+    "石化": [("600028", "中国石化"), ("600346", "恒力石化")],
+    "航空": [("601111", "中国国航"), ("600029", "南方航空")],
+    "电力": [("600900", "长江电力"), ("600011", "华能国际")],
+    "银行": [("600036", "招商银行"), ("601398", "工商银行")],
+    "军工": [("600760", "中航沈飞"), ("600893", "航发动力")],
+    "新能源": [("300750", "宁德时代"), ("601012", "隆基绿能")],
+    "新能源车": [("002594", "比亚迪"), ("601127", "赛力斯")],
+    "互联网": [("601360", "三六零"), ("300418", "昆仑万维")],
+    "电商": [("002315", "焦点科技"), ("300792", "壹网壹创")],
+    "有色": [("601899", "紫金矿业"), ("603993", "洛阳钼业")],
+    "电网": [("600406", "国电南瑞"), ("000400", "许继电气")],
+    "交运": [("601816", "京沪高铁"), ("601006", "大秦铁路")],
+    "化工": [("600309", "万华化学"), ("600426", "华鲁恒升")],
+    "家电": [("000333", "美的集团"), ("000651", "格力电器")],
+    "造纸": [("002078", "太阳纸业"), ("600567", "山鹰国际")],
+}
+
 
 # ========== 数据采集 ==========
 
@@ -415,7 +441,7 @@ def assess_impact(data: Dict[str, Any]) -> Dict[str, Any]:
     vix_price = vix.get("price")
     if vix_price:
         if vix_price >= THRESHOLDS["vix_extreme"]:
-            alerts.append({"level": "🔴 高", "msg": f"VIX={vix_price:.1f}，极度恐慌！外资大概率流出，A股全面承压",
+            alerts.append({"level": "🔴 高", "msg": f"VIX={vix_price:.1f}，极度恐慌，外资风险偏好可能下降，A股成长风格承压",
                            "sectors": ["全市场"], "action": "减仓观望，等待VIX回落"})
             for s in ["AI算力", "半导体", "消费电子", "券商金融"]:
                 sector_impact[s] = sector_impact.get(s, 0) - 3
@@ -434,7 +460,7 @@ def assess_impact(data: Dict[str, Any]) -> Dict[str, Any]:
         if pct is not None:
             if abs(pct) >= THRESHOLDS["index_move_major"]:
                 direction = "暴跌" if pct < 0 else "暴涨"
-                alerts.append({"level": "🔴 高", "msg": f"{label}{direction}{abs(pct):.1f}%！A股明日大概率跟跌/跟涨",
+                alerts.append({"level": "🔴 高", "msg": f"{label}{direction}{abs(pct):.1f}%，风险偏好可能向A股开盘传导",
                                "sectors": ["全市场"], "action": "关注开盘情绪"})
                 for s in ["AI算力", "半导体", "消费电子", "券商金融"]:
                     sector_impact[s] = sector_impact.get(s, 0) + (3 if pct > 0 else -3)
@@ -480,15 +506,17 @@ def assess_impact(data: Dict[str, Any]) -> Dict[str, Any]:
     cny_change = cny.get("change_pct")
     if cny_price is not None and cny_change is not None:
         if cny_change > THRESHOLDS["fx_move_notable"]:  # 人民币贬值
-            alerts.append({"level": "🟡 中", "msg": f"人民币贬值至{cny_price:.2f}（+{cny_change:.2f}%），北向资金可能流出",
-                           "sectors": ["外贸", "家电", "纺织"], "action": "关注北向资金动向"})
+            alerts.append({"level": "🟡 中", "msg": f"人民币贬值至{cny_price:.2f}（+{cny_change:.2f}%），外资风险偏好可能承压",
+                           "sectors": ["外贸", "家电", "纺织"], "action": "关注外资风险偏好与开盘资金承接"})
             for s in ["外贸", "家电", "纺织"]:
                 sector_impact[s] = sector_impact.get(s, 0) + 1
             for s in ["航空", "造纸"]:
                 sector_impact[s] = sector_impact.get(s, 0) - 1
         elif cny_change < -THRESHOLDS["fx_move_notable"]:  # 人民币升值
-            alerts.append({"level": "ℹ️", "msg": f"人民币升值至{cny_price:.2f}（{cny_change:.2f}%），北向资金可能流入",
+            alerts.append({"level": "ℹ️", "msg": f"人民币升值至{cny_price:.2f}（{cny_change:.2f}%），外资风险偏好可能改善",
                            "sectors": ["航空", "造纸", "金融"]})
+            for s in ["航空", "造纸", "金融"]:
+                sector_impact[s] = sector_impact.get(s, 0) + 1
 
     # 6. 原油
     oil = data.get("commodities", {}).get("CL=F", {})
@@ -504,6 +532,10 @@ def assess_impact(data: Dict[str, Any]) -> Dict[str, Any]:
         elif oil_pct < -THRESHOLDS["oil_move_notable"]:
             alerts.append({"level": "ℹ️", "msg": f"原油大跌{abs(oil_pct):.1f}%，利好航空/交运/化工",
                            "sectors": ["航空", "交运", "化工"]})
+            for s in ["航空", "交运", "化工"]:
+                sector_impact[s] = sector_impact.get(s, 0) + 2
+            for s in ["石油", "石化"]:
+                sector_impact[s] = sector_impact.get(s, 0) - 1
 
     # 7. 黄金
     gold = data.get("commodities", {}).get("GC=F", {})
@@ -523,6 +555,8 @@ def assess_impact(data: Dict[str, Any]) -> Dict[str, Any]:
         if pct is not None and abs(pct) >= THRESHOLDS["adr_move_notable"]:
             direction = "跌" if pct < 0 else "涨"
             adr_alerts.append(f"{cfg['name']}({code}){direction}{abs(pct):.1f}%")
+            for sector in cfg["a_impact"]:
+                sector_impact[sector] = sector_impact.get(sector, 0) + (2 if pct > 0 else -2)
     if adr_alerts:
         alerts.append({"level": "🟡 中", "msg": f"中概股异动：{', '.join(adr_alerts)}",
                        "sectors": ["互联网", "电商", "新能源车"], "action": "关注外资对中概股态度"})
@@ -535,6 +569,8 @@ def assess_impact(data: Dict[str, Any]) -> Dict[str, Any]:
             direction = "跌" if pct < 0 else "涨"
             alerts.append({"level": "ℹ️", "msg": f"{cfg['name']}({code}){direction}{abs(pct):.1f}%，可能影响A股{', '.join(cfg['a_impact'])}",
                            "sectors": cfg["a_impact"]})
+            for sector in cfg["a_impact"]:
+                sector_impact[sector] = sector_impact.get(sector, 0) + (2 if pct > 0 else -2)
 
     # 10. 大宗商品综合
     copper = data.get("commodities", {}).get("HG=F", {})
@@ -543,6 +579,8 @@ def assess_impact(data: Dict[str, Any]) -> Dict[str, Any]:
         direction = "跌" if copper_pct < 0 else "涨"
         alerts.append({"level": "ℹ️", "msg": f"铜价{direction}{abs(copper_pct):.1f}%（铜博士），反映全球需求预期",
                        "sectors": ["有色", "电网", "新能源"]})
+        for sector in ["有色", "电网", "新能源"]:
+            sector_impact[sector] = sector_impact.get(sector, 0) + (1 if copper_pct > 0 else -1)
 
     # 11. 美股行业ETF → A股板块联动
     for code, cfg in US_SECTOR_ETFS.items():
@@ -565,7 +603,7 @@ def assess_impact(data: Dict[str, Any]) -> Dict[str, Any]:
             direction = "涨" if pct > 0 else "跌"
             name = cfg["name"]
             if code == "^HSI":
-                alerts.append({"level": "🟡 中", "msg": f"恒生指数{direction}{abs(pct):.1f}%，A股大概率同向",
+                alerts.append({"level": "🟡 中", "msg": f"恒生指数{direction}{abs(pct):.1f}%，可能影响A股开盘风险偏好",
                                "sectors": ["全市场"]})
             elif code in ("^N225", "^KS11"):
                 alerts.append({"level": "ℹ️", "msg": f"{name}{direction}{abs(pct):.1f}%，亚太情绪传导"})
@@ -621,7 +659,56 @@ def assess_impact(data: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "alerts": alerts,
         "sector_impact": sector_impact,
+        "a_share_analysis": build_a_share_analysis(sector_impact, alerts),
         "summary": generate_summary(alerts, sector_impact),
+    }
+
+
+def build_a_share_analysis(
+    sector_impact: Dict[str, float],
+    alerts: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    ordered = sorted(
+        ((sector, score) for sector, score in sector_impact.items() if score),
+        key=lambda item: (-abs(item[1]), item[0]),
+    )
+    sector_views = [
+        {
+            "sector": sector,
+            "direction": "bullish" if score > 0 else "bearish",
+            "impact_score": score,
+            "confidence": "high" if abs(score) >= 3 else "medium",
+            "evidence": [
+                alert.get("msg")
+                for alert in alerts
+                if sector in (alert.get("sectors") or [])
+            ][:3],
+        }
+        for sector, score in ordered[:8]
+    ]
+
+    stock_watchlist = []
+    seen = set()
+    for view in sector_views:
+        for code, name in A_SHARE_SECTOR_STOCK_MAP.get(view["sector"], []):
+            if code in seen:
+                continue
+            seen.add(code)
+            stock_watchlist.append({
+                "code": code,
+                "name": name,
+                "sector": view["sector"],
+                "direction": view["direction"],
+                "impact_score": view["impact_score"],
+                "advice": "watch_only_pending_stock_qc",
+                "reason": f"全球因子映射至{view['sector']}，尚未完成个股公告/可成交性质检",
+            })
+
+    return {
+        "schema": "global_to_a_share_analysis_v1",
+        "sector_views": sector_views,
+        "stock_watchlist": stock_watchlist[:12],
+        "risk_note": "全球联动只生成观察名单，不可直接转成买入建议；个股需通过09:35质检。",
     }
 
 
@@ -973,6 +1060,22 @@ def print_summary(data: Dict[str, Any]):
         print("\n⚡ A股影响评估")
         for alert in impact["alerts"]:
             print(f"  {alert['level']} {alert['msg']}")
+
+    a_share_analysis = impact.get("a_share_analysis") or {}
+    if a_share_analysis.get("sector_views"):
+        print("\n🎯 A股板块传导")
+        for view in a_share_analysis["sector_views"][:6]:
+            print(
+                f"  {view['sector']}: {view['direction']} "
+                f"(影响分 {view['impact_score']:+.1f}, {view['confidence']})"
+            )
+    if a_share_analysis.get("stock_watchlist"):
+        print("\n🔎 个股观察映射（待个股质检）")
+        for stock in a_share_analysis["stock_watchlist"][:8]:
+            print(
+                f"  {stock['name']}({stock['code']}) | {stock['sector']} | "
+                f"{stock['direction']} | 仅观察"
+            )
 
     if impact.get("summary"):
         print(f"\n📝 一句话总结：{impact['summary']}")

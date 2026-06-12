@@ -1,0 +1,100 @@
+# A股交易与监控生命周期
+
+## 目标
+
+Hermes 与 OpenClaw 只负责运行同一套确定性脚本。交易规则、推荐质检和监控状态
+不依赖对话记忆，避免不同 Agent 给出互相冲突的建议。
+
+## 共享状态
+
+两端设置相同目录：
+
+```bash
+export A_STOCK_STATE_HOME="$HOME/.a-stock-agent"
+```
+
+`A_STOCK_STATE_HOME` 只存放 A 股业务状态；`HERMES_HOME` 仍用于 Hermes 安装、
+Python 虚拟环境和 `.env`。两者不要混用。
+
+共享文件：
+
+- `skills/stock-triage/data/portfolio.json`
+- `skills/stock-triage/data/recommendations.json`
+- `skills/stock-triage/data/monitor_registry.json`
+- `skills/stock-triage/data/trade_history.json`
+
+## T+1 执行约束
+
+`portfolio_manager.py` 按 lot 保存每次买入/加仓日期。当日新增股份被锁定：
+
+- 当日全仓卖出会返回 `T1_LOCKED`
+- 返回 `earliest_sell_date` 和 `locked_shares`
+- 推荐审计同样拒绝当日 `sell/reduce`
+- 止损触发但仍锁定时，只能记录风险和次交易日处置计划
+
+交易日来自 `config/a_share_calendar.json`。每年开市前必须按上交所/深交所休市
+通知更新该文件；未覆盖年份会退化为工作日判断，并在结果中标记
+`calendar_covered=false`。
+
+## 09:26 集合竞价
+
+`auction-finalize` 在 09:26 执行，前五名生成 `preopen_decisions`：
+
+- `conditional_buy`：公告质检通过，但仍需 09:35 开盘确认
+- `watch`：数据或公告扫描不完整，只能关注
+- `avoid`：不可成交、澄清公告或硬风险
+
+每条记录包含买入区间、最高追价、止损、两级目标、仓位、T+1 最早卖出日和
+失效条件。前五名股票及其板块自动写入动态监控注册表，有两交易日有效期。
+
+## 09:35 开盘确认
+
+`open-confirmation` 重新拉取实时行情并并发查询巨潮资讯公告：
+
+- `buy`：可成交、价格窗口合格、公告质检通过
+- `watch`：条件不足或公告源不可用
+- `avoid`：一字板/停牌/涨停不可买，或公告出现澄清、监管、财务硬风险
+
+结果自动写入 `recommendations.json`，同一交易日和股票使用确定性 ID，重跑不会
+产生重复推荐。
+
+## 公告质检
+
+质检识别以下信号并阻止正向关键词误加分：
+
+- 澄清、不属实、未涉及、无相关业务
+- 尚未形成收入、对业绩无重大影响
+- 股票交易异常波动、风险提示
+- 立案调查、退市风险、监管问询、资金占用、违规担保、减持
+
+公告扫描失败时状态为 `conditional`，不能输出无条件买入。公告只检查最近 30 天，
+防止历史异动公告永久封禁股票。
+
+## 动态监控
+
+盘中监控不再使用硬编码股票列表，观察集合由当前持仓和
+`monitor_registry.json` 合并生成。
+
+```bash
+python skills/stock-triage/scripts/monitor_manager.py --list
+python skills/stock-triage/scripts/monitor_manager.py --add-stock 002156 通富微电
+python skills/stock-triage/scripts/monitor_manager.py --add-theme AI算力
+python skills/stock-triage/scripts/monitor_manager.py --cancel-stock 002156
+python skills/stock-triage/scripts/monitor_manager.py --cancel-theme AI算力
+```
+
+用户明确取消会写入 `manual_cancelled` 墓碑。普通定时任务不能重新激活；只有新的
+手工订阅或真实买入可以显式覆盖。清仓后股票监控自动转为 `closed`。
+
+资讯监控使用固定宏观查询加动态股票/板块/主题查询。股票查询会额外包含公告、
+澄清、风险提示和监管问询，已取消主题不会继续推送。
+
+## 全球市场输出
+
+全球监控除原始信息外，新增：
+
+- `sector_views`：A 股板块方向、影响分、置信度和证据
+- `stock_watchlist`：代表性股票观察映射
+
+全球映射只允许生成 `watch_only_pending_stock_qc`，不能绕过个股公告和可成交性
+质检直接升级为买入建议。

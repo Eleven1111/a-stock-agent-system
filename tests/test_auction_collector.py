@@ -120,6 +120,8 @@ def test_load_watch_pool_rejects_stale_state(tmp_path, monkeypatch):
 
 def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"
     candidates = [
@@ -158,6 +160,8 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
 
     assert result["schema"] == "auction_finalize_v2"
     assert len(result["shortlist"]) == 5
+    assert len(result["preopen_decisions"]) == 5
+    assert all(item["execution_plan"]["same_day_sell_allowed"] is False for item in result["preopen_decisions"])
     assert read_json(ac._shortlist_path(event_asof), {})["asof"] == event_asof
     lifecycle = candidate_lifecycle.load_day(source_asof)
     assert sum(record["current_stage"] == "auction_shortlist" for record in lifecycle["records"]) == 5

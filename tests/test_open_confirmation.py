@@ -50,6 +50,10 @@ def test_open_confirmation_marks_mid_gain_as_trend_watch():
 
     assert result["action"] == "trend_watch"
     assert "3%-10%" in result["reasons"][0]
+    assert result["decision"] in {"buy", "watch"}
+    assert result["execution_plan"]["same_day_sell_allowed"] is False
+    assert result["execution_plan"]["entry_range"]
+    assert result["quality_report"]["status"] in {"passed", "conditional"}
 
 
 def test_rank_confirmations_returns_top_five_and_keeps_strategy_scores():
@@ -172,6 +176,11 @@ def test_rank_confirmations_enforces_temperature_daban_gate():
 
 def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"
     shortlist = [
@@ -249,6 +258,11 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
 
 def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"
     shortlist = [

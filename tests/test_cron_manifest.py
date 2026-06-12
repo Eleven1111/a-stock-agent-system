@@ -193,4 +193,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["hot-money-context"]["run"]["command"].endswith("--cache-only")
     assert jobs["auction-snapshot"]["context_from"] == ["candidate-discovery"]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
+    assert jobs["auction-finalize"]["schedule"] == "26 9 * * 1-5"
+    assert any("monitor_registry.json" in path for path in jobs["auction-finalize"]["allowed_state_writes"])
+    assert any("recommendations.json" in path for path in jobs["open-confirmation"]["allowed_state_writes"])
     assert set(jobs["closing-triage"]["context_from"]) >= {"four-dim-scorer", "portfolio-check"}

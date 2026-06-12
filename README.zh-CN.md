@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-281%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-304%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
@@ -41,14 +41,14 @@ graph TD
 | **hot-money-tactics** | 涨停板全景、连板梯队、封板质量、情绪周期、板块轮动 | AkShare |
 | **daban-stock-picker** | 主板10cm打板候选闸门：首板回封、二板弱转强、六问否决、可成交性 | 结构化行情/板块/持仓 JSON |
 | **chanlun-backtest** | 缠论/打板离线研究闸门：IS/OOS、成本、对照组、统计检验 | 本地研究状态 JSON |
-| **global-market-monitor** | 美股/VIX/美债/期货/外汇/自然灾害 → A股影响评估 | yfinance、USGS、GDACS |
+| **global-market-monitor** | 美股/VIX/美债/期货/外汇/自然灾害 → A股板块方向与个股观察映射 | yfinance、USGS、GDACS |
 | **news-to-sector** | 实时资讯→18条产业链映射 + 预期差分析 | SerpAPI |
 | **serenity-investment-research** | 深度投研：供应链拆解、财务分析、估值情景、熊市审计 | cninfo、pypdf |
 | **four-dim scorer** | S/A/B/C 加权分级：技术(30%)×情绪(25%)×催化(25%)×深度(20%) | 以上全部 |
 | **hk-a-linkage** | AH溢价率、恒生背离、港股权重异动 | 腾讯、yfinance |
 | **capital-flow-monitor** | 北向资金、主力/散户资金、板块资金 | 东方财富 |
-| **portfolio-manager** | 持仓跟踪、止损止盈、回撤止盈、仓位集中度风控 | 腾讯 |
-| **intraday-monitor** | 5分钟异动告警：涨跌停、放量、急涨急跌 | 腾讯 |
+| **portfolio-manager** | 分批持仓、A股T+1约束、止损止盈、回撤止盈、仓位集中度风控 | 腾讯 |
+| **intraday-monitor** | 持仓+动态订阅异动告警；清仓和取消后自动退订 | 腾讯 |
 | **institution-tracker** | 机构调研、券商研报、大股东增减持 | 东方财富 |
 | **event-calendar** | 限售解禁、分红除权、政策窗口 | 东方财富 |
 | **performance-tracker** | 信号胜率统计、分级表现、反馈闭环 | 腾讯 |
@@ -85,8 +85,19 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 
 ```bash
 python scripts/smoke_test.py      # 9项集成检查
-python -m pytest -q tests/        # 281项测试全部通过
+python -m pytest -q tests/        # 304项测试全部通过
 ```
+
+### Hermes / OpenClaw 共享状态
+
+两端设置相同的状态目录，确保持仓、推荐和监控订阅一致：
+
+```bash
+export A_STOCK_STATE_HOME="$HOME/.a-stock-agent"
+```
+
+T+1 约束、推荐质检和动态订阅规则见
+[A股交易与监控生命周期](docs/trading-lifecycle.md)。
 
 ### 运行
 
@@ -259,7 +270,7 @@ a-stock-agent-system/
 │   ├── generate_system_crontab.py # 系统cron兜底生成器
 │   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 281个单元测试
+├── tests/                      # 304个单元测试
 ├── skills/
 │   ├── common/                 # 共享HTTP/状态 + 候选排序/生命周期
 │   ├── stock-triage/           # 编排中枢
@@ -302,7 +313,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 281项测试
+python -m pytest -q tests/        # 304项测试
 python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```

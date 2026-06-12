@@ -27,8 +27,12 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 from a_stock_http import fetch_tencent_snapshot, DataSourceError  # noqa: E402
+from announcement_risk import scan_many  # noqa: E402
+from a_share_rules import add_trading_days  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
+import monitor_registry  # noqa: E402
+from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
 from tradeability import limit_pct, round_limit  # noqa: E402
 from state_store import atomic_write_json, mutate_json, read_json  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -90,6 +94,8 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     return {
         "code": code,
         "name": name,
+        "indicative_price": price,
+        "prev_close": prev_close,
         "auction_gap_pct": gap_pct,
         "auction_volume": round(volume, 1),
         "auction_amount": round(price * volume * 100, 0),
@@ -193,6 +199,77 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
     result.update(shortlist)
     result["schema"] = "auction_finalize_v2"
     result["asof"] = asof
+    top_candidates = list(result["shortlist"][:5])
+    announcement_map = scan_many(
+        candidate_pipeline.naked_code(item.get("code"))
+        for item in top_candidates
+    )
+    decisions = []
+    monitor_expiry = add_trading_days(asof, 2)
+    for item in top_candidates:
+        code = candidate_pipeline.naked_code(item.get("code"))
+        provisional = build_execution_plan(
+            {**item, "action": "trend_watch", "price": item.get("indicative_price")},
+            {"status": "passed", "execution_constraints": {}},
+            asof=asof,
+            stage="auction",
+        )
+        recommendation = {
+            **item,
+            "action": "buy",
+            "entry_price": item.get("indicative_price"),
+            "price_range": provisional["entry_range"],
+            "stop_price": provisional["stop_price"],
+            "target_price": provisional["target_price"],
+            "horizon": provisional["horizon"],
+            "grade": "A" if float(item.get("auction_score") or 0) >= 80 else "B",
+            "confidence": "medium",
+            "position_pct": provisional["position_pct"] or 4.0,
+            "tradeability": {"tradeable": not item.get("is_yiziban"), "status": "auction"},
+        }
+        quality = build_quality_report(
+            recommendation,
+            announcement_map.get(code),
+            asof=asof,
+        )
+        plan = build_execution_plan(
+            {**item, "action": "trend_watch", "price": item.get("indicative_price")},
+            quality,
+            asof=asof,
+            stage="auction",
+        )
+        decision = {
+            **item,
+            "decision": plan["decision"],
+            "execution_plan": plan,
+            "quality_report": quality,
+            "announcements": announcement_map.get(code),
+        }
+        decisions.append(decision)
+        if plan["decision"] != "avoid":
+            monitor_registry.activate(
+                "stock",
+                code,
+                str(item.get("name") or code),
+                source="auction_finalize",
+                expires_at=monitor_expiry,
+                metadata={
+                    "decision": plan["decision"],
+                    "auction_rank": item.get("auction_rank"),
+                    "quality_status": quality["status"],
+                },
+            )
+        sector = str(item.get("sector") or "").strip()
+        if sector and plan["decision"] != "avoid":
+            monitor_registry.activate(
+                "sector",
+                sector,
+                sector,
+                source="auction_finalize",
+                expires_at=monitor_expiry,
+            )
+    result["preopen_decisions"] = decisions
+    result["decision_count"] = len(decisions)
     _persist_shortlist(result, asof)
 
     selected = [item["code"] for item in result["shortlist"]]

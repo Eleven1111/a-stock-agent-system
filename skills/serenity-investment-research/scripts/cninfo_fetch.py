@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 QUERY_URL = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
+TOP_SEARCH_URL = "https://www.cninfo.com.cn/new/information/topSearch/query"
 PDF_BASE = "https://static.cninfo.com.cn/"
 
 
@@ -43,9 +44,21 @@ def safe_name(name: str) -> str:
 
 
 def infer_org_id(stock_code: str) -> str:
-    prefix = "gssz" if stock_code.startswith(("0", "3")) else "gssh"
-    digits = f"{int(stock_code):07d}" if stock_code.isdigit() else stock_code
-    return prefix + digits
+    """Resolve CNINFO's opaque orgId; it cannot be derived from the stock code."""
+    data = post_form(TOP_SEARCH_URL, {"keyWord": stock_code, "maxNum": "10"})
+    if not isinstance(data, list):
+        raise LookupError(f"unexpected CNINFO topSearch response for {stock_code}")
+    match = next(
+        (
+            item for item in data
+            if str(item.get("code") or "").zfill(6) == str(stock_code).zfill(6)
+            and item.get("orgId")
+        ),
+        None,
+    )
+    if not match:
+        raise LookupError(f"CNINFO orgId not found for {stock_code}")
+    return str(match["orgId"])
 
 
 def download(url: str, out: Path) -> None:

@@ -20,12 +20,14 @@ from typing import Dict
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from paths import data_file
 from state_store import atomic_write_json, read_json
+import monitor_registry
 
-TRACKED_CODES = ["600011", "002156", "600584", "002185", "000021", "600667"]
-TRACKED_NAMES = {"600011": "华能国际", "002156": "通富微电", "600584": "长电科技",
-                 "002185": "华天科技", "000021": "深科技", "600667": "太极实业"}
+# 兼容测试/显式注入；生产默认观察集由持仓和 monitor_registry 动态生成。
+TRACKED_CODES = []
+TRACKED_NAMES = {}
 
 ALERT_CACHE = data_file("stock-triage", "intraday_alerts.json")
+PORTFOLIO_FILE = data_file("stock-triage", "portfolio.json")
 
 
 def in_trading_session(now: datetime = None) -> bool:
@@ -71,6 +73,22 @@ def save_alert_cache(cache: Dict):
     atomic_write_json(ALERT_CACHE, cache)
 
 
+def tracked_universe() -> Dict[str, str]:
+    tracked = {
+        str(code).zfill(6): TRACKED_NAMES.get(str(code), str(code))
+        for code in TRACKED_CODES
+    }
+    portfolio = read_json(PORTFOLIO_FILE, {})
+    positions = portfolio.get("positions", []) if isinstance(portfolio, dict) else []
+    monitor_registry.sync_positions(positions)
+    for position in positions:
+        code = str(position.get("code") or "").zfill(6)
+        if code:
+            tracked[code] = str(position.get("name") or code)
+    tracked.update(monitor_registry.active_stock_map())
+    return tracked
+
+
 def check_intraday() -> Dict:
     """检测盘中异动（阈值触发）"""
     alerts = []
@@ -81,12 +99,12 @@ def check_intraday() -> Dict:
     if cache.get("_date", "") != today:
         cache = {"_date": today}
 
-    for code in TRACKED_CODES:
+    universe = tracked_universe()
+    for code, name in universe.items():
         data = fetch_realtime(code)
         if not data.get("price"):
             continue
 
-        name = TRACKED_NAMES.get(code, code)
         price = data["price"]
         pct = data.get("change_pct", 0)
         turnover = data.get("turnover", 0)
@@ -128,6 +146,8 @@ def check_intraday() -> Dict:
     return {
         "timestamp": now.isoformat(),
         "time": now_str,
+        "tracked_count": len(universe),
+        "tracked_stocks": universe,
         "alerts": alerts,
         "has_alerts": len(alerts) > 0,
     }

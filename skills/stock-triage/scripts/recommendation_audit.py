@@ -24,10 +24,13 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from state_store import read_json, update_json_list, mutate_json
 from paths import data_file
+from a_share_rules import t1_constraint
+from recommendation_quality import build_quality_report
 
 
 RECOMMENDATIONS_FILE = data_file("stock-triage", "recommendations.json")
 HISTORY_FILE = data_file("stock-triage", "trade_history.json")
+PORTFOLIO_FILE = data_file("stock-triage", "portfolio.json")
 
 VALID_ACTIONS = {"buy", "sell", "add", "reduce", "hold", "avoid"}
 VALID_OUTCOMES = {"pending", "profit", "loss", "breakeven", "invalidated"}
@@ -55,6 +58,39 @@ def _clean_list(values: Optional[List[str]]) -> List[str]:
 
 def _make_id(code: str) -> str:
     return f"rec-{date.today().isoformat()}-{code}-{uuid.uuid4().hex[:8]}"
+
+
+def _sell_t1_block(code: str, asof: str) -> Dict[str, Any] | None:
+    portfolio = read_json(PORTFOLIO_FILE, {})
+    positions = portfolio.get("positions", []) if isinstance(portfolio, dict) else []
+    position = next((item for item in positions if str(item.get("code")).zfill(6) == code), None)
+    if not position:
+        return None
+    known_dates = [
+        str(value)
+        for value in (position.get("buy_date"), position.get("add_date"))
+        if value
+    ]
+    lots = position.get("lots") or [{
+        "shares": position.get("shares"),
+        "acquired_on": max(known_dates) if known_dates else "1970-01-01",
+    }]
+    locked = [
+        {**lot, "constraint": t1_constraint(lot.get("acquired_on"), asof)}
+        for lot in lots
+        if not t1_constraint(lot.get("acquired_on"), asof)["sell_allowed"]
+    ]
+    if not locked:
+        return None
+    return {
+        "error": "A股T+1限制：当日买入/加仓股份不能当日卖出",
+        "code": "T1_LOCKED",
+        "earliest_sell_date": max(
+            item["constraint"]["earliest_sell_date"]
+            for item in locked
+        ),
+        "locked_shares": sum(int(item.get("shares") or 0) for item in locked),
+    }
 
 
 def calculate_odds(entry_price: Optional[float], target_price: Optional[float], stop_price: Optional[float]) -> Optional[float]:
@@ -216,6 +252,9 @@ def record_recommendation(
     confidence: Optional[str] = None,
     strategy_id: Optional[str] = None,
     total_asset: float = 100000.0,
+    announcements: Optional[List[Dict[str, Any]]] = None,
+    source_id: Optional[str] = None,
+    asof: Optional[str] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -223,12 +262,43 @@ def record_recommendation(
         return {"error": f"非法建议动作: {action}"}
     if not name or not price_range or not rationale:
         return {"error": "name、price_range、rationale 为必填字段"}
+    record_date = asof or date.today().isoformat()
+    if action in {"sell", "reduce"}:
+        t1_block = _sell_t1_block(code, record_date)
+        if t1_block:
+            return t1_block
+
+    sizing = position_guidance(
+        strategy_id,
+        entry_price,
+        target_price,
+        stop_price,
+        total_asset,
+    )
+    quality = build_quality_report(
+        {
+            "code": code,
+            "name": name,
+            "action": action,
+            "entry_price": entry_price,
+            "price_range": price_range,
+            "stop_price": stop_price,
+            "target_price": target_price,
+            "horizon": horizon,
+            "grade": grade,
+            "confidence": confidence,
+            "position_pct": sizing.get("recommended_position_pct"),
+            "tradeability": {"tradeable": True, "status": "not_checked"},
+        },
+        announcements,
+        asof=record_date,
+    )
 
     record = {
-        "id": _make_id(code),
+        "id": source_id or _make_id(code),
         "code": code,
         "name": name,
-        "date": date.today().isoformat(),
+        "date": record_date,
         "created_at": datetime.now().isoformat(),
         "action": action,
         "price_range": price_range,
@@ -240,7 +310,9 @@ def record_recommendation(
         "grade": grade,
         "confidence": confidence,
         "strategy_id": strategy_id or "default",
-        "position_sizing": position_guidance(strategy_id, entry_price, target_price, stop_price, total_asset),
+        "position_sizing": sizing,
+        "quality_report": quality,
+        "execution_constraints": quality["execution_constraints"],
         "outcome": "pending",
     }
     update_json_list(RECOMMENDATIONS_FILE, record, unique_key="id")

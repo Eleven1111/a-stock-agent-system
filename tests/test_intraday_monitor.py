@@ -1,6 +1,7 @@
 """盘中异动监控 — 新一天首次运行不得清空刚生成的告警（顺序 bug 回归）。"""
 
 import intraday_monitor as im
+from state_store import atomic_write_json
 
 
 def _stub_market(monkeypatch):
@@ -15,6 +16,8 @@ def _stub_market(monkeypatch):
 def test_new_day_first_run_keeps_alerts(tmp_path, monkeypatch):
     """昨日缓存残留时，新一天首次运行应正常产出告警，而非循环后被一并清空。"""
     monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     _stub_market(monkeypatch)
 
     # 注入陈旧缓存（昨天 + 已记录的告警键）
@@ -28,6 +31,8 @@ def test_new_day_first_run_keeps_alerts(tmp_path, monkeypatch):
 def test_same_day_dedup_still_works(tmp_path, monkeypatch):
     """同一天内重复触发应去重：第二次运行不再重复报同一涨停。"""
     monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     _stub_market(monkeypatch)
 
     first = im.check_intraday()
@@ -35,3 +40,22 @@ def test_same_day_dedup_still_works(tmp_path, monkeypatch):
 
     second = im.check_intraday()
     assert not any(a["type"] == "涨停" for a in second["alerts"]), "同日涨停应已去重"
+
+
+def test_sold_stock_is_removed_from_dynamic_universe(tmp_path, monkeypatch):
+    monkeypatch.setattr(im, "TRACKED_CODES", [])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {})
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    atomic_write_json(im.PORTFOLIO_FILE, {"positions": []})
+    im.monitor_registry.activate(
+        "stock",
+        "600011",
+        "华能国际",
+        source="portfolio_buy",
+        force=True,
+    )
+
+    universe = im.tracked_universe()
+
+    assert "600011" not in universe

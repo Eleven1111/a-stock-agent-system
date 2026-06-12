@@ -43,3 +43,32 @@ def test_scheduled_news_monitor_fails_closed_without_serpapi(monkeypatch):
 
     assert result["status"] == "insufficient_data"
     assert result["signals"] == []
+
+
+def test_scheduled_news_monitor_adds_active_registry_queries(monkeypatch):
+    monitor = load_module("scheduled_news_monitor_registry_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(
+        monitor,
+        "active_entries",
+        lambda kind=None: [
+            {"kind": "theme", "key": "AI算力", "label": "AI算力"},
+            {"kind": "stock", "key": "002156", "label": "通富微电"},
+        ],
+    )
+
+    queries = monitor.build_queries()
+
+    assert any("AI算力" in query for query in queries)
+    assert any("通富微电" in query and "澄清" in query for query in queries)
+
+
+def test_scheduled_news_monitor_marks_clarification_as_risk():
+    monitor = load_module("scheduled_news_monitor_risk_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+
+    event = monitor.classify_event({
+        "title": "公司澄清AI订单传闻",
+        "snippet": "相关消息不属实，尚未形成收入",
+    })
+
+    assert event["risk_classification"]["is_risk"] is True
+    assert "澄清" in event["risk_classification"]["clarification_hits"]

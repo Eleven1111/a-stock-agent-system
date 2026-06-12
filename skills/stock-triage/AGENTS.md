@@ -199,6 +199,7 @@ from typing import Dict, Any, List, Optional
 | portfolio.json | `stock-triage/data/` | 持仓数据 |
 | signal_history.json | `stock-triage/data/` | 历史信号记录 |
 | recommendations.json | `stock-triage/data/` | 推荐审计档案 |
+| monitor_registry.json | `stock-triage/data/` | 股票/板块/主题监控订阅及取消墓碑 |
 | intraday_alerts.json | `stock-triage/data/` | 盘中告警去重缓存 |
 | alerts.json | `$HERMES_HOME/cron/output/` | 价格提醒数据 |
 | job_runs.json | `$HERMES_HOME/cron/output/` | Cron 运行账本 |
@@ -206,6 +207,18 @@ from typing import Dict, Any, List, Optional
 | .env | `~/.hermes/` | API keys + NO_PROXY |
 
 ## 推荐审计铁律（REC-002 事故修复）
+
+### 0. A股 T+1 与质检门禁
+
+- 买入/加仓当天禁止生成卖出、减仓、止损成交建议。
+- 必须读取持仓 lots 的 `acquired_on`，输出 `earliest_sell_date`；T+1 锁定期间只允许
+  `hold_locked` 或“次交易日处置”。
+- 买入建议必须附 `quality_report`：公告扫描、可成交性、买入区间、最高追价、
+  止损、目标、持有周期、仓位和风险清单。
+- `quality_report.status != passed` 时不得输出无条件买入；`rejected` 必须回避，
+  `conditional` 只能关注。
+- 用户明确取消股票/主题/板块后，必须调用 `monitor_manager.py --cancel-*` 写入取消墓碑，
+  不得仅在对话里口头确认。
 
 ### 1. 每条推荐必须写入审计档案
 每一条买入/卖出/加仓/减仓建议，必须同步写入 `data/recommendations.json`：

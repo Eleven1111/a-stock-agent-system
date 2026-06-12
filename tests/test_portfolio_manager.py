@@ -1,6 +1,7 @@
 """资金/仓位管理 — 迁移对账 + 并发安全 + 输入校验测试（纯逻辑，不触网）"""
 
 import threading
+from datetime import date
 
 import portfolio_manager as pm
 
@@ -10,6 +11,7 @@ def _wire(tmp_path, monkeypatch, initial=None):
     monkeypatch.setattr(pm, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(pm, "CASHFLOW_FILE", str(tmp_path / "cash_flow.json"))
     monkeypatch.setattr(pm, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(pm.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     if initial is not None:
         pm.save_portfolio(initial)
 
@@ -89,12 +91,13 @@ def test_add_then_close_cash_roundtrip(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch, initial={
         "cash": 100000, "positions": [], "total_cost": 0, "cash_reconciled": True,
     })
-    pm.add_position("600011", "华能", 9.0, 2000)          # -18000
+    pm.add_position("600011", "华能", 9.0, 2000, trade_date="2026-06-11")  # -18000
     assert pm.load_portfolio()["cash"] == 82000
-    r = pm.close_position("600011", 10.0)                  # +20000
+    r = pm.close_position("600011", 10.0, trade_date="2026-06-12")        # +20000
     assert r["ok"] and r["pnl"] == 2000
     assert pm.load_portfolio()["cash"] == 102000
     assert pm.load_portfolio()["positions"] == []
+    assert pm.monitor_registry.active_stock_map() == {}
 
 
 def test_add_weighted_average_cost(tmp_path, monkeypatch):
@@ -105,6 +108,45 @@ def test_add_weighted_average_cost(tmp_path, monkeypatch):
     r = pm.add_position("600011", "华能", 12.0, 1000)  # 12000 → 均价11
     assert r["action"] == "加仓"
     assert r["cost"] == 11.0 and r["shares"] == 2000
+
+
+def test_same_day_close_is_rejected_by_t1(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, initial={
+        "cash": 100000, "positions": [], "total_cost": 0, "cash_reconciled": True,
+    })
+    pm.add_position("600011", "华能", 9.0, 2000, trade_date="2026-06-12")
+
+    result = pm.close_position("600011", 10.0, trade_date="2026-06-12")
+
+    assert "error" in result
+    assert result["code"] == "T1_LOCKED"
+    assert result["earliest_sell_date"] == "2026-06-15"
+    assert pm.load_portfolio()["positions"][0]["shares"] == 2000
+
+
+def test_stop_loss_report_does_not_claim_same_day_exit_for_locked_shares():
+    today = date.today().isoformat()
+    portfolio = {
+        "cash": 0,
+        "positions": [{
+            "code": "600011",
+            "name": "华能",
+            "cost": 10.0,
+            "shares": 1000,
+            "peak_price": 10.0,
+            "lots": [{"shares": 1000, "cost": 10.0, "acquired_on": today}],
+        }],
+    }
+
+    result = pm._apply_prices(
+        portfolio,
+        {"600011": {"price": 9.0, "change_pct": -10.0}},
+    )
+
+    alert = result["alerts"][0]
+    assert alert["execution_status"] == "t1_locked"
+    assert "最早" in alert["msg"]
+    assert "触发硬止损！" not in alert["msg"]
 
 
 # ========== 输入校验 / 余额不足 ==========

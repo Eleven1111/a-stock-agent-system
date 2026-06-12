@@ -5,6 +5,7 @@ import importlib
 
 
 def test_default_home(monkeypatch):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.delenv("HERMES_HOME", raising=False)
     import paths
     importlib.reload(paths)
@@ -12,6 +13,7 @@ def test_default_home(monkeypatch):
 
 
 def test_env_override(monkeypatch, tmp_path):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.delenv("HERMES_PYTHON", raising=False)
     import paths
@@ -25,6 +27,7 @@ def test_env_override(monkeypatch, tmp_path):
 
 
 def test_hermes_python_override(monkeypatch, tmp_path):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setenv("HERMES_PYTHON", "/opt/hermes-python")
     import paths
@@ -33,8 +36,18 @@ def test_hermes_python_override(monkeypatch, tmp_path):
 
 
 def test_cache_and_cron_dirs(monkeypatch, tmp_path):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     import paths
     importlib.reload(paths)
     assert paths.cache_dir("global-market-monitor").startswith(str(tmp_path))
     assert paths.cron_output_dir().endswith(os.path.join("cron", "output"))
+
+
+def test_shared_state_home_takes_precedence(monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", "/tmp/hermes")
+    monkeypatch.setenv("A_STOCK_STATE_HOME", "/tmp/shared-a-stock")
+    import paths
+    importlib.reload(paths)
+    assert paths.hermes_home() == "/tmp/shared-a-stock"
+    assert paths.hermes_python() == "/tmp/hermes/hermes-agent/venv/bin/python3"

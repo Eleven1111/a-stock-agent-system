@@ -8,6 +8,7 @@ from state_store import atomic_write_json
 def _wire(tmp_path, monkeypatch, history=None):
     monkeypatch.setattr(ra, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(ra, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(ra, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     if history is not None:
         atomic_write_json(ra.HISTORY_FILE, history)
 
@@ -115,3 +116,30 @@ def test_position_guidance_blocks_new_daban_when_temperature_disallows(monkeypat
     assert sizing["recommended_position_pct"] == 0.0
     assert sizing["recommended_amount"] == 0.0
     assert sizing["temperature"]["allow_new_daban"] is False
+
+
+def test_sell_recommendation_is_blocked_for_same_day_buy(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    atomic_write_json(
+        ra.PORTFOLIO_FILE,
+        {
+            "positions": [{
+                "code": "002156",
+                "name": "通富微电",
+                "shares": 1000,
+                "lots": [{"shares": 1000, "acquired_on": "2026-06-12"}],
+            }]
+        },
+    )
+
+    result = ra.record_recommendation(
+        "002156",
+        "通富微电",
+        "sell",
+        "10.80-11.00",
+        "盘中波动",
+        asof="2026-06-12",
+    )
+
+    assert result["code"] == "T1_LOCKED"
+    assert result["earliest_sell_date"] == "2026-06-15"

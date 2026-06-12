@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-281%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-304%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -44,14 +44,14 @@ graph TD
 | **hot-money-tactics** | Limit-up board analysis, sentiment cycles, sector rotation tracking | AkShare |
 | **daban-stock-picker** | Main-board 10cm limit-up candidate gate: first-board reseal, second-board weak-to-strong, six-question veto, tradeability. Thresholds read from a single source of truth shared with the backtest engine | `config/daban_thresholds.yaml`, structured JSON |
 | **chanlun-backtest** | Offline research gate (IS/OOS wall, costs, controls, statistical tests) **plus** `chan_structure` signal generator: fractals → strokes → pivots → third buy/sell → MACD divergence. Signals earn live weight only after the gate passes | Tencent qfq K-line, local research-state JSON |
-| **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share impact | yfinance, USGS, GDACS |
+| **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share sector views and stock watch mappings | yfinance, USGS, GDACS |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
 | **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit. The weighted scorecard flows back into the four-dim deep dimension via a freshness-decayed cache | cninfo, pypdf |
 | **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(25%) × catalyst(25%) × deep(20%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals | All above |
 | **hk-a-linkage** | AH premium spreads, HSI divergence, key HK stock movements | Tencent, yfinance |
 | **capital-flow-monitor** | Northbound flows, institutional/retail flows, sector-level flows | Eastmoney |
-| **portfolio-manager** | P&L tracking, stop-loss, trailing stops, concentration checks | Tencent |
-| **intraday-monitor** | 5-minute alerts: limit-up/down, volume spikes, sudden moves | Tencent |
+| **portfolio-manager** | Lot-level P&L, A-share T+1 enforcement, stop-loss, trailing stops, concentration checks | Tencent |
+| **intraday-monitor** | Dynamic portfolio/subscription alerts; sold and cancelled names are removed automatically | Tencent |
 | **institution-tracker** | Research visits, analyst reports, insider trades | Eastmoney |
 | **event-calendar** | Lockup expirations, dividends, policy windows | Eastmoney |
 | **performance-tracker** | Signal accuracy tracking with grade-level breakdown | Tencent |
@@ -90,6 +90,18 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 python scripts/smoke_test.py
 python -m pytest -q tests/
 ```
+
+### Shared Hermes/OpenClaw state
+
+Set the same state root in both runtimes so portfolio, recommendations, and
+monitor subscriptions stay consistent:
+
+```bash
+export A_STOCK_STATE_HOME="$HOME/.a-stock-agent"
+```
+
+See [A-share trading and monitoring lifecycle](docs/trading-lifecycle.md) for
+T+1 enforcement, recommendation QC, and dynamic subscription behavior.
 
 ### Run
 
@@ -259,7 +271,7 @@ a-stock-agent-system/
 │   ├── generate_system_crontab.py # System cron fallback generator
 │   ├── smoke_test.py           # 9-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 281 unit tests
+├── tests/                      # 304 unit tests
 ├── skills/
 │   ├── common/                 # Shared HTTP/state + candidate ranking/lifecycle
 │   ├── stock-triage/           # Orchestrator hub
@@ -338,7 +350,7 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 281 tests
+python -m pytest -q tests/        # 304 tests
 python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```

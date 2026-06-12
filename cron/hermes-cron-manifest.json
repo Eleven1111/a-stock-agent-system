@@ -163,7 +163,7 @@
     {
       "id": "auction-finalize",
       "name": "集合竞价收口+候选池",
-      "schedule": "25 9 * * 1-5",
+      "schedule": "26 9 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/hermes_job_runner.py auction-finalize",
       "cwd": ".",
@@ -183,6 +183,7 @@
         "$HERMES_HOME/skills/daban-stock-picker/data/auction_shortlist_*.json",
         "$HERMES_HOME/skills/daban-stock-picker/data/auction_shortlist_latest.json",
         "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
+        "$HERMES_HOME/skills/stock-triage/data/monitor_registry.json",
         "$HERMES_HOME/cron/output/auction-finalize/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
@@ -191,7 +192,7 @@
         "cwd": ".",
         "timeout_seconds": 30
       },
-      "external_note": "09:25 收口竞价因子，供 09:35 开盘确认读取"
+      "external_note": "09:26 收口竞价因子，输出条件买入/关注计划和公告质检，并把重点标的加入动态监控"
     },
     {
       "id": "open-confirmation",
@@ -216,6 +217,8 @@
         "$HERMES_HOME/skills/daban-stock-picker/data/open_confirmation_*.json",
         "$HERMES_HOME/skills/daban-stock-picker/data/open_confirmation_latest.json",
         "$HERMES_HOME/skills/stock-triage/data/candidate_lifecycle/",
+        "$HERMES_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$HERMES_HOME/skills/stock-triage/data/recommendations.json",
         "$HERMES_HOME/cron/output/open-confirmation/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
@@ -224,7 +227,7 @@
         "cwd": ".",
         "timeout_seconds": 45
       },
-      "external_note": "09:35 读取 09:25 竞价因子并做开盘确认；不自动下单"
+      "external_note": "09:35 输出买入区间/追价线/止损/目标/T+1约束和公告质检；不自动下单"
     },
     {
       "id": "intraday-alert",
@@ -247,6 +250,7 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$HERMES_HOME/skills/stock-triage/data/intraday_alerts.json",
+        "$HERMES_HOME/skills/stock-triage/data/monitor_registry.json",
         "$HERMES_HOME/cron/output/intraday-alert/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
@@ -255,7 +259,7 @@
         "cwd": ".",
         "timeout_seconds": 30
       },
-      "external_note": "只输出告警；脚本内置交易时段守卫(9:30-11:30/13:00-15:00)"
+      "external_note": "只监控当前持仓和动态订阅；清仓/取消后自动退订；脚本内置交易时段守卫"
     },
     {
       "id": "capital-flow",
@@ -432,6 +436,7 @@
       ],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
+        "$HERMES_HOME/skills/stock-triage/data/monitor_registry.json",
         "$HERMES_HOME/cron/output/news-monitor/",
         "$HERMES_HOME/cron/output/job_runs.json"
       ],
@@ -440,7 +445,7 @@
         "cwd": ".",
         "timeout_seconds": 90
       },
-      "external_note": "需 Hermes Agent + SerpAPI；固定查询集，无触发静默"
+      "external_note": "需 Hermes Agent + SerpAPI；固定宏观查询 + 当前股票/板块/主题动态订阅，无触发静默"
     },
     {
       "id": "institution-weekly",
