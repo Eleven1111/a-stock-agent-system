@@ -27,6 +27,9 @@ from paths import data_file
 from a_share_rules import t1_constraint
 from recommendation_quality import build_quality_report
 from decision_policy import evaluate_decision
+from market_context import market_regime, read_market_context
+from portfolio_policy import evaluate_candidate
+from research_evidence import build_research_evidence
 import signal_ledger
 import strategy_registry
 
@@ -291,6 +294,8 @@ def record_recommendation(
     signal_id: Optional[str] = None,
     trade_id: Optional[str] = None,
     monitor_id: Optional[str] = None,
+    research_evidence: Optional[Dict[str, Any]] = None,
+    portfolio_risk: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -329,10 +334,26 @@ def record_recommendation(
         announcements,
         asof=record_date,
     )
+    sid = strategy_id or "default"
+    lane = "daban" if sid.startswith("daban") else "trend"
+    evidence = research_evidence or build_research_evidence(
+        code,
+        strategy_id=sid,
+        asof=record_date,
+    )
+    risk = portfolio_risk or evaluate_candidate(
+        read_json(PORTFOLIO_FILE, {"cash": total_asset, "positions": []}),
+        {"code": code},
+        float(sizing.get("recommended_position_pct") or 0),
+    )
     policy = evaluate_decision(
         requested_action=action,
         quality_report=quality,
-        strategy_record=strategy_registry.get(strategy_id or "default"),
+        strategy_record=strategy_registry.get(sid),
+        market_regime=market_regime(read_market_context()),
+        portfolio_risk=risk,
+        research_evidence=evidence,
+        strategy_lane=lane,
     )
     effective_action = (
         "avoid"
@@ -347,6 +368,17 @@ def record_recommendation(
             "recommended_amount": 0.0,
             "policy_blocked": True,
         })
+    elif policy["position_multiplier"] < 1:
+        sizing["recommended_position_pct"] = round(
+            float(sizing.get("recommended_position_pct") or 0)
+            * float(policy["position_multiplier"]),
+            2,
+        )
+        sizing["recommended_amount"] = round(
+            float(sizing.get("recommended_amount") or 0)
+            * float(policy["position_multiplier"]),
+            2,
+        )
     opens_signal = (
         effective_action in signal_ledger.SETTLEABLE_ACTIONS
         and quality.get("status") == "passed"
@@ -384,6 +416,8 @@ def record_recommendation(
         "position_sizing": sizing,
         "quality_report": quality,
         "policy_decision": policy,
+        "portfolio_risk": risk,
+        "research_evidence": evidence,
         "execution_constraints": quality["execution_constraints"],
         "settleable_signal": opens_signal,
         "outcome": "pending",

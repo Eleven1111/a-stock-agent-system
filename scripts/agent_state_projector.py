@@ -15,13 +15,14 @@ COMMON = os.path.join(ROOT, "skills", "common")
 sys.path.insert(0, COMMON)
 
 import monitor_registry  # noqa: E402
-from paths import data_file, hermes_home  # noqa: E402
+from agent_state import agent_state_path  # noqa: E402
+from paths import data_file  # noqa: E402
 import signal_ledger  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 import strategy_registry  # noqa: E402
 
 
-OUTPUT_FILE = os.path.join(hermes_home(), "agent_state", "agent_state_latest.json")
+OUTPUT_FILE = agent_state_path()
 
 
 def build_agent_state(
@@ -52,6 +53,8 @@ def build_agent_state(
             "state_root_env": "A_STOCK_STATE_HOME",
             "supported_runtimes": ["hermes", "openclaw"],
             "source_of_truth": "signal_ledger.jsonl",
+            "required_loader": "python scripts/agent_runtime_context.py",
+            "cross_host_coordination": "shared_filesystem_required",
         },
         "portfolio": portfolio if portfolio is not None else read_json(
             data_file("stock-triage", "portfolio.json"),
@@ -68,10 +71,10 @@ def build_agent_state(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--output", default=OUTPUT_FILE)
+    parser.add_argument("--output")
     args = parser.parse_args()
     state = build_agent_state()
-    atomic_write_json(args.output, state)
+    atomic_write_json(args.output or agent_state_path(), state)
     print(json.dumps(state, ensure_ascii=False, indent=2))
 
 

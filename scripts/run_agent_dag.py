@@ -8,13 +8,19 @@ import json
 import os
 import subprocess
 import sys
+import time
 from typing import Any, Mapping, Optional
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
 sys.path.insert(0, COMMON)
 
-from runtime_context import load_latest_artifact, make_batch_id, resolve_trading_date  # noqa: E402
+from runtime_context import (  # noqa: E402
+    load_latest_artifact,
+    make_batch_id,
+    resolve_runtime_name,
+    resolve_trading_date,
+)
 
 
 def _load_manifest(path: str) -> dict[str, Any]:
@@ -83,15 +89,39 @@ def execution_order(
     return ordered
 
 
+def _wait_for_run_artifact(
+    job_id: str,
+    run_id: str,
+    *,
+    trading_date: str,
+    batch_id: str,
+    env: Mapping[str, str],
+    timeout_seconds: float,
+) -> dict[str, Any] | None:
+    deadline = time.monotonic() + max(0.1, timeout_seconds)
+    while time.monotonic() < deadline:
+        artifact = _load_artifact(
+            job_id,
+            trading_date=trading_date,
+            batch_id=batch_id,
+            env=env,
+        )
+        if artifact and artifact.get("run_id") == run_id:
+            return artifact
+        time.sleep(0.1)
+    return None
+
+
 def execute_dag(
     *,
     manifest_path: str,
     targets: list[str],
     trading_date: Optional[str] = None,
     batch_id: Optional[str] = None,
-    runtime: str = "local",
+    runtime: Optional[str] = None,
     env: Optional[dict[str, str]] = None,
     max_attempts: int = 2,
+    reuse_targets: bool = False,
 ) -> dict[str, Any]:
     manifest_path = os.path.abspath(manifest_path)
     manifest = _load_manifest(manifest_path)
@@ -100,8 +130,10 @@ def execute_dag(
     batch = batch_id or make_batch_id(day)
     order = execution_order(jobs, targets)
     run_env = dict(env or os.environ)
+    runtime = resolve_runtime_name(runtime, run_env)
     run_env["A_STOCK_RUNTIME"] = runtime
     runs: list[dict[str, Any]] = []
+    target_set = set(targets)
 
     for job_id in order:
         existing = _load_artifact(
@@ -110,7 +142,8 @@ def execute_dag(
             batch_id=batch,
             env=run_env,
         )
-        if existing and existing.get("status") == "ok":
+        can_reuse = job_id not in target_set or reuse_targets
+        if can_reuse and existing and existing.get("status") == "ok":
             runs.append({
                 "job_id": job_id,
                 "status": "reused",
@@ -133,6 +166,7 @@ def execute_dag(
             runtime,
         ]
         completed = None
+        concurrent_artifact = None
         attempts = max(1, int((jobs[job_id].get("retry_policy") or {}).get("max_attempts", max_attempts)))
         for attempt in range(1, attempts + 1):
             completed = subprocess.run(
@@ -144,19 +178,42 @@ def execute_dag(
             )
             if completed.returncode == 0:
                 break
+            if completed.returncode == 76:
+                try:
+                    duplicate = json.loads(completed.stdout)
+                except json.JSONDecodeError:
+                    duplicate = {}
+                holder_run_id = str((duplicate.get("holder") or {}).get("run_id") or "")
+                if holder_run_id:
+                    timeout_seconds = float(
+                        (jobs[job_id].get("run") or {}).get("timeout_seconds") or 120
+                    )
+                    concurrent_artifact = _wait_for_run_artifact(
+                        job_id,
+                        holder_run_id,
+                        trading_date=day,
+                        batch_id=batch,
+                        env=run_env,
+                        timeout_seconds=timeout_seconds,
+                    )
+                    if concurrent_artifact and concurrent_artifact.get("status") == "ok":
+                        break
         artifact = _load_artifact(
             job_id,
             trading_date=day,
             batch_id=batch,
             env=run_env,
         )
-        status = "ok" if completed and completed.returncode == 0 else "failed"
+        reused_concurrent = bool(
+            concurrent_artifact and concurrent_artifact.get("status") == "ok"
+        )
+        status = "ok" if completed and (completed.returncode == 0 or reused_concurrent) else "failed"
         runs.append({
             "job_id": job_id,
-            "status": status,
+            "status": "reused_concurrent" if reused_concurrent else status,
             "attempts": attempt,
             "returncode": completed.returncode if completed else 1,
-            "artifact_path": (artifact or {}).get("artifact_path"),
+            "artifact_path": (concurrent_artifact or artifact or {}).get("artifact_path"),
             "stderr": (completed.stderr if completed else "")[-1000:],
         })
         if status != "ok":
@@ -187,8 +244,14 @@ def main() -> None:
     parser.add_argument("--manifest", default=os.path.join(ROOT, "cron", "hermes-cron-manifest.json"))
     parser.add_argument("--trading-date")
     parser.add_argument("--batch-id")
-    parser.add_argument("--runtime", choices=["hermes", "openclaw", "local"], default="local")
+    parser.add_argument("--runtime", choices=["hermes", "openclaw", "local"])
     parser.add_argument("--max-attempts", type=int, default=2)
+    parser.add_argument("--reuse-targets", action="store_true")
+    parser.add_argument(
+        "--emit-target",
+        action="store_true",
+        help="Emit the single target job stdout instead of the DAG summary",
+    )
     args = parser.parse_args()
     result = execute_dag(
         manifest_path=args.manifest,
@@ -197,8 +260,21 @@ def main() -> None:
         batch_id=args.batch_id,
         runtime=args.runtime,
         max_attempts=args.max_attempts,
+        reuse_targets=args.reuse_targets,
     )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if args.emit_target and result["status"] == "ok" and len(args.targets) == 1:
+        artifact = _load_artifact(
+            args.targets[0],
+            trading_date=result["trading_date"],
+            batch_id=result["batch_id"],
+            env=os.environ,
+        )
+        stdout = str((artifact or {}).get("stdout") or "")
+        sys.stdout.write(stdout)
+        if stdout and not stdout.endswith("\n"):
+            sys.stdout.write("\n")
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     raise SystemExit(0 if result["status"] == "ok" else 1)
 
 

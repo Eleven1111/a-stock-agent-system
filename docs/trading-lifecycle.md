@@ -7,7 +7,7 @@ Hermes 与 OpenClaw 只负责运行同一套确定性脚本。交易规则、推
 
 ## 共享状态
 
-两端设置相同目录：
+同机两端设置相同目录；跨机器时必须是同一个共享挂载卷：
 
 ```bash
 export A_STOCK_STATE_HOME="$HOME/.a-stock-agent"
@@ -35,12 +35,15 @@ Python 虚拟环境和 `.env`。两者不要混用。
 两端都调用同一个 runtime-neutral 入口，不把业务脚本直接塞进 Agent 对话：
 
 ```bash
-python scripts/run_agent_dag.py global-preopen --runtime hermes
-python scripts/run_agent_dag.py global-preopen --runtime openclaw
+python scripts/run_agent_dag.py global-preopen --runtime hermes --emit-target
+python scripts/run_agent_dag.py global-preopen --runtime openclaw --emit-target
+python scripts/agent_runtime_context.py
 ```
 
 任务输出写 artifact 和不可变市场快照，依赖门禁失败时 fail-closed。Agent 解释和推送
-前读取 `agent_state_latest.json`，不从定时任务聊天上下文猜测持仓、监控或信号状态。
+前通过 `agent_runtime_context.py` 刷新并读取 `agent_state_latest.json`，不从定时任务
+聊天上下文猜测持仓、监控或信号状态。DAG 运行租约只在两端共享同一物理状态目录时
+具备跨运行时互斥能力。
 
 ## T+1 执行约束
 
@@ -64,7 +67,8 @@ python scripts/run_agent_dag.py global-preopen --runtime openclaw
 - `avoid`：不可成交、澄清公告或硬风险
 
 每条记录包含买入区间、最高追价、止损、两级目标、仓位、T+1 最早卖出日和
-失效条件。前五名股票及其板块自动写入动态监控注册表，有两交易日有效期。
+失效条件，以及缠论/Serenity 研究证据和组合集中度检查。前五名股票及其板块自动写入
+动态监控注册表，有两交易日有效期。
 
 ## 09:35 开盘确认
 

@@ -45,3 +45,4 @@ def test_projector_exposes_one_runtime_neutral_decision_surface(tmp_path):
     assert state["recommendations"][0]["code"] == "002156"
     assert state["signals"][0]["settlement_status"] == "pending"
     assert state["runtime_contract"]["state_root_env"] == "A_STOCK_STATE_HOME"
+    assert state["runtime_contract"]["cross_host_coordination"] == "shared_filesystem_required"

@@ -111,13 +111,19 @@ Hermes → ~/.hermes/
 
 ### 2. Cron 运行隔离
 manifest 的 `command` **必须**走
-`python scripts/agent_job_runner.py <job-id> --runtime <hermes|openclaw>`，
-真实业务命令放在 `run.command`。`hermes_job_runner.py` 仅保留为底层兼容实现，
+`python scripts/run_agent_dag.py <job-id> --emit-target`，运行时通过
+`A_STOCK_RUNTIME=hermes|openclaw` 传入。真实业务命令放在 `run.command`。
+`agent_job_runner.py` 只由 DAG 内部调用，`hermes_job_runner.py` 仅保留为底层兼容实现，
 不得由 manifest 直接调用。artifact 统一写入
 `$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`。
 
 如果 cron 由 Agent prompt 实现，主 cron agent 只能编排/汇总，数据采集和重计算必须委托子代理；
-如果 cron 由仓库脚本实现，只能通过 `agent_job_runner` 或 `run_agent_dag` 启动隔离子进程。
+如果 cron 由仓库脚本实现，只能通过 `run_agent_dag` 启动；DAG 内部通过
+`agent_job_runner` 启动隔离子进程并持有跨运行时租约。
+
+主线对话、定时汇总和其他 Agent 在解释持仓或信号前，必须运行
+`python scripts/agent_runtime_context.py`。同机 Hermes/OpenClaw 共用
+`A_STOCK_STATE_HOME`；跨机器必须是同一个共享挂载卷，不能只是相同路径字符串。
 
 业务脚本内所有数据抓取必须用 Python `urllib`，禁止在 cron prompt 中直接使用 `terminal` 工具
 （会触发安全审批锁，导致 cron 卡死）。
@@ -150,7 +156,7 @@ manifest 的 `command` **必须**走
 1. **数据源是否在可用列表内？** → 不在则先验证端点
 2. **是否需要新的 Python 依赖？** → 安装到 Hermes/OpenClaw 实际调用的同一项目 venv
 3. **脚本是否 cron-safe？** → 只用 `urllib`，别用 `requests`（除非加载 `.env`）
-4. **Manifest 是否隔离？** → `command` 走 `agent_job_runner`，`run.command` 指向 canonical `skills/.../scripts/...`
+4. **Manifest 是否隔离？** → `command` 走 `run_agent_dag --emit-target`，`run.command` 指向 canonical `skills/.../scripts/...`
 5. **Cron 时间是否与现有冲突？** → 查 `cronjob list`，并跑 `validate_cron_manifest.py`
 6. **是否需要更新 AGENTS.md？** → 数据源/铁律有变化必须更新
 7. **输出是否控制在 Discord 一屏内？** → 配置 `max_output_chars`，例行任务 `deliver=local`

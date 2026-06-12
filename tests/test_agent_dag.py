@@ -29,7 +29,7 @@ def _job(job_id, command, dependencies=None, mode="same_trading_date"):
     }
 
 
-def test_dag_runs_dependencies_in_topological_order_and_resumes(tmp_path):
+def test_dag_reuses_dependencies_but_reruns_scheduled_target(tmp_path):
     log = tmp_path / "order.log"
     worker = tmp_path / "worker.py"
     worker.write_text(
@@ -65,9 +65,45 @@ def test_dag_runs_dependencies_in_topological_order_and_resumes(tmp_path):
 
     assert first["status"] == "ok"
     assert [item["job_id"] for item in first["runs"]] == ["upstream", "downstream"]
-    assert log.read_text(encoding="utf-8").splitlines() == ["upstream", "downstream"]
+    assert log.read_text(encoding="utf-8").splitlines() == ["upstream", "downstream", "downstream"]
     assert second["status"] == "ok"
-    assert all(item["status"] == "reused" for item in second["runs"])
+    assert second["runs"][0]["status"] == "reused"
+    assert second["runs"][1]["status"] == "ok"
+
+
+def test_dag_can_explicitly_resume_target(tmp_path):
+    log = tmp_path / "order.log"
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json,sys\n"
+        "from pathlib import Path\n"
+        "p=Path(sys.argv[1]); p.write_text((p.read_text() if p.exists() else '')+sys.argv[2]+'\\n')\n"
+        "print(json.dumps({'schema':'demo_v1','job':sys.argv[2]}))\n",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "jobs": [_job("target", f"{sys.executable} {worker} {log} target")]
+    }), encoding="utf-8")
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+
+    run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["target"],
+        trading_date="2026-06-12",
+        env=env,
+    )
+    resumed = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["target"],
+        trading_date="2026-06-12",
+        env=env,
+        reuse_targets=True,
+    )
+
+    assert resumed["runs"][0]["status"] == "reused"
+    assert log.read_text(encoding="utf-8").splitlines() == ["target"]
 
 
 def test_previous_trading_day_dependency_is_not_rerun_in_current_batch():
@@ -82,3 +118,27 @@ def test_previous_trading_day_dependency_is_not_rerun_in_current_batch():
     }
 
     assert run_agent_dag.execution_order(jobs, ["auction"]) == ["auction"]
+
+
+def test_wait_for_concurrent_holder_uses_exact_run_id(monkeypatch):
+    artifacts = iter([
+        {"run_id": "older-run", "status": "ok"},
+        {"run_id": "holder-run", "status": "ok", "artifact_path": "/tmp/holder.json"},
+    ])
+    monkeypatch.setattr(
+        run_agent_dag,
+        "_load_artifact",
+        lambda *args, **kwargs: next(artifacts),
+    )
+    monkeypatch.setattr(run_agent_dag.time, "sleep", lambda _seconds: None)
+
+    artifact = run_agent_dag._wait_for_run_artifact(
+        "open-confirmation",
+        "holder-run",
+        trading_date="2026-06-12",
+        batch_id="a-share-20260612",
+        env={},
+        timeout_seconds=1,
+    )
+
+    assert artifact["artifact_path"] == "/tmp/holder.json"

@@ -117,8 +117,12 @@ Both runtimes use the same execution surface:
 ```bash
 python scripts/run_agent_dag.py global-preopen --runtime hermes
 python scripts/run_agent_dag.py global-preopen --runtime openclaw
-python scripts/agent_state_projector.py --json
+python scripts/agent_runtime_context.py
 ```
+
+Across two machines, `A_STOCK_STATE_HOME` must be the same mounted filesystem,
+not merely the same path string. Run leases and the canonical ledger cannot
+coordinate two independent local disks.
 
 ### Run
 
@@ -175,10 +179,12 @@ All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-mani
 Despite the historical filename, the manifest is shared by Hermes, OpenClaw,
 system cron, and local runs.
 
-The manifest routes every scheduled job through `scripts/agent_job_runner.py`.
-The runner executes the business script in an isolated subprocess, writes
+The manifest routes every scheduled job through `scripts/run_agent_dag.py`.
+The DAG reuses successful dependencies, reruns the scheduled target, and invokes
+`agent_job_runner.py` internally under an atomic run lease. The runner writes
 `$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`, creates an immutable
-market snapshot for JSON output, and records `job_runs.json`. Routine jobs can
+market snapshot for JSON output, and records `job_runs.json`. D0/D1 nodes also
+persist raw inputs and read them back before ranking or policy evaluation. Routine jobs can
 use `deliver=local` so scheduled output does not pollute active conversations.
 
 Artifact v2 also records `trading_date`, `batch_id`, and a fail-closed
@@ -301,14 +307,15 @@ a-stock-agent-system/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
 │   ├── run_agent_dag.py        # Dependency ordering, retry, resume
 │   ├── agent_state_projector.py # Ledger-to-agent current-state projection
+│   ├── agent_runtime_context.py # Required state refresh for agent reasoning
 │   ├── hermes_job_runner.py    # Backward-compatible runner implementation
 │   ├── hermes_gateway_doctor.py # Deployment-side Gateway import/schedule diagnostics
 │   ├── generate_system_crontab.py # System cron fallback generator
 │   ├── smoke_test.py           # 9-test validation suite
 │   └── validate_cron_manifest.py
-├── tests/                      # 367 unit tests
+├── tests/                      # 384 unit tests
 ├── skills/
-│   ├── common/                 # Shared HTTP/state + candidate ranking/lifecycle
+│   ├── common/                 # Adapters, snapshots, policy, ledger, shared state
 │   ├── stock-triage/           # Orchestrator hub
 │   ├── stock-analyst/          # Technical analysis engine
 │   ├── hot-money-tactics/      # Sentiment & limit-up analysis

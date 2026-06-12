@@ -21,10 +21,17 @@ def load_manifest(path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def crontab_lines(manifest: Dict[str, Any], repo_dir: str, hermes_home: str, python: str) -> List[str]:
+def crontab_lines(
+    manifest: Dict[str, Any],
+    repo_dir: str,
+    hermes_home: str,
+    python: str,
+    state_home: str | None = None,
+) -> List[str]:
     lines = [
         "# A-stock isolated cron fallback. Generated from cron/hermes-cron-manifest.json.",
         f"HERMES_HOME={shlex.quote(hermes_home)}",
+        f"A_STOCK_STATE_HOME={shlex.quote(state_home or hermes_home)}",
     ]
     log_path = "$HERMES_HOME/cron/system-cron.log"
     repo = shlex.quote(repo_dir)
@@ -36,8 +43,8 @@ def crontab_lines(manifest: Dict[str, Any], repo_dir: str, hermes_home: str, pyt
             raise ValueError(f"job {job['id']} is not self-contained: {job['command']}")
         schedule = job["schedule"]
         command = (
-            f"cd {repo} && {py} scripts/agent_job_runner.py "
-            f"{shlex.quote(job['id'])} --runtime hermes >> {log_path} 2>&1"
+            f"cd {repo} && A_STOCK_RUNTIME=hermes {py} scripts/run_agent_dag.py "
+            f"{shlex.quote(job['id'])} --emit-target >> {log_path} 2>&1"
         )
         lines.append(f"{schedule} {command}")
     return lines
@@ -48,6 +55,7 @@ def main() -> None:
     parser.add_argument("--manifest", default="cron/hermes-cron-manifest.json")
     parser.add_argument("--repo-dir", default=os.getcwd())
     parser.add_argument("--hermes-home", default=os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"))
+    parser.add_argument("--state-home", default=os.environ.get("A_STOCK_STATE_HOME"))
     parser.add_argument("--python", default=os.environ.get("HERMES_CRON_PYTHON") or "python")
     args = parser.parse_args()
 
@@ -57,6 +65,11 @@ def main() -> None:
         os.path.abspath(args.repo_dir),
         os.path.abspath(os.path.expanduser(args.hermes_home)),
         args.python,
+        (
+            os.path.abspath(os.path.expanduser(args.state_home))
+            if args.state_home
+            else None
+        ),
     )))
 
 

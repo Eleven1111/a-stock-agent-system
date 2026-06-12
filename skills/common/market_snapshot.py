@@ -116,3 +116,63 @@ def write_snapshot(
         return existing
     atomic_write_json(path, record)
     return record
+
+
+def read_snapshot(snapshot: str | Mapping[str, Any]) -> dict[str, Any]:
+    """Load and validate one immutable snapshot record."""
+    path = (
+        str(snapshot.get("snapshot_path"))
+        if isinstance(snapshot, Mapping)
+        else str(snapshot)
+    )
+    record = read_json(path, None)
+    if not isinstance(record, dict) or record.get("schema") != SCHEMA:
+        raise ValueError(f"invalid market snapshot: {path}")
+    if record.get("payload_hash") != _hash(record.get("payload")):
+        raise ValueError(f"market snapshot payload hash mismatch: {path}")
+    return record
+
+
+def materialize_input_snapshot(
+    dataset: str,
+    payload: Any,
+    *,
+    trading_date: str,
+    batch_id: str,
+    producer: str,
+    producer_version: Optional[str] = None,
+    source_versions: Optional[Mapping[str, str]] = None,
+    captured_at: Optional[str] = None,
+) -> dict[str, Any]:
+    """Persist raw inputs, then read them back for deterministic consumption."""
+    written = write_snapshot(
+        dataset,
+        payload,
+        trading_date=trading_date,
+        batch_id=batch_id,
+        producer=producer,
+        producer_version=producer_version,
+        source_versions=source_versions,
+        captured_at=captured_at,
+    )
+    loaded = read_snapshot(written)
+    loaded["consumed_from_snapshot"] = True
+    return loaded
+
+
+def compact_ref(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the lineage fields safe to embed in downstream state."""
+    return {
+        key: snapshot.get(key)
+        for key in (
+            "schema",
+            "snapshot_id",
+            "snapshot_path",
+            "payload_hash",
+            "source_versions",
+            "producer",
+            "producer_version",
+            "captured_at",
+            "consumed_from_snapshot",
+        )
+    }

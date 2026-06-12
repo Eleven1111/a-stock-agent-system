@@ -56,6 +56,28 @@ def test_open_confirmation_marks_mid_gain_as_trend_watch():
     assert result["quality_report"]["status"] in {"passed", "conditional"}
 
 
+def test_open_confirmation_policy_includes_research_evidence(monkeypatch):
+    monkeypatch.setattr(
+        oc,
+        "build_research_evidence",
+        lambda code, strategy_id, asof: {
+            "schema": "research_evidence_v1",
+            "chanlun": {"status": "live_allowed"},
+            "serenity": {"available": True, "stale": False, "hard_risks": []},
+        },
+    )
+    item = {
+        "code": "sh600001",
+        "open_selected_by": {"daban": True, "trend": False},
+        "execution_plan": {"decision": "buy", "position_pct": 4.0},
+        "quality_report": {"status": "passed"},
+    }
+
+    result = oc._apply_policy(item, asof="2026-06-12")
+
+    assert result["research_evidence"]["chanlun"]["status"] == "live_allowed"
+
+
 def test_rank_confirmations_returns_top_five_and_keeps_strategy_scores():
     shortlist = [
         {

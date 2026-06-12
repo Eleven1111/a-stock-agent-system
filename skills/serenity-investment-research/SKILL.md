@@ -157,6 +157,19 @@ python ../../common/deep_research_cache.py write \
 The four-dim scorer reads this cache via `read_deep_research(code)`; entries older than 90 days
 decay toward the PE snapshot. Re-run this write whenever a fresh report or major catalyst lands.
 
+### Mainline Policy Role
+
+In the live architecture this skill is the **Deep Research Evidence / Risk** layer, not a
+realtime stock picker:
+
+- Daban candidates do not require Serenity coverage; missing research alone does not block a trade.
+- Existing research is converted to structured `research_evidence_v1` and attached to the
+  recommendation and Signal Ledger.
+- `financial_quality <= 2/5` or `risk_control <= 2/5` is a hard negative and blocks positive action.
+- Stale Serenity evidence halves the position multiplier for the trend lane.
+- A positive scorecard supports explanation and sizing only. It never bypasses announcement QC,
+  tradeability, Chanlun admission, portfolio concentration, or A-share T+1 rules.
+
 ## Source Grading
 
 Use `references/source_grading.md`. Short version:

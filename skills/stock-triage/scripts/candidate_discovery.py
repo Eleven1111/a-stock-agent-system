@@ -31,9 +31,12 @@ sys.path.insert(0, COMMON)
 
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
-from a_stock_http import DataSourceError, fetch_tencent_kline, fetch_tencent_quote  # noqa: E402
+from a_stock_http import DataSourceError  # noqa: E402
+from market_adapters import fetch_tencent_kline, fetch_tencent_quote  # noqa: E402
 from http_client import request_bytes  # noqa: E402
+from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
+from research_evidence import build_research_evidence  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 
 
@@ -437,12 +440,10 @@ def run_discovery(
 
     universe = list(universe_fetcher())
     quote_map = dict(quote_fetcher(universe))
-    if settle_previous:
-        observe_recent_candidates(asof, quote_map)
-    quotes = list(quote_map.values())
 
     # 游资因子只能消费当日收盘缓存，避免历史梯队污染新的候选排名。
     signal_ctx, temperature = load_signal_context_for_discovery(asof)
+    quotes = list(quote_map.values())
     eligible, base_rejected = candidate_pipeline.filter_universe(
         quotes,
         min_amount=float(universe_config["min_amount"]),
@@ -454,6 +455,33 @@ def run_discovery(
         limit=prefilter_limit,
     )
     kline_by_code = dict(kline_fetcher(enrichment_universe))
+    input_snapshot = materialize_input_snapshot(
+        "candidate-discovery-input",
+        {
+            "schema": "candidate_discovery_inputs_v1",
+            "universe": universe,
+            "quotes": quote_map,
+            "klines": kline_by_code,
+            "signal_context": signal_ctx,
+            "market_temperature": temperature,
+        },
+        trading_date=asof,
+        batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
+        producer="candidate-discovery",
+        source_versions={
+            "exchange_listing": "exchange-listing-v1",
+            "tencent": "tencent-adapter-v2",
+            "tencent_kline": "tencent-kline-adapter-v2",
+        },
+    )
+    inputs = input_snapshot["payload"]
+    quote_map = dict(inputs["quotes"])
+    kline_by_code = dict(inputs["klines"])
+    signal_ctx = inputs.get("signal_context")
+    temperature = dict(inputs["market_temperature"])
+    if settle_previous:
+        observe_recent_candidates(asof, quote_map)
+    quotes = list(quote_map.values())
     result = candidate_pipeline.build_watch_pool(
         quotes,
         kline_by_code,
@@ -463,6 +491,20 @@ def run_discovery(
         min_listed_days=int(universe_config["min_listed_days"]),
         signal_ctx=signal_ctx,
     )
+    for item in result.get("candidates", []):
+        selected_by = item.get("selected_by") or {}
+        strategy_id = (
+            "daban:first_board_reseal"
+            if selected_by.get("daban")
+            else "trend_pullback"
+        )
+        code = candidate_pipeline.naked_code(item.get("code"))
+        item["research_evidence"] = build_research_evidence(
+            code,
+            strategy_id=strategy_id,
+            asof=asof,
+            bars=list(kline_by_code.get(code) or []),
+        )
     evaluated = result.pop("evaluated_candidates")
     result.update({
         "asof": asof,
@@ -470,6 +512,7 @@ def run_discovery(
         "universe_source": "SSE+SZSE listings / Tencent quotes",
         "enriched_count": len(kline_by_code),
         "market_temperature": temperature,
+        "input_snapshot": compact_ref(input_snapshot),
     })
     _persist_pool(asof, result)
 

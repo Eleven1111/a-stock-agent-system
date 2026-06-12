@@ -22,7 +22,10 @@ VALID_DEPENDENCY_DATE_MODES = {
     "previous_trading_day",
 }
 ARTIFACT_TEMPLATE = "{cron_output_dir}/{job_id}/{run_id}.json"
-RUNNER_RE = re.compile(r"^python3?\s+scripts/agent_job_runner\.py\s+[\w-]+")
+DAG_RUNNER_RE = re.compile(
+    r"^python3?\s+scripts/run_agent_dag\.py\s+[\w-]+(?:\s+--emit-target)?$"
+)
+SINGLE_JOB_RUNNER_RE = re.compile(r"^python3?\s+scripts/agent_job_runner\.py\s+[\w-]+")
 FORBIDDEN_TOP_LEVEL_SCRIPTS = {
     "capital_flow_monitor.py",
     "event_calendar.py",
@@ -169,11 +172,17 @@ def validate(filepath):
         if not isinstance(job.get("allowed_state_writes"), list):
             errors.append(f"job[{i}] ({jid}) allowed_state_writes must be list")
         elif any("~/.hermes" in x for x in job["allowed_state_writes"]):
-            errors.append(f"job[{i}] ({jid}) allowed_state_writes must use $HERMES_HOME, not ~/.hermes")
+            errors.append(
+                f"job[{i}] ({jid}) allowed_state_writes must use $A_STOCK_STATE_HOME"
+            )
+        elif any("$HERMES_HOME" in x for x in job["allowed_state_writes"]):
+            errors.append(
+                f"job[{i}] ({jid}) business state writes must use $A_STOCK_STATE_HOME"
+            )
 
         cmd = job.get("command", "")
-        if job.get("enabled", True) and job.get("external") and not RUNNER_RE.match(cmd):
-            errors.append(f"job[{i}] ({jid}) command must route through scripts/agent_job_runner.py")
+        if job.get("enabled", True) and job.get("external") and not DAG_RUNNER_RE.match(cmd):
+            errors.append(f"job[{i}] ({jid}) command must route through scripts/run_agent_dag.py")
 
         run = job.get("run")
         if not isinstance(run, dict):
@@ -183,7 +192,7 @@ def validate(filepath):
             run_cmd = run.get("command", "")
             if not isinstance(run_cmd, str) or not run_cmd.strip():
                 errors.append(f"job[{i}] ({jid}) run.command must be non-empty string")
-            if RUNNER_RE.match(run_cmd):
+            if DAG_RUNNER_RE.match(run_cmd) or SINGLE_JOB_RUNNER_RE.match(run_cmd):
                 errors.append(f"job[{i}] ({jid}) run.command must not call a job runner recursively")
             for script in FORBIDDEN_TOP_LEVEL_SCRIPTS:
                 if re.search(rf"python3?\s+scripts/{re.escape(script)}(\s|$)", run_cmd):

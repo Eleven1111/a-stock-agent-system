@@ -11,7 +11,6 @@
   python3 analyze.py --cache-only        # 仅刷新共享情绪上下文并输出 JSON
 """
 
-import akshare as ak
 import json
 import os
 import sys
@@ -22,7 +21,14 @@ COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..",
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
-from http_client import DataSourceError, request_bytes
+from http_client import DataSourceError
+from market_adapters import (
+    fetch_a_share_spot,
+    fetch_hot_money_limitup_pool,
+    fetch_hot_money_strong_pool,
+    fetch_tencent_index_overview,
+)
+from market_snapshot import compact_ref, materialize_input_snapshot
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 320)
@@ -37,7 +43,7 @@ for k in ['HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy','ALL_PROXY','all
 def get_zt_pool(date_str):
     """涨停板池"""
     try:
-        df = ak.stock_zt_pool_em(date=date_str)
+        df = fetch_hot_money_limitup_pool(date_str)
         df['连板数'] = df['连板数'].fillna(0).astype(int)
         return df
     except Exception as e:
@@ -46,7 +52,7 @@ def get_zt_pool(date_str):
 def get_strong_pool(date_str):
     """强势股池"""
     try:
-        df = ak.stock_zt_pool_strong_em(date=date_str)
+        df = fetch_hot_money_strong_pool(date_str)
         return df
     except Exception as e:
         return pd.DataFrame()
@@ -54,7 +60,7 @@ def get_strong_pool(date_str):
 def get_all_stocks():
     """全A股行情（Tencent API 降级方案）"""
     try:
-        df = ak.stock_zh_a_spot_em()
+        df = fetch_a_share_spot()
         if not df.empty:
             return df
     except Exception:
@@ -65,38 +71,7 @@ def get_all_stocks():
 def _tencent_market_fallback():
     """Tencent API 降级获取大盘数据（GBK编码）"""
     try:
-        url = 'http://qt.gtimg.cn/q=sh000001,sz399001,sz399006'
-        response = request_bytes(
-            url,
-            source="tencent",
-            timeout=10,
-            max_attempts=2,
-            headers={'User-Agent': 'Mozilla/5.0'},
-        )
-        text = response.data.decode('gbk', errors='ignore')
-        lines = text.strip().split('\n')
-        rows = []
-        for line in lines:
-            if '=' not in line:
-                continue
-            val = line.split('=', 1)[1].strip('"')
-            parts = val.split('~')
-            if len(parts) < 40:
-                continue
-            rows.append({
-                '名称': parts[1],
-                '代码': parts[2],
-                '最新价': float(parts[3]) if parts[3] else 0,
-                '涨跌幅': float(parts[32]) if parts[32] else 0,
-                '涨跌额': float(parts[31]) if parts[31] else 0,
-                '成交额': float(parts[37]) * 10000 if len(parts) > 37 and parts[37] else 0,
-                '成交量': float(parts[36]) if len(parts) > 36 and parts[36] else 0,
-                '最高': float(parts[33]) if parts[33] else 0,
-                '最低': float(parts[34]) if parts[34] else 0,
-                '今开': float(parts[5]) if parts[5] else 0,
-                '昨收': float(parts[4]) if parts[4] else 0,
-            })
-        return pd.DataFrame(rows)
+        return fetch_tencent_index_overview()
     except (DataSourceError, IndexError, TypeError, UnicodeDecodeError, ValueError):
         return pd.DataFrame()
 
@@ -435,14 +410,26 @@ def cache_signal_context(df_zt, date_str=None):
             asof = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
         else:
             asof = datetime.now().strftime('%Y-%m-%d')
-        update_signal_context({
+        raw_context = {
+            "schema": "hot_money_context_inputs_v1",
             "sector_limitups": {str(k): int(v) for k, v in sector_limitups.items()},
             "lianban_ladder": ladder,
             "ladder_asof": asof,
             "limitup_total": len(df_zt),
-        })
+        }
+        input_snapshot = materialize_input_snapshot(
+            "hot-money-context-input",
+            raw_context,
+            trading_date=asof,
+            batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
+            producer="hot-money-context",
+            source_versions={"akshare": "akshare-adapter-v1"},
+        )
+        context = dict(input_snapshot["payload"])
+        context["input_snapshot"] = compact_ref(input_snapshot)
+        update_signal_context(context)
         print(f"✅ 情绪上下文已缓存：{len(ladder)}只涨停 / {len(sector_limitups)}个板块", file=sys.stderr)
-        return True
+        return context["input_snapshot"]
     except Exception as e:
         print(f"signal_context 写入失败: {e}", file=sys.stderr)
         return False
@@ -490,14 +477,15 @@ def main():
         return
 
     if do_cache:
-        cache_ok = cache_signal_context(df_zt, date_str)
+        cache_result = cache_signal_context(df_zt, date_str)
         if cache_only:
             print(json.dumps({
-                "status": "ready" if cache_ok else "error",
+                "status": "ready" if cache_result else "error",
                 "asof": f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}",
                 "limitup_total": len(df_zt),
+                "input_snapshot": cache_result or None,
             }, ensure_ascii=False))
-            if not cache_ok:
+            if not cache_result:
                 raise SystemExit(1)
             return
 

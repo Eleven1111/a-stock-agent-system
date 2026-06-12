@@ -20,7 +20,9 @@
 - 每条方向性个股建议必须先通过公告、可成交性、价格计划和风险质检；未扫描公告
   只能输出关注/条件建议，不能输出无条件买入。
 - 持仓、推荐、监控订阅必须使用同一运行时状态根目录。Hermes 与 OpenClaw 并用时，
-  两端设置相同的 `A_STOCK_STATE_HOME`。
+  同机两端设置相同的 `A_STOCK_STATE_HOME`；跨机器必须指向同一个共享挂载卷。
+- 主线对话、定时汇总和其他 Agent 在解释持仓或信号前，必须运行
+  `python scripts/agent_runtime_context.py`。状态缺失时失败，不得从聊天历史猜测。
 
 ```
                         ┌─────────────────┐
@@ -109,13 +111,15 @@ Hermes → ~/.hermes/
 
 ### 2. Cron 运行隔离
 manifest 的 `command` **必须**走
-`python scripts/agent_job_runner.py <job-id> --runtime <hermes|openclaw>`，
-真实业务命令放在 `run.command`。`hermes_job_runner.py` 仅保留为底层兼容实现，
+`python scripts/run_agent_dag.py <job-id> --emit-target`，运行时通过
+`A_STOCK_RUNTIME=hermes|openclaw` 传入。真实业务命令放在 `run.command`。
+`agent_job_runner.py` 只由 DAG 内部调用，`hermes_job_runner.py` 仅保留为底层兼容实现，
 不得由 manifest 直接调用。artifact 统一写入
 `$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`。
 
 如果 cron 由 Agent prompt 实现，主 cron agent 只能编排/汇总，数据采集和重计算必须委托子代理；
-如果 cron 由仓库脚本实现，只能通过 `agent_job_runner` 或 `run_agent_dag` 启动隔离子进程。
+如果 cron 由仓库脚本实现，只能通过 `run_agent_dag` 启动；DAG 内部通过
+`agent_job_runner` 启动隔离子进程并持有跨运行时租约。
 
 业务脚本内所有数据抓取必须用 Python `urllib`，禁止在 cron prompt 中直接使用 `terminal` 工具
 （会触发安全审批锁，导致 cron 卡死）。
@@ -152,7 +156,7 @@ manifest 的 `command` **必须**走
 1. **数据源是否在可用列表内？** → 不在则先验证端点
 2. **是否需要新的 Python 依赖？** → 安装到 Hermes/OpenClaw 实际调用的同一项目 venv
 3. **脚本是否 cron-safe？** → 只用 `urllib`，别用 `requests`（除非加载 `.env`）
-4. **Manifest 是否隔离？** → `command` 走 `agent_job_runner`，`run.command` 指向 canonical `skills/.../scripts/...`
+4. **Manifest 是否隔离？** → `command` 走 `run_agent_dag --emit-target`，`run.command` 指向 canonical `skills/.../scripts/...`
 5. **Cron 时间是否与现有冲突？** → 查 `cronjob list`，并跑 `validate_cron_manifest.py`
 6. **是否需要更新 AGENTS.md？** → 数据源/铁律有变化必须更新
 ### 7. 所有 cron 走子代理模式（2026-06-09 定下的铁律）
@@ -242,11 +246,15 @@ from typing import Dict, Any, List, Optional
 5. **闭环门控**：`performance_tracker --gate` 按 `by_strategy` 期望值淘汰负期望策略
    (写 `strategy_registry`)，`recommendation_audit` 对被停用策略仓位归零。
    **淘汰走门控、改规则走闸门——两条路分开，防过拟合。**
-6. **大盘 context 回流**（2026-06-10）：`global-market-monitor --cache` 把 `assess_impact`
+6. **主线 Policy 证据**：D0 候选发现对输入快照中的 K 线运行缠论结构分析，证据随候选
+   进入竞价与开盘。未过闸信号只展示；已过闸的三卖/顶背驰可阻断买入。Serenity 缺失
+   不阻断打板，但已有深研中的财务质量/风险控制硬风险会阻断正向建议，趋势策略使用
+   过期深研时仓位减半。两类证据都写入推荐与 Signal Ledger。
+7. **大盘 context 回流**（2026-06-10）：`global-market-monitor --cache` 把 `assess_impact`
    落入 `common/market_context.py` 缓存；four_dim 出分后叠加 overlay——大盘系统性承压
    (risk_off) 时个股 grade 降一档并标注，`insufficient_data` 时拒绝写缓存（fail-closed）。
    无缓存 = no-op。
-7. **情绪面回流**（2026-06-10，核心玩法主战场）：`hot-money analyze --cache`（连板梯队/
+8. **情绪面回流**（2026-06-10，核心玩法主战场）：`hot-money analyze --cache`（连板梯队/
    板块涨停数/封板质量）与 `capital_flow_monitor --cache`（北向/板块/个股主力资金）合并
    写入 `common/signal_context.py`；four_dim 情绪面按打板原生口径加成（连板在册/早盘强封/
    板块赚钱效应集群/主力流向）。缓存缺失时行为与历史完全一致。

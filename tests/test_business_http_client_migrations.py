@@ -236,6 +236,8 @@ def test_institution_news_preserves_shape_and_empty_fallback(monkeypatch):
 
 
 def test_hot_money_fallback_preserves_dataframe_and_empty_fallback(monkeypatch):
+    import market_adapters
+
     module = _load(
         "hot_money_http_migration",
         "skills/hot-money-tactics/scripts/analyze.py",
@@ -245,7 +247,7 @@ def test_hot_money_fallback_preserves_dataframe_and_empty_fallback(monkeypatch):
         '0~0~0~0~0~0~0~0~0~0~0~10~0.33~3010~2970~0~1234~5678~0~0~";'
     )
     monkeypatch.setattr(
-        module,
+        market_adapters,
         "request_bytes",
         lambda *args, **kwargs: HttpResult(
             raw.encode("gbk"),
@@ -253,13 +255,13 @@ def test_hot_money_fallback_preserves_dataframe_and_empty_fallback(monkeypatch):
             1,
         ),
     )
-    result = module._tencent_market_fallback()
+    result = market_adapters.fetch_tencent_index_overview()
     assert isinstance(result, pd.DataFrame)
     assert result.iloc[0]["名称"] == "上证指数"
 
     monkeypatch.setattr(
         module,
-        "request_bytes",
+        "fetch_tencent_index_overview",
         lambda *args, **kwargs: (_ for _ in ()).throw(_timeout("tencent")),
     )
     assert module._tencent_market_fallback().empty

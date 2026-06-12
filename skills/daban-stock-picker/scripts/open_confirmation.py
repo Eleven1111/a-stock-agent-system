@@ -20,7 +20,8 @@ sys.path.insert(0, SCRIPT_DIR)
 sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "stock-triage", "scripts"))
 
-from a_stock_http import DataSourceError, fetch_tencent_snapshot  # noqa: E402
+from a_stock_http import DataSourceError  # noqa: E402
+from market_adapters import fetch_tencent_snapshot  # noqa: E402
 from announcement_risk import scan_many  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
 import candidate_lifecycle  # noqa: E402
@@ -30,7 +31,11 @@ import monitor_registry  # noqa: E402
 from paths import data_file  # noqa: E402
 from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
 from decision_policy import evaluate_decision  # noqa: E402
+from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
+from market_context import market_regime, read_market_context  # noqa: E402
+from portfolio_policy import evaluate_candidate  # noqa: E402
 import recommendation_audit  # noqa: E402
+from research_evidence import build_research_evidence  # noqa: E402
 import signal_ledger  # noqa: E402
 import strategy_registry  # noqa: E402
 from signal_context import read_signal_context  # noqa: E402
@@ -76,7 +81,12 @@ def _enrich_decision(
     return item
 
 
-def _apply_policy(item: Mapping[str, Any]) -> Dict[str, Any]:
+def _apply_policy(
+    item: Mapping[str, Any],
+    asof: str | None = None,
+    portfolio: Mapping[str, Any] | None = None,
+    regime: Mapping[str, Any] | None = None,
+) -> Dict[str, Any]:
     result = dict(item)
     selected_by = result.get("open_selected_by") or {}
     strategy_id = (
@@ -84,12 +94,40 @@ def _apply_policy(item: Mapping[str, Any]) -> Dict[str, Any]:
         if selected_by.get("daban")
         else "trend_pullback"
     )
+    lane = "daban" if selected_by.get("daban") else "trend"
+    evidence = build_research_evidence(
+        _naked_code(str(result.get("code") or "")),
+        strategy_id=strategy_id,
+        asof=asof,
+    )
+    prior_chanlun = ((result.get("research_evidence") or {}).get("chanlun") or {})
+    for key in (
+        "structure_summary",
+        "signals",
+        "live_bullish_signals",
+        "live_bearish_signals",
+        "display_only_signals",
+    ):
+        if key in prior_chanlun:
+            evidence["chanlun"][key] = prior_chanlun[key]
+    portfolio_risk = evaluate_candidate(
+        portfolio or {"cash": 100000, "positions": []},
+        result,
+        float((result.get("execution_plan") or {}).get("position_pct") or 0),
+    )
     policy = evaluate_decision(
         requested_action=str((result.get("execution_plan") or {}).get("decision") or "watch"),
         quality_report=result.get("quality_report") or {"status": "conditional"},
         strategy_record=strategy_registry.get(strategy_id),
+        market_regime=regime,
+        portfolio_risk=portfolio_risk,
+        research_evidence=evidence,
+        strategy_lane=lane,
     )
     result["strategy_id"] = strategy_id
+    result["research_evidence"] = evidence
+    result["portfolio_risk"] = portfolio_risk
+    result["market_regime"] = dict(regime or {})
     result["policy_decision"] = policy
     if policy["decision"] in {"avoid", "watch"}:
         plan = dict(result.get("execution_plan") or {})
@@ -352,7 +390,24 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
             candidate_pipeline.market_code(code)
             for code in (signal_ctx.get("lianban_ladder") or {})
         )
-    quotes = _fetch_snapshots(quote_codes) if quote_codes else {}
+    raw_quotes = _fetch_snapshots(quote_codes) if quote_codes else {}
+    input_snapshot = materialize_input_snapshot(
+        "open-confirmation-input",
+        {
+            "schema": "open_confirmation_inputs_v1",
+            "quotes": raw_quotes,
+            "signal_context": signal_ctx,
+        },
+        trading_date=asof,
+        batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
+        producer="open-confirmation",
+        source_versions={
+            "tencent": "tencent-adapter-v2",
+            "akshare": "akshare-adapter-v1",
+        },
+    )
+    quotes = dict(input_snapshot["payload"]["quotes"])
+    signal_ctx = dict(input_snapshot["payload"].get("signal_context") or {})
     temperature = temperature_from_context(
         signal_ctx,
         morning_quotes=quotes,
@@ -375,12 +430,17 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
         candidate_pipeline.naked_code(item.get("code"))
         for item in signals
     )
+    portfolio = read_json(
+        data_file("stock-triage", "portfolio.json"),
+        {"cash": 100000, "positions": []},
+    )
+    regime = market_regime(read_market_context())
     signals = [
         _apply_policy(_enrich_decision(
             item,
             announcement_map.get(candidate_pipeline.naked_code(item.get("code"))),
             asof,
-        ))
+        ), asof=asof, portfolio=portfolio, regime=regime)
         for item in signals
     ]
 
@@ -458,6 +518,8 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
             signal_id=links["signal_id"],
             trade_id=links["trade_id"],
             monitor_id=links["monitor_id"],
+            research_evidence=item.get("research_evidence"),
+            portfolio_risk=item.get("portfolio_risk"),
         )
     result = {
         "schema": "open_confirmation_v3",
@@ -466,6 +528,8 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
         "status": "ready",
         "source_asof": shortlist_result.get("source_asof"),
         "market_temperature": temperature,
+        "market_regime": regime,
+        "input_snapshot": compact_ref(input_snapshot),
         "confirmations": confirmations,
         "signals": signals,
         "signal_count": len(signals),

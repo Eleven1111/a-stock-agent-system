@@ -94,7 +94,7 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 
 ```bash
 python scripts/smoke_test.py      # 9项集成检查
-python -m pytest -q tests/        # 367项测试全部通过
+python -m pytest -q tests/        # 384项测试全部通过
 ```
 
 ### Hermes / OpenClaw 共享状态
@@ -113,8 +113,11 @@ T+1 约束、推荐质检和动态订阅规则见
 ```bash
 python scripts/run_agent_dag.py global-preopen --runtime hermes
 python scripts/run_agent_dag.py global-preopen --runtime openclaw
-python scripts/agent_state_projector.py --json
+python scripts/agent_runtime_context.py
 ```
+
+如果 Hermes 与 OpenClaw 位于两台机器，`A_STOCK_STATE_HOME` 必须指向同一个共享挂载卷；
+仅设置相同的路径字符串无法共享账本，也无法让运行租约互斥。
 
 ### 运行
 
@@ -173,9 +176,11 @@ export SERPAPI_API_KEY=your_key
 所有任务定义在 [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json)。
 文件名为历史兼容命名，manifest 实际由 Hermes、OpenClaw、system cron 和本地运行共用。
 
-每个定时任务都先进入 `scripts/agent_job_runner.py`。runner 在隔离子进程中执行真实
-业务脚本，写入 `$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`，为 JSON
-输出创建不可变市场快照，并维护 `job_runs.json`。例行任务可设为 `deliver=local`，
+每个定时任务都先进入 `scripts/run_agent_dag.py`。DAG 复用成功依赖、重跑计划目标，
+并在原子运行租约下调用 `agent_job_runner.py` 执行真实业务脚本。runner 写入
+`$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`，为 JSON 输出创建不可变
+市场快照，并维护 `job_runs.json`。D0/D1 节点还会先固化原始输入，再从快照读回后进行
+排名或策略判断。例行任务可设为 `deliver=local`，
 避免定时任务输出污染主线对话。
 
 artifact v2 还包含 `trading_date`、`batch_id` 和 `dependency_gate`。必需上游缺失、失败、
@@ -297,12 +302,13 @@ a-stock-agent-system/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw共用任务入口
 │   ├── run_agent_dag.py        # 依赖排序、重试、断点续跑
 │   ├── agent_state_projector.py # 账本到Agent当前状态投影
+│   ├── agent_runtime_context.py # Agent推理前强制刷新统一状态
 │   ├── hermes_job_runner.py    # 兼容保留的runner实现
 │   ├── hermes_gateway_doctor.py # 部署机Gateway导入/schedule诊断
 │   ├── generate_system_crontab.py # 系统cron兜底生成器
 │   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 367个单元测试
+├── tests/                      # 384个单元测试
 ├── skills/
 │   ├── common/                 # 共享HTTP/状态 + 候选排序/生命周期
 │   ├── stock-triage/           # 编排中枢
@@ -345,7 +351,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 367项测试
+python -m pytest -q tests/        # 384项测试
 python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```

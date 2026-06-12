@@ -43,6 +43,22 @@ def make_batch_id(trading_date: str) -> str:
     return f"a-share-{trading_date.replace('-', '')}"
 
 
+def resolve_runtime_name(
+    configured: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
+) -> str:
+    values = env if env is not None else os.environ
+    if configured:
+        return configured
+    if values.get("A_STOCK_RUNTIME"):
+        return str(values["A_STOCK_RUNTIME"])
+    if values.get("OPENCLAW_HOME"):
+        return "openclaw"
+    if values.get("HERMES_HOME"):
+        return "hermes"
+    return "local"
+
+
 def make_run_id(job_id: str, started_at: Optional[str] = None) -> str:
     started = started_at or now_iso()
     safe_time = started.replace("-", "").replace(":", "").replace("T", "-")[:15]

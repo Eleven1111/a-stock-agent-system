@@ -28,10 +28,13 @@ from runtime_context import (  # noqa: E402
     make_run_id,
     now_iso,
     record_run,
+    resolve_runtime_name,
     resolve_trading_date,
     write_artifact,
 )
 from market_snapshot import write_snapshot  # noqa: E402
+from run_lease import claim  # noqa: E402
+from agent_state import agent_state_path  # noqa: E402
 
 
 def _load_manifest(path: str) -> Dict[str, Any]:
@@ -130,7 +133,7 @@ def run_job(args: argparse.Namespace) -> int:
     run_id = args.run_id or make_run_id(job["id"], started_at)
     trading_date = resolve_trading_date(args.trading_date or started_at)
     batch_id = args.batch_id or make_batch_id(trading_date)
-    runtime = args.runtime or os.environ.get("A_STOCK_RUNTIME") or "hermes"
+    runtime = resolve_runtime_name(args.runtime)
     dependency_gate = evaluate_dependencies(
         job.get("context_from", []),
         trading_date=trading_date,
@@ -192,27 +195,46 @@ def run_job(args: argparse.Namespace) -> int:
         "A_STOCK_RUN_ID": run_id,
         "A_STOCK_BATCH_ID": batch_id,
         "A_STOCK_TRADING_DATE": trading_date,
+        "A_STOCK_AGENT_STATE_PATH": agent_state_path(),
     })
 
     start = time.monotonic()
     timed_out = False
-    try:
-        completed = subprocess.run(
-            shlex.split(command),
-            cwd=cwd,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        returncode = completed.returncode
-        stdout = completed.stdout
-        stderr = completed.stderr
-    except subprocess.TimeoutExpired as exc:
-        timed_out = True
-        returncode = 124
-        stdout = exc.stdout or ""
-        stderr = (exc.stderr or "") + f"\nTIMEOUT after {timeout}s"
+    with claim(
+        job["id"],
+        trading_date=trading_date,
+        batch_id=batch_id,
+        run_id=run_id,
+        runtime=runtime,
+        ttl_seconds=max(timeout * 2, 60),
+    ) as lease:
+        if not lease["acquired"]:
+            print(json.dumps({
+                "schema": "a_stock_duplicate_run_v1",
+                "status": "duplicate_skipped",
+                "job_id": job["id"],
+                "trading_date": trading_date,
+                "batch_id": batch_id,
+                "holder": lease.get("holder"),
+            }, ensure_ascii=False))
+            return 76
+        try:
+            completed = subprocess.run(
+                shlex.split(command),
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            returncode = completed.returncode
+            stdout = completed.stdout
+            stderr = completed.stderr
+        except subprocess.TimeoutExpired as exc:
+            timed_out = True
+            returncode = 124
+            stdout = exc.stdout or ""
+            stderr = (exc.stderr or "") + f"\nTIMEOUT after {timeout}s"
 
     finished_at = now_iso()
     duration = time.monotonic() - start

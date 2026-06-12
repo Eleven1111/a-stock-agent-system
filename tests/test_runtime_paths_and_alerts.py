@@ -6,10 +6,18 @@ import subprocess
 import sys
 
 from http_client import HttpResult
+from runtime_context import resolve_runtime_name
 from state_store import atomic_write_json, read_json, update_json_list
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def test_runtime_name_prefers_explicit_and_detects_host_runtime():
+    assert resolve_runtime_name("openclaw", {"HERMES_HOME": "/tmp/hermes"}) == "openclaw"
+    assert resolve_runtime_name(env={"OPENCLAW_HOME": "/tmp/openclaw"}) == "openclaw"
+    assert resolve_runtime_name(env={"HERMES_HOME": "/tmp/hermes"}) == "hermes"
+    assert resolve_runtime_name(env={}) == "local"
 
 
 def load_module(name: str, relpath: str):
