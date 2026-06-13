@@ -33,6 +33,7 @@ def build_runtime_context(*, refresh: bool = True) -> dict[str, Any]:
         "pending_settlements": state.get("pending_settlements"),
         "monitors": state.get("monitors"),
         "strategies": state.get("strategies"),
+        "serenity_refresh_requests": state.get("serenity_refresh_requests"),
         "runtime_contract": state.get("runtime_contract"),
     }
 

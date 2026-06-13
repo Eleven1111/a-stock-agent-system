@@ -54,3 +54,24 @@ def test_oos_rule_change_blocks_result():
 
     assert result["decision"] == "blocked"
     assert any("OOS" in reason for reason in result["blocking_reasons"])
+
+
+def test_oos_result_requires_minimum_sample_when_declared():
+    payload = research_gate.example_payload()
+    payload.update(
+        {
+            "phase": "oos_complete",
+            "oos_run_count": 1,
+            "permutation_p": 0.01,
+            "fdr_p": 0.02,
+            "oos_alpha": 0.03,
+            "benchmark_alpha": 0.0,
+            "min_oos_samples": 30,
+            "oos_sample_count": 12,
+        }
+    )
+
+    result = research_gate.evaluate_gate(payload)
+
+    assert result["decision"] == "blocked"
+    assert any("样本" in reason for reason in result["blocking_reasons"])

@@ -72,3 +72,25 @@ def test_scheduled_news_monitor_marks_clarification_as_risk():
 
     assert event["risk_classification"]["is_risk"] is True
     assert "澄清" in event["risk_classification"]["clarification_hits"]
+
+
+def test_serenity_refresh_planner_uses_runtime_state_sources(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    planner = load_module(
+        "serenity_refresh_queue_test",
+        "skills/common/serenity_refresh_queue.py",
+    )
+    monkeypatch.setattr(planner, "read_deep_research", lambda code, today=None: None)
+    monkeypatch.setattr(planner.monitor_registry, "active_entries", lambda kind=None: [])
+
+    portfolio = tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"
+    portfolio.parent.mkdir(parents=True)
+    portfolio.write_text(
+        '{"positions":[{"code":"600001","name":"持仓股"}]}',
+        encoding="utf-8",
+    )
+
+    result = planner.plan_and_save(asof="2026-06-13", limit=1)
+
+    assert result["created"] == 1
+    assert result["created_requests"][0]["code"] == "600001"

@@ -157,6 +157,21 @@ python ../../common/deep_research_cache.py write \
 The four-dim scorer reads this cache via `read_deep_research(code)`; entries older than 90 days
 decay toward the PE snapshot. Re-run this write whenever a fresh report or major catalyst lands.
 
+### 9. Close an Automatic Refresh Request
+
+When Hermes/OpenClaw starts this skill from `serenity_refresh_requests`, claim the request before
+researching and complete it only after the report passed lint and the cache write above succeeded:
+
+```bash
+python ../../common/serenity_refresh_queue.py claim --worker hermes
+python ../../common/serenity_refresh_queue.py complete --id serenity-002156-2026-06-13
+```
+
+On failure, call `fail --id ... --error ...` so another run can retry. Claims are leases rather
+than permanent locks; abandoned claims return to the queue after two hours. Never mark a request
+complete merely because a draft exists: `complete` verifies a cache whose `asof` is at least the
+request date.
+
 ### Mainline Policy Role
 
 In the live architecture this skill is the **Deep Research Evidence / Risk** layer, not a

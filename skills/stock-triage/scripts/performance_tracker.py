@@ -302,6 +302,57 @@ def _expectancy(rets: List[float]) -> Dict[str, float]:
     return {"expectancy": round(expectancy, 2), "payoff_ratio": round(payoff, 2)}
 
 
+def _attribution_returns(
+    records: List[Dict],
+    *,
+    final_only: bool = False,
+) -> Dict[str, List[float]]:
+    """Direction-normalized returns for research evidence co-occurrence.
+
+    A bullish tag keeps the stock return; a bearish tag negates it. The result
+    describes conditional performance when evidence was present, not causal
+    contribution to the primary strategy.
+    """
+    grouped: Dict[str, List[float]] = {}
+    for record in records:
+        if record.get("t1_close_ret") is None:
+            continue
+        if final_only and record.get("settlement_status") == "provisional":
+            continue
+        seen = set()
+        for item in record.get("strategy_attributions") or []:
+            strategy_id = str(item.get("strategy_id") or "").strip()
+            if not strategy_id or strategy_id in seen:
+                continue
+            seen.add(strategy_id)
+            value = float(record["t1_close_ret"])
+            if item.get("direction") == "bearish":
+                value = -value
+            grouped.setdefault(strategy_id, []).append(value)
+    return grouped
+
+
+def _attribution_stats(
+    records: List[Dict],
+    *,
+    final_only: bool = False,
+) -> Dict[str, Dict[str, float]]:
+    grouped = _attribution_returns(records, final_only=final_only)
+    return {
+        strategy_id: {
+            "total": len(values),
+            "closed": len(values),
+            "win_rate": round(
+                sum(1 for value in values if value >= 0) / len(values) * 100,
+                1,
+            ) if values else 0,
+            "avg_t1_close": round(sum(values) / len(values), 2) if values else 0,
+            **_expectancy(values),
+        }
+        for strategy_id, values in sorted(grouped.items())
+    }
+
+
 def compute_stats(records: List[Dict]) -> Dict:
     # 仅统计**新口径已结算**记录（含 t1_close_ret）。旧 schema 记录（首穿锁定法、
     # 无 t1_close_ret）一律排除，避免把旧方法的虚高胜率混入新口径，污染"可信的数字"。
@@ -362,6 +413,11 @@ def compute_stats(records: List[Dict]) -> Dict:
             "closed": len(s_closed),
             **_expectancy([r["t1_close_ret"] for r in s_closed]),
         }
+    by_attribution_strategy = _attribution_stats(closed)
+    gating_by_attribution_strategy = _attribution_stats(
+        final_closed,
+        final_only=True,
+    )
 
     return {
         "metric": "打板口径(T+1隔日)",
@@ -380,6 +436,8 @@ def compute_stats(records: List[Dict]) -> Dict:
         "by_grade": by_grade,
         "by_strategy": by_strategy,
         "gating_by_strategy": gating_by_strategy,
+        "by_attribution_strategy": by_attribution_strategy,
+        "gating_by_attribution_strategy": gating_by_attribution_strategy,
     }
 
 
@@ -465,6 +523,20 @@ def format_stats(stats: Dict, records: List[Dict]) -> str:
                          f"{ss.get('win_rate', 0)}% | {ss.get('avg_t1_close', 0):+.2f}% | "
                          f"{ss.get('expectancy', 0):+.2f}% |")
 
+    by_attribution = stats.get("by_attribution_strategy", {})
+    if by_attribution:
+        lines.append("")
+        lines.append("证据信号为方向归一化共现统计，不代表独立因果贡献。")
+        lines.append("| 证据信号 | 样本 | 胜率 | 方向收益 | 期望 |")
+        lines.append("|----------|------|------|----------|------|")
+        for strategy_id, ss in by_attribution.items():
+            lines.append(
+                f"| {strategy_id} | {ss.get('closed', 0)} | "
+                f"{ss.get('win_rate', 0)}% | "
+                f"{ss.get('avg_t1_close', 0):+.2f}% | "
+                f"{ss.get('expectancy', 0):+.2f}% |"
+            )
+
     recent = [r for r in records if r.get("outcome") and r["outcome"] != "pending"][-5:]
     if recent:
         lines.append("\n## 最近结算")
@@ -497,8 +569,15 @@ if __name__ == "__main__":
         records = update_outcomes()
         stats = compute_stats(records)
         if args.gate:
+            main_decisions = evaluate_strategy_gating(
+                stats.get("gating_by_strategy", {})
+            )
+            evidence_decisions = evaluate_strategy_gating(
+                stats.get("gating_by_attribution_strategy", {})
+            )
             stats["gating_applied"] = apply_strategy_gating(
-                evaluate_strategy_gating(stats.get("gating_by_strategy", {})))
+                main_decisions + evidence_decisions
+            )
         if args.json:
             print(json.dumps(stats, ensure_ascii=False, indent=2))
         else:

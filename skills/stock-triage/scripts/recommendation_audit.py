@@ -29,7 +29,7 @@ from recommendation_quality import build_quality_report
 from decision_policy import evaluate_decision
 from market_context import market_regime, read_market_context
 from portfolio_policy import evaluate_candidate
-from research_evidence import build_research_evidence
+from research_evidence import build_research_evidence, strategy_attributions
 import signal_ledger
 import strategy_registry
 
@@ -418,6 +418,7 @@ def record_recommendation(
         "policy_decision": policy,
         "portfolio_risk": risk,
         "research_evidence": evidence,
+        "strategy_attributions": strategy_attributions(evidence),
         "execution_constraints": quality["execution_constraints"],
         "settleable_signal": opens_signal,
         "outcome": "pending",

@@ -114,6 +114,29 @@ $PY $SDIR/chan_structure.py 600011 --days 120
 输出含 `structure`（笔/中枢统计、最新中枢 zd/zg）与 `signals`
 （`third_buy`/`third_sell`/`top_divergence`/`bottom_divergence`，各带 `strategy_id`）。
 
+## 四信号正式 IS/OOS 回测
+
+`scripts/chan_signal_backtest.py` 分别验证四个可执行信号 ID。它按历史 K 线逐日前推，
+只在信号首次可观察后的下一交易日开盘入场，禁止用结构信号所指向的历史 K 线价格入场。
+三卖/顶背驰使用方向归一化收益，价格下跌才记为正收益，但其角色是验证
+“应回避/阻断买入”的预测能力，不宣称 A 股个股可直接做空。多空两类收益都扣同方向的
+成本拖累，禁止把成本反号变成熊信号的虚假正收益；多头样本还会排除下一日不可成交的一字板。
+
+```bash
+$PY $SDIR/chan_signal_backtest.py \
+  --input chan_research_dataset.json \
+  --split 2025-01-01 \
+  --min-oos-samples 30 \
+  --register \
+  --json
+```
+
+输入必须包含 `series`（多股票前复权日线）和 `benchmark_bars`（同期间基准日线）。
+输出为四个独立 `research_state` 和闸门结论，不再用打板竞价 MVP 的结论代替缠论信号验证。
+样本不足会被研究闸门直接阻断。`--register` 会把规则、切分日和数据集指纹写入
+`chanlun_oos_runs.json`；相同输入可幂等重跑，但更换规则、切分或数据后不能覆盖既有 OOS，
+必须使用版本化策略 ID 和新的留出集重新立项。
+
 **信号过闸才计权（铁律）：** chan_structure 只产出"研究假设"信号。四维技术面对这些信号，
 在对应 `strategy_id` 通过 `research_gate --register`（写入 `strategy_registry`，
 `allowed_in_live_agent=true`）之前，一律 display-only / 0 权重。把闸门结论登记进注册表：
@@ -133,6 +156,8 @@ $PY $SDIR/research_gate.py --input research_state.json --register --json
 3. 近期结构证据随候选池进入 09:26 竞价和 09:35 开盘确认。
 4. 未过闸信号只展示；已过闸的三卖/顶背驰可以阻断买入。
 5. 已过闸的三买/底背驰只能增强证据，不得绕过公告、可成交性、组合风险和市场状态。
+6. 实盘结算保留主策略，同时把缠论信号写入 `strategy_attributions`。绩效层按多空方向
+   归一化输出共现期望；该统计用于监控证据有效性，不宣称是主策略收益的因果拆分。
 
 如果研究闸门返回 `blocked` 或 `failed`，对应参数只能标注为"研究假设"，不能标注为"已验证有效策略"。
 

@@ -37,3 +37,43 @@ def test_research_evidence_combines_chanlun_gate_and_serenity_risk(tmp_path, mon
     assert evidence["chanlun"]["status"] == "live_allowed"
     assert evidence["serenity"]["available"] is True
     assert "risk_control=1/5" in evidence["serenity"]["hard_risks"]
+
+
+def test_live_chanlun_signals_become_directional_strategy_attributions():
+    evidence = {
+        "chanlun": {
+            "live_bullish_signals": [
+                {
+                    "type": "third_buy",
+                    "strategy_id": "chanlun_third_buy",
+                    "idx": 58,
+                }
+            ],
+            "live_bearish_signals": [
+                {
+                    "type": "top_divergence",
+                    "strategy_id": "chanlun_top_divergence",
+                    "idx": 59,
+                }
+            ],
+        }
+    }
+
+    attributions = research_evidence.strategy_attributions(evidence)
+
+    assert attributions == [
+        {
+            "strategy_id": "chanlun_third_buy",
+            "role": "research_evidence",
+            "direction": "bullish",
+            "signal_type": "third_buy",
+            "signal_idx": 58,
+        },
+        {
+            "strategy_id": "chanlun_top_divergence",
+            "role": "research_evidence",
+            "direction": "bearish",
+            "signal_type": "top_divergence",
+            "signal_idx": 59,
+        },
+    ]
