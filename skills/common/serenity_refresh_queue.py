@@ -140,7 +140,7 @@ def collect_targets(
     recommendations: list[dict[str, Any]] | None = None,
     candidates: list[dict[str, Any]] | None = None,
     monitors: list[dict[str, Any]] | None = None,
-    candidate_limit: int = 10,
+    candidate_limit: int = 5,
 ) -> list[dict[str, Any]]:
     if portfolio is None:
         portfolio = read_json(

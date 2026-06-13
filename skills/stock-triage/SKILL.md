@@ -36,7 +36,7 @@ metadata:
 ## Serenity 自动刷新协议
 
 `skills/common/serenity_refresh_queue.py` 是 Hermes 与 OpenClaw 共用的确定性刷新入口。
-15:45 cron 按以下顺序挑选缺失或过期深研：持仓 > 有效建议 > 主动监控 > 候选池；
+15:45 cron 按以下顺序挑选缺失或过期深研：持仓 > 有效建议 > 主动监控 > 候选池前 5 名；
 公告质检出现澄清或硬风险且现有报告早于事件时，也会强制生成刷新请求。
 定时任务只排队，不允许脚本伪造主观评分；实际研究必须由 Agent 运行
 `serenity-investment-research` 并写入 `deep_research_cache.py`。

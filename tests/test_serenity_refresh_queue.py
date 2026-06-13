@@ -26,6 +26,31 @@ def test_plan_refreshes_missing_and_stale_high_priority_targets():
     assert result["requests"][1]["reason"] == "stale_cache"
 
 
+def test_collect_targets_only_includes_top_five_candidates():
+    candidates = [
+        {"code": f"{index:06d}", "name": f"候选{index}"}
+        for index in range(1, 8)
+    ]
+
+    targets = queue.collect_targets(
+        portfolio={"positions": []},
+        recommendations=[],
+        monitors=[],
+        candidates=candidates,
+    )
+
+    candidate_targets = [
+        item for item in targets if item["source"] == "candidate_pool"
+    ]
+    assert [item["code"] for item in candidate_targets] == [
+        "000001",
+        "000002",
+        "000003",
+        "000004",
+        "000005",
+    ]
+
+
 def test_plan_is_idempotent_for_pending_or_claimed_requests():
     targets = [{"code": "600001", "name": "持仓股", "priority": 100, "source": "portfolio"}]
     existing = [
