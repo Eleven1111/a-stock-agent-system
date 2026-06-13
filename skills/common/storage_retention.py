@@ -1,0 +1,318 @@
+"""Bounded retention for immutable snapshots and isolated cron artifacts."""
+
+from __future__ import annotations
+
+import json
+import os
+from collections import Counter
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Mapping
+
+from data_access_config import storage_settings
+from paths import hermes_home
+
+
+SNAPSHOT_SCHEMA = "market_snapshot_v1"
+
+
+@dataclass(frozen=True)
+class SnapshotEntry:
+    path: Path
+    dataset: str
+    captured_at: datetime
+    size: int
+
+
+def _parse_datetime(value: Any) -> datetime:
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(root.resolve(strict=False))
+    except ValueError:
+        return False
+    return True
+
+
+def _tree_bytes(root: Path) -> int:
+    total = 0
+    if not root.exists():
+        return total
+    for path in root.rglob("*"):
+        try:
+            if path.is_file():
+                total += path.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _read_json(path: Path) -> Any:
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _scan_snapshots(root: Path) -> tuple[list[SnapshotEntry], list[str]]:
+    entries: list[SnapshotEntry] = []
+    invalid: list[str] = []
+    if not root.exists():
+        return entries, invalid
+
+    for path in root.rglob("*.json"):
+        try:
+            record = _read_json(path)
+            if not isinstance(record, dict) or record.get("schema") != SNAPSHOT_SCHEMA:
+                raise ValueError("unsupported snapshot schema")
+            dataset = record.get("dataset")
+            captured_at = record.get("captured_at")
+            if not isinstance(dataset, str) or not dataset or not captured_at:
+                raise ValueError("missing snapshot metadata")
+            entries.append(
+                SnapshotEntry(
+                    path=path.resolve(strict=False),
+                    dataset=dataset,
+                    captured_at=_parse_datetime(captured_at),
+                    size=path.stat().st_size,
+                )
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            invalid.append(str(path))
+    return entries, invalid
+
+
+def _extract_snapshot_paths(
+    value: Any,
+    references: set[Path],
+    *,
+    state_home: Path,
+) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "snapshot_path" and isinstance(child, str) and child:
+                path = Path(os.path.expanduser(child))
+                if not path.is_absolute():
+                    path = state_home / path
+                references.add(path.resolve(strict=False))
+            else:
+                _extract_snapshot_paths(child, references, state_home=state_home)
+    elif isinstance(value, list):
+        for child in value:
+            _extract_snapshot_paths(child, references, state_home=state_home)
+
+
+def _scan_recent_references(
+    state_home: Path,
+    snapshot_dir: Path,
+    *,
+    cutoff: datetime,
+) -> tuple[set[Path], int]:
+    references: set[Path] = set()
+    scanned = 0
+    if not state_home.exists():
+        return references, scanned
+
+    for path in state_home.rglob("*"):
+        if not path.is_file() or path.suffix not in {".json", ".jsonl"}:
+            continue
+        if _is_within(path, snapshot_dir):
+            continue
+        try:
+            modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+            if modified < cutoff:
+                continue
+            if path.suffix == ".jsonl":
+                with path.open("r", encoding="utf-8") as handle:
+                    for line in handle:
+                        if line.strip():
+                            _extract_snapshot_paths(
+                                json.loads(line),
+                                references,
+                                state_home=state_home,
+                            )
+            else:
+                _extract_snapshot_paths(
+                    _read_json(path),
+                    references,
+                    state_home=state_home,
+                )
+            scanned += 1
+        except (OSError, json.JSONDecodeError):
+            continue
+    return {
+        path for path in references if _is_within(path, snapshot_dir)
+    }, scanned
+
+
+def _retention_days(entry: SnapshotEntry, settings: Mapping[str, Any]) -> int:
+    key = (
+        "snapshot_input_retention_days"
+        if entry.dataset.endswith("-input")
+        else "snapshot_output_retention_days"
+    )
+    return int(settings[key])
+
+
+def _sidecar_bytes(path: Path) -> int:
+    total = 0
+    for suffix in (".bak",):
+        sidecar = Path(f"{path}{suffix}")
+        try:
+            total += sidecar.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _delete_file(path: Path, *, root: Path, apply: bool) -> int:
+    if not _is_within(path, root):
+        raise ValueError(f"refusing to delete outside retention root: {path}")
+    reclaimed = 0
+    for target in (path, Path(f"{path}.bak")):
+        try:
+            reclaimed += target.stat().st_size
+        except OSError:
+            continue
+        if apply:
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                pass
+    return reclaimed
+
+
+def cleanup_storage(
+    *,
+    state_home: str | Path | None = None,
+    settings: Mapping[str, Any] | None = None,
+    now: datetime | None = None,
+    apply: bool = False,
+) -> dict[str, Any]:
+    """Plan or apply bounded storage cleanup without breaking recent lineage."""
+    home = Path(state_home or hermes_home()).expanduser().resolve(strict=False)
+    snapshot_dir = home / "market" / "snapshots"
+    cron_dir = home / "cron" / "output"
+    policy = dict(settings or storage_settings())
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    max_delete = int(policy["gc_max_delete_files"])
+    min_keep = int(policy["snapshot_min_keep_per_dataset"])
+    max_snapshot_bytes = int(float(policy["snapshot_max_total_mb"]) * 1024 * 1024)
+
+    entries, invalid_files = _scan_snapshots(snapshot_dir)
+    references, reference_files_scanned = _scan_recent_references(
+        home,
+        snapshot_dir,
+        cutoff=current - timedelta(days=int(policy["reference_protection_days"])),
+    )
+    counts = Counter(entry.dataset for entry in entries)
+    selected: dict[Path, str] = {}
+    protected_references = sum(entry.path in references for entry in entries)
+
+    for entry in sorted(entries, key=lambda item: item.captured_at):
+        if len(selected) >= max_delete:
+            break
+        if entry.path in references or counts[entry.dataset] <= min_keep:
+            continue
+        cutoff = current - timedelta(days=_retention_days(entry, policy))
+        if entry.captured_at < cutoff:
+            selected[entry.path] = "expired"
+            counts[entry.dataset] -= 1
+
+    snapshot_bytes = _tree_bytes(snapshot_dir)
+    planned_snapshot_bytes = snapshot_bytes - sum(
+        entry.size + _sidecar_bytes(entry.path)
+        for entry in entries
+        if entry.path in selected
+    )
+    if planned_snapshot_bytes > max_snapshot_bytes:
+        remaining = sorted(
+            (
+                entry
+                for entry in entries
+                if entry.path not in selected and entry.path not in references
+            ),
+            key=lambda item: item.captured_at,
+        )
+        for entry in remaining:
+            if len(selected) >= max_delete:
+                break
+            if counts[entry.dataset] <= min_keep:
+                continue
+            selected[entry.path] = "size_cap"
+            counts[entry.dataset] -= 1
+            planned_snapshot_bytes -= entry.size + _sidecar_bytes(entry.path)
+            if planned_snapshot_bytes <= max_snapshot_bytes:
+                break
+
+    cron_candidates: list[Path] = []
+    cron_cutoff = current - timedelta(days=int(policy["cron_artifact_retention_days"]))
+    if cron_dir.exists():
+        for path in cron_dir.rglob("*.json"):
+            if path == cron_dir / "job_runs.json":
+                continue
+            try:
+                modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+            except OSError:
+                continue
+            if modified < cron_cutoff:
+                cron_candidates.append(path.resolve(strict=False))
+    cron_candidates.sort(key=lambda path: path.stat().st_mtime if path.exists() else 0)
+    cron_selected = cron_candidates[: max(0, max_delete - len(selected))]
+
+    reclaimed = 0
+    for path in selected:
+        reclaimed += _delete_file(path, root=snapshot_dir, apply=apply)
+    for path in cron_selected:
+        reclaimed += _delete_file(path, root=cron_dir, apply=apply)
+
+    expired_count = sum(reason == "expired" for reason in selected.values())
+    cap_count = sum(reason == "size_cap" for reason in selected.values())
+    remaining_snapshot_bytes = (
+        _tree_bytes(snapshot_dir) if apply else max(0, planned_snapshot_bytes)
+    )
+    retained_lock_files = (
+        sum(1 for path in snapshot_dir.rglob("*.lock"))
+        if snapshot_dir.exists()
+        else 0
+    )
+    return {
+        "schema": "a_stock_storage_gc_v1",
+        "status": "ok",
+        "mode": "apply" if apply else "dry_run",
+        "state_home": str(home),
+        "policy": policy,
+        "scanned": {
+            "snapshots": len(entries),
+            "cron_artifacts": len(cron_candidates),
+            "reference_files": reference_files_scanned,
+            "invalid_snapshots": len(invalid_files),
+        },
+        "deleted": {
+            "expired_snapshots": expired_count,
+            "size_cap_snapshots": cap_count,
+            "cron_artifacts": len(cron_selected),
+        },
+        "protected": {
+            "referenced_snapshots": protected_references,
+            "minimum_per_dataset": min_keep,
+        },
+        "reclaimed_bytes": reclaimed,
+        "remaining_snapshot_bytes": remaining_snapshot_bytes,
+        "snapshot_capacity_bytes": max_snapshot_bytes,
+        "capacity_satisfied": remaining_snapshot_bytes <= max_snapshot_bytes,
+        "delete_limit_reached": (
+            len(selected) + len(cron_selected) >= max_delete
+            and (
+                len(cron_candidates) > len(cron_selected)
+                or remaining_snapshot_bytes > max_snapshot_bytes
+            )
+        ),
+        "invalid_snapshot_paths": invalid_files,
+        "retained_lock_files": retained_lock_files,
+        "retained_lock_reason": "state_store lock files are never unlinked to avoid split-lock races",
+    }

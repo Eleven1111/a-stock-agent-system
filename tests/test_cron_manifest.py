@@ -271,3 +271,6 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert any("strategy_registry.json" in path for path in jobs["performance-weekly"]["allowed_state_writes"])
     assert jobs["performance-daily"]["run"]["command"].endswith("--json")
     assert jobs["ledger-projector"]["run"]["command"].startswith("python scripts/agent_state_projector.py")
+    assert jobs["snapshot-gc"]["context_from"] == []
+    assert jobs["snapshot-gc"]["deliver"] == "local"
+    assert jobs["snapshot-gc"]["run"]["command"].endswith("--apply --json")

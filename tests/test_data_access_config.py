@@ -13,6 +13,8 @@ def test_missing_config_uses_historical_defaults(tmp_path):
     assert loaded["risk"]["max_single_position_pct"] == 25
     assert loaded["news_monitor"]["default_limit"] == 3
     assert len(loaded["news_monitor"]["queries"]) == 4
+    assert loaded["storage"]["snapshot_input_retention_days"] == 30
+    assert loaded["storage"]["snapshot_max_total_mb"] == 4096
 
 
 def test_partial_config_deep_merges_without_losing_defaults(tmp_path):
@@ -47,6 +49,11 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
             "risk": {"stop_loss_pct": "bad", "portfolio_size": 0},
             "intraday_monitor": {"surge_pct": -5},
             "news_monitor": {"default_limit": 0, "queries": ["", 123]},
+            "storage": {
+                "snapshot_input_retention_days": 0,
+                "snapshot_min_keep_per_dataset": -1,
+                "snapshot_max_total_mb": "bad",
+            },
         }),
         encoding="utf-8",
     )
@@ -60,6 +67,7 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
     assert loaded["intraday_monitor"]["surge_pct"] == 5.0
     assert loaded["news_monitor"]["default_limit"] == 3
     assert loaded["news_monitor"]["queries"] == config.DEFAULTS["news_monitor"]["queries"]
+    assert loaded["storage"] == config.DEFAULTS["storage"]
 
 
 def test_invalid_top_level_sections_fall_back_without_crashing(tmp_path):
@@ -71,6 +79,7 @@ def test_invalid_top_level_sections_fall_back_without_crashing(tmp_path):
             "intraday_monitor": None,
             "news_monitor": 123,
             "global_market": "bad",
+            "storage": "bad",
         }),
         encoding="utf-8",
     )
@@ -82,6 +91,17 @@ def test_invalid_top_level_sections_fall_back_without_crashing(tmp_path):
     assert loaded["intraday_monitor"]["surge_pct"] == 5.0
     assert loaded["news_monitor"]["default_limit"] == 3
     assert loaded["global_market"]["switches"]["yfinance"] is True
+    assert loaded["storage"]["cron_artifact_retention_days"] == 30
+
+
+def test_storage_settings_are_independently_copied(tmp_path):
+    settings = config.storage_settings(tmp_path / "missing.json")
+
+    settings["snapshot_input_retention_days"] = 1
+
+    assert config.storage_settings(tmp_path / "missing.json")[
+        "snapshot_input_retention_days"
+    ] == 30
 
 
 def test_global_market_settings_are_sanitized_and_deep_copied(tmp_path):

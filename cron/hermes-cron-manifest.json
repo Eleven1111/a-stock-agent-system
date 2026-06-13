@@ -657,6 +657,34 @@
         "timeout_seconds": 120
       },
       "external_note": "周报默认归档，避免数据型输出污染主线"
+    },
+    {
+      "id": "snapshot-gc",
+      "name": "市场快照与任务产物清理",
+      "schedule": "20 17 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py snapshot-gc --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2500,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/"
+      ],
+      "run": {
+        "command": "python scripts/snapshot_gc.py --apply --json",
+        "cwd": ".",
+        "timeout_seconds": 120
+      },
+      "external_note": "17:20 按中央保留策略清理过期输入快照、输出快照和 cron artifact；近期引用、每数据集最低副本和全局删除上限受保护"
     }
   ],
   "external_dependencies": {
