@@ -1,0 +1,645 @@
+#!/usr/bin/env python3
+"""Walk-forward OOS research for the four executable Chan structure signals.
+
+Signals are detected by repeatedly analyzing each historical prefix. A trade
+can only enter at the next bar open after the signal first becomes observable,
+which prevents using the signal's earlier structure index as a hindsight entry.
+Returns are direction-normalized so bearish signals are positive when price
+falls. This module is offline research only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sys
+from datetime import datetime
+from typing import Any, Callable, Iterable
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+COMMON = os.path.abspath(os.path.join(HERE, "..", "..", "common"))
+for path in (HERE, COMMON):
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
+import chan_structure  # noqa: E402
+import daban_bt_engine as engine  # noqa: E402
+import daban_bt_stats as stats  # noqa: E402
+import research_gate  # noqa: E402
+from paths import data_file  # noqa: E402
+from state_store import mutate_json  # noqa: E402
+from tradeability import assess_tradeability  # noqa: E402
+
+
+STRATEGY_DIRECTIONS = {
+    "chanlun_third_buy": "bullish",
+    "chanlun_bottom_divergence": "bullish",
+    "chanlun_third_sell": "bearish",
+    "chanlun_top_divergence": "bearish",
+}
+REQUIRED_CONTROLS = ["random_entry", "simple_breakout", "buy_hold"]
+REQUIRED_TESTS = ["t_test", "bootstrap", "permutation"]
+RUN_REGISTRY_FILE = data_file("stock-triage", "chanlun_oos_runs.json")
+RULES_VERSION = "chan-walk-forward-v1"
+
+
+ROUND_TRIP_COST = -engine.net_return(1.0, 1.0)
+
+
+def _directional_net_from_gross(
+    gross_return: float | None,
+    direction: str,
+) -> float | None:
+    if gross_return is None:
+        return None
+    directional = -gross_return if direction == "bearish" else gross_return
+    return directional - ROUND_TRIP_COST
+
+
+def _directional_net_return(
+    entry: float,
+    exit_price: float,
+    direction: str,
+) -> float:
+    return float(_directional_net_from_gross(exit_price / entry - 1.0, direction))
+
+
+def _benchmark_returns(
+    bars: Iterable[dict[str, Any]] | None,
+) -> dict[str, dict[str, float]]:
+    output = {}
+    rows = list(bars or [])
+    for index, bar in enumerate(rows):
+        try:
+            entry = float(bar["open"])
+            t1 = float(bar["close"]) / entry - 1.0
+            t3 = (
+                float(rows[index + 2]["close"]) / entry - 1.0
+                if index + 2 < len(rows)
+                else None
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+        output[str(bar.get("date") or "")] = {"t1": t1, "t3": t3}
+    return output
+
+
+def _control_event(
+    code: str,
+    bars: list[dict[str, Any]],
+    detected_idx: int,
+    direction: str,
+) -> dict[str, Any] | None:
+    if detected_idx + 1 >= len(bars):
+        return None
+    entry = bars[detected_idx + 1]
+    if direction == "bullish":
+        tradeability = assess_tradeability(
+            {
+                "price": entry.get("close"),
+                "prev_close": bars[detected_idx].get("close"),
+                "open": entry.get("open"),
+                "high": entry.get("high"),
+                "low": entry.get("low"),
+                "volume": entry.get("volume"),
+            },
+            code,
+        )
+        if tradeability.get("tradeable") is False:
+            return None
+    try:
+        raw_t1 = _directional_net_return(
+            float(entry["open"]),
+            float(entry["close"]),
+            direction,
+        )
+        raw_t3 = (
+            _directional_net_return(
+                float(entry["open"]),
+                float(bars[detected_idx + 3]["close"]),
+                direction,
+            )
+            if detected_idx + 3 < len(bars)
+            else None
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "date": bars[detected_idx].get("date"),
+        "t1": raw_t1,
+        "t3": raw_t3,
+    }
+
+
+def build_control_pools(
+    series: list[dict[str, Any]],
+    *,
+    benchmark_bars: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Build three observable, reproducible control families.
+
+    random_entry uses a stable 20% hash sample of eligible dates. The simple
+    technical control is a 20-day close breakout for bullish strategies and a
+    symmetric close breakdown for bearish strategies. buy_hold uses benchmark
+    open-to-close returns for each available date.
+    """
+    pools = {
+        strategy_id: {name: [] for name in REQUIRED_CONTROLS}
+        for strategy_id in STRATEGY_DIRECTIONS
+    }
+    benchmark = _benchmark_returns(benchmark_bars)
+    for strategy_id, direction in STRATEGY_DIRECTIONS.items():
+        pools[strategy_id]["buy_hold"] = [
+            {
+                "date": trade_date,
+                "t1": _directional_net_from_gross(value["t1"], direction),
+                "t3": _directional_net_from_gross(value["t3"], direction),
+            }
+            for trade_date, value in sorted(benchmark.items())
+        ]
+
+    for item in series:
+        code = str(item.get("code") or "").zfill(6)
+        bars = list(item.get("bars") or [])
+        for detected_idx in range(20, len(bars) - 1):
+            prior = bars[detected_idx - 20:detected_idx]
+            current = bars[detected_idx]
+            trade_date = str(current.get("date") or "")
+            digest = hashlib.sha256(f"{code}|{trade_date}".encode()).digest()
+            is_random_entry = digest[0] % 5 == 0
+            try:
+                bullish_break = float(current["close"]) > max(
+                    float(bar["high"]) for bar in prior
+                )
+                bearish_break = float(current["close"]) < min(
+                    float(bar["low"]) for bar in prior
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            for strategy_id, direction in STRATEGY_DIRECTIONS.items():
+                event = _control_event(code, bars, detected_idx, direction)
+                if not event:
+                    continue
+                if is_random_entry:
+                    pools[strategy_id]["random_entry"].append(event)
+                if (
+                    direction == "bullish" and bullish_break
+                ) or (
+                    direction == "bearish" and bearish_break
+                ):
+                    pools[strategy_id]["simple_breakout"].append(event)
+    return pools
+
+
+def extract_signal_events(
+    code: str,
+    bars: list[dict[str, Any]],
+    *,
+    benchmark_by_date: dict[str, dict[str, float]] | None = None,
+    analyzer: Callable[[list[dict[str, Any]]], dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Detect first observability on historical prefixes and enter next open."""
+    analyze = analyzer or chan_structure.analyze
+    benchmark = benchmark_by_date or {}
+    events = []
+    seen = set()
+    for detected_idx in range(4, len(bars) - 1):
+        result = analyze(bars[:detected_idx + 1])
+        for raw in result.get("signals") or []:
+            strategy_id = str(raw.get("strategy_id") or "")
+            direction = STRATEGY_DIRECTIONS.get(strategy_id)
+            signal_idx = raw.get("idx")
+            if direction is None or not isinstance(signal_idx, int):
+                continue
+            if signal_idx < 0 or signal_idx > detected_idx:
+                continue
+            key = (strategy_id, signal_idx)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            entry_idx = detected_idx + 1
+            entry = bars[entry_idx]
+            if direction == "bullish":
+                tradeability = assess_tradeability(
+                    {
+                        "price": entry.get("close"),
+                        "prev_close": bars[detected_idx].get("close"),
+                        "open": entry.get("open"),
+                        "high": entry.get("high"),
+                        "low": entry.get("low"),
+                        "volume": entry.get("volume"),
+                    },
+                    str(code).zfill(6),
+                )
+                if tradeability.get("tradeable") is False:
+                    continue
+            entry_price = float(entry["open"])
+            raw_t1 = _directional_net_return(
+                entry_price,
+                float(entry["close"]),
+                direction,
+            )
+            raw_t3 = None
+            if detected_idx + 3 < len(bars):
+                raw_t3 = _directional_net_return(
+                    entry_price,
+                    float(bars[detected_idx + 3]["close"]),
+                    direction,
+                )
+            control = benchmark.get(str(entry.get("date") or ""), {})
+            events.append({
+                "code": str(code).zfill(6),
+                "signal_type": raw.get("type"),
+                "strategy_id": strategy_id,
+                "direction": direction,
+                "execution_role": (
+                    "long_entry" if direction == "bullish" else "avoidance_signal"
+                ),
+                "signal_idx": signal_idx,
+                "signal_date": bars[signal_idx].get("date"),
+                "detection_date": bars[detected_idx].get("date"),
+                "entry_date": entry.get("date"),
+                "entry_price": entry_price,
+                "t1_return": raw_t1,
+                "t3_return": raw_t3,
+                "control_t1_return": _directional_net_from_gross(
+                    control.get("t1"),
+                    direction,
+                ),
+                "control_t3_return": _directional_net_from_gross(
+                    control.get("t3"),
+                    direction,
+                ),
+            })
+    return events
+
+
+def _returns(
+    events: list[dict[str, Any]],
+    field: str,
+) -> list[float]:
+    return [
+        float(event[field])
+        for event in events
+        if event.get(field) is not None
+    ]
+
+
+def _control_returns(
+    controls: dict[str, list[dict[str, Any]]],
+    *,
+    split_date: str,
+    period: str,
+    field: str,
+) -> dict[str, list[float]]:
+    output = {}
+    for name, events in controls.items():
+        selected = [
+            event for event in events
+            if (
+                str(event.get("date") or "") < split_date
+                if period == "is"
+                else str(event.get("date") or "") >= split_date
+            )
+        ]
+        output[name] = [
+            float(event[field])
+            for event in selected
+            if event.get(field) is not None
+        ]
+    return output
+
+
+def _variant(
+    events: list[dict[str, Any]],
+    return_field: str,
+    controls: dict[str, list[float]],
+    *,
+    n_perm: int,
+) -> dict[str, Any]:
+    signal = _returns(events, return_field)
+    available = {
+        name: values
+        for name, values in controls.items()
+        if values
+    }
+    strongest_name = max(
+        available,
+        key=lambda name: stats.summarize(available[name])["mean"],
+        default=None,
+    )
+    strongest = available.get(strongest_name, [])
+    t_stat, t_p = stats.t_test_vs_zero(signal)
+    permutation = stats.permutation_test_diff(
+        signal,
+        strongest,
+        n_perm=n_perm,
+    )
+    return {
+        "signal": stats.summarize(signal),
+        "controls": {
+            name: stats.summarize(values)
+            for name, values in controls.items()
+        },
+        "strongest_control": strongest_name,
+        "control": stats.summarize(strongest),
+        "t_test": {"t": t_stat, "p_approx": t_p},
+        "bootstrap_ci": stats.bootstrap_ci_mean(signal, n_boot=2000),
+        "permutation": permutation,
+    }
+
+
+def analyze_events(
+    events: list[dict[str, Any]],
+    *,
+    split_date: str,
+    min_oos_samples: int = 30,
+    n_perm: int = 5000,
+    control_pools: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
+) -> dict[str, Any]:
+    """Produce independent IS/OOS evidence and gate decisions for four IDs."""
+    prepared = {}
+    pvalues = []
+    for strategy_id, direction in STRATEGY_DIRECTIONS.items():
+        selected = [
+            event for event in events
+            if event.get("strategy_id") == strategy_id
+        ]
+        is_events = [
+            event for event in selected
+            if str(event.get("detection_date") or "") < split_date
+        ]
+        oos_events = [
+            event for event in selected
+            if str(event.get("detection_date") or "") >= split_date
+        ]
+        controls = dict((control_pools or {}).get(strategy_id) or {})
+        controls.setdefault("buy_hold", [
+            {
+                "date": event.get("detection_date"),
+                "t1": event.get("control_t1_return"),
+                "t3": event.get("control_t3_return"),
+            }
+            for event in selected
+            if (
+                event.get("control_t1_return") is not None
+                or event.get("control_t3_return") is not None
+            )
+        ])
+        for name in REQUIRED_CONTROLS:
+            controls.setdefault(name, [])
+        variants = {
+            "t1": {
+                "is": _variant(
+                    is_events,
+                    "t1_return",
+                    _control_returns(
+                        controls,
+                        split_date=split_date,
+                        period="is",
+                        field="t1",
+                    ),
+                    n_perm=n_perm,
+                ),
+                "oos": _variant(
+                    oos_events,
+                    "t1_return",
+                    _control_returns(
+                        controls,
+                        split_date=split_date,
+                        period="oos",
+                        field="t1",
+                    ),
+                    n_perm=n_perm,
+                ),
+            },
+            "t3": {
+                "is": _variant(
+                    is_events,
+                    "t3_return",
+                    _control_returns(
+                        controls,
+                        split_date=split_date,
+                        period="is",
+                        field="t3",
+                    ),
+                    n_perm=n_perm,
+                ),
+                "oos": _variant(
+                    oos_events,
+                    "t3_return",
+                    _control_returns(
+                        controls,
+                        split_date=split_date,
+                        period="oos",
+                        field="t3",
+                    ),
+                    n_perm=n_perm,
+                ),
+            },
+        }
+        primary = variants["t1"]["oos"]
+        pvalue = float(primary["permutation"]["p_value"])
+        pvalues.append(pvalue)
+        prepared[strategy_id] = {
+            "direction": direction,
+            "sample": {
+                "total": len(selected),
+                "is": len(is_events),
+                "oos": len(oos_events),
+            },
+            "variants": variants,
+            "_permutation_p": pvalue,
+        }
+
+    fdr = stats.benjamini_hochberg(pvalues, q=0.10)
+    output = {}
+    for index, strategy_id in enumerate(STRATEGY_DIRECTIONS):
+        item = prepared[strategy_id]
+        primary = item["variants"]["t1"]["oos"]
+        signal_mean = float(primary["signal"]["mean"])
+        control_mean = float(primary["control"]["mean"])
+        present_controls = [
+            name for name, summary in primary["controls"].items()
+            if summary["n"] > 0
+        ]
+        research_state = {
+            "asof": datetime.now().date().isoformat(),
+            "strategy_id": strategy_id,
+            "phase": "oos_complete",
+            "rules_locked": True,
+            "has_costs": True,
+            "reports_all_variants": True,
+            "controls": present_controls,
+            "stat_tests": REQUIRED_TESTS,
+            "oos_run_count": 1,
+            "changed_after_oos": False,
+            "min_oos_samples": min_oos_samples,
+            "oos_sample_count": item["sample"]["oos"],
+            "permutation_p": item["_permutation_p"],
+            "fdr_p": fdr[index]["adjusted"],
+            "oos_alpha": signal_mean - control_mean,
+            "benchmark_alpha": 0.0,
+        }
+        output[strategy_id] = {
+            "direction": item["direction"],
+            "sample": item["sample"],
+            "variants": item["variants"],
+            "research_state": research_state,
+            "gate_result": research_gate.evaluate_gate(research_state),
+        }
+    return {
+        "schema": "chan_signal_backtest_v1",
+        "generated_at": datetime.now().isoformat(),
+        "split_date": split_date,
+        "entry_rule": "first_detection_then_next_bar_open",
+        "return_convention": "direction_normalized_net_return",
+        "strategies": output,
+    }
+
+
+def analyze_payload(
+    payload: dict[str, Any],
+    *,
+    split_date: str,
+    min_oos_samples: int = 30,
+    n_perm: int = 5000,
+) -> dict[str, Any]:
+    benchmark = _benchmark_returns(payload.get("benchmark_bars"))
+    series = list(payload.get("series") or [])
+    events = []
+    for item in series:
+        events.extend(
+            extract_signal_events(
+                str(item.get("code") or ""),
+                list(item.get("bars") or []),
+                benchmark_by_date=benchmark,
+            )
+        )
+    control_pools = build_control_pools(
+        series,
+        benchmark_bars=payload.get("benchmark_bars"),
+    )
+    result = analyze_events(
+        events,
+        split_date=split_date,
+        min_oos_samples=min_oos_samples,
+        n_perm=n_perm,
+        control_pools=control_pools,
+    )
+    result["sample"] = {
+        "series": len(series),
+        "events": len(events),
+        "benchmark_available": bool(benchmark),
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode()
+    rules = json.dumps(
+        {
+            "version": RULES_VERSION,
+            "entry_rule": result["entry_rule"],
+            "return_convention": result["return_convention"],
+            "strategies": STRATEGY_DIRECTIONS,
+            "controls": REQUIRED_CONTROLS,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    result["research_protocol"] = {
+        "split_date": split_date,
+        "rules_fingerprint": hashlib.sha256(rules).hexdigest(),
+        "dataset_fingerprint": hashlib.sha256(encoded).hexdigest(),
+    }
+    return result
+
+
+def register_oos_results(
+    result: dict[str, Any],
+    *,
+    registry_file: str | None = None,
+    gate_registrar: Callable[[str, dict[str, Any]], Any] | None = None,
+) -> dict[str, Any]:
+    """Register one immutable OOS protocol, rejecting changed repeat runs."""
+    protocol = dict(result.get("research_protocol") or {})
+    required = {"split_date", "rules_fingerprint", "dataset_fingerprint"}
+    if not required.issubset(protocol):
+        return {"status": "blocked", "reason": "missing research protocol fingerprints"}
+    run_file = registry_file or RUN_REGISTRY_FILE
+    outcome: dict[str, Any] = {}
+
+    def _register(value: Any) -> dict[str, Any]:
+        records = dict(value) if isinstance(value, dict) else {}
+        existing = records.get("chanlun_four_signal_oos")
+        if existing:
+            comparable = {key: existing.get(key) for key in required}
+            current = {key: protocol.get(key) for key in required}
+            if comparable != current:
+                outcome.update({
+                    "status": "blocked",
+                    "reason": (
+                        "OOS protocol already registered; changed rules, split, "
+                        "or dataset require versioned strategy IDs and a new holdout"
+                    ),
+                    "existing": comparable,
+                    "requested": current,
+                })
+                return records
+            outcome.update({"status": "idempotent", "protocol": current})
+            return records
+        records["chanlun_four_signal_oos"] = {
+            **protocol,
+            "registered_at": datetime.now().isoformat(),
+            "strategy_ids": list(STRATEGY_DIRECTIONS),
+        }
+        outcome.update({"status": "registered", "protocol": protocol})
+        return records
+
+    mutate_json(run_file, _register, {})
+    if outcome.get("status") == "blocked":
+        return outcome
+    if gate_registrar is None:
+        import strategy_registry
+
+        gate_registrar = strategy_registry.register_gate_result
+    for strategy_id, item in result.get("strategies", {}).items():
+        gate_registrar(strategy_id, item["gate_result"])
+    outcome["strategy_ids"] = list(result.get("strategies", {}))
+    return outcome
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="缠论四类结构信号的无前视 IS/OOS 回测"
+    )
+    parser.add_argument("--input", required=True, help="series + benchmark_bars JSON")
+    parser.add_argument("--split", required=True, help="OOS 切分日 YYYY-MM-DD")
+    parser.add_argument("--min-oos-samples", type=int, default=30)
+    parser.add_argument("--permutations", type=int, default=5000)
+    parser.add_argument("--register", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    with open(args.input, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    result = analyze_payload(
+        payload,
+        split_date=args.split,
+        min_oos_samples=args.min_oos_samples,
+        n_perm=args.permutations,
+    )
+    if args.register:
+        result["formal_registration"] = register_oos_results(result)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 2 if result.get("formal_registration", {}).get("status") == "blocked" else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -25,6 +25,13 @@ HARD_RISK_DIMENSIONS = {
     "risk_control": 2,
 }
 
+_CHAN_DIRECTIONS = {
+    "third_buy": "bullish",
+    "bottom_divergence": "bullish",
+    "third_sell": "bearish",
+    "top_divergence": "bearish",
+}
+
 
 def _chanlun_evidence(strategy_id: str) -> dict[str, Any]:
     is_chanlun_strategy = strategy_id.startswith("chanlun_")
@@ -132,6 +139,36 @@ def _serenity_evidence(code: str, asof: str | None) -> dict[str, Any]:
         "hard_risks": hard_risks,
         "report_path": record.get("report_path"),
     }
+
+
+def strategy_attributions(evidence: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Extract live research signals without replacing the primary strategy.
+
+    These tags support conditional/co-occurrence performance reporting. They
+    are not a causal allocation of the recommendation's full return.
+    """
+    chanlun = (evidence or {}).get("chanlun") or {}
+    output = []
+    seen = set()
+    for bucket in ("live_bullish_signals", "live_bearish_signals"):
+        for raw in chanlun.get(bucket) or []:
+            strategy_id = str(raw.get("strategy_id") or "").strip()
+            signal_type = str(raw.get("type") or "").strip()
+            direction = _CHAN_DIRECTIONS.get(signal_type)
+            if not strategy_id or not direction:
+                continue
+            key = (strategy_id, signal_type, raw.get("idx"))
+            if key in seen:
+                continue
+            seen.add(key)
+            output.append({
+                "strategy_id": strategy_id,
+                "role": "research_evidence",
+                "direction": direction,
+                "signal_type": signal_type,
+                "signal_idx": raw.get("idx"),
+            })
+    return output
 
 
 def build_research_evidence(

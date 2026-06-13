@@ -57,6 +57,32 @@ def test_record_recommendation_writes_audit_file(tmp_path, monkeypatch):
     ]
 
 
+def test_record_recommendation_carries_chanlun_attribution_into_signal(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    evidence = {
+        "chanlun": {
+            "live_bullish_signals": [
+                {
+                    "type": "third_buy",
+                    "strategy_id": "chanlun_third_buy",
+                    "idx": 58,
+                }
+            ],
+            "live_bearish_signals": [],
+        },
+        "serenity": {"available": False, "stale": None, "hard_risks": []},
+    }
+
+    result = ra.record_recommendation(
+        **_passed_buy(research_evidence=evidence)
+    )
+
+    attribution = result["record"]["strategy_attributions"][0]
+    signal = ra.signal_ledger.project_signals(ledger_file=ra.LEDGER_FILE)[0]
+    assert attribution["strategy_id"] == "chanlun_third_buy"
+    assert signal["strategy_attributions"] == [attribution]
+
+
 def test_query_filters_by_code_and_outcome(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch)
     ra.record_recommendation("600011", "华能国际", "buy", "9.00-9.20", "电力催化", risks=[])

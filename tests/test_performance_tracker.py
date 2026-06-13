@@ -130,6 +130,38 @@ def test_strategy_gating_uses_only_final_settlements():
     assert stats["gating_by_strategy"]["daban:first_board_reseal"]["expectancy"] == 3.0
 
 
+def test_compute_stats_reports_directional_research_attribution():
+    records = [
+        {
+            "code": "1",
+            "name": "a",
+            "grade": "A",
+            "strategy_id": "trend_pullback",
+            "outcome": "win",
+            "t1_close_ret": 4.0,
+            "t1_open_premium": 2.0,
+            "promoted": False,
+            "settlement_status": "final",
+            "strategy_attributions": [
+                {
+                    "strategy_id": "chanlun_third_buy",
+                    "direction": "bullish",
+                },
+                {
+                    "strategy_id": "chanlun_top_divergence",
+                    "direction": "bearish",
+                },
+            ],
+        }
+    ]
+
+    stats = compute_stats(records)
+
+    assert stats["by_attribution_strategy"]["chanlun_third_buy"]["expectancy"] == 4.0
+    assert stats["by_attribution_strategy"]["chanlun_top_divergence"]["expectancy"] == -4.0
+    assert stats["gating_by_attribution_strategy"]["chanlun_third_buy"]["closed"] == 1
+
+
 def test_compute_stats_no_closed():
     s = compute_stats([{"code": "1", "outcome": "pending"}])
     assert s["closed"] == 0

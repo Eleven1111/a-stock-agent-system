@@ -123,3 +123,26 @@ def test_merge_legacy_assigns_stable_ids_and_deduplicates():
     second = ledger.merge_legacy_signals(first, [legacy])
     assert len(second) == 1
     assert first[0]["signal_id"] == second[0]["signal_id"]
+
+
+def test_opened_signal_preserves_research_strategy_attributions():
+    links = ledger.make_links("rec-attribution")
+    opened = ledger.signal_opened_event(
+        {
+            "code": "002156",
+            "date": "2026-06-12",
+            "entry_price": 11.0,
+            "strategy_id": "trend_pullback",
+            "strategy_attributions": [
+                {
+                    "strategy_id": "chanlun_third_buy",
+                    "role": "research_evidence",
+                    "direction": "bullish",
+                    "signal_type": "third_buy",
+                }
+            ],
+        },
+        links,
+    )
+
+    assert opened["payload"]["strategy_attributions"][0]["strategy_id"] == "chanlun_third_buy"

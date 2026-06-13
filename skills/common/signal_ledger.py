@@ -212,6 +212,7 @@ def signal_opened_event(
         "strategy_id": record.get("strategy_id") or "default",
         "action": record.get("action") or "buy",
         "source": record.get("source") or "recommendation",
+        "strategy_attributions": list(record.get("strategy_attributions") or []),
     }
     return {
         "event_type": "signal.opened",

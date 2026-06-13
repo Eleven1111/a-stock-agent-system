@@ -32,6 +32,32 @@ metadata:
 ## 核心逻辑
 
 ```
+
+## Serenity 自动刷新协议
+
+`skills/common/serenity_refresh_queue.py` 是 Hermes 与 OpenClaw 共用的确定性刷新入口。
+15:45 cron 按以下顺序挑选缺失或过期深研：持仓 > 有效建议 > 主动监控 > 候选池；
+公告质检出现澄清或硬风险且现有报告早于事件时，也会强制生成刷新请求。
+定时任务只排队，不允许脚本伪造主观评分；实际研究必须由 Agent 运行
+`serenity-investment-research` 并写入 `deep_research_cache.py`。
+
+Agent 每次加载 `scripts/agent_runtime_context.py` 后必须检查
+`serenity_refresh_requests`，并按同一协议处理：
+
+```bash
+# 领取一个任务，避免 Hermes/OpenClaw 重复研究同一标的
+python skills/common/serenity_refresh_queue.py claim --worker hermes
+
+# 执行 serenity-investment-research，生成报告并写入真实缓存后验收
+python skills/common/serenity_refresh_queue.py complete --id serenity-002156-2026-06-13
+
+# 失败时释放回 pending；不可重试错误加 --no-retry
+python skills/common/serenity_refresh_queue.py fail \
+  --id serenity-002156-2026-06-13 --error "source unavailable"
+```
+
+`complete` 会核验缓存存在且 `asof` 不早于请求日；没有真实报告时不能把任务标成完成。
+队列使用 `A_STOCK_STATE_HOME`，两套运行时要避免重复执行，必须共享该状态目录。
 信号输入 → 信号评分 → 决策：
   ├─ ≥8分 (S级) → 启动完整 4-worker 深度分析 + Serenity + 推送
   ├─ 6-7分 (A级) → 3-worker 技术+情绪+催化 + 每日简报

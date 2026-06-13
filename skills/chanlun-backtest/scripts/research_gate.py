@@ -62,7 +62,7 @@ def _set(value: Any) -> Set[str]:
 def phase_checklist(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     controls = _set(payload.get("controls"))
     tests = _set(payload.get("stat_tests") or payload.get("tests"))
-    return [
+    checks = [
         {
             "id": "rules_locked_before_oos",
             "passed": _bool(payload.get("rules_locked"), False),
@@ -98,6 +98,23 @@ def phase_checklist(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             ),
         },
     ]
+    min_oos_samples = int(_num(payload.get("min_oos_samples"), 0) or 0)
+    has_oos_result = (
+        payload.get("phase") == "oos_complete"
+        or int(_num(payload.get("oos_run_count"), 0) or 0) > 0
+    )
+    if min_oos_samples > 0 and has_oos_result:
+        actual = int(_num(payload.get("oos_sample_count"), 0) or 0)
+        checks.append({
+            "id": "minimum_oos_sample",
+            "passed": actual >= min_oos_samples,
+            "reason": (
+                f"样本量满足: {actual}>={min_oos_samples}"
+                if actual >= min_oos_samples
+                else f"样本量不足: {actual}<{min_oos_samples}"
+            ),
+        })
+    return checks
 
 
 def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -39,6 +39,13 @@ def test_projector_exposes_one_runtime_neutral_decision_surface(tmp_path):
         portfolio={"cash": 50000, "positions": []},
         monitors=[],
         strategies={},
+        serenity_requests=[
+            {
+                "id": "serenity-002156-2026-06-12",
+                "code": "002156",
+                "status": "pending",
+            }
+        ],
     )
 
     assert state["schema"] == "a_stock_agent_state_v1"
@@ -46,3 +53,4 @@ def test_projector_exposes_one_runtime_neutral_decision_surface(tmp_path):
     assert state["signals"][0]["settlement_status"] == "pending"
     assert state["runtime_contract"]["state_root_env"] == "A_STOCK_STATE_HOME"
     assert state["runtime_contract"]["cross_host_coordination"] == "shared_filesystem_required"
+    assert state["serenity_refresh_requests"][0]["code"] == "002156"

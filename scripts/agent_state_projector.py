@@ -18,6 +18,7 @@ import monitor_registry  # noqa: E402
 from agent_state import agent_state_path  # noqa: E402
 from paths import data_file  # noqa: E402
 import signal_ledger  # noqa: E402
+import serenity_refresh_queue  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 import strategy_registry  # noqa: E402
 
@@ -31,6 +32,7 @@ def build_agent_state(
     portfolio: Optional[dict[str, Any]] = None,
     monitors: Optional[list[dict[str, Any]]] = None,
     strategies: Optional[dict[str, Any]] = None,
+    serenity_requests: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     events = signal_ledger.read_events(ledger_file)
     recommendations: dict[str, dict[str, Any]] = {}
@@ -65,6 +67,13 @@ def build_agent_state(
         "pending_settlements": pending,
         "monitors": monitors if monitors is not None else monitor_registry.active_entries(),
         "strategies": strategies if strategies is not None else strategy_registry.all_strategies(),
+        "serenity_refresh_requests": (
+            serenity_requests
+            if serenity_requests is not None
+            else serenity_refresh_queue.pending_requests(
+                data_file("stock-triage", "serenity_refresh_queue.json")
+            )
+        ),
     }
 
 
