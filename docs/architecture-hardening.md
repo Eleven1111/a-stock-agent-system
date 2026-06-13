@@ -75,6 +75,30 @@ $A_STOCK_STATE_HOME/market/snapshots/{trading_date}/{job_id}/{snapshot_id}.json
 相同内容重复写入会复用同一路径；不同内容不会覆盖旧快照。artifact 仅保存
 `market_snapshot` 引用，消费者可追溯到本次决策实际使用的数据版本。
 
+### 快照与 artifact 保留策略
+
+`config/data_access.json` 的 `storage` 段统一控制生命周期：
+
+- 输入快照默认保留 30 天，输出快照默认保留 90 天。
+- cron artifact 默认保留 30 天；`job_runs.json` 本身由写入逻辑限长，不由 GC 删除。
+- 最近 30 天状态文件中仍引用的 `snapshot_path` 不删除。
+- 每个 dataset 至少保留最近 3 份，快照总量默认上限 4096 MB。
+- 每次最多删除 10000 个主文件，避免一次维护任务造成长时间 I/O 峰值。
+
+工作日 17:20 的 `snapshot-gc` 任务自动执行。容量仍超限时，先按时间删除未被引用的
+最老快照；损坏或元数据不完整的快照会报告但不会自动删除。`.lock` 是并发协调文件，
+不会被 unlink，避免旧、新 inode 同时被不同进程加锁。
+
+部署前可先预演：
+
+```bash
+python scripts/snapshot_gc.py --json
+python scripts/snapshot_gc.py --apply --json
+```
+
+保留期内保证输入版本可追溯；如果业务要求更长时间审计，应提高保留天数或把快照归档到
+对象存储，而不是无限扩大在线状态卷。
+
 ## 运行批次与依赖门禁
 
 每个 artifact 使用 `hermes_cron_artifact_v2`，名字为兼容历史 schema，不代表只能由

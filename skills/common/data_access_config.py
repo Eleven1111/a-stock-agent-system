@@ -26,6 +26,15 @@ DEFAULTS: Dict[str, Any] = {
         "max_sector_exposure_pct": 40,
         "portfolio_size": 100000,
     },
+    "storage": {
+        "snapshot_input_retention_days": 30,
+        "snapshot_output_retention_days": 90,
+        "cron_artifact_retention_days": 30,
+        "reference_protection_days": 30,
+        "snapshot_min_keep_per_dataset": 3,
+        "snapshot_max_total_mb": 4096,
+        "gc_max_delete_files": 10000,
+    },
     "intraday_monitor": {
         "limit_move_pct": 9.5,
         "high_turnover_pct": 10.0,
@@ -209,6 +218,28 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
         positive = key != "stop_loss_pct"
         risk[key] = _number(risk.get(key), default, positive=positive)
 
+    storage = result["storage"]
+    for key, default in DEFAULTS["storage"].items():
+        value = storage.get(key)
+        if key == "snapshot_min_keep_per_dataset":
+            storage[key] = (
+                value
+                if isinstance(value, int)
+                and not isinstance(value, bool)
+                and value >= 0
+                else default
+            )
+        elif key == "snapshot_max_total_mb":
+            storage[key] = _number(value, default, positive=True)
+        else:
+            storage[key] = (
+                value
+                if isinstance(value, int)
+                and not isinstance(value, bool)
+                and value > 0
+                else default
+            )
+
     intraday = result["intraday_monitor"]
     for key, default in DEFAULTS["intraday_monitor"].items():
         intraday[key] = _number(intraday.get(key), default, positive=True)
@@ -278,6 +309,10 @@ def provider_settings(name: str, path: Optional[str | Path] = None) -> Dict[str,
 
 def risk_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:
     return dict(load_config(path)["risk"])
+
+
+def storage_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:
+    return dict(load_config(path)["storage"])
 
 
 def intraday_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:
