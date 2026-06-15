@@ -389,7 +389,7 @@ def observe_recent_candidates(
 def load_signal_context_for_discovery(
     asof: str,
 ) -> tuple[Mapping[str, Any] | None, Dict[str, Any]]:
-    """Only expose same-day hot-money context to the ranking pipeline."""
+    """Expose only same-day evidence; validate market and social clocks separately."""
     try:
         from market_temperature import temperature_from_context
         from signal_context import read_signal_context
@@ -400,10 +400,44 @@ def load_signal_context_for_discovery(
             event_asof=asof,
             max_age_days=0,
         )
-        return (
-            signal_ctx if temperature.get("context_fresh") else None,
-            temperature,
+        ranking_ctx = dict(signal_ctx) if temperature.get("context_fresh") else {}
+        if not temperature.get("context_fresh"):
+            for key in (
+                "lianban_ladder",
+                "prev_lianban_ladder",
+                "sector_limitups",
+                "market_sentiment",
+                "stock_flows",
+                "sector_flows",
+                "northbound_net_yi",
+            ):
+                ranking_ctx.pop(key, None)
+
+        social = signal_ctx.get("social_attention")
+        social_asof = (
+            signal_ctx.get("social_attention_asof")
+            or (
+                social.get("trading_date")
+                if isinstance(social, Mapping)
+                else None
+            )
         )
+        if (
+            not isinstance(social, Mapping)
+            or social.get("schema") != "social_attention_snapshot_v1"
+            or str(social_asof or "") != asof
+        ):
+            ranking_ctx.pop("social_attention", None)
+            ranking_ctx.pop("social_attention_asof", None)
+            ranking_ctx.pop("social_attention_snapshot", None)
+        else:
+            ranking_ctx["social_attention"] = social
+            ranking_ctx["social_attention_asof"] = asof
+            if signal_ctx.get("social_attention_snapshot"):
+                ranking_ctx["social_attention_snapshot"] = signal_ctx[
+                    "social_attention_snapshot"
+                ]
+        return ranking_ctx or None, temperature
     except Exception as exc:  # noqa: BLE001
         return None, {
             "tier": "neutral",
@@ -472,6 +506,11 @@ def run_discovery(
             "exchange_listing": "exchange-listing-v1",
             "tencent": "tencent-adapter-v2",
             "tencent_kline": "tencent-kline-adapter-v2",
+            **dict(
+                (
+                    (signal_ctx or {}).get("social_attention") or {}
+                ).get("source_versions") or {}
+            ),
         },
     )
     inputs = input_snapshot["payload"]

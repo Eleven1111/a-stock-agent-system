@@ -128,7 +128,7 @@ python scripts/agent_runtime_context.py
 
 ```bash
 # 四维评分
-python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --json
+python skills/stock-triage/scripts/four_dim_scorer.py 600519 贵州茅台 --json
 
 # 全球市场扫描
 python skills/global-market-monitor/scripts/monitor.py --summary
@@ -143,7 +143,7 @@ python skills/news-to-sector/scripts/main.py "焦煤期货主力合约触及涨�
 python skills/stock-triage/scripts/portfolio_manager.py --check
 
 # 60分钟短线入场判断
-python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --timeframe 60
+python skills/stock-triage/scripts/four_dim_scorer.py 600519 贵州茅台 --timeframe 60
 
 # 打板候选池
 python skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
@@ -155,7 +155,7 @@ python skills/chanlun-backtest/scripts/research_gate.py --example --json
 ### 录入持仓
 
 ```bash
-python skills/stock-triage/scripts/portfolio_manager.py --add 600011 华能国际 9.10 2000
+python skills/stock-triage/scripts/portfolio_manager.py --add 600519 贵州茅台 150.00 100
 ```
 
 ## 配置
@@ -248,8 +248,8 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 
 ```json
 {
-  "code": "002156",
-  "name": "通富微电",
+  "code": "600519",
+  "name": "贵州茅台",
   "confidence": "high",
   "data_coverage": {"realtime": true, "kline": true, "news": true, "valuation": true},
   "weighted": 7.2,

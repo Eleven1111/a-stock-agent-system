@@ -1,49 +1,19 @@
-# 跟踪标的优先原则 — 血泪教训
+# Runtime Subscription Scan Principle
 
-## 教训 1：通富微电 33 亿封单 → 绕去推康强电子（2026-06-03）
+Auction and open-confirmation workflows must inspect the current runtime
+subscription set before broader discovery pools. This prevents a narrow
+strategy universe from hiding material movement in an explicitly monitored
+stock.
 
-**发生了什么：**
-通富微电（002156）涨停，封单高达 33 亿，是用户的封测板块核心跟踪标的。
-Agent 看到这个信号后，判断用户资金不足（1手 ~6,800 元，用户余资不足），
-于是绕过通富微电，去推了康强电子作为"替代品"。
+The rule is procedural, not preferential:
 
-**为什么错了：**
-- 通富微电 33 亿封单是极端异常信号，必须优先提示
-- 即使资金不够，应给出"清其他仓位 → 腾钱 → 上通富微电"的路径
-- 用户核心跟踪标的的异常信号 > 任何非跟踪标的的推荐
-- 通富微电当天 9:35 开盘有 67-68 元的上车窗口，Agent 没提示让用户错过了
+1. Load active subscriptions through `skills/common/runtime_targets.py`.
+2. Remove expired entries and manual-cancellation tombstones.
+3. Inspect fresh auction or open data for those stocks.
+4. Report material anomalies with the same quality and risk checks used for
+   every other candidate.
+5. Continue with prior-limit-up and full-market discovery pools.
 
-**正确做法：**
-跟踪标的出现异常巨量封单时 → 先给该标的的上车分析 → 再考虑资金约束方案 → 不绕去推替代品。
-
-## 教训 2：集合竞价漏太极实业（2026-06-04）
-
-**发生了什么：**
-Agent 做集合竞价分析时，分析框架聚焦在"昨日涨停→1进2"模式上。
-太极实业 600667（封测板块，用户跟踪标的）昨天没涨停，不在"昨涨停"池里，
-竞价低开 -1.82% 也不醒目，被直接略过。
-结果 09:45 太极实业强势拉涨停，封单 7.5 亿。
-
-**为什么错了：**
-- 集合竞价分析框架只考虑"昨涨停→1进2"，没覆盖"跟踪标的新首板"
-- 竞价低开不代表走弱 — 太极低开后 25 分钟内拉升到涨停，是典型的低开高走板
-- 跟踪标的在任何场景下都必须优先扫描，不受分析框架限制
-
-**正确做法：**
-集合竞价分析第一步：扫描所有用户跟踪标的的竞价状态（高开/低开/量能），
-异常信号优先上报。然后再进入"昨涨停1进2"和"全市场新股"框架。
-
-## 两个教训的共同根因
-
-Agent 的分析框架（昨涨停1进2 / 板块轮动 / 竞价筛选）有自己的逻辑边界，
-但**用户跟踪标的优先原则**必须穿透所有框架边界：
-
-```
-任何分析场景 × 任何框架 × 任何时间点
-  → 先查用户跟踪标的的状态
-  → 发现异常信号 → 优先上报，不受当前分析主题限制
-  → 正常信号 → 继续当前分析流程
-```
-
-not："先扫框架内的 → 顺带看看跟踪标的"
-yes："先扫跟踪标的 → 再看框架内的"
+An active subscription receives guaranteed coverage, not a higher score or a
+waiver from announcement, tradeability, portfolio, strategy, or T+1 gates.
+Codes and themes must remain in runtime state rather than this document.

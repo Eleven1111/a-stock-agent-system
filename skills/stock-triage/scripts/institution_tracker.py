@@ -27,11 +27,14 @@ from eastmoney_intelligence import (
 )
 from http_client import DataSourceError
 from stock_intelligence import read_cache as read_stock_intelligence
+import runtime_targets
 
-TRACKED_CODES = {
-    "600011": "华能国际", "002156": "通富微电", "600584": "长电科技",
-    "002185": "华天科技", "000021": "深科技", "600667": "太极实业",
-}
+
+def load_runtime_targets() -> Dict[str, str]:
+    return {
+        target["code"]: target["name"]
+        for target in runtime_targets.load_stock_targets()
+    }
 
 
 def fetch_research_visits(code: str) -> List[Dict]:
@@ -88,10 +91,11 @@ def fetch_serpapi_inst_news(code: str, name: str) -> List[Dict]:
         return []
 
 
-def collect_institution_data() -> Dict:
+def collect_institution_data(targets: Dict[str, str] | None = None) -> Dict:
+    targets = load_runtime_targets() if targets is None else targets
     result = {"timestamp": datetime.now().isoformat(), "stocks": [], "alerts": []}
 
-    for code, name in TRACKED_CODES.items():
+    for code, name in targets.items():
         stock = {"code": code, "name": name, "research_visits": [], "analyst_reports": [],
                  "insider_trades": [], "news": [], "market_intelligence": {}}
 
@@ -190,8 +194,17 @@ if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--json", action="store_true")
+    p.add_argument("--codes", help="逗号分隔，可用 code:name")
     args = p.parse_args()
-    data = collect_institution_data()
+    if args.codes:
+        targets = {}
+        for raw in args.codes.split(","):
+            code, _, name = raw.strip().partition(":")
+            if code:
+                targets[code.zfill(6)] = name or code.zfill(6)
+    else:
+        targets = load_runtime_targets()
+    data = collect_institution_data(targets)
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
     else:

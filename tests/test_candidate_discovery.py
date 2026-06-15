@@ -137,3 +137,53 @@ def test_discovery_ignores_stale_hot_money_context(monkeypatch):
     assert signal_ctx is None
     assert temperature["tier"] == "neutral"
     assert temperature["context_fresh"] is False
+
+
+def test_discovery_keeps_same_day_social_attention_when_ladder_is_stale(monkeypatch):
+    import signal_context
+
+    monkeypatch.setattr(
+        signal_context,
+        "read_signal_context",
+        lambda: {
+            "ladder_asof": "2026-06-01",
+            "lianban_ladder": {"600001": {"lianban": 8}},
+            "social_attention_asof": "2026-06-11",
+            "social_attention": {
+                "schema": "social_attention_snapshot_v1",
+                "trading_date": "2026-06-11",
+                "stocks": {"600001": {"eligible_for_boost": True}},
+            },
+        },
+    )
+
+    signal_ctx, temperature = discovery.load_signal_context_for_discovery("2026-06-11")
+
+    assert temperature["context_fresh"] is False
+    assert "lianban_ladder" not in signal_ctx
+    assert signal_ctx["social_attention"]["trading_date"] == "2026-06-11"
+
+
+def test_discovery_drops_stale_social_attention_from_fresh_ladder(monkeypatch):
+    import signal_context
+
+    monkeypatch.setattr(
+        signal_context,
+        "read_signal_context",
+        lambda: {
+            "ladder_asof": "2026-06-11",
+            "lianban_ladder": {"600001": {"lianban": 2}},
+            "social_attention_asof": "2026-06-10",
+            "social_attention": {
+                "schema": "social_attention_snapshot_v1",
+                "trading_date": "2026-06-10",
+                "stocks": {"600001": {"eligible_for_boost": True}},
+            },
+        },
+    )
+
+    signal_ctx, temperature = discovery.load_signal_context_for_discovery("2026-06-11")
+
+    assert temperature["context_fresh"] is True
+    assert "lianban_ladder" in signal_ctx
+    assert "social_attention" not in signal_ctx

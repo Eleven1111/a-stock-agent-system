@@ -16,6 +16,7 @@ from typing import Any, Callable
 from deep_research_cache import read_deep_research
 import monitor_registry
 from paths import data_file
+import runtime_targets
 from state_store import atomic_write_json, mutate_json, read_json
 
 
@@ -140,7 +141,9 @@ def collect_targets(
     recommendations: list[dict[str, Any]] | None = None,
     candidates: list[dict[str, Any]] | None = None,
     monitors: list[dict[str, Any]] | None = None,
+    registry: list[dict[str, Any]] | None = None,
     candidate_limit: int = 5,
+    asof: date | None = None,
 ) -> list[dict[str, Any]]:
     if portfolio is None:
         portfolio = read_json(
@@ -158,12 +161,27 @@ def collect_targets(
             {},
         )
         candidates = (pool or {}).get("candidates") or []
+    if registry is None:
+        registry = monitor_registry.load_registry() if monitors is None else []
     if monitors is None:
-        monitors = monitor_registry.active_entries("stock")
+        monitors = [
+            item
+            for item in registry
+            if item.get("kind") == "stock"
+            and runtime_targets.is_active_entry(item, asof)
+        ]
 
     targets = []
+    cancelled = runtime_targets.cancelled_stock_codes(registry)
+
+    def append_target(item: dict[str, Any]) -> None:
+        code = runtime_targets.normalize_stock_code(item.get("code"))
+        if code and code not in cancelled:
+            item["code"] = code
+            targets.append(item)
+
     for item in (portfolio or {}).get("positions") or []:
-        targets.append({
+        append_target({
             "code": item.get("code"),
             "name": item.get("name"),
             "priority": 100,
@@ -181,7 +199,7 @@ def collect_targets(
             announcement_scan.get("clarification_hits")
             or announcement_scan.get("hard_risk_hits")
         )
-        targets.append({
+        append_target({
             "code": item.get("code"),
             "name": item.get("name"),
             "priority": 90,
@@ -189,14 +207,14 @@ def collect_targets(
             "refresh_after": item.get("date") if material_event else None,
         })
     for item in monitors or []:
-        targets.append({
+        append_target({
             "code": item.get("key") or item.get("code"),
             "name": item.get("label") or item.get("name"),
             "priority": 80,
             "source": "monitor",
         })
     for index, item in enumerate((candidates or [])[:candidate_limit]):
-        targets.append({
+        append_target({
             "code": item.get("code"),
             "name": item.get("name"),
             "priority": max(40, 70 - index),
@@ -212,7 +230,8 @@ def plan_and_save(
     path: str | None = None,
 ) -> dict[str, Any]:
     queue_file = path or QUEUE_FILE
-    targets = collect_targets()
+    target_date = date.fromisoformat(str(asof)[:10]) if asof else None
+    targets = collect_targets(asof=target_date)
     result: dict[str, Any] = {}
 
     def _plan(value: Any) -> list[dict[str, Any]]:

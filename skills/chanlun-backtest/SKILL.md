@@ -87,7 +87,7 @@ $PY $SDIR/fractal_chart.py 300255 常山药业
 $PY $SDIR/fractal_chart.py 603859 能科科技 --days 30 --height 12
 
 # 纯代码查询
-$PY $SDIR/fractal_chart.py 600011
+$PY $SDIR/fractal_chart.py 600519
 ```
 
 **数据源：** 腾讯 ifzq.gtimg.cn 前复权日线（免费、全天候、无需代理）
@@ -107,8 +107,8 @@ $PY $SDIR/fractal_chart.py 600011
 PY=~/.hermes/hermes-agent/venv/bin/python3
 SDIR=~/.hermes/skills/chanlun-backtest/scripts
 
-$PY $SDIR/chan_structure.py 002156 通富微电 --json
-$PY $SDIR/chan_structure.py 600011 --days 120
+$PY $SDIR/chan_structure.py 600519 贵州茅台 --json
+$PY $SDIR/chan_structure.py 000001 --days 120
 ```
 
 输出含 `structure`（笔/中枢统计、最新中枢 zd/zg）与 `signals`

@@ -134,7 +134,7 @@ def format_report(batch: Dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cron-safe batch four-dimension scorer")
-    parser.add_argument("--targets", help="逗号分隔 code:name，如 002156:通富微电")
+    parser.add_argument("--targets", help="逗号分隔 code:name，如 600519:贵州茅台")
     parser.add_argument("--limit", type=int, default=20, help="从动态候选池读取的标的上限")
     parser.add_argument("--asof", default=date.today().isoformat(), help="动态候选池交易日")
     parser.add_argument("--json", action="store_true")

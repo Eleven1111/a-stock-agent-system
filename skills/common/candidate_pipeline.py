@@ -6,6 +6,8 @@ from datetime import date, datetime
 from statistics import pstdev
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
+from social_attention import candidate_attention_overlay
+
 
 def naked_code(code: Any) -> str:
     text = str(code or "").strip().lower()
@@ -282,7 +284,9 @@ def rank_candidates(
             + 0.10 * _num(item.get("breakout_20d"))
         )
         hm_bonus, hm_notes = hot_money_bonus(code, item, signal_ctx)
-        daban_score = min(100.0, daban_score + hm_bonus)
+        social = candidate_attention_overlay(code, signal_ctx)
+        social_delta = float(social["delta"])
+        daban_score = min(100.0, daban_score + hm_bonus + social_delta)
         if not daban_eligible or not item["feature_ready"]:
             daban_score = 0.0
 
@@ -298,6 +302,7 @@ def rank_candidates(
             + 0.10 * (1.0 - volatility_p.get(code, 1.0))
         )
         trend_score -= min(15.0, overextension * 15.0)
+        trend_score += social_delta
         if not item["feature_ready"]:
             trend_score = 0.0
         item.update({
@@ -306,6 +311,9 @@ def rank_candidates(
             "trend_score": round(max(0.0, min(100.0, trend_score)), 2),
             "hot_money_bonus": round(hm_bonus, 1),
             "hot_money_notes": hm_notes,
+            "social_attention_bonus": round(social_delta, 2),
+            "social_attention_notes": social["notes"],
+            "social_attention": social["record"],
         })
 
     daban_order = sorted(enriched, key=lambda row: (-row["daban_score"], row["code"]))
@@ -394,6 +402,7 @@ def rank_auction_shortlist(
     pool: Mapping[str, Any],
     factors: Sequence[Mapping[str, Any]],
     limit: int = 20,
+    signal_ctx: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Combine prior strategy ranks with 09:25 auction microstructure."""
     factor_by_code = _factor_map(factors)
@@ -436,6 +445,19 @@ def rank_auction_shortlist(
         )
         item["auction_daban_score"] = round(100 * (0.50 * prior_daban + shared_score), 2)
         item["auction_trend_score"] = round(100 * (0.50 * prior_trend + shared_score), 2)
+        social = candidate_attention_overlay(code, signal_ctx)
+        current_social_delta = 0.5 * float(social["delta"])
+        item["auction_daban_score"] = round(max(
+            0.0,
+            min(100.0, item["auction_daban_score"] + current_social_delta),
+        ), 2)
+        item["auction_trend_score"] = round(max(
+            0.0,
+            min(100.0, item["auction_trend_score"] + current_social_delta),
+        ), 2)
+        item["auction_social_attention_delta"] = round(current_social_delta, 2)
+        item["social_attention"] = social["record"] or item.get("social_attention")
+        item["social_attention_notes"] = social["notes"]
         item["auction_score"] = max(
             item["auction_daban_score"],
             item["auction_trend_score"],

@@ -17,8 +17,8 @@ from skills.common.a_stock_http import (
 
 # 示例
 load_hermes_env()
-quotes = fetch_tencent_quote(["sh600011", "sz002156"])
-kline = fetch_tencent_kline("002156", "sz", 60, "day")
+quotes = fetch_tencent_quote(["sh600519", "sz000001"])
+kline = fetch_tencent_kline("000001", "sz", 60, "day")
 ```
 
 **设计原则：**

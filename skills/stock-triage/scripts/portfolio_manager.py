@@ -8,8 +8,8 @@
 
 Usage:
   python3 portfolio_manager.py                              # 查看持仓+可用资金
-  python3 portfolio_manager.py --add 600011 华能国际 9.10 2000    # 开仓(自动扣现金)
-  python3 portfolio_manager.py --close 600011 8.50                # 清仓(自动加回现金)
+  python3 portfolio_manager.py --add 600519 贵州茅台 150.00 100  # 开仓(自动扣现金)
+  python3 portfolio_manager.py --close 600519 155.00              # 清仓(自动加回现金)
   python3 portfolio_manager.py --deposit 50000                    # 存入资金
   python3 portfolio_manager.py --withdraw 10000                   # 取出资金
   python3 portfolio_manager.py --history                          # 交易历史

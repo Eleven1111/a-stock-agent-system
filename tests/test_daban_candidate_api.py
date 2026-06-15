@@ -19,7 +19,7 @@ def test_example_payload_passes_and_emits_record_payload():
     result = daban.evaluate_payload(daban.example_payload())
 
     assert result["blocked"] is False
-    assert result["top_candidates"][0]["code"] == "002156"
+    assert result["top_candidates"][0]["code"] == "600001"
     assert result["top_candidates"][0]["tradeability"]["status"] == "limit_up"
     assert result["top_candidates"][0]["record_payload"]["strategy_id"] == "daban:first_board_reseal"
 

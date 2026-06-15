@@ -10,6 +10,7 @@ four_dim 情绪面直接消费。
 写入方各管一块、合并落盘（mutate_json 单锁，互不覆盖）：
 - capital_flow_monitor --cache → northbound / sector_flows / stock_flows
 - hot-money analyze --cache    → sector_limitups / lianban_ladder / market_sentiment
+- social-sentiment collect     → social_attention / social_attention_snapshot
 
 缓存：$HERMES_HOME/skills/stock-triage/cache/signal_context.json
 所有读取 fallback-safe：缓存缺失/过期时，情绪面行为与历史完全一致。

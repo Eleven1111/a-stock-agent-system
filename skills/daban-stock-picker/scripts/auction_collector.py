@@ -42,6 +42,7 @@ from research_evidence import build_research_evidence  # noqa: E402
 import strategy_registry  # noqa: E402
 from tradeability import limit_pct, round_limit  # noqa: E402
 from state_store import atomic_write_json, mutate_json, read_json  # noqa: E402
+from signal_context import read_signal_context  # noqa: E402
 from paths import data_file  # noqa: E402
 
 AUCTION_OPEN_FREEZE = "09:20"  # 9:20 后委托不可撤单，9:20→9:25 委买净增 = 无撤单窗口真实意图
@@ -214,12 +215,17 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
     state = read_json(_state_path(asof), default={"series": {}})
     result = _build_result(state.get("series", {}), asof)
     pool = load_watch_pool(asof)
+    signal_ctx = read_signal_context(max_age_hours=8) or {}
     shortlist = candidate_pipeline.rank_auction_shortlist(
         pool,
         result["factors"],
         limit=shortlist_limit,
+        signal_ctx=signal_ctx,
     )
     result.update(shortlist)
+    result["social_attention_snapshot"] = signal_ctx.get(
+        "social_attention_snapshot"
+    )
     result["schema"] = "auction_finalize_v2"
     result["asof"] = asof
     top_candidates = list(result["shortlist"][:5])
@@ -374,12 +380,12 @@ def _build_result(series: Dict[str, List[Dict[str, Any]]], asof: str) -> Dict[st
 def example_result() -> Dict[str, Any]:
     """合成竞价快照：一字封死 + 高开放量，验证因子计算，无需开盘/触网。"""
     series = {
-        "sz002156": [
-            {"t": "09:18:00", "name": "通富微电", "price": 11.0, "prev_close": 10.0,
+        "sh600001": [
+            {"t": "09:18:00", "name": "示例股份", "price": 11.0, "prev_close": 10.0,
              "volume": 8000, "market_cap": 80.0,
              "bids": [(11.0, 50000), (None, None), (None, None), (None, None), (None, None)],
              "asks": [(None, None)] * 5},
-            {"t": "09:24:50", "name": "通富微电", "price": 11.0, "prev_close": 10.0,
+            {"t": "09:24:50", "name": "示例股份", "price": 11.0, "prev_close": 10.0,
              "volume": 12000, "market_cap": 80.0,
              "bids": [(11.0, 90000), (None, None), (None, None), (None, None), (None, None)],
              "asks": [(None, None)] * 5},
@@ -396,7 +402,7 @@ def example_result() -> Dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="A股集合竞价真竞价因子采集器")
-    parser.add_argument("--codes", help="逗号分隔，带市场前缀，如 sh600519,sz002156")
+    parser.add_argument("--codes", help="逗号分隔，带市场前缀，如 sh600519,sz000001")
     parser.add_argument("--asof", default=date.today().isoformat())
     parser.add_argument("--snapshot", action="store_true", help="抓一次快照并落盘（cron 多次调用）")
     parser.add_argument("--finalize", action="store_true", help="读当日快照算因子")

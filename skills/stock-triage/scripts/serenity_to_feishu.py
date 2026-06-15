@@ -5,8 +5,8 @@ Serenity 深度报告 → 飞书文档存档管道
 将 Serenity/S级深度分析报告自动归档到飞书云文档。
 
 Usage:
-  echo "# 深度分析报告..." | python3 serenity_to_feishu.py "通富微电"
-  python3 serenity_to_feishu.py --file /path/to/report.md "通富微电"
+  echo "# 深度分析报告..." | python3 serenity_to_feishu.py "示例公司"
+  python3 serenity_to_feishu.py --file /path/to/report.md "示例公司"
 """
 
 import sys

@@ -146,3 +146,28 @@ def test_opened_signal_preserves_research_strategy_attributions():
     )
 
     assert opened["payload"]["strategy_attributions"][0]["strategy_id"] == "chanlun_third_buy"
+
+
+def test_opened_signal_preserves_social_attention_attribution():
+    event = ledger.signal_opened_event(
+        {
+            "code": "002156",
+            "name": "通富微电",
+            "date": "2026-06-15",
+            "entry_price": 23.5,
+            "strategy_id": "daban:first_board_reseal",
+            "action": "buy",
+            "social_attention": {
+                "candidate_bonus": 3.0,
+                "auction_delta": 1.5,
+                "record": {
+                    "attention_score": 88,
+                    "cross_source_count": 2,
+                },
+            },
+        },
+        ledger.make_links("rec-social"),
+    )
+
+    assert event["payload"]["social_attention"]["candidate_bonus"] == 3.0
+    assert event["payload"]["social_attention"]["record"]["cross_source_count"] == 2

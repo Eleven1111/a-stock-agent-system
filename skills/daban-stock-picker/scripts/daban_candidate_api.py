@@ -461,8 +461,8 @@ def example_payload() -> Dict[str, Any]:
         },
         "candidates": [
             {
-                "code": "002156",
-                "name": "通富微电",
+                "code": "600001",
+                "name": "示例股份",
                 "sector": "半导体",
                 "pattern": "first_board_reseal",
                 "price": 11.0,

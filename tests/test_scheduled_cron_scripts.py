@@ -60,6 +60,19 @@ def test_scheduled_news_monitor_adds_active_registry_queries(monkeypatch):
 
     assert any("AI算力" in query for query in queries)
     assert any("通富微电" in query and "澄清" in query for query in queries)
+    assert not any("封测" in query or "高温" in query for query in queries)
+
+
+def test_scheduled_news_monitor_has_no_static_user_topic_queries():
+    monitor = load_module(
+        "scheduled_news_monitor_no_static_topics_test",
+        "skills/news-to-sector/scripts/scheduled_monitor.py",
+    )
+
+    assert monitor.DEFAULT_QUERIES == [
+        "国务院 发改委 工信部 证监会 A股 产业政策",
+        "地缘冲突 制裁 关税 大宗商品 A股 风险",
+    ]
 
 
 def test_scheduled_news_monitor_marks_clarification_as_risk():
@@ -72,6 +85,55 @@ def test_scheduled_news_monitor_marks_clarification_as_risk():
 
     assert event["risk_classification"]["is_risk"] is True
     assert "澄清" in event["risk_classification"]["clarification_hits"]
+
+
+def test_social_attention_collection_writes_snapshot_and_signal_context(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    collector = load_module(
+        "social_attention_collect_test",
+        "skills/social-sentiment/scripts/collect.py",
+    )
+    rankings = {
+        "eastmoney": [{
+            "code": "SZ002156",
+            "name": "通富微电",
+            "rank": 3,
+            "rank_change": 18,
+        }],
+        "xueqiu_discussion": [{
+            "code": "SZ002156",
+            "name": "通富微电",
+            "rank": 8,
+            "metric_value": 4200,
+            "price_change_pct": 5.2,
+        }],
+        "xueqiu_follow": [],
+    }
+
+    result = collector.run_collection(
+        asof="2026-06-15",
+        batch_id="test-batch",
+        ranking_collector=lambda: (
+            rankings,
+            {
+                "eastmoney": {"status": "ok"},
+                "xueqiu": {"status": "ok"},
+                "baidu": {"status": "disabled"},
+            },
+        ),
+        metadata_loader=lambda: {"002156": {"sector": "半导体"}},
+    )
+
+    assert result["status"] == "ready"
+    assert result["snapshot_ref"]["snapshot_id"].startswith("snap-")
+    assert result["top_stocks"][0]["code"] == "002156"
+    cache = tmp_path / "skills" / "stock-triage" / "cache" / "social_attention.json"
+    signal = tmp_path / "skills" / "stock-triage" / "cache" / "signal_context.json"
+    assert cache.exists()
+    assert signal.exists()
 
 
 def test_serenity_refresh_planner_uses_runtime_state_sources(tmp_path, monkeypatch):

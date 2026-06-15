@@ -9,7 +9,7 @@
 腾讯 API 返回 GBK 编码，不可直接按 UTF-8 解码：
 ```python
 import subprocess
-r = subprocess.run(['curl', '-s', 'http://qt.gtimg.cn/q=sz002156', '--noproxy', '*'],
+r = subprocess.run(['curl', '-s', 'http://qt.gtimg.cn/q=sh600519', '--noproxy', '*'],
                    capture_output=True, timeout=10)
 text = r.stdout.decode('gbk', errors='ignore')
 ```

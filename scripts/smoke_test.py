@@ -52,7 +52,7 @@ PY = sys.executable
 
 tests = [
     (  # 1. 四维打分
-        [PY, "skills/stock-triage/scripts/four_dim_scorer.py", "002156", "通富微电", "--json"],
+        [PY, "skills/stock-triage/scripts/four_dim_scorer.py", "600519", "贵州茅台", "--json"],
         "four_dim_scorer"
     ),
     (  # 2. 全球市场监控（含 source_health，长超时避免 flaky）

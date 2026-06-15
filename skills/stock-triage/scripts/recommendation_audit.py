@@ -6,9 +6,9 @@
 交易历史: $HERMES_HOME/skills/stock-triage/data/trade_history.json
 
 Usage:
-  python3 recommendation_audit.py --record 002156 通富微电 buy "10.80-11.00" "半导体主线早盘回封"
+  python3 recommendation_audit.py --record 600519 贵州茅台 buy "150-155" "示例理由"
   python3 recommendation_audit.py --list
-  python3 recommendation_audit.py --code 002156 --json
+  python3 recommendation_audit.py --code 600519 --json
   python3 recommendation_audit.py --update REC_ID profit --pnl 8.5
   python3 recommendation_audit.py --example --json
 """
@@ -296,6 +296,7 @@ def record_recommendation(
     monitor_id: Optional[str] = None,
     research_evidence: Optional[Dict[str, Any]] = None,
     portfolio_risk: Optional[Dict[str, Any]] = None,
+    social_attention: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -423,6 +424,7 @@ def record_recommendation(
         "portfolio_risk": risk,
         "research_evidence": evidence,
         "strategy_attributions": strategy_attributions(evidence),
+        "social_attention": dict(social_attention or {}),
         "execution_constraints": quality["execution_constraints"],
         "settleable_signal": opens_signal,
         "outcome": "pending",
@@ -534,8 +536,8 @@ def update_outcome(rec_id: str, outcome: str, pnl_pct: Optional[float] = None, n
 
 def example_record() -> Dict[str, Any]:
     return {
-        "code": "002156",
-        "name": "通富微电",
+        "code": "600519",
+        "name": "示例公司",
         "action": "buy",
         "price_range": "10.80-11.00",
         "rationale": "半导体主线明确，早盘强回封候选通过可成交性闸门",

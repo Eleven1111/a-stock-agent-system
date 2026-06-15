@@ -26,23 +26,33 @@ from a_stock_http import (
     fetch_tencent_quote as _http_quote,
 )
 from http_client import DataSourceError
+import runtime_targets
 
-# ========== AH配对股 ==========
-# 选市值最大、流动性最好的 AH 股
-AH_PAIRS = [
-    ("600036", "招商银行", "hk03968"),
-    ("601318", "中国平安", "hk02318"),
-    ("600519", "贵州茅台", None),    # 无H股，仅做A股锚
-    ("000858", "五粮液", None),
-    ("600585", "海螺水泥", "hk00914"),
-    ("601899", "紫金矿业", "hk02899"),
-    ("600011", "华能国际", "hk00902"),
-    ("002156", "通富微电", None),
-    ("600584", "长电科技", None),
-    ("002185", "华天科技", None),
-    ("000021", "深科技", None),
-    ("600667", "太极实业", None),
-]
+AH_PAIR_MAP = {
+    "600036": ("招商银行", "hk03968"),
+    "601318": ("中国平安", "hk02318"),
+    "600585": ("海螺水泥", "hk00914"),
+    "601899": ("紫金矿业", "hk02899"),
+    "600011": ("华能国际", "hk00902"),
+}
+BASELINE_AH_CODES = ("600036", "601318", "600585", "601899")
+
+
+def load_ah_pairs(
+    targets: list[dict[str, str]] | None = None,
+) -> list[tuple[str, str, str]]:
+    targets = runtime_targets.load_stock_targets() if targets is None else targets
+    names = {
+        target["code"]: target["name"]
+        for target in targets
+        if target["code"] in AH_PAIR_MAP
+    }
+    codes = list(BASELINE_AH_CODES)
+    codes.extend(code for code in names if code not in codes)
+    return [
+        (code, names.get(code) or AH_PAIR_MAP[code][0], AH_PAIR_MAP[code][1])
+        for code in codes
+    ]
 
 # 港股通权重股
 HK_STOCKS = [
@@ -147,9 +157,7 @@ def collect_hk_a_data() -> Dict[str, Any]:
             })
 
     # 2. AH配对股溢价率
-    for a_code, a_name, hk_code in AH_PAIRS:
-        if hk_code is None:
-            continue
+    for a_code, a_name, hk_code in load_ah_pairs():
         a_data = fetch_tencent_realtime(a_code, "sh" if a_code.startswith("6") else "sz")
         hk_data = fetch_tencent_hk(hk_code)
 

@@ -63,13 +63,13 @@ import os, urllib.request, json
 os.environ['NO_PROXY'] = '.eastmoney.com,.gtimg.cn,.sinajs.cn'
 
 # 测试 push2 实时行情
-url = "http://push2.eastmoney.com/api/qt/stock/get?secid=1.600011&fields=f43,f44,f45"
+url = "http://push2.eastmoney.com/api/qt/stock/get?secid=1.600519&fields=f43,f44,f45"
 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
 data = json.loads(urllib.request.urlopen(req, timeout=10).read())
 
 # 测试 akshare 资金流向
 import akshare as ak
-df = ak.stock_individual_fund_flow(stock="600011", market="sh")
+df = ak.stock_individual_fund_flow(stock="600519", market="sh")
 ```
 
 ## 为什么不改 Clash 规则本身？

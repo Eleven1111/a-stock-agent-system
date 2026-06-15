@@ -47,3 +47,23 @@ def test_target_dedup_prefers_portfolio_priority():
         "name": "持仓名称",
         "source": "portfolio",
     }
+
+
+def test_manual_cancel_tombstone_excludes_all_target_sources():
+    targets = refresh.build_targets(
+        portfolio={"positions": [{"code": "600011", "name": "持仓名称"}]},
+        candidate_pool={
+            "candidates": [{"code": "600011", "name": "候选名称"}]
+        },
+        registry=[
+            {
+                "kind": "stock",
+                "key": "600011",
+                "status": "cancelled",
+                "manual_cancelled": True,
+            }
+        ],
+        candidate_limit=5,
+    )
+
+    assert targets == []

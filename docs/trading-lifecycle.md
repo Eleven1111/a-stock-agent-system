@@ -100,9 +100,9 @@ python scripts/agent_runtime_context.py
 
 ```bash
 python skills/stock-triage/scripts/monitor_manager.py --list
-python skills/stock-triage/scripts/monitor_manager.py --add-stock 002156 通富微电
+python skills/stock-triage/scripts/monitor_manager.py --add-stock 600519 贵州茅台
 python skills/stock-triage/scripts/monitor_manager.py --add-theme AI算力
-python skills/stock-triage/scripts/monitor_manager.py --cancel-stock 002156
+python skills/stock-triage/scripts/monitor_manager.py --cancel-stock 600519
 python skills/stock-triage/scripts/monitor_manager.py --cancel-theme AI算力
 ```
 

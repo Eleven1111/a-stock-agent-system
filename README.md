@@ -5,13 +5,13 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-416%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-453%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
 > time out on `global_monitor` or `hk_a_linkage` because they depend on live market data.
 
-A multi-agent research system for China's A-share market. Eleven repository skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management, limit-up candidate gating, and offline strategy validation.
+A multi-agent research system for China's A-share market. Twelve repository skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management, limit-up candidate gating, and offline strategy validation.
 
 **Not a trading bot.** This system analyzes data and produces graded recommendations. It never places orders.
 
@@ -25,14 +25,18 @@ flowchart LR
     A --> M["Versioned immutable market snapshots"]
     C["A-share calendar"] --> O["Runtime-neutral resumable DAG"]
     O --> HM["Sentiment and limit-up ladder"]
+    O --> SA["Cross-platform social attention"]
     O --> CD["Candidate discovery"]
     O --> AU["Call auction"]
     O --> OC["Open confirmation"]
     M --> HM
+    M --> SA
     M --> CD
     M --> AU
     M --> OC
     HM --> P["Unified decision and risk policy"]
+    SA --> CD
+    SA --> AU
     CD --> P
     AU --> P
     OC --> P
@@ -51,6 +55,7 @@ flowchart LR
 |--------|-------------|--------------|
 | **stock-analyst** | Multi-timeframe technical analysis (day/week/60m/30m), sector scanning, screener | Tencent, Sina, yfinance |
 | **hot-money-tactics** | Limit-up board analysis, sentiment cycles, sector rotation tracking | AkShare |
+| **social-sentiment** | Eastmoney popularity/rising ranks plus Xueqiu discussion/follow ranks; cross-source confirmation, velocity and crowding divergence | Eastmoney, Xueqiu, optional Baidu |
 | **daban-stock-picker** | Main-board 10cm limit-up candidate gate: first-board reseal, second-board weak-to-strong, six-question veto, tradeability. Thresholds read from a single source of truth shared with the backtest engine | `config/daban_thresholds.yaml`, structured JSON |
 | **chanlun-backtest** | Offline research gate (IS/OOS wall, costs, controls, statistical tests) **plus** `chan_structure` signal generator: fractals → strokes → pivots → third buy/sell → MACD divergence. Signals earn live weight only after the gate passes | Tencent qfq K-line, local research-state JSON |
 | **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share sector views and stock watch mappings | yfinance, USGS, GDACS |
@@ -134,7 +139,7 @@ refresh failure. See [Eastmoney data-source resilience](docs/eastmoney-resilienc
 
 ```bash
 # Grade a stock
-python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --json
+python skills/stock-triage/scripts/four_dim_scorer.py 600519 贵州茅台 --json
 
 # Global market scan
 python skills/global-market-monitor/scripts/monitor.py --summary
@@ -149,7 +154,7 @@ python skills/news-to-sector/scripts/main.py "焦煤期货主力合约触及涨�
 python skills/stock-triage/scripts/portfolio_manager.py --check
 
 # 60-minute entry timing
-python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --timeframe 60
+python skills/stock-triage/scripts/four_dim_scorer.py 600519 贵州茅台 --timeframe 60
 
 # Limit-up candidate gate
 python skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
@@ -254,8 +259,8 @@ Every scoring script returns structured JSON:
 
 ```json
 {
-  "code": "002156",
-  "name": "通富微电",
+  "code": "600519",
+  "name": "贵州茅台",
   "confidence": "high",
   "data_coverage": {"realtime": true, "kline": true, "news": true, "valuation": true},
   "weighted": 7.2,
@@ -320,12 +325,13 @@ a-stock-agent-system/
 │   ├── smoke_test.py           # 9-test validation suite
 │   ├── snapshot_gc.py          # Snapshot/artifact retention and capacity cleanup
 │   └── validate_cron_manifest.py
-├── tests/                      # 416 unit tests
+├── tests/                      # 453 unit tests
 ├── skills/
 │   ├── common/                 # Adapters, snapshots, policy, ledger, shared state
 │   ├── stock-triage/           # Orchestrator hub
 │   ├── stock-analyst/          # Technical analysis engine
 │   ├── hot-money-tactics/      # Sentiment & limit-up analysis
+│   ├── social-sentiment/       # Cross-platform social attention evidence
 │   ├── daban-stock-picker/     # Main-board 10cm limit-up candidate gate
 │   ├── chanlun-backtest/       # Offline strategy research gate
 │   ├── global-market-monitor/  # Macro → A-share impact
@@ -399,7 +405,7 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 416 tests
+python -m pytest -q tests/        # 453 tests
 python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```

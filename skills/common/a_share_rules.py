@@ -14,6 +14,10 @@ CALENDAR_FILE = os.path.abspath(
 )
 
 
+class CalendarCoverageError(RuntimeError):
+    """Raised when an execution decision falls outside the verified calendar."""
+
+
 def _as_date(value: date | datetime | str | None) -> date:
     if value is None:
         return date.today()
@@ -36,8 +40,16 @@ def _calendar() -> dict[str, Any]:
     return payload
 
 
+def _ensure_covered(day: date) -> None:
+    if day.year not in _calendar()["covered_years"]:
+        raise CalendarCoverageError(
+            f"A-share calendar does not cover {day.year}; refresh config/a_share_calendar.json"
+        )
+
+
 def is_trading_day(value: date | datetime | str) -> bool:
     day = _as_date(value)
+    _ensure_covered(day)
     if day.weekday() >= 5:
         return False
     return day.isoformat() not in _calendar()["closed_dates"]
@@ -45,6 +57,7 @@ def is_trading_day(value: date | datetime | str) -> bool:
 
 def next_trading_day(value: date | datetime | str) -> date:
     day = _as_date(value)
+    _ensure_covered(day)
     for offset in range(1, 32):
         candidate = day + timedelta(days=offset)
         if is_trading_day(candidate):
@@ -54,6 +67,7 @@ def next_trading_day(value: date | datetime | str) -> date:
 
 def previous_trading_day(value: date | datetime | str) -> date:
     day = _as_date(value)
+    _ensure_covered(day)
     for offset in range(1, 32):
         candidate = day - timedelta(days=offset)
         if is_trading_day(candidate):
@@ -72,6 +86,7 @@ def add_trading_days(value: date | datetime | str, count: int) -> date:
     if count < 0:
         raise ValueError("count must be non-negative")
     current = _as_date(value)
+    _ensure_covered(current)
     for _ in range(count):
         current = next_trading_day(current)
     return current
@@ -83,6 +98,8 @@ def t1_constraint(
 ) -> dict[str, Any]:
     acquired = _as_date(acquired_on)
     current = _as_date(asof)
+    _ensure_covered(acquired)
+    _ensure_covered(current)
     earliest = next_trading_day(acquired)
     return {
         "market": "A_SHARE",

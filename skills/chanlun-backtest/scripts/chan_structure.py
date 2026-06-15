@@ -16,8 +16,8 @@ four_dim_scorer 的技术面/择时消费。
 数据源（CLI）：腾讯前复权日线（经 common/a_stock_http，cron-safe）。analyze() 为纯函数，不触网。
 
 Usage:
-  python3 chan_structure.py 002156 通富微电 --json
-  python3 chan_structure.py 600011 --days 120
+  python3 chan_structure.py 600519 贵州茅台 --json
+  python3 chan_structure.py 000001 --days 120
 """
 
 import json

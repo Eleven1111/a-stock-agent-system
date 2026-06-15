@@ -301,7 +301,7 @@ stock_szse_area_summary_df = ak.stock_szse_area_summary(date="20250619")
 > **推荐使用 `stock-analyst` skill 的纯 numpy 实现**（无需 ta-lib）：
 > ```bash
 > ~/.hermes/hermes-agent/venv/bin/python3 \
->   ~/.hermes/skills/stock-analyst/analyst.py analyze 600011 华能国际
+>   ~/.hermes/skills/stock-analyst/analyst.py analyze 600519 贵州茅台
 > ```
 > 该工具内置 MA/MACD/RSI/KDJ/布林带全部用 numpy 计算，见 `scripts/tech_analysis.py`。
 

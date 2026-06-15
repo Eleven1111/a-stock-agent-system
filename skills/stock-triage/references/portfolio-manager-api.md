@@ -82,10 +82,10 @@ def ensure_portfolio():
 
 ```bash
 # 开仓（不支持 --shares 时默认 1000 股？实际需传 --shares）
-python3 portfolio_manager.py --add 600011 华能国际 9.10 --shares 2000
+python3 portfolio_manager.py --add 600519 贵州茅台 150.00 --shares 100
 
 # 清仓
-python3 portfolio_manager.py --close 600011 8.50
+python3 portfolio_manager.py --close 600519 155.00
 
 # 风控检查（默认行为）
 python3 portfolio_manager.py --check
