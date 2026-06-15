@@ -7,6 +7,7 @@ import sys
 from typing import Any
 
 from deep_research_cache import read_deep_research
+from stock_intelligence import read_cache as read_stock_intelligence
 import strategy_registry
 
 _CHANLUN_DIR = os.path.abspath(
@@ -185,4 +186,5 @@ def build_research_evidence(
         "asof": asof,
         "chanlun": _with_chanlun_signals(_chanlun_evidence(strategy_id), bars),
         "serenity": _serenity_evidence(code, asof),
+        "market_intelligence": read_stock_intelligence(code, asof=asof),
     }

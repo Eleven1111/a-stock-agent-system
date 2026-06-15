@@ -464,9 +464,46 @@
       "external_note": "只读取上游 artifact 摘要，不读取主线对话上下文"
     },
     {
+      "id": "stock-intelligence-refresh",
+      "name": "候选筹码与机构证据刷新",
+      "schedule": "40 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py stock-intelligence-refresh --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2500,
+      "context_from": [
+        "closing-triage"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 30
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/market_intelligence/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/provider_rate_limits/",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/stock-intelligence-refresh/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/stock-triage/scripts/stock_intelligence_refresh.py --candidate-limit 5 --json",
+        "cwd": ".",
+        "timeout_seconds": 420
+      },
+      "external_note": "刷新全部持仓和候选池前5名的解禁、两融、股东户数、龙虎榜、大宗交易与研报一致预期；仅归档，供Policy和Serenity读取"
+    },
+    {
       "id": "serenity-refresh-plan",
       "name": "Serenity深研刷新规划",
-      "schedule": "45 15 * * 1-5",
+      "schedule": "48 15 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py serenity-refresh-plan --emit-target",
       "cwd": ".",
@@ -479,11 +516,15 @@
       "deliver": "local",
       "max_output_chars": 2000,
       "context_from": [
-        "closing-triage"
+        "closing-triage",
+        "stock-intelligence-refresh"
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 30
+        "max_age_minutes": 30,
+        "optional_jobs": [
+          "stock-intelligence-refresh"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -496,7 +537,7 @@
         "cwd": ".",
         "timeout_seconds": 30
       },
-      "external_note": "按持仓、有效建议、主动监控和候选池优先级生成确定性刷新队列；研究执行由Hermes/OpenClaw Agent领取"
+      "external_note": "按持仓、有效建议、主动监控和候选池优先级生成确定性刷新队列；优先消费筹码/机构证据，研究执行由Hermes/OpenClaw Agent领取"
     },
     {
       "id": "news-monitor",

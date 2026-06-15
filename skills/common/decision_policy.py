@@ -61,10 +61,17 @@ def evaluate_decision(
 
         serenity = (research_evidence or {}).get("serenity") or {}
         chanlun = (research_evidence or {}).get("chanlun") or {}
+        market_intelligence = (
+            (research_evidence or {}).get("market_intelligence") or {}
+        )
         if chanlun.get("live_bearish_signals"):
             decision = "avoid"
             multiplier = 0.0
             reasons.append("chanlun_live_bearish_signal")
+        elif market_intelligence.get("hard_risks"):
+            decision = "avoid"
+            multiplier = 0.0
+            reasons.append("market_intelligence_hard_risk")
         elif serenity.get("hard_risks"):
             decision = "avoid"
             multiplier = 0.0

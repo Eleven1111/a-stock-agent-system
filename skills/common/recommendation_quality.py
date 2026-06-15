@@ -157,6 +157,31 @@ def build_quality_report(
     }
 
 
+def merge_market_intelligence(
+    quality_report: Mapping[str, Any],
+    intelligence: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Attach cached chip/institution evidence and keep quality status consistent."""
+    result = dict(quality_report)
+    evidence = dict(intelligence or {})
+    result["market_intelligence"] = evidence
+    blocking = list(result.get("blocking_checks") or [])
+    warnings = list(result.get("risk_warnings") or [])
+    hard_risks = list(evidence.get("hard_risks") or [])
+    intelligence_warnings = list(evidence.get("warnings") or [])
+    if hard_risks:
+        if "market_intelligence_hard_risk" not in blocking:
+            blocking.append("market_intelligence_hard_risk")
+        warnings.extend(f"筹码/机构硬风险：{item}" for item in hard_risks)
+    warnings.extend(f"筹码/机构提示：{item}" for item in intelligence_warnings)
+    if hard_risks:
+        result["status"] = "rejected"
+        result["eligible_for_directional_advice"] = False
+    result["blocking_checks"] = blocking
+    result["risk_warnings"] = list(dict.fromkeys(warnings))
+    return result
+
+
 def build_execution_plan(
     candidate: Mapping[str, Any],
     quality_report: Mapping[str, Any],

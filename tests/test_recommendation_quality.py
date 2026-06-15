@@ -82,3 +82,25 @@ def test_execution_plan_never_emits_inverted_entry_range_above_chase_limit():
     assert plan["decision"] == "watch"
     assert plan["entry_range"] is None
     assert plan["beyond_max_chase"] is True
+
+
+def test_market_intelligence_hard_risk_rejects_quality_report():
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[],
+        asof=date(2026, 6, 12),
+    )
+
+    merged = quality.merge_market_intelligence(
+        report,
+        {
+            "available": True,
+            "stale": False,
+            "hard_risks": ["major_lockup_within_30d"],
+            "warnings": ["institutional_lhb_net_sell"],
+        },
+    )
+
+    assert merged["status"] == "rejected"
+    assert "market_intelligence_hard_risk" in merged["blocking_checks"]
+    assert any("major_lockup_within_30d" in item for item in merged["risk_warnings"])

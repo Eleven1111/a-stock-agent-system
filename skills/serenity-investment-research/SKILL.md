@@ -74,7 +74,24 @@ For A-share work, use or adapt:
 ```bash
 python scripts/cninfo_fetch.py --stock-code 002050 --query "年年度报告" --out outputs/sanhua/sources
 python scripts/pdf_extract.py outputs/sanhua/sources/report.pdf --out outputs/sanhua/sources/report.txt
+python ../common/stock_intelligence.py read --code 002050 --json
 ```
+
+The shared stock-intelligence cache is refreshed for all holdings and only the
+top five dynamic candidates. Treat it as supporting evidence, not as a
+replacement for filings:
+
+- `lockups`: upcoming restricted-share releases and dilution/supply pressure.
+- `margin_trading`: leverage expansion or contraction.
+- `holder_changes`: quarterly shareholder-count concentration trend.
+- `dragon_tiger`: recent billboard records and institutional-seat net flow.
+- `block_trades`: negotiated-trade discounts and counterparties.
+- `reports`: broker report metadata and the traceable EPS consensus sample.
+
+Record the snapshot reference and upstream source in `evidence.json`. Broker
+reports and consensus estimates are grade B supporting evidence; company
+filings and exchange announcements remain the source of truth. A consensus
+sample below three institutions must be disclosed as thin coverage.
 
 If web search is used instead of scripts, still record every material source into the evidence ledger.
 
