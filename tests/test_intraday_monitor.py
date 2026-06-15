@@ -62,3 +62,25 @@ def test_sold_stock_is_removed_from_dynamic_universe(tmp_path, monkeypatch):
     universe = im.tracked_universe()
 
     assert "600011" not in universe
+
+
+def test_manual_cancel_tombstone_excludes_portfolio_stock(tmp_path, monkeypatch):
+    monkeypatch.setattr(im, "TRACKED_CODES", [])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {})
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        im.PORTFOLIO_FILE,
+        {"positions": [{"code": "600011", "name": "测试持仓"}]},
+    )
+    im.monitor_registry.cancel(
+        "stock",
+        "600011",
+        reason="user_cancelled",
+        manual=True,
+    )
+
+    universe = im.tracked_universe()
+
+    assert "600011" not in universe

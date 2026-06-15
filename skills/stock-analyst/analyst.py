@@ -2,18 +2,18 @@
 """
 股票分析工具 - 命令行入口
 用法：
-  python3 analyst.py analyze 600011 华能国际    # 单股技术分析
-  python3 analyst.py screen [板块名]             # 板块批量分析
-  python3 analyst.py realtime 600011,600027     # 实时行情
+  python3 analyst.py analyze <code> [name]       # 单股技术分析
+  python3 analyst.py screen <code:name,...>      # 显式股票集合批量分析
+  python3 analyst.py realtime <code1,code2>      # 实时行情
   python3 analyst.py zt                         # 今日涨停板
   python3 analyst.py index                      # 大盘指数
-  python3 analyst.py fundamental 600011         # 基本面分析
-  python3 analyst.py compare [板块名]            # 板块横向对比（基本面+技术面）
-  python3 analyst.py chart 600011 [天数]         # K线图
-  python3 analyst.py weekly 600011              # 周线级别分析
+  python3 analyst.py fundamental 600519         # 基本面分析
+  python3 analyst.py compare <code:name,...>     # 股票集合横向对比
+  python3 analyst.py chart 600519 [天数]         # K线图
+  python3 analyst.py weekly 600519              # 周线级别分析
   python3 analyst.py screener "rsi<30"          # 条件筛选
   python3 analyst.py screener "rs"              # 列出可用的筛选条件
-  python3 analyst.py backtest 600011            # 简单回测评分系统
+  python3 analyst.py backtest 600519            # 简单回测评分系统
 """
 import sys
 import os
@@ -27,24 +27,25 @@ from scripts.tech_analysis import analyze_stock, screen_stocks, format_report
 from scripts.chart import draw_kline_chart
 from scripts.news import search_stock_news, search_sector_news, search_market_news, format_news_with_fundflow as format_news, get_trends
 
-# ─── 预设板块组合 ───
-
-SECTOR_PRESETS = {
-    "火电": [("600011","华能国际"),("600027","华电国际"),("601991","大唐发电"),("600023","浙能电力"),("600886","国投电力")],
-    "水电": [("600900","长江电力"),("600025","华能水电"),("600886","国投电力"),("600674","川投能源"),("600236","桂冠电力")],
-    "电网": [("000400","许继电气"),("600406","国电南瑞"),("600089","特变电工"),("601567","三星医疗"),("600517","国网英大")],
-    "空调": [("000651","格力电器"),("000333","美的集团"),("002242","九阳股份")],
-    "高温主题": [("600011","华能国际"),("600027","华电国际"),("601991","大唐发电"),("600900","长江电力"),("600025","华能水电"),("000400","许继电气"),("600406","国电南瑞"),("000651","格力电器"),("000333","美的集团")],
-    "煤炭": [("000983","山西焦煤"),("600985","淮北矿业"),("601666","平煤股份"),("600546","山煤国际"),("601001","晋控煤业"),("600188","兖矿能源")],
-    "封测": [("002156","通富微电"),("600584","长电科技"),("002185","华天科技"),("000021","深科技"),("600667","太极实业")],
-    "消费电子": [("002475","立讯精密"),("601138","工业富联"),("002241","歌尔股份"),("300433","蓝思科技"),("002600","领益智造")],
-    "半导体": [("688981","中芯国际"),("603501","韦尔股份"),("002371","北方华创"),("300661","圣邦股份"),("688012","中微公司")],
-    "AI算力": [("300308","中际旭创"),("601138","工业富联"),("688041","海光信息"),("688256","寒武纪"),("603019","中科曙光")],
-    "军工航天": [("601698","中国卫通"),("600118","中国卫星"),("600879","航天电子"),("600765","中航重机"),("000547","航天发展")],
-    "新能源": [("300274","阳光电源"),("601012","隆基绿能"),("300750","宁德时代"),("002459","晶澳科技"),("688599","天合光能")],
-    "券商金融": [("600030","中信证券"),("601688","华泰证券"),("600999","招商证券"),("300059","东方财富"),("601211","国泰君安")],
-    "汽车": [("600104","上汽集团"),("000625","长安汽车"),("601238","广汽集团"),("002594","比亚迪"),("600733","北汽蓝谷")],
-}
+def parse_stock_pairs(tokens):
+    pairs = []
+    flattened = []
+    for token in tokens or []:
+        flattened.extend(part.strip() for part in str(token).split(",") if part.strip())
+    index = 0
+    while index < len(flattened):
+        token = flattened[index]
+        code, separator, name = token.partition(":")
+        if separator:
+            pairs.append((code.strip(), name.strip() or code.strip()))
+            index += 1
+            continue
+        if code.isdigit() and index + 1 < len(flattened):
+            pairs.append((code, flattened[index + 1]))
+            index += 2
+            continue
+        index += 1
+    return pairs
 
 def cmd_realtime(codes_str=None):
     if codes_str:
@@ -81,20 +82,14 @@ def cmd_analyze(code, name=""):
             print(f"   {v}")
     print(f" 数据: {result['data_points']}个交易日")
 
-def cmd_screen(sector_name=None):
-    if sector_name and sector_name in SECTOR_PRESETS:
-        pairs = SECTOR_PRESETS[sector_name]
-        print(f"\n{'='*60}")
-        print(f" {sector_name}板块 批量分析")
-        print(f"{'='*60}")
-    else:
-        args = sys.argv[2:]
-        pairs = [(args[i], args[i+1]) for i in range(0, len(args)-1, 2)]
-        if not pairs:
-            pairs = SECTOR_PRESETS.get("高温主题", [])
-            print(f"\n{'='*60}")
-            print(" 高温主题板块 批量分析")
-            print(f"{'='*60}")
+def cmd_screen(tokens=None):
+    pairs = parse_stock_pairs(tokens)
+    if not pairs:
+        print("screen 必须显式提供 code:name 列表；板块全量扫描请使用 sector_scan.py")
+        return False
+    print(f"\n{'='*60}")
+    print(" 显式股票集合批量分析")
+    print(f"{'='*60}")
     results = screen_stocks(pairs)
     print(format_report(results))
     valid = [r for r in results if 'error' not in r]
@@ -102,6 +97,7 @@ def cmd_screen(sector_name=None):
         buy = [r for r in valid if '买入' in r.get('rating','')]
         sell = [r for r in valid if '卖出' in r.get('rating','')]
         print(f"\n 统计: {len(valid)}只有效 | 买入建议{len(buy)}只 | 卖出建议{len(sell)}只")
+    return True
 
 def cmd_zt():
     import datetime
@@ -134,16 +130,15 @@ def cmd_fundamental(code, name=""):
     result = get_full_analysis(code, name)
     print(format_fundamental(result))
 
-def cmd_compare(sector_name=None):
-    """板块横向对比（基本面+技术面）"""
-    if sector_name and sector_name in SECTOR_PRESETS:
-        pairs = SECTOR_PRESETS[sector_name]
-    else:
-        sector_name = "高温主题"
-        pairs = SECTOR_PRESETS[sector_name]
+def cmd_compare(tokens=None):
+    """显式股票集合横向对比（基本面+技术面）"""
+    pairs = parse_stock_pairs(tokens)
+    if not pairs:
+        print("compare 必须显式提供 code:name 列表")
+        return False
 
     print(f"\n{'='*80}")
-    print(f" 📊 {sector_name}板块 横向对比（基本面+技术面）")
+    print(" 📊 股票集合横向对比（基本面+技术面）")
     print(f"{'='*80}")
 
     from scripts.fundamentals import get_full_analysis, format_brief
@@ -157,6 +152,7 @@ def cmd_compare(sector_name=None):
             pass
 
     print(format_brief(results))
+    return True
 
 def cmd_chart(code, name="", days=60):
     """K线图"""
@@ -298,13 +294,13 @@ def cmd_help():
     print(" [技术面]")
     print("  analyze <code> [name]        # 单股技术分析")
     print("  weekly <code> [name]         # 周线级别分析")
-    print("  screen [板块名]               # 板块批量分析")
+    print("  screen <code:name,...>        # 显式股票集合批量分析")
     print("  realtime [codes]             # 实时行情")
     print("  chart <code> [days]          # K线图")
     print("")
     print(" [基本面]")
     print("  fundamental <code> [name]    # 基本面分析（PE/ROE/营收增速）")
-    print("  compare [板块名]              # 板块横向对比（基本面+技术面）")
+    print("  compare <code:name,...>       # 股票集合横向对比")
     print("")
     print(" [全市场]")
     print('  screener "条件1 AND 条件2"    # 条件筛选引擎')
@@ -321,7 +317,7 @@ def cmd_help():
     print("  index                        # 大盘指数")
     print("  backtest <code>              # 回测评分系统")
     print("")
-    print(f" 预设板块: {', '.join(SECTOR_PRESETS.keys())}")
+    print(" 板块全量扫描: python scripts/sector_scan.py scan")
 
 # ─── 主入口 ───
 
@@ -339,8 +335,7 @@ if __name__ == "__main__":
         name = sys.argv[3] if len(sys.argv) > 3 else ""
         cmd_analyze(code, name)
     elif cmd == "screen":
-        sector = sys.argv[2] if len(sys.argv) > 2 else None
-        cmd_screen(sector)
+        cmd_screen(sys.argv[2:])
     elif cmd == "zt":
         cmd_zt()
     elif cmd == "index":
@@ -350,8 +345,7 @@ if __name__ == "__main__":
         name = sys.argv[3] if len(sys.argv) > 3 else ""
         cmd_fundamental(code, name)
     elif cmd == "compare":
-        sector = sys.argv[2] if len(sys.argv) > 2 else None
-        cmd_compare(sector)
+        cmd_compare(sys.argv[2:])
     elif cmd == "chart":
         code = sys.argv[2] if len(sys.argv) > 2 else "600519"
         name = sys.argv[3] if len(sys.argv) > 3 else ""
@@ -393,4 +387,6 @@ if __name__ == "__main__":
     elif cmd in ("-h", "--help", "help"):
         cmd_help()
     else:
-        cmd_screen(cmd)
+        print(f"未知命令: {cmd}")
+        cmd_help()
+        sys.exit(2)

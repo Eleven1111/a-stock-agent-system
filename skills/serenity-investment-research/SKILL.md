@@ -165,7 +165,7 @@ instead of a PE bucket. Deep research runs once; daily scoring reuses it (freshn
 
 ```bash
 python ../../common/deep_research_cache.py write \
-  --code 002156 --name 通富微电 \
+  --code 600519 --name 贵州茅台 \
   --scorecard outputs/tongfu/scorecard.json \
   --valuation outputs/tongfu/valuation.json \
   --asof 2026-06-09
@@ -181,7 +181,7 @@ researching and complete it only after the report passed lint and the cache writ
 
 ```bash
 python ../../common/serenity_refresh_queue.py claim --worker hermes
-python ../../common/serenity_refresh_queue.py complete --id serenity-002156-2026-06-13
+python ../../common/serenity_refresh_queue.py complete --id serenity-600519-2026-06-13
 ```
 
 On failure, call `fail --id ... --error ...` so another run can retry. Claims are leases rather

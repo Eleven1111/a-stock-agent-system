@@ -84,7 +84,7 @@ def _f(parts: List[str], idx: int) -> Optional[float]:
 def parse_tencent_quote_line(line: str) -> Optional[Dict[str, Any]]:
     """
     解析单行腾讯行情报文（纯函数，不触网，可单测）。
-    形如: v_sz002156="1~通富微电~002156~...~"
+    形如: v_sh600519="1~贵州茅台~600519~...~"
     返回 (code, fields) 失败返回 None。
     """
     if "=" not in line:

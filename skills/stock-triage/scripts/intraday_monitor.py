@@ -23,6 +23,7 @@ from data_access_config import intraday_settings
 from data_provider import fetch_tencent_quote
 from http_client import DataSourceError
 import monitor_registry
+import runtime_targets
 
 # 兼容测试/显式注入；生产默认观察集由持仓和 monitor_registry 动态生成。
 TRACKED_CODES = []
@@ -79,18 +80,22 @@ def save_alert_cache(cache: Dict):
 
 
 def tracked_universe() -> Dict[str, str]:
-    tracked = {
-        str(code).zfill(6): TRACKED_NAMES.get(str(code), str(code))
-        for code in TRACKED_CODES
-    }
     portfolio = read_json(PORTFOLIO_FILE, {})
     positions = portfolio.get("positions", []) if isinstance(portfolio, dict) else []
     monitor_registry.sync_positions(positions)
-    for position in positions:
-        code = str(position.get("code") or "").zfill(6)
-        if code:
-            tracked[code] = str(position.get("name") or code)
-    tracked.update(monitor_registry.active_stock_map())
+    registry = monitor_registry.load_registry()
+    tracked = {
+        target["code"]: target["name"]
+        for target in runtime_targets.build_stock_targets(
+            portfolio=portfolio,
+            registry=registry,
+        )
+    }
+    cancelled = runtime_targets.cancelled_stock_codes(registry)
+    for raw_code in TRACKED_CODES:
+        code = runtime_targets.normalize_stock_code(raw_code)
+        if code and code not in cancelled:
+            tracked[code] = TRACKED_NAMES.get(str(raw_code), code)
     return tracked
 
 

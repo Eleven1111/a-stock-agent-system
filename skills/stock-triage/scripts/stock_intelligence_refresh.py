@@ -20,6 +20,8 @@ from eastmoney_intelligence import ADAPTER_VERSION, provider_health  # noqa: E40
 from market_snapshot import compact_ref, write_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import read_json  # noqa: E402
+import monitor_registry  # noqa: E402
+import runtime_targets  # noqa: E402
 import stock_intelligence  # noqa: E402
 
 
@@ -34,35 +36,15 @@ def build_targets(
     *,
     portfolio: dict[str, Any],
     candidate_pool: dict[str, Any],
+    registry: list[dict[str, Any]] | None = None,
     candidate_limit: int = 5,
 ) -> list[dict[str, str]]:
-    targets: list[dict[str, str]] = []
-    seen: set[str] = set()
-    sources = (
-        (
-            (portfolio or {}).get("positions") or [],
-            "portfolio",
-            None,
-        ),
-        (
-            (candidate_pool or {}).get("candidates") or [],
-            "candidate_pool",
-            max(0, candidate_limit),
-        ),
+    return runtime_targets.build_stock_targets(
+        portfolio=portfolio,
+        registry=registry,
+        candidate_pool=candidate_pool,
+        candidate_limit=candidate_limit,
     )
-    for rows, source, limit in sources:
-        selected = rows if limit is None else rows[:limit]
-        for item in selected:
-            code = _code(item.get("code"))
-            if not code.strip("0") or code in seen:
-                continue
-            seen.add(code)
-            targets.append({
-                "code": code,
-                "name": str(item.get("name") or code),
-                "source": source,
-            })
-    return targets
 
 
 def load_targets(candidate_limit: int = 5) -> list[dict[str, str]]:
@@ -75,6 +57,7 @@ def load_targets(candidate_limit: int = 5) -> list[dict[str, str]]:
             data_file("stock-triage", "candidate_pool_latest.json"),
             {"candidates": []},
         ),
+        registry=monitor_registry.load_registry(),
         candidate_limit=candidate_limit,
     )
 

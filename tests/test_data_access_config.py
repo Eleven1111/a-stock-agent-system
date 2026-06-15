@@ -12,7 +12,10 @@ def test_missing_config_uses_historical_defaults(tmp_path):
     assert loaded["risk"]["stop_loss_pct"] == -8.0
     assert loaded["risk"]["max_single_position_pct"] == 25
     assert loaded["news_monitor"]["default_limit"] == 3
-    assert len(loaded["news_monitor"]["queries"]) == 4
+    assert loaded["news_monitor"]["queries"] == [
+        "国务院 发改委 工信部 证监会 A股 产业政策",
+        "地缘冲突 制裁 关税 大宗商品 A股 风险",
+    ]
     assert loaded["storage"]["snapshot_input_retention_days"] == 30
     assert loaded["storage"]["snapshot_max_total_mb"] == 4096
     assert loaded["providers"]["eastmoney"]["circuit_failure_threshold"] == 3

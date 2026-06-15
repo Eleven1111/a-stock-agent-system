@@ -139,7 +139,7 @@ refresh failure. See [Eastmoney data-source resilience](docs/eastmoney-resilienc
 
 ```bash
 # Grade a stock
-python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --json
+python skills/stock-triage/scripts/four_dim_scorer.py 600519 贵州茅台 --json
 
 # Global market scan
 python skills/global-market-monitor/scripts/monitor.py --summary
@@ -154,7 +154,7 @@ python skills/news-to-sector/scripts/main.py "焦煤期货主力合约触及涨�
 python skills/stock-triage/scripts/portfolio_manager.py --check
 
 # 60-minute entry timing
-python skills/stock-triage/scripts/four_dim_scorer.py 002156 通富微电 --timeframe 60
+python skills/stock-triage/scripts/four_dim_scorer.py 600519 贵州茅台 --timeframe 60
 
 # Limit-up candidate gate
 python skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
@@ -259,8 +259,8 @@ Every scoring script returns structured JSON:
 
 ```json
 {
-  "code": "002156",
-  "name": "通富微电",
+  "code": "600519",
+  "name": "贵州茅台",
   "confidence": "high",
   "data_coverage": {"realtime": true, "kline": true, "news": true, "valuation": true},
   "weighted": 7.2,

@@ -172,7 +172,7 @@ def evaluate_open_confirmation(
         reasons.append("已封涨停，仅可排队且不保证成交")
     elif change_pct is not None and 3.0 <= change_pct < 9.5:
         action = "trend_watch"
-        reasons.append("符合用户偏好的3%-10%中度上涨观察窗口")
+        reasons.append("符合趋势策略3%-10%中度上涨观察窗口")
     elif factor.get("board_status") in {"high_open", "limit_up_with_ask"}:
         action = "watch"
         reasons.append("竞价强但开盘未形成明确可执行信号")
@@ -607,7 +607,7 @@ def format_report(result: Dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="A股09:35开盘确认")
-    parser.add_argument("--codes", help="逗号分隔，带市场前缀，如 sh600011,sz002156")
+    parser.add_argument("--codes", help="逗号分隔，带市场前缀，如 sh600519,sz000001")
     parser.add_argument("--asof", default=date.today().isoformat())
     parser.add_argument("--limit", type=int, default=5, help="开盘确认最终保留数量")
     parser.add_argument("--json", action="store_true")

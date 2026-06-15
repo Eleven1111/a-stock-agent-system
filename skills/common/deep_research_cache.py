@@ -15,10 +15,10 @@ valuation_scenarios.json（熊/中/牛赔率）经此模块落入共享缓存；
 
 Usage:
   # 写入（serenity 流程产出 scorecard 后调用）
-  python3 deep_research_cache.py write --code 002156 --name 通富微电 \
+  python3 deep_research_cache.py write --code 600519 --name 贵州茅台 \
       --scorecard outputs/tongfu/scorecard.json [--valuation outputs/tongfu/valuation.json]
   # 读取（调试）
-  python3 deep_research_cache.py read --code 002156 --json
+  python3 deep_research_cache.py read --code 600519 --json
 """
 
 import json

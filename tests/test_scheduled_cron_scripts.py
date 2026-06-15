@@ -60,6 +60,19 @@ def test_scheduled_news_monitor_adds_active_registry_queries(monkeypatch):
 
     assert any("AI算力" in query for query in queries)
     assert any("通富微电" in query and "澄清" in query for query in queries)
+    assert not any("封测" in query or "高温" in query for query in queries)
+
+
+def test_scheduled_news_monitor_has_no_static_user_topic_queries():
+    monitor = load_module(
+        "scheduled_news_monitor_no_static_topics_test",
+        "skills/news-to-sector/scripts/scheduled_monitor.py",
+    )
+
+    assert monitor.DEFAULT_QUERIES == [
+        "国务院 发改委 工信部 证监会 A股 产业政策",
+        "地缘冲突 制裁 关税 大宗商品 A股 风险",
+    ]
 
 
 def test_scheduled_news_monitor_marks_clarification_as_risk():

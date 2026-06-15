@@ -70,7 +70,7 @@ K线: 腾讯 ifzq → 新浪 → BaoStock（日/周/月）
 
 ## 腾讯实时行情 (qt.gtimg.cn)
 
-**端点**: `http://qt.gtimg.cn/q=sh600011,sh600027,sz000651`
+**端点**: `http://qt.gtimg.cn/q=sh600519,sz000001,sh600000`
 
 **编码**: GBK，需 `iconv -f GBK -t UTF-8` 或 Python decode
 
@@ -175,5 +175,5 @@ df = ak.stock_individual_fund_flow(stock="000001", market="sz")
 **清理**:
 ```bash
 python3 ~/.hermes/skills/stock-analyst/scripts/data_cache.py clear        # 全清
-python3 ~/.hermes/skills/stock-analyst/scripts/data_cache.py clear 600011  # 单股清
+python3 ~/.hermes/skills/stock-analyst/scripts/data_cache.py clear 600519  # 单股清
 ```

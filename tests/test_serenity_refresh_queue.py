@@ -1,3 +1,5 @@
+from datetime import date
+
 import serenity_refresh_queue as queue
 
 
@@ -49,6 +51,52 @@ def test_collect_targets_only_includes_top_five_candidates():
         "000004",
         "000005",
     ]
+
+
+def test_collect_targets_respects_manual_cancel_tombstones():
+    targets = queue.collect_targets(
+        portfolio={"positions": [{"code": "600011", "name": "持仓股"}]},
+        recommendations=[
+            {
+                "code": "600011",
+                "name": "推荐股",
+                "action": "buy",
+                "outcome": "pending",
+            }
+        ],
+        monitors=[],
+        candidates=[{"code": "600011", "name": "候选股"}],
+        registry=[
+            {
+                "kind": "stock",
+                "key": "600011",
+                "status": "cancelled",
+                "manual_cancelled": True,
+            }
+        ],
+    )
+
+    assert targets == []
+
+
+def test_collect_targets_excludes_expired_monitors():
+    targets = queue.collect_targets(
+        portfolio={"positions": []},
+        recommendations=[],
+        candidates=[],
+        registry=[
+            {
+                "kind": "stock",
+                "key": "600001",
+                "label": "已过期",
+                "status": "active",
+                "expires_at": "2026-06-14",
+            }
+        ],
+        asof=date(2026, 6, 15),
+    )
+
+    assert targets == []
 
 
 def test_plan_is_idempotent_for_pending_or_claimed_requests():

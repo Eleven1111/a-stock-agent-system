@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Scheduled news monitor with fixed query set.
+Scheduled news monitor with macro baselines and dynamic runtime subscriptions.
 
 This replaces Gateway-side prompt/template injection for cron. It fetches a
 bounded SerpAPI news result set, then records concise candidate events for
@@ -138,7 +138,7 @@ def format_report(result: Dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cron-safe scheduled news monitor")
-    parser.add_argument("--queries", help="逗号分隔查询词；默认使用A股固定监控词")
+    parser.add_argument("--queries", help="逗号分隔查询词；默认使用宏观基线和动态监控订阅")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()

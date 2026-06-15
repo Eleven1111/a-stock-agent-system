@@ -6,9 +6,9 @@
 交易历史: $HERMES_HOME/skills/stock-triage/data/trade_history.json
 
 Usage:
-  python3 recommendation_audit.py --record 002156 通富微电 buy "10.80-11.00" "半导体主线早盘回封"
+  python3 recommendation_audit.py --record 600519 贵州茅台 buy "150-155" "示例理由"
   python3 recommendation_audit.py --list
-  python3 recommendation_audit.py --code 002156 --json
+  python3 recommendation_audit.py --code 600519 --json
   python3 recommendation_audit.py --update REC_ID profit --pnl 8.5
   python3 recommendation_audit.py --example --json
 """
@@ -536,8 +536,8 @@ def update_outcome(rec_id: str, outcome: str, pnl_pct: Optional[float] = None, n
 
 def example_record() -> Dict[str, Any]:
     return {
-        "code": "002156",
-        "name": "通富微电",
+        "code": "600519",
+        "name": "示例公司",
         "action": "buy",
         "price_range": "10.80-11.00",
         "rationale": "半导体主线明确，早盘强回封候选通过可成交性闸门",

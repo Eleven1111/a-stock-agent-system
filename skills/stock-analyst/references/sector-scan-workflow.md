@@ -30,7 +30,7 @@ cd ~/.hermes/skills/stock-analyst
 ~/.hermes/hermes-agent/venv/bin/python3 analyst.py screen 半导体
 
 # 单股深度分析（获取完整技术指标）
-~/.hermes/hermes-agent/venv/bin/python3 analyst.py analyze 002156 通富微电
+~/.hermes/hermes-agent/venv/bin/python3 analyst.py analyze 600519 贵州茅台
 ```
 
 ### 第4步：三因子交叉判断

@@ -40,7 +40,7 @@ os.environ['NO_PROXY'] = '.gtimg.cn'
 
 # 单股
 resp = urllib.request.urlopen(
-    urllib.request.Request("http://qt.gtimg.cn/q=sh600011"),
+    urllib.request.Request("http://qt.gtimg.cn/q=sh600519"),
     timeout=10
 )
 text = resp.read().decode('gbk')
@@ -49,7 +49,7 @@ fields = text.split('~')
 # fields[37]=成交额(万), fields[38]=换手率%
 
 # 批量（最多约20只）
-codes = "sh600011,sh600027,sz000400,sh600900"
+codes = "sh600519,sz000001,sh600000"
 resp = urllib.request.urlopen(
     urllib.request.Request(f"http://qt.gtimg.cn/q={codes}"),
     timeout=10
@@ -138,7 +138,7 @@ os.environ['NO_PROXY'] = '.eastmoney.com'
 
 for attempt in range(3):
     try:
-        df = ak.stock_individual_fund_flow(stock="600011", market="sh")
+        df = ak.stock_individual_fund_flow(stock="600519", market="sh")
         # 取最近3行
         recent = df.tail(3)
         for _, row in recent.iterrows():
@@ -158,7 +158,7 @@ for attempt in range(3):
 NO_PROXY='.eastmoney.com' python3 -c "
 import akshare as ak
 df = ak.stock_zh_a_spot()
-codes = ['600011','600027','601991']
+codes = ['600519','000001','600000']
 print(df[df['代码'].isin(codes)][['代码','名称','最新价','涨跌幅']])
 "
 ```

@@ -10,8 +10,8 @@
 - stock-analyst 技术指标模块 — numpy 计算
 
 Usage:
-  python3 four_dim_scorer.py 002156 通富微电
-  python3 four_dim_scorer.py 002156 通富微电 --json
+  python3 four_dim_scorer.py 600519 贵州茅台
+  python3 four_dim_scorer.py 600519 贵州茅台 --json
 """
 
 import json

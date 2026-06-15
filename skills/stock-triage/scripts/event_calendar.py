@@ -4,10 +4,10 @@
 数据源：东方财富数据中心 (datacenter.eastmoney.com)
 
 Usage:
-  python3 event_calendar.py                          # 默认跟踪标的
+  python3 event_calendar.py                          # 持仓 + 动态监控订阅
   python3 event_calendar.py --json                   # JSON 输出
   python3 event_calendar.py --portfolio              # 从 portfolio.json 读取持仓
-  python3 event_calendar.py --codes 603859,600011    # 指定代码列表
+  python3 event_calendar.py --codes 603859,600519    # 指定代码列表
 
 """
 
@@ -25,12 +25,7 @@ from eastmoney_intelligence import fetch_dividend as _fetch_dividend
 from eastmoney_intelligence import fetch_lockups
 from http_client import DataSourceError
 from paths import data_file
-
-# 默认跟踪标的（不持有时也会关注，用于空仓期监控）
-DEFAULT_TRACKED = {
-    "600011": "华能国际", "002156": "通富微电", "600584": "长电科技",
-    "002185": "华天科技", "000021": "深科技", "600667": "太极实业",
-}
+import runtime_targets
 
 
 def load_portfolio_codes() -> Optional[Dict[str, str]]:
@@ -49,16 +44,16 @@ def load_portfolio_codes() -> Optional[Dict[str, str]]:
     return codes if codes else None
 
 
-# 固定政策窗口（每年）
-POLICY_WINDOWS = [
-    ("2026-03-04", "2026-03-11", "全国两会 — 关注新质生产力/科技/消费政策"),
-    ("2026-10-01", "2026-10-07", "国庆黄金周 — 关注消费数据"),
-    ("2026-07-15", "2026-07-20", "三中全会 (待定) — 重大改革政策窗口"),
-    ("2026-12-01", "2026-12-15", "中央经济工作会议 — 来年政策定调"),
-    ("2026-04-30", "2026-04-30", "年报披露截止日"),
-    ("2026-08-31", "2026-08-31", "半年报披露截止日"),
-    ("2026-10-31", "2026-10-31", "三季报披露截止日"),
-]
+def load_runtime_codes() -> Dict[str, str]:
+    return runtime_targets.stock_map()
+
+
+def reporting_windows(year: int) -> List[tuple[str, str, str]]:
+    return [
+        (f"{year}-04-30", f"{year}-04-30", "年报披露截止日"),
+        (f"{year}-08-31", f"{year}-08-31", "半年报披露截止日"),
+        (f"{year}-10-31", f"{year}-10-31", "三季报披露截止日"),
+    ]
 
 
 def fetch_dividend(code: str) -> Optional[Dict]:
@@ -69,29 +64,33 @@ def fetch_dividend(code: str) -> Optional[Dict]:
         return None
 
 
-def get_upcoming_policy_windows(days_ahead: int = 30) -> List[str]:
-    """未来N天的政策窗口"""
-    today = date.today()
+def get_upcoming_policy_windows(
+    days_ahead: int = 30,
+    today: date | None = None,
+) -> List[str]:
+    """未来 N 天的法定定期报告披露期限。"""
+    today = today or date.today()
     cutoff = today + timedelta(days=days_ahead)
     upcoming = []
-    for start, end, desc in POLICY_WINDOWS:
-        s = date.fromisoformat(start)
-        e = date.fromisoformat(end)
-        if today <= e and s <= cutoff:
-            upcoming.append(f"{start}~{end}: {desc}")
+    for year in range(today.year, cutoff.year + 1):
+        for start, end, desc in reporting_windows(year):
+            s = date.fromisoformat(start)
+            e = date.fromisoformat(end)
+            if today <= e and s <= cutoff:
+                upcoming.append(f"{start}~{end}: {desc}")
     return upcoming
 
 
 def collect_events(codes: Optional[Dict[str, str]] = None) -> Dict:
-    """采集事件。codes=None 时使用默认跟踪列表。"""
+    """采集事件。codes=None 时读取持仓与动态监控订阅。"""
     if codes is None:
-        codes = DEFAULT_TRACKED
+        codes = load_runtime_codes()
     if not codes:
         return {
             "timestamp": datetime.now().isoformat(),
             "today": date.today().isoformat(),
             "stocks": [],
-            "policy_windows": [],
+            "policy_windows": get_upcoming_policy_windows(30),
             "alerts": [],
         }
 
@@ -207,7 +206,7 @@ if __name__ == "__main__":
             print("⚠️ portfolio.json 无持仓数据")
             sys.exit(0)
     else:
-        codes = None
+        codes = load_runtime_codes()
 
     data = collect_events(codes)
     if args.json:

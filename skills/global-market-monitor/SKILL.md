@@ -142,7 +142,7 @@ Cron 流水线              →   全球市场监控         →   stock-triage
                                                       ↓
 08:30 BuilderPulse                                       ├─ VIX≥30: 全市场 S 级
 08:55 PulseEngine                                        ├─ 纳斯达克暴跌>2%: AI/半导体 S 级
-10:00 高温主题                                           ├─ 中概ADR集体异动: 互联网 S 级
+运行时主题监控                                           ├─ 中概ADR集体异动: 互联网 S 级
 ...                                                      └─ 原油暴涨>5%: 能源 S 级
 15:25 收盘Triage
 ```

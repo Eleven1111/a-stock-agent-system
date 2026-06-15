@@ -21,25 +21,44 @@ from a_stock_http import load_hermes_env
 from data_provider import fetch_tencent_quote
 from eastmoney_intelligence import eastmoney_json
 from http_client import DataSourceError, request_json
+import runtime_targets
 
 load_hermes_env()
 
-# 用户跟踪标的
-TRACKED_STOCKS = [
-    ("600011", "sh", "华能国际"),
-    ("002156", "sz", "通富微电"),
-    ("600584", "sh", "长电科技"),
-    ("002185", "sz", "华天科技"),
-    ("000021", "sz", "深科技"),
-    ("600667", "sh", "太极实业"),
-]
-
-TRACKED_SECTORS = {
+KNOWN_SECTOR_CODES = {
     "BK0487": "封测",
     "BK0477": "半导体",
     "BK0719": "AI算力",
     "BK0710": "军工航天",
 }
+SECTOR_CODE_BY_NAME = {name: code for code, name in KNOWN_SECTOR_CODES.items()}
+
+
+def _market(code: str) -> str:
+    return "sh" if code.startswith("6") else "sz"
+
+
+def load_runtime_stocks() -> list[tuple[str, str, str]]:
+    return [
+        (target["code"], _market(target["code"]), target["name"])
+        for target in runtime_targets.load_stock_targets()
+    ]
+
+
+def load_runtime_sectors() -> tuple[list[tuple[str, str]], list[str]]:
+    sectors = []
+    unmapped = []
+    seen = set()
+    for topic in runtime_targets.load_topics():
+        label = topic["label"]
+        code = SECTOR_CODE_BY_NAME.get(label) or SECTOR_CODE_BY_NAME.get(topic["key"])
+        if not code:
+            unmapped.append(label)
+            continue
+        if code not in seen:
+            seen.add(code)
+            sectors.append((code, KNOWN_SECTOR_CODES[code]))
+    return sectors, unmapped
 
 
 def fetch_eastmoney(url: str) -> Optional[Dict]:
@@ -88,13 +107,22 @@ def fetch_tencent_flow(code: str, market: str) -> Dict:
         return {}
 
 
-def collect_flow_data() -> Dict[str, Any]:
+def collect_flow_data(
+    stocks: Optional[list[tuple[str, str, str]]] = None,
+    sectors: Optional[list[tuple[str, str]]] = None,
+) -> Dict[str, Any]:
     """采集资金流向数据"""
+    stocks = load_runtime_stocks() if stocks is None else stocks
+    if sectors is None:
+        sectors, unmapped_sectors = load_runtime_sectors()
+    else:
+        unmapped_sectors = []
     result = {
         "timestamp": datetime.now().isoformat(),
         "northbound": {},
         "stocks": [],
         "sectors": [],
+        "unmapped_sectors": unmapped_sectors,
         "alerts": [],
     }
 
@@ -118,7 +146,7 @@ def collect_flow_data() -> Dict[str, Any]:
                 result["alerts"].append({"level": "🔴", "msg": f"北向大幅净流出{abs(net):.0f}亿，外资撤离信号"})
 
     # 2. 个股资金流
-    for code, market, name in TRACKED_STOCKS:
+    for code, market, name in stocks:
         secid = f"1.{code}" if market == "sh" else f"0.{code}"
         ff_data = fetch_eastmoney(
             f"https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?"
@@ -161,7 +189,7 @@ def collect_flow_data() -> Dict[str, Any]:
             })
 
     # 3. 板块资金流
-    for bk_code, bk_name in TRACKED_SECTORS.items():
+    for bk_code, bk_name in sectors:
         secid = f"90.{bk_code}"
         bk_data = fetch_eastmoney(
             f"https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?"

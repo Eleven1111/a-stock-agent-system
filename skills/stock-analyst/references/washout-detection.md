@@ -1,131 +1,66 @@
-# 洗盘/超卖捡筹分析工作流
+# Washout And Oversold Detection
 
-> 当用户问"哪些股票在洗盘"、"超卖捡筹"、"跌透了没有"时使用。
+Use this workflow when the request concerns washout, oversold, capitulation, or
+whether a decline is stabilizing. A washout is a hypothesis to test, not a
+label inferred from price decline alone.
 
-## 洗盘 vs 真跌的判断标准
+## Evidence Matrix
 
-洗盘的特征是**价格大幅下跌但基本面不变**，散户恐慌出局，资金在低位接筹。
+| Evidence | Possible washout | Structural decline risk |
+| --- | --- | --- |
+| Price path | Fast 10-20% drawdown | Persistent multi-week decline |
+| RSI/KDJ | Oversold then recovering | Long oversold persistence |
+| Volume | Capitulation then contraction | Weak rallies and continued distribution |
+| Bollinger | Reclaims lower band | Remains below lower band |
+| Fundamentals | No material deterioration | Earnings, cash flow, or industry damage |
+| Announcements | No unresolved hard risk | Clarification, investigation, pledge, delisting risk |
 
-| 特征 | 洗盘 ✅ | 真跌 ❌ |
-|------|---------|---------|
-| 跌幅 | 10~20%，急跌而非阴跌 | 持续阴跌30%+ |
-| RSI | 跌到30以下极度超卖 | 长期在30以下趴着 |
-| KDJ(K) | 跌到10以下极限区域 | 持续钝化 |
-| 成交量 | 下跌日放量，反弹日缩量企稳 | 持续缩量阴跌 |
-| 布林带 | 跌破下轨后迅速收回 | 跌破下轨后持续下行 |
-| 基本面 | 盈利/政策/行业逻辑不变 | 有基本面恶化 |
-| 反弹形态 | 某日突然+3%+放量反弹 | 每天阴跌1~2% |
+No single row proves a washout.
 
-**核心判断口诀：** 洗盘是"吓到你了"，真跌是"真的不行了"。行业逻辑没变、PE不贵、RSI打到30以下——大概率是洗盘。
+## Discovery
 
-## 跨赛道洗盘发现法 — 板块热度退潮指标
+1. Load active sectors and themes from `runtime_targets.py`.
+2. Add sectors with a measurable recent heat reversal from full-market data.
+3. Enumerate constituents from a current provider, not a static list.
+4. Record universe size, coverage, source timestamp, and exclusions.
+5. Keep a bounded candidate set for expensive technical and fundamental checks.
 
-洗盘不只发生在用户跟踪板块内，还发生在**曾经热过但正在退潮的板块**里。识别方法：
+Manual cancellation tombstones apply before discovery results are merged.
 
-### 第三步（前置）：板块热度退潮扫描
+## Candidate Checks
 
-利用 `sector_scan.py` 或 `hot-money-tactics` 的涨停板数据，比较 **最近3个交易日的涨停家数变化**：
+For each candidate:
 
-```
-板块       6/1  → 6/2 → 6/3    判断
-────────────────────────────────────
-消费电子   🔥x9  → x1  → x1   退潮严重 → 洗盘高发区
-IT服务Ⅱ    🔥x8  → x2  → x1   退潮严重 → 洗盘高发区
-软件开发   🔥x3  → 消失 → 消失  退潮完毕
-煤炭开采   🔥x9  → x2  → x2   快速降温 → 追高风险
-通信设备    x3  → 🔥x7 → x3   脉冲后冷却
-电力        x7  → x2  → 🔥x7  反复活跃 → 不是洗盘
-```
+- Recent 5/10/20-day return and maximum drawdown.
+- RSI, KDJ, MA alignment, Bollinger position, and volume structure.
+- Latest quote and tradeability.
+- Earnings, cash flow, leverage, valuation context, and industry change.
+- Announcement scan for clarification and hard risks.
+- Portfolio affordability and concentration only after the security passes
+  evidence checks.
 
-**判断规则：**
-- 涨停数从 **8~9家骤降到1~2家** → 退潮剧烈，该板块个股大概率在回调/洗盘
-- 涨停数从 **3~4家降到0** → 板块退潮完毕，可能是洗盘尾声
-- 涨停数 **反复活跃（7→2→7）** → 不是洗盘，是轮动
-- 从没有热过（一直0~1家）→ 不是洗盘区（没人洗一只冷门票）
+## Decision Rules
 
-对识别出的退潮板块，提取其核心标的，纳入后续步骤分析。
+- Oversold below MA20 is not a buy signal by itself.
+- Bearish MA alignment caps the positive technical conclusion.
+- A low valuation with falling profit may be a value trap.
+- A rebound without volume or with unresolved announcement risk remains
+  observation-only.
+- Data gaps reduce confidence and may block a directional conclusion.
+- Any sell plan for an existing position must apply A-share T+1 rules.
 
-## 系统性排查流程
+## Output
 
-当用户问"哪些在洗盘"，按以下步骤操作：
-
-### 第一步：扫描用户跟踪板块 + 退潮板块
-
-从 memory 中读取用户跟踪板块列表。当前跟踪：封测/AI算力/军工航天/电网/家电/煤炭。
-
-对每个板块的核心标的，批量拉取实时行情（腾讯 API），提取：
-- 今日涨跌
-- 近N日涨跌（腾讯 API parts[46]是5日，parts[48]是60日）
-- 现价（算1手成本）
-
-排除标准：
-- 正在大涨（今日+5%以上或近5日+10%以上）→ 不是洗盘
-- 横盘窄幅震荡（近10日±3%以内）→ 不是洗盘
-- 价格太高买不起（1手>可用资金×1.5）→ 标记但保留
-
-### 第二步：对候选做技术分析
-
-对每个候选执行 `analyst.py analyze <code> <name>`，提取：
-- RSI(14) — <30极度超卖，30~40接近超卖
-- KDJ(K) — <10极度超卖
-- 布林位置 — 是否跌破下轨，是否在低分位
-- 均线排列 — 是否空头（注意铁律约束）
-- 近5日/近10日/近60日涨跌幅
-
-**解读规则：**
-- RSI < 30 + KDJ(K) < 10 → 极度超卖，洗盘概率高
-- 跌破布林下轨 → 客观性铁律触发"加速下跌中，等待企稳"
-- 空头排列 → 铁律锁评分上限-0.5，不能给买入评级
-- 综合评分≥+2才能给🟢买入 — 洗盘票通常在超卖区评分低，必须区分"可以关注"和"可以买入"
-
-### 第三步：对照资金能力
-
-读取 `~/.hermes/skills/stock-triage/data/portfolio.json` 的 `cash` 字段：
-- 1手成本 = 现价 × 100（科创/创业板可能200或500）
-- 如果卖部分仓位会增加现金，需说明
-- 可用资金不够时，给出"卖什么→腾出多少钱→买什么"的路径
-
-### 第四步：输出格式
-
-洗盘标的一律按以下格式输出：
-
-```
-### 🥇 {优先级} {股票名称}({代码}) — {核心逻辑}
-
-**洗盘信号：**
-- 近{天数}日跌了{X}%
-- RSI {值} {'极度超卖'|'超卖'}，KDJ(K) {值}
-- 布林位置：偏下{百分比}%
-- 今日{涨跌幅} {'企稳'|'反弹中'|'继续跌'}
-
-**1手成本：** {价格}元 {'✅' | '⚠️' | '❌'}
-
-**操作：** {具体买入价+止损价+观察条件}
+```text
+Security and evidence timestamp
+Drawdown and technical state
+Fundamental and announcement checks
+Why washout remains plausible or is rejected
+Observation trigger
+Invalidation condition
+Data gaps and confidence
+Portfolio and T+1 constraints, if relevant
 ```
 
-### 洗盘票的客观性铁律注意事项
-
-洗盘票的特点决定了它会**触犯多条客观性铁律**：
-1. 跌破布林下轨 → 铁律3触发，"加速下跌，等待企稳"
-2. 空头排列 → 铁律2锁分-0.5上限
-3. 评分<+2 → 铁律4不能给买入
-
-**⚠️ 赛道偏好陷阱：** 用户问"XX板块有哪些洗盘标的"时，不能因为用户指定了板块就跳过客观性铁律。哪怕板块再符合用户预期，标的技术面不行就是不行。**"用户想买这个板块"不是放松评分门槛的理由。**
-
-**应对方式：** 不回避这些约束，而是**诚实告知**：
-- "客观性铁律说等待企稳——所以不是让你现在买，而是纳入观察池"
-- 给出条件式入场点："如果明天回踩XX站稳，可试1手；跌破XX止损"
-- 区分"可以关注"和"可以买入"是两个不同阶段
-
-## 实战示例（2026-06-03 扫描）
-
-用户问"疯狂洗盘的标的"，从跟踪板块筛出：
-
-| 板块 | 洗盘迹象 | 最佳候选 |
-|------|---------|---------|
-| 军工航天 | 近10日-16~-21%，RSI 28~32，KDJ K5~6 | 航天电子(600879) |
-| AI算力 | 近10日-13%，RSI 37.8，KDJ K8.6 | 中科曙光(603019) |
-| 封测 | 今天涨停反弹，洗盘已结束 | 通富微电已完成反弹 |
-| 煤炭 | 正在大涨+8~+14%，不是洗 | — |
-| 家电 | 横盘微跌，不是洗 | — |
-| 电网 | 缓慢下跌-4.8%，不够"疯狂" | — |
+Do not convert a runtime sector subscription into a positive thesis. It only
+defines what must be covered.
