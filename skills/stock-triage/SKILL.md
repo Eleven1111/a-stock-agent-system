@@ -206,8 +206,6 @@ t6 = kanban_create(
 
 - **Kanban dispatcher**: 运行在 default gateway，间隔 60s
 - **Worker 模型**: stock-data/analyst/hotmoney → deepseek-v4-flash (便宜), serenity → deepseek/deepseek-v4-pro (深度)
-- **用户关注标的**: 华能国际(600011)、通富微电(002156)、长电科技(600584)、华天科技(002185)、深科技(000021)、太极实业(600667)
-- **跟踪板块**: 封测、高温主题(电力/电网/空调)、AI算力、军工航天、煤炭
 
 ### ⚠️ Cron 上下文隔离架构（2026-06-09 强制推行）
 
