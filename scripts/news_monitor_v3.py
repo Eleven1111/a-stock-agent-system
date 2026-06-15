@@ -28,6 +28,7 @@ COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "skil
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
+from eastmoney_intelligence import eastmoney_json
 from http_client import request_bytes, request_json
 
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
@@ -162,12 +163,12 @@ def fetch_eastmoney_news() -> list:
     for page in range(3):  # 3页 × 30条 = 90条
         try:
             url = f"https://push2ex.eastmoney.com/getNews?type=1&page={page+1}&pageSize=30"
-            news_data = request_json(
+            news_data = eastmoney_json(
                 url,
-                source="eastmoney",
-                timeout=10,
+                required_path=("data", "list"),
+                required_type=list,
                 headers=UA,
-            ).data
+            )
             for article in news_data.get("data", {}).get("list", []):
                 items.append({
                     "title": article.get("title", ""),

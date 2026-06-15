@@ -99,40 +99,64 @@ def test_candidate_discovery_caps_provider_attempts_at_two(monkeypatch):
     assert kline_calls == 2
 
 
-@pytest.mark.parametrize(
-    ("relative_path", "module_name", "function_name"),
-    [
-        (
-            "skills/stock-triage/scripts/capital_flow_monitor.py",
-            "capital_flow_http_migration",
-            "fetch_eastmoney",
-        ),
-        (
-            "skills/stock-triage/scripts/event_calendar.py",
-            "event_calendar_http_migration",
-            "fetch_eastmoney_api",
-        ),
-        (
-            "skills/stock-triage/scripts/institution_tracker.py",
-            "institution_tracker_http_migration",
-            "fetch_eastmoney_api",
-        ),
-    ],
-)
-def test_eastmoney_adapters_preserve_empty_dict_fallback(
-    monkeypatch,
-    relative_path,
-    module_name,
-    function_name,
-):
-    module = _load(module_name, relative_path)
+def test_capital_flow_eastmoney_adapter_preserves_empty_dict_fallback(monkeypatch):
+    module = _load(
+        "capital_flow_http_migration",
+        "skills/stock-triage/scripts/capital_flow_monitor.py",
+    )
     monkeypatch.setattr(
         module,
-        "request_json",
+        "eastmoney_json",
         lambda *args, **kwargs: (_ for _ in ()).throw(_timeout("eastmoney")),
     )
 
-    assert getattr(module, function_name)("https://example.test") == {}
+    assert module.fetch_eastmoney("https://example.test") == {}
+
+
+def test_event_and_institution_adapters_preserve_empty_fallback(monkeypatch):
+    event = _load(
+        "event_calendar_http_migration",
+        "skills/stock-triage/scripts/event_calendar.py",
+    )
+    institution = _load(
+        "institution_tracker_http_migration",
+        "skills/stock-triage/scripts/institution_tracker.py",
+    )
+    monkeypatch.setattr(
+        event,
+        "_fetch_dividend",
+        lambda *args, **kwargs: (_ for _ in ()).throw(_timeout("eastmoney")),
+    )
+    monkeypatch.setattr(
+        institution,
+        "_fetch_research_visits",
+        lambda *args, **kwargs: (_ for _ in ()).throw(_timeout("eastmoney")),
+    )
+    monkeypatch.setattr(
+        institution,
+        "_fetch_insider_trades",
+        lambda *args, **kwargs: (_ for _ in ()).throw(_timeout("eastmoney")),
+    )
+
+    assert event.fetch_dividend("002156") is None
+    assert institution.fetch_research_visits("002156") == []
+    assert institution.fetch_insider_trades("002156") == []
+
+
+def test_all_eastmoney_business_callers_use_the_unified_adapter():
+    targets = [
+        "skills/stock-triage/scripts/capital_flow_monitor.py",
+        "skills/stock-triage/scripts/event_calendar.py",
+        "skills/stock-triage/scripts/institution_tracker.py",
+        "skills/news-to-sector/scripts/main.py",
+        "scripts/news_monitor_v3.py",
+        "skills/common/a_stock_http.py",
+    ]
+    for relative_path in targets:
+        source = (ROOT / relative_path).read_text(encoding="utf-8")
+        assert 'source="eastmoney"' not in source
+        assert "subprocess.run(" not in source
+        assert '["curl"' not in source
 
 
 def test_four_dim_serpapi_preserves_raw_news_shape(monkeypatch):

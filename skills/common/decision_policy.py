@@ -72,6 +72,18 @@ def evaluate_decision(
             decision = "avoid"
             multiplier = 0.0
             reasons.append("market_intelligence_hard_risk")
+        elif (
+            research_evidence is not None
+            and "market_intelligence" in research_evidence
+            and (
+                not market_intelligence.get("available")
+                or market_intelligence.get("directional_ready") is not True
+            )
+            and decision in POSITIVE_ACTIONS
+        ):
+            decision = "watch"
+            multiplier = 0.0
+            reasons.append("market_intelligence_not_ready")
         elif serenity.get("hard_risks"):
             decision = "avoid"
             multiplier = 0.0

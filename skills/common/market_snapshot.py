@@ -19,7 +19,7 @@ SOURCE_ADAPTER_VERSIONS = {
     "tencent_hk": "tencent-hk-adapter-v2",
     "serpapi": "serpapi-adapter-v1",
     "sina": "sina-adapter-v1",
-    "eastmoney": "eastmoney-adapter-v1",
+    "eastmoney": "eastmoney-intelligence-v2",
     "cninfo": "cninfo-adapter-v1",
     "yfinance": "yfinance-adapter-v1",
     "usgs": "usgs-adapter-v1",

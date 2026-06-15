@@ -20,8 +20,12 @@ if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
 from data_provider import fetch_serpapi_news as _fetch_serpapi_news
-from eastmoney_intelligence import fetch_reports
-from http_client import DataSourceError, request_json
+from eastmoney_intelligence import (
+    fetch_insider_trades as _fetch_insider_trades,
+    fetch_reports,
+    fetch_research_visits as _fetch_research_visits,
+)
+from http_client import DataSourceError
 from stock_intelligence import read_cache as read_stock_intelligence
 
 TRACKED_CODES = {
@@ -30,38 +34,12 @@ TRACKED_CODES = {
 }
 
 
-def fetch_eastmoney_api(url: str) -> Dict:
-    try:
-        result = request_json(
-            url,
-            source="eastmoney",
-            timeout=10,
-            max_attempts=2,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        return result.data if isinstance(result.data, dict) else {}
-    except DataSourceError:
-        return {}
-
-
 def fetch_research_visits(code: str) -> List[Dict]:
     """机构调研（近30天）"""
-    market = "SH" if code.startswith("6") else "SZ"
-    # 东财机构调研接口
-    url = (f"https://datacenter.eastmoney.com/securities/api/data/v1/get?"
-           f"reportName=RPT_ORG_SURVEY&columns=ALL&"
-           f"filter=(SECUCODE=%22{code}.{market}%22)&"
-           f"pageSize=5&pageNumber=1&sortColumns=NOTICEDATE&sortTypes=-1")
-    data = fetch_eastmoney_api(url)
-    results = []
-    if data.get("result") and data["result"].get("data"):
-        for item in data["result"]["data"][:5]:
-            results.append({
-                "date": item.get("NOTICEDATE", "")[:10],
-                "org_count": item.get("RECEPTIONAMOUNT", 0),
-                "summary": (item.get("MAINPOINT", "") or "")[:80],
-            })
-    return results
+    try:
+        return _fetch_research_visits(code, page_size=5)
+    except DataSourceError:
+        return []
 
 
 def fetch_analyst_reports(code: str) -> List[Dict]:
@@ -84,22 +62,10 @@ def fetch_analyst_reports(code: str) -> List[Dict]:
 
 def fetch_insider_trades(code: str) -> List[Dict]:
     """大股东增减持"""
-    market = "SH" if code.startswith("6") else "SZ"
-    url = (f"https://datacenter.eastmoney.com/securities/api/data/v1/get?"
-           f"reportName=RPT_HOLDER_TRADE_STOCK&columns=ALL&"
-           f"filter=(SECUCODE=%22{code}.{market}%22)&"
-           f"pageSize=5&pageNumber=1&sortColumns=NOTICEDATE&sortTypes=-1")
-    data = fetch_eastmoney_api(url)
-    results = []
-    if data.get("result") and data["result"].get("data"):
-        for item in data["result"]["data"][:5]:
-            results.append({
-                "date": item.get("NOTICEDATE", "")[:10],
-                "name": item.get("PARTICIPANTNAME", ""),
-                "direction": "增持" if item.get("TRADETYPE", "") == "1" else "减持",
-                "shares": item.get("TRADENUM", 0),
-            })
-    return results
+    try:
+        return _fetch_insider_trades(code, page_size=5)
+    except DataSourceError:
+        return []
 
 
 def fetch_serpapi_inst_news(code: str, name: str) -> List[Dict]:

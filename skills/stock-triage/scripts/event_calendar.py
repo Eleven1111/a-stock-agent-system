@@ -21,8 +21,9 @@ COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..",
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
+from eastmoney_intelligence import fetch_dividend as _fetch_dividend
 from eastmoney_intelligence import fetch_lockups
-from http_client import DataSourceError, request_json
+from http_client import DataSourceError
 from paths import data_file
 
 # 默认跟踪标的（不持有时也会关注，用于空仓期监控）
@@ -60,45 +61,12 @@ POLICY_WINDOWS = [
 ]
 
 
-def fetch_eastmoney_api(url: str) -> Dict:
-    try:
-        result = request_json(
-            url,
-            source="eastmoney",
-            timeout=10,
-            max_attempts=2,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        return result.data if isinstance(result.data, dict) else {}
-    except DataSourceError:
-        return {}
-
-
 def fetch_dividend(code: str) -> Optional[Dict]:
     """分红除权信息 — RPT_SHAREBONUS_DET（字段已更新为 2026 版）"""
-    market = "SH" if code.startswith("6") else "SZ"
-    url = (f"https://datacenter.eastmoney.com/securities/api/data/v1/get?"
-           f"reportName=RPT_SHAREBONUS_DET&columns=ALL&"
-           f"filter=(SECUCODE=%22{code}.{market}%22)&"
-           f"pageSize=1&pageNumber=1")
-    data = fetch_eastmoney_api(url)
-    if data.get("result") and data["result"].get("data"):
-        item = data["result"]["data"][0]
-        bonus_per_10 = float(item.get("PRETAX_BONUS_RMB", 0))
-        ex_date = (item.get("EX_DIVIDEND_DATE") or "")[:10]
-        reg_date = (item.get("EQUITY_RECORD_DATE") or "")[:10]
-        plan_date = (item.get("PLAN_NOTICE_DATE") or "")[:10]
-        progress = item.get("ASSIGN_PROGRESS", "")
-        if bonus_per_10 > 0:
-            return {
-                "bonus_per_10": bonus_per_10,
-                "ex_date": ex_date,
-                "reg_date": reg_date,
-                "plan_date": plan_date,
-                "progress": progress,
-                "is_upcoming": (ex_date >= date.today().isoformat() if ex_date else False),
-            }
-    return None
+    try:
+        return _fetch_dividend(code, asof=date.today())
+    except DataSourceError:
+        return None
 
 
 def get_upcoming_policy_windows(days_ahead: int = 30) -> List[str]:

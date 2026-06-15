@@ -124,6 +124,12 @@ Across two machines, `A_STOCK_STATE_HOME` must be the same mounted filesystem,
 not merely the same path string. Run leases and the canonical ledger cannot
 coordinate two independent local disks.
 
+Eastmoney traffic also shares a cross-machine rate limiter and circuit breaker.
+The mounted filesystem must support atomic directory creation and same-filesystem
+rename. Missing or stale lockup, margin, or holder-count evidence downgrades stock
+advice to watch-only; a fresh last-known-good snapshot may bridge a transient
+refresh failure. See [Eastmoney data-source resilience](docs/eastmoney-resilience.md).
+
 ### Run
 
 ```bash

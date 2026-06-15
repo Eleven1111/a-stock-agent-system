@@ -16,7 +16,7 @@ COMMON_DIR = os.path.abspath(
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
-from eastmoney_intelligence import ADAPTER_VERSION  # noqa: E402
+from eastmoney_intelligence import ADAPTER_VERSION, provider_health  # noqa: E402
 from market_snapshot import compact_ref, write_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import read_json  # noqa: E402
@@ -101,7 +101,7 @@ def refresh(
             trading_date=asof,
             batch_id=batch_id,
             producer="stock-intelligence-refresh",
-            producer_version="v1",
+            producer_version="v2",
             source_versions={"eastmoney": ADAPTER_VERSION},
         )
         payload["snapshot_ref"] = compact_ref(snapshot)
@@ -112,6 +112,7 @@ def refresh(
             "source": target["source"],
             "data_quality": payload["data_quality"],
             "risk_summary": payload["risk_summary"],
+            "provider_health": (payload.get("source") or {}).get("health"),
             "snapshot_ref": payload["snapshot_ref"],
         })
     partial = [
@@ -125,6 +126,7 @@ def refresh(
         "status": "partial" if partial else "ready",
         "target_count": len(targets),
         "partial_count": len(partial),
+        "provider_health": provider_health(),
         "results": results,
     }
 

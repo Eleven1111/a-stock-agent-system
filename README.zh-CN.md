@@ -119,6 +119,11 @@ python scripts/agent_runtime_context.py
 如果 Hermes 与 OpenClaw 位于两台机器，`A_STOCK_STATE_HOME` 必须指向同一个共享挂载卷；
 仅设置相同的路径字符串无法共享账本，也无法让运行租约互斥。
 
+东方财富请求也共用跨机器限速和熔断状态。共享卷必须支持原子创建目录和同文件系统重命名。
+解禁、两融或股东户数缺失/过期时，个股建议自动降为关注；短暂刷新失败只允许回退到仍在
+有效期内的最近可信快照。详见
+[东方财富数据源鲁棒性](docs/eastmoney-resilience.md)。
+
 ### 运行
 
 ```bash

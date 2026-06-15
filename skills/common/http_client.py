@@ -8,6 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Callable, Dict, Generic, Optional, TypeVar
 
 
@@ -47,6 +48,7 @@ class DataSourceError(Exception):
         attempts: int = 1,
         timestamp: Optional[str] = None,
         status_code: Optional[int] = None,
+        retry_after_seconds: Optional[float] = None,
     ):
         self.source = source
         self.message = message
@@ -55,6 +57,7 @@ class DataSourceError(Exception):
         self.attempts = attempts
         self.timestamp = timestamp or datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(f"[{source}:{error_type}] {message}")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -67,6 +70,8 @@ class DataSourceError(Exception):
         }
         if self.status_code is not None:
             result["status_code"] = self.status_code
+        if self.retry_after_seconds is not None:
+            result["retry_after_seconds"] = self.retry_after_seconds
         return result
 
 
@@ -142,6 +147,22 @@ class HttpClient:
                     timestamp=self._timestamp(),
                 )
             except urllib.error.HTTPError as exc:
+                retry_after = None
+                try:
+                    raw_retry_after = exc.headers.get("Retry-After")
+                    if raw_retry_after is not None:
+                        try:
+                            retry_after = max(0.0, float(raw_retry_after))
+                        except ValueError:
+                            retry_at = parsedate_to_datetime(raw_retry_after)
+                            if retry_at.tzinfo is None:
+                                retry_at = retry_at.replace(tzinfo=timezone.utc)
+                            retry_after = max(
+                                0.0,
+                                (retry_at - self._clock()).total_seconds(),
+                            )
+                except (AttributeError, TypeError, ValueError):
+                    retry_after = None
                 last_error = DataSourceError(
                     self.source,
                     f"HTTP {exc.code}: {exc.reason}",
@@ -150,6 +171,7 @@ class HttpClient:
                     attempts=attempt,
                     timestamp=self._timestamp(),
                     status_code=exc.code,
+                    retry_after_seconds=retry_after,
                 )
                 if exc.code != 429 and exc.code < 500:
                     break

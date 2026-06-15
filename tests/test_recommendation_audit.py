@@ -30,6 +30,24 @@ def _passed_buy(**overrides):
         "confidence": "medium",
         "strategy_id": "daban:first_board_reseal",
         "announcements": [],
+        "research_evidence": {
+            "market_intelligence": {
+                "available": True,
+                "stale": False,
+                "directional_ready": True,
+                "hard_risks": [],
+                "warnings": [],
+            },
+            "chanlun": {
+                "live_bullish_signals": [],
+                "live_bearish_signals": [],
+            },
+            "serenity": {
+                "available": False,
+                "stale": None,
+                "hard_risks": [],
+            },
+        },
     }
     values.update(overrides)
     return values
@@ -71,6 +89,13 @@ def test_record_recommendation_carries_chanlun_attribution_into_signal(tmp_path,
             "live_bearish_signals": [],
         },
         "serenity": {"available": False, "stale": None, "hard_risks": []},
+        "market_intelligence": {
+            "available": True,
+            "stale": False,
+            "directional_ready": True,
+            "hard_risks": [],
+            "warnings": [],
+        },
     }
 
     result = ra.record_recommendation(

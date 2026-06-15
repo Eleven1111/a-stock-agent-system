@@ -309,7 +309,7 @@ t6 = kanban_create(
 | `../chanlun-backtest/scripts/chan_structure.py` | 缠论结构信号：分型/笔/中枢/三买三卖/背驰 → JSON（过闸才计权） |
 | `../../common/strategy_registry.py` | 策略闸门+门控裁决：缠论信号是否计权、负期望策略是否停用 |
 | `../../common/deep_research_cache.py` | Serenity 深研缓存读写：回流四维深度面（深研一次、日评复用） |
-| `../../common/stock_intelligence.py` | 筹码/机构证据缓存与风险归纳；重大解禁进入统一 Policy 硬门禁，过期数据只披露不否决 |
+| `../../common/stock_intelligence.py` | 筹码/机构证据缓存与风险归纳；解禁/两融/股东户数逐数据集校验新鲜度，缺失或过期时只允许关注；短暂故障可回退到仍有效的最近可信快照 |
 
 快速命令：
 

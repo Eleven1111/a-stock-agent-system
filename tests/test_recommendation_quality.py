@@ -104,3 +104,49 @@ def test_market_intelligence_hard_risk_rejects_quality_report():
     assert merged["status"] == "rejected"
     assert "market_intelligence_hard_risk" in merged["blocking_checks"]
     assert any("major_lockup_within_30d" in item for item in merged["risk_warnings"])
+
+
+def test_missing_market_intelligence_downgrades_buy_to_conditional():
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[],
+        asof=date(2026, 6, 12),
+    )
+
+    merged = quality.merge_market_intelligence(
+        report,
+        {
+            "available": False,
+            "directional_ready": False,
+            "missing_datasets": ["lockups", "margin_trading", "holder_changes"],
+            "hard_risks": [],
+            "warnings": [],
+        },
+    )
+
+    assert merged["status"] == "conditional"
+    assert merged["eligible_for_directional_advice"] is False
+    assert "market_intelligence_missing" in merged["blocking_checks"]
+
+
+def test_stale_required_market_intelligence_downgrades_buy_to_conditional():
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[],
+        asof=date(2026, 6, 12),
+    )
+
+    merged = quality.merge_market_intelligence(
+        report,
+        {
+            "available": True,
+            "directional_ready": False,
+            "stale_datasets": ["margin_trading"],
+            "hard_risks": [],
+            "warnings": ["stale_dataset:margin_trading"],
+        },
+    )
+
+    assert merged["status"] == "conditional"
+    assert merged["eligible_for_directional_advice"] is False
+    assert "market_intelligence_incomplete" in merged["blocking_checks"]

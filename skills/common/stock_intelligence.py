@@ -21,14 +21,65 @@ from paths import cache_dir
 from state_store import atomic_write_json, read_json
 
 
-SCHEMA = "stock_intelligence_v1"
+SCHEMA = "stock_intelligence_v2"
+LEGACY_SCHEMAS = {"stock_intelligence_v1"}
 DEFAULT_MAX_AGE_DAYS = 7
+DATASET_POLICIES = {
+    "lockups": {
+        "required": True,
+        "max_query_age_days": 4,
+        "max_record_age_days": None,
+        "allow_future_record": True,
+    },
+    "margin_trading": {
+        "required": True,
+        "max_query_age_days": 4,
+        "max_record_age_days": 7,
+        "allow_future_record": False,
+    },
+    "holder_changes": {
+        "required": True,
+        "max_query_age_days": 4,
+        "max_record_age_days": 180,
+        "allow_future_record": False,
+    },
+    "dragon_tiger": {
+        "required": False,
+        "max_query_age_days": 4,
+        "max_record_age_days": 45,
+        "allow_future_record": False,
+    },
+    "block_trades": {
+        "required": False,
+        "max_query_age_days": 4,
+        "max_record_age_days": 45,
+        "allow_future_record": False,
+    },
+    "reports": {
+        "required": False,
+        "max_query_age_days": 7,
+        "max_record_age_days": 365,
+        "allow_future_record": False,
+    },
+}
+REQUIRED_DATASETS = tuple(
+    name for name, policy in DATASET_POLICIES.items() if policy["required"]
+)
 
 
 def cache_file(code: str) -> str:
     return os.path.join(
         cache_dir("stock-triage"),
         "market_intelligence",
+        f"{str(code).zfill(6)}.json",
+    )
+
+
+def last_good_file(code: str) -> str:
+    return os.path.join(
+        cache_dir("stock-triage"),
+        "market_intelligence",
+        "last_good",
         f"{str(code).zfill(6)}.json",
     )
 
@@ -41,6 +92,116 @@ def _pct_change(latest: float, baseline: float) -> float | None:
     if not baseline:
         return None
     return (latest / baseline - 1) * 100
+
+
+def _parse_day(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _dataset_rows(dataset: str, value: Any) -> list[dict[str, Any]]:
+    if dataset == "lockups":
+        lockups = value if isinstance(value, dict) else {}
+        return [
+            row
+            for bucket in ("history", "upcoming")
+            for row in (lockups.get(bucket) or [])
+            if isinstance(row, dict)
+        ]
+    if dataset == "dragon_tiger":
+        value = value if isinstance(value, dict) else {}
+        return [
+            row for row in (value.get("records") or []) if isinstance(row, dict)
+        ]
+    return [row for row in (value or []) if isinstance(row, dict)]
+
+
+def _latest_record_date(dataset: str, value: Any) -> str | None:
+    dates = [
+        str(row.get("date"))[:10]
+        for row in _dataset_rows(dataset, value)
+        if _parse_day(row.get("date"))
+    ]
+    return max(dates) if dates else None
+
+
+def _dataset_status(
+    dataset: str,
+    value: Any,
+    *,
+    queried_asof: date,
+    error: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    policy = DATASET_POLICIES[dataset]
+    rows = _dataset_rows(dataset, value)
+    return {
+        "provider": "eastmoney",
+        "status": "error" if error else ("ok" if rows else "empty"),
+        "required": bool(policy["required"]),
+        "queried_asof": queried_asof.isoformat(),
+        "latest_record_date": _latest_record_date(dataset, value),
+        "max_query_age_days": policy["max_query_age_days"],
+        "max_record_age_days": policy["max_record_age_days"],
+        "error": error,
+    }
+
+
+def _status_is_fresh(
+    dataset: str,
+    status: dict[str, Any],
+    current: date,
+) -> bool:
+    policy = DATASET_POLICIES[dataset]
+    if status.get("status") not in {"ok", "empty"}:
+        return False
+    queried = _parse_day(status.get("queried_asof"))
+    if queried is None:
+        return False
+    query_age = (current - queried).days
+    if query_age < 0 or query_age > int(policy["max_query_age_days"]):
+        return False
+    latest = _parse_day(status.get("latest_record_date"))
+    max_record_age = policy["max_record_age_days"]
+    if latest is None or max_record_age is None:
+        return True
+    record_age = (current - latest).days
+    if record_age < 0:
+        return bool(policy["allow_future_record"])
+    return record_age <= int(max_record_age)
+
+
+def _quality_from_statuses(
+    statuses: dict[str, dict[str, Any]],
+    *,
+    current: date,
+    errors: list[dict[str, str]] | None = None,
+    global_stale: bool = False,
+) -> dict[str, Any]:
+    missing = sorted(
+        name
+        for name in DATASET_POLICIES
+        if (statuses.get(name) or {}).get("status") not in {"ok", "empty"}
+    )
+    stale = sorted(
+        name
+        for name in DATASET_POLICIES
+        if name not in missing
+        and (global_stale or not _status_is_fresh(name, statuses.get(name) or {}, current))
+    )
+    missing_required = sorted(set(missing).intersection(REQUIRED_DATASETS))
+    stale_required = sorted(set(stale).intersection(REQUIRED_DATASETS))
+    directional_ready = not missing_required and not stale_required
+    return {
+        "status": "complete" if not missing and not stale else "partial",
+        "missing_datasets": missing,
+        "stale_datasets": stale,
+        "missing_required_datasets": missing_required,
+        "stale_required_datasets": stale_required,
+        "directional_ready": directional_ready,
+        "errors": list(errors or []),
+    }
 
 
 def assess_risks(
@@ -56,7 +217,11 @@ def assess_risks(
     missing_datasets = list(
         (payload.get("data_quality") or {}).get("missing_datasets") or []
     )
+    stale_datasets = list(
+        (payload.get("data_quality") or {}).get("stale_datasets") or []
+    )
     warnings.extend(f"missing_dataset:{item}" for item in missing_datasets)
+    warnings.extend(f"stale_dataset:{item}" for item in stale_datasets)
 
     upcoming = list((payload.get("lockups") or {}).get("upcoming") or [])
     near_lockups = []
@@ -160,17 +325,31 @@ def collect(
     current = _current(asof)
     normalized = str(code)[-6:].zfill(6)
     errors: list[dict[str, str]] = []
+    statuses: dict[str, dict[str, Any]] = {}
 
     def fetch(dataset: str, function, fallback):
         try:
-            return function()
+            value = function()
         except Exception as exc:  # noqa: BLE001 - partial evidence is explicit
-            errors.append({
+            error = {
                 "dataset": dataset,
                 "error": str(exc),
                 "error_type": type(exc).__name__,
-            })
+            }
+            errors.append(error)
+            statuses[dataset] = _dataset_status(
+                dataset,
+                fallback,
+                queried_asof=current,
+                error=error,
+            )
             return fallback
+        statuses[dataset] = _dataset_status(
+            dataset,
+            value,
+            queried_asof=current,
+        )
+        return value
 
     payload = {
         "schema": SCHEMA,
@@ -178,7 +357,6 @@ def collect(
         "name": name or normalized,
         "asof": current.isoformat(),
         "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "source": source_metadata(),
         "lockups": fetch(
             "lockups",
             lambda: fetch_lockups(normalized, asof=current),
@@ -210,11 +388,13 @@ def collect(
         ),
         "reports": fetch("reports", lambda: fetch_reports(normalized), []),
     }
-    payload["data_quality"] = {
-        "status": "partial" if errors else "complete",
-        "missing_datasets": sorted(error["dataset"] for error in errors),
-        "errors": errors,
-    }
+    payload["dataset_status"] = statuses
+    payload["data_quality"] = _quality_from_statuses(
+        statuses,
+        current=current,
+        errors=errors,
+    )
+    payload["source"] = source_metadata()
     payload["risk_summary"] = assess_risks(payload, asof=current)
     return payload
 
@@ -224,7 +404,66 @@ def write_cache(payload: dict[str, Any]) -> dict[str, Any]:
     if not code.strip("0") or payload.get("schema") != SCHEMA:
         raise ValueError("invalid stock intelligence payload")
     atomic_write_json(cache_file(code), payload)
+    if (payload.get("data_quality") or {}).get("directional_ready") is True:
+        atomic_write_json(last_good_file(code), payload)
     return payload
+
+
+def _current_cache_view(
+    record: dict[str, Any],
+    *,
+    current: date,
+    max_age_days: int,
+) -> dict[str, Any]:
+    try:
+        age_days = (current - date.fromisoformat(str(record.get("asof"))[:10])).days
+    except (TypeError, ValueError):
+        age_days = max_age_days + 1
+    global_stale = age_days < 0 or age_days > max_age_days
+    statuses = {
+        name: dict(status)
+        for name, status in (record.get("dataset_status") or {}).items()
+        if isinstance(status, dict)
+    }
+    quality = _quality_from_statuses(
+        statuses,
+        current=current,
+        errors=list((record.get("data_quality") or {}).get("errors") or []),
+        global_stale=global_stale,
+    )
+    stale = global_stale or bool(quality["stale_required_datasets"])
+    summary = record.get("risk_summary") or assess_risks(record, asof=current)
+    warnings = list(summary.get("warnings") or [])
+    hard_risks = list(summary.get("hard_risks") or [])
+    warnings.extend(
+        f"missing_dataset:{item}" for item in quality["missing_datasets"]
+    )
+    warnings.extend(
+        f"stale_dataset:{item}" for item in quality["stale_datasets"]
+    )
+    if global_stale:
+        warnings.append("stale_market_intelligence")
+    if global_stale or "lockups" in quality["stale_datasets"]:
+        hard_risks = []
+    return {
+        "available": True,
+        "stale": stale,
+        "directional_ready": quality["directional_ready"],
+        "age_days": age_days,
+        "asof": record.get("asof"),
+        "fetched_at": record.get("fetched_at"),
+        "missing_datasets": quality["missing_datasets"],
+        "stale_datasets": quality["stale_datasets"],
+        "hard_risks": sorted(set(hard_risks)),
+        "warnings": sorted(set(warnings)),
+        "positives": list(summary.get("positives") or []),
+        "details": dict(summary.get("details") or {}),
+        "source": dict(record.get("source") or {}),
+        "data_quality": quality,
+        "dataset_status": statuses,
+        "snapshot_ref": dict(record.get("snapshot_ref") or {}),
+        "fallback_used": False,
+    }
 
 
 def read_cache(
@@ -234,40 +473,83 @@ def read_cache(
     max_age_days: int = DEFAULT_MAX_AGE_DAYS,
 ) -> dict[str, Any]:
     record = read_json(cache_file(code), None)
-    if not isinstance(record, dict) or record.get("schema") != SCHEMA:
+    if not isinstance(record, dict):
         return {
             "available": False,
             "stale": None,
+            "directional_ready": False,
+            "missing_datasets": list(REQUIRED_DATASETS),
+            "stale_datasets": [],
             "hard_risks": [],
-            "warnings": [],
+            "warnings": [
+                f"missing_dataset:{dataset}" for dataset in REQUIRED_DATASETS
+            ],
             "positives": [],
         }
     current = _current(asof)
-    try:
-        age_days = (current - date.fromisoformat(str(record.get("asof"))[:10])).days
-    except (TypeError, ValueError):
-        age_days = max_age_days + 1
-    stale = age_days < 0 or age_days > max_age_days
-    summary = record.get("risk_summary") or assess_risks(record, asof=current)
-    warnings = list(summary.get("warnings") or [])
-    hard_risks = list(summary.get("hard_risks") or [])
-    if stale:
-        warnings.append("stale_market_intelligence")
-        hard_risks = []
-    return {
-        "available": True,
-        "stale": stale,
-        "age_days": age_days,
-        "asof": record.get("asof"),
-        "fetched_at": record.get("fetched_at"),
-        "hard_risks": sorted(set(hard_risks)),
-        "warnings": sorted(set(warnings)),
-        "positives": list(summary.get("positives") or []),
-        "details": dict(summary.get("details") or {}),
-        "source": dict(record.get("source") or {}),
-        "data_quality": dict(record.get("data_quality") or {}),
-        "snapshot_ref": dict(record.get("snapshot_ref") or {}),
-    }
+    if record.get("schema") in LEGACY_SCHEMAS:
+        return {
+            "available": True,
+            "stale": True,
+            "directional_ready": False,
+            "age_days": None,
+            "asof": record.get("asof"),
+            "fetched_at": record.get("fetched_at"),
+            "missing_datasets": list(REQUIRED_DATASETS),
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": ["legacy_market_intelligence_schema"],
+            "positives": [],
+            "details": {},
+            "source": dict(record.get("source") or {}),
+            "data_quality": {
+                "status": "partial",
+                "directional_ready": False,
+                "missing_required_datasets": list(REQUIRED_DATASETS),
+                "stale_required_datasets": [],
+            },
+            "snapshot_ref": dict(record.get("snapshot_ref") or {}),
+        }
+    if record.get("schema") != SCHEMA:
+        return {
+            "available": False,
+            "stale": None,
+            "directional_ready": False,
+            "missing_datasets": list(REQUIRED_DATASETS),
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": ["unsupported_market_intelligence_schema"],
+            "positives": [],
+        }
+    view = _current_cache_view(
+        record,
+        current=current,
+        max_age_days=max_age_days,
+    )
+    if not view["directional_ready"] and not view["hard_risks"]:
+        fallback = read_json(last_good_file(code), None)
+        if (
+            isinstance(fallback, dict)
+            and fallback.get("schema") == SCHEMA
+        ):
+            fallback_view = _current_cache_view(
+                fallback,
+                current=current,
+                max_age_days=max_age_days,
+            )
+            if fallback_view["directional_ready"] and not fallback_view["stale"]:
+                fallback_view["fallback_used"] = True
+                fallback_view["fallback_from"] = {
+                    "asof": record.get("asof"),
+                    "fetched_at": record.get("fetched_at"),
+                    "data_quality": dict(record.get("data_quality") or {}),
+                }
+                fallback_view["warnings"] = sorted(set(
+                    list(fallback_view["warnings"])
+                    + ["using_last_known_good_market_intelligence"]
+                ))
+                return fallback_view
+    return view
 
 
 def main() -> int:
