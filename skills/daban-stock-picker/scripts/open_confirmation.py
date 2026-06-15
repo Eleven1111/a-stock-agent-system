@@ -412,6 +412,11 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
         source_versions={
             "tencent": "tencent-adapter-v2",
             "akshare": "akshare-adapter-v1",
+            **dict(
+                (signal_ctx.get("social_attention") or {}).get(
+                    "source_versions"
+                ) or {}
+            ),
         },
     )
     quotes = dict(input_snapshot["payload"]["quotes"])
@@ -528,6 +533,12 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
             monitor_id=links["monitor_id"],
             research_evidence=item.get("research_evidence"),
             portfolio_risk=item.get("portfolio_risk"),
+            social_attention={
+                "candidate_bonus": item.get("social_attention_bonus"),
+                "auction_delta": item.get("auction_social_attention_delta"),
+                "notes": list(item.get("social_attention_notes") or []),
+                "record": dict(item.get("social_attention") or {}),
+            },
         )
     result = {
         "schema": "open_confirmation_v3",

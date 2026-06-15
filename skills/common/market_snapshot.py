@@ -26,6 +26,9 @@ SOURCE_ADAPTER_VERSIONS = {
     "gdacs": "gdacs-adapter-v1",
     "akshare": "akshare-adapter-v1",
     "baostock": "baostock-adapter-v1",
+    "eastmoney_attention": "eastmoney-attention-v1",
+    "xueqiu_attention": "xueqiu-attention-v1",
+    "baidu_attention": "baidu-attention-v1",
 }
 
 

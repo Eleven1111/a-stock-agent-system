@@ -35,6 +35,14 @@
     "cninfo": {
       "timeout_seconds": 8,
       "max_attempts": 2
+    },
+    "xueqiu": {
+      "timeout_seconds": 10,
+      "max_attempts": 2
+    },
+    "baidu_attention": {
+      "timeout_seconds": 10,
+      "max_attempts": 1
     }
   },
   "risk": {
@@ -68,6 +76,14 @@
       "高温 电力 电网 空调 A股",
       "地缘冲突 能源 黄金 航运 A股"
     ]
+  },
+  "social_attention": {
+    "top_limit": 200,
+    "cache_max_age_hours": 8.0,
+    "min_sources_for_boost": 2,
+    "candidate_bonus_max": 3.0,
+    "sentiment_delta_max": 0.8,
+    "baidu_enabled": false
   },
   "global_market": {
     "switches": {

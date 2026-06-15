@@ -60,7 +60,7 @@ SSE/SZSE listings + Tencent full-market quotes
 | a-stock-data | `~/.hermes/skills/a-stock-data/` | 📦 数据源参考 |
 | a-stock-daily-report | `~/.hermes/skills/a-stock-daily-report/` | 📋 每日简报 |
 | a-stock-commands | `~/.hermes/skills/a-stock-commands/` | ⌨️ 快捷指令 |
-| pulse-engine | `~/.hermes/skills/pulse-engine/` | 📡 社会情绪 |
+| social-sentiment | `~/.hermes/skills/social-sentiment/` | 📡 社会关注度 |
 
 ## 数据源铁律
 

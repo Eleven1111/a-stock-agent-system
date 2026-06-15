@@ -17,6 +17,9 @@ def test_missing_config_uses_historical_defaults(tmp_path):
     assert loaded["storage"]["snapshot_max_total_mb"] == 4096
     assert loaded["providers"]["eastmoney"]["circuit_failure_threshold"] == 3
     assert loaded["providers"]["eastmoney"]["coordination_backend"] == "shared_file"
+    assert loaded["providers"]["xueqiu"]["max_attempts"] == 2
+    assert loaded["social_attention"]["min_sources_for_boost"] == 2
+    assert loaded["social_attention"]["baidu_enabled"] is False
 
 
 def test_partial_config_deep_merges_without_losing_defaults(tmp_path):
@@ -38,6 +41,7 @@ def test_partial_config_deep_merges_without_losing_defaults(tmp_path):
     assert loaded["risk"]["portfolio_size"] == 100000
     assert loaded["news_monitor"]["queries"] == ["自定义查询"]
     assert loaded["news_monitor"]["default_limit"] == 3
+    assert loaded["social_attention"]["candidate_bonus_max"] == 3.0
 
 
 def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
@@ -76,6 +80,7 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
     assert loaded["news_monitor"]["default_limit"] == 3
     assert loaded["news_monitor"]["queries"] == config.DEFAULTS["news_monitor"]["queries"]
     assert loaded["storage"] == config.DEFAULTS["storage"]
+    assert loaded["social_attention"] == config.DEFAULTS["social_attention"]
 
 
 def test_invalid_top_level_sections_fall_back_without_crashing(tmp_path):
@@ -140,3 +145,23 @@ def test_global_market_settings_are_sanitized_and_deep_copied(tmp_path):
 
     settings["us_indices"].clear()
     assert config.global_market_settings(path)["us_indices"]
+
+
+def test_social_attention_settings_are_sanitized(tmp_path):
+    path = tmp_path / "data_access.json"
+    path.write_text(
+        json.dumps({
+            "social_attention": {
+                "top_limit": 0,
+                "min_sources_for_boost": 1,
+                "candidate_bonus_max": 99,
+                "sentiment_delta_max": -1,
+                "baidu_enabled": "yes",
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    settings = config.social_attention_settings(path)
+
+    assert settings == config.DEFAULTS["social_attention"]

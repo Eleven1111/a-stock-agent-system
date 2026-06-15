@@ -239,6 +239,9 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
 
     for required in [
         "hot-money-context",
+        "social-attention-preopen",
+        "social-attention-midday",
+        "social-attention-close",
         "candidate-discovery",
         "auction-snapshot",
         "auction-finalize",
@@ -257,7 +260,25 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert "--codes" not in jobs["auction-finalize"]["run"]["command"]
     assert "--codes" not in jobs["open-confirmation"]["run"]["command"]
     assert jobs["candidate-discovery"]["context_from"][0] == "hot-money-context"
+    assert "social-attention-close" in jobs["candidate-discovery"]["context_from"]
+    assert jobs["candidate-discovery"]["dependency_policy"]["optional_jobs"] == [
+        "social-attention-close",
+    ]
     assert jobs["hot-money-context"]["run"]["command"].endswith("--cache-only")
+    assert jobs["social-attention-preopen"]["schedule"] == "42 8 * * 1-5"
+    assert jobs["social-attention-midday"]["schedule"] == "37 11 * * 1-5"
+    assert jobs["social-attention-close"]["schedule"] == "4 15 * * 1-5"
+    for job_id in (
+        "social-attention-preopen",
+        "social-attention-midday",
+        "social-attention-close",
+    ):
+        assert jobs[job_id]["run"]["command"].endswith("--json")
+        assert jobs[job_id]["deliver"] == "local"
+        assert any(
+            "social_attention.json" in path
+            for path in jobs[job_id]["allowed_state_writes"]
+        )
     assert jobs["auction-snapshot"]["context_from"] == ["candidate-discovery"]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
     assert jobs["serenity-refresh-plan"]["context_from"] == [
@@ -284,3 +305,5 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["snapshot-gc"]["context_from"] == []
     assert jobs["snapshot-gc"]["deliver"] == "local"
     assert jobs["snapshot-gc"]["run"]["command"].endswith("--apply --json")
+    assert "pulse_engine" not in manifest.get("external_dependencies", {})
+    assert "builderpulse" not in manifest.get("external_dependencies", {})

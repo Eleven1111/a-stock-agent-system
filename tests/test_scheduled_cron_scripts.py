@@ -74,6 +74,55 @@ def test_scheduled_news_monitor_marks_clarification_as_risk():
     assert "澄清" in event["risk_classification"]["clarification_hits"]
 
 
+def test_social_attention_collection_writes_snapshot_and_signal_context(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    collector = load_module(
+        "social_attention_collect_test",
+        "skills/social-sentiment/scripts/collect.py",
+    )
+    rankings = {
+        "eastmoney": [{
+            "code": "SZ002156",
+            "name": "通富微电",
+            "rank": 3,
+            "rank_change": 18,
+        }],
+        "xueqiu_discussion": [{
+            "code": "SZ002156",
+            "name": "通富微电",
+            "rank": 8,
+            "metric_value": 4200,
+            "price_change_pct": 5.2,
+        }],
+        "xueqiu_follow": [],
+    }
+
+    result = collector.run_collection(
+        asof="2026-06-15",
+        batch_id="test-batch",
+        ranking_collector=lambda: (
+            rankings,
+            {
+                "eastmoney": {"status": "ok"},
+                "xueqiu": {"status": "ok"},
+                "baidu": {"status": "disabled"},
+            },
+        ),
+        metadata_loader=lambda: {"002156": {"sector": "半导体"}},
+    )
+
+    assert result["status"] == "ready"
+    assert result["snapshot_ref"]["snapshot_id"].startswith("snap-")
+    assert result["top_stocks"][0]["code"] == "002156"
+    cache = tmp_path / "skills" / "stock-triage" / "cache" / "social_attention.json"
+    signal = tmp_path / "skills" / "stock-triage" / "cache" / "signal_context.json"
+    assert cache.exists()
+    assert signal.exists()
+
+
 def test_serenity_refresh_planner_uses_runtime_state_sources(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     planner = load_module(

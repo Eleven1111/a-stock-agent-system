@@ -213,3 +213,49 @@ def test_auction_shortlist_preserves_daban_and_trend_lanes():
 
     assert sum(item["auction_selected_by"]["daban"] for item in result["shortlist"]) >= 5
     assert sum(item["auction_selected_by"]["trend"] for item in result["shortlist"]) >= 5
+
+
+def test_auction_social_attention_is_current_bounded_tiebreaker():
+    pool = {
+        "asof": "2026-06-10",
+        "candidates": [{
+            "code": "sh600001",
+            "name": "测试股",
+            "daban_score": 80,
+            "trend_score": 70,
+        }],
+    }
+    factors = [{
+        "code": "sh600001",
+        "auction_gap_pct": 2.0,
+        "auction_amount": 20_000_000,
+        "auction_bid_ask_ratio": 2.0,
+        "auction_net_bid_delta": 10_000,
+        "is_yiziban": False,
+    }]
+    ctx = {
+        "social_attention": {
+            "stocks": {
+                "600001": {
+                    "attention_score": 95,
+                    "attention_velocity": 80,
+                    "cross_source_count": 2,
+                    "eligible_for_boost": True,
+                    "crowding_risk": "high",
+                    "price_change_pct": 3,
+                }
+            }
+        }
+    }
+
+    base = cp.rank_auction_shortlist(pool, factors, limit=1)["shortlist"][0]
+    boosted = cp.rank_auction_shortlist(
+        pool,
+        factors,
+        limit=1,
+        signal_ctx=ctx,
+    )["shortlist"][0]
+
+    assert boosted["auction_social_attention_delta"] == 1.5
+    assert boosted["auction_score"] - base["auction_score"] <= 1.5
+    assert boosted["auction_score"] <= 100

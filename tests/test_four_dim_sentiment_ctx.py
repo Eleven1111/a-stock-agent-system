@@ -24,6 +24,36 @@ def test_sentiment_without_ctx_unchanged(tmp_path, monkeypatch):
     out = fds.score_sentiment("002156", "通富微电", quote=dict(_QUOTE), signal_ctx={})
     assert out["score"] == 8.5
     assert out["context_boost"] == 0.0
+    assert out["social_attention_delta"] == 0.0
+
+
+def test_sentiment_social_attention_is_bounded_and_auditable(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    ctx = {
+        "social_attention": {
+            "schema": "social_attention_snapshot_v1",
+            "stocks": {
+                "002156": {
+                    "attention_score": 92.0,
+                    "attention_velocity": 60.0,
+                    "cross_source_count": 2,
+                    "eligible_for_boost": True,
+                    "crowding_risk": "high",
+                    "price_change_pct": 5.2,
+                }
+            },
+        }
+    }
+    out = fds.score_sentiment(
+        "002156",
+        "通富微电",
+        quote=dict(_QUOTE),
+        signal_ctx=ctx,
+    )
+
+    assert out["social_attention_delta"] == 0.5
+    assert out["social_attention"]["cross_source_count"] == 2
+    assert "社会关注" in out["detail"]
 
 
 def test_score_stock_applies_market_overlay(tmp_path, monkeypatch):

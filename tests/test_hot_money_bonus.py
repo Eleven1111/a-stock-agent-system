@@ -57,3 +57,41 @@ def test_rank_candidates_ctx_changes_daban_only():
     assert boosted["600003"]["daban_score"] == base["600003"]["daban_score"]
     assert boosted["600001"]["trend_score"] == base["600001"]["trend_score"]
     assert base["600001"]["hot_money_bonus"] == 0.0
+
+
+def test_social_attention_is_a_bounded_discovery_overlay():
+    eligible = [
+        {
+            "code": "600001",
+            "name": "甲",
+            "price": 10,
+            "amount": 2e8,
+            "turnover": 8,
+            "change_pct": 5,
+            "listed_date": "20200101",
+        }
+    ]
+    klines = {"600001": _bars()}
+    ctx = {
+        "social_attention": {
+            "schema": "social_attention_snapshot_v1",
+            "stocks": {
+                "600001": {
+                    "attention_score": 95,
+                    "attention_velocity": 80,
+                    "cross_source_count": 2,
+                    "eligible_for_boost": True,
+                    "crowding_risk": "high",
+                    "price_change_pct": 5,
+                }
+            },
+        }
+    }
+
+    base = cp.rank_candidates(eligible, klines)[0]
+    boosted = cp.rank_candidates(eligible, klines, signal_ctx=ctx)[0]
+
+    assert 0 < boosted["social_attention_bonus"] <= 3
+    assert boosted["daban_score"] - base["daban_score"] <= 3
+    assert boosted["trend_score"] - base["trend_score"] <= 3
+    assert boosted["social_attention"]["cross_source_count"] == 2

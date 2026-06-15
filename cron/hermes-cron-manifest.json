@@ -69,6 +69,99 @@
       "external_note": "需 Hermes Agent cron 运行时；默认仅归档，避免晚间例行输出污染主线"
     },
     {
+      "id": "social-attention-preopen",
+      "name": "社会关注度盘前快照",
+      "schedule": "42 8 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py social-attention-preopen --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1800,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/social_attention.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/signal_context.json",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/social-attention-preopen/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/social-sentiment/scripts/collect.py --json",
+        "cwd": ".",
+        "timeout_seconds": 60
+      },
+      "external_note": "08:42 多源采集东方财富/雪球社会关注度；单源仅展示，失败不阻断交易主链路"
+    },
+    {
+      "id": "social-attention-midday",
+      "name": "社会关注度午间快照",
+      "schedule": "37 11 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py social-attention-midday --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1800,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/social_attention.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/signal_context.json",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/social-attention-midday/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/social-sentiment/scripts/collect.py --json",
+        "cwd": ".",
+        "timeout_seconds": 60
+      },
+      "external_note": "11:37 更新社会关注升温与拥挤背离，只归档并回流共享上下文"
+    },
+    {
+      "id": "social-attention-close",
+      "name": "社会关注度收盘快照",
+      "schedule": "4 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py social-attention-close --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1800,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/social_attention.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/signal_context.json",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/social-attention-close/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/social-sentiment/scripts/collect.py --json",
+        "cwd": ".",
+        "timeout_seconds": 60
+      },
+      "external_note": "15:04 生成收盘社会关注快照，作为候选发现可选弱证据"
+    },
+    {
       "id": "hot-money-context",
       "name": "收盘涨停梯队缓存",
       "schedule": "2 15 * * 1-5",
@@ -100,7 +193,7 @@
     {
       "id": "candidate-discovery",
       "name": "全市场动态候选发现",
-      "schedule": "5 15 * * 1-5",
+      "schedule": "7 15 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py candidate-discovery --emit-target",
       "cwd": ".",
@@ -115,11 +208,15 @@
       "context_from": [
         "hot-money-context",
         "capital-flow",
-        "hk-a-linkage"
+        "hk-a-linkage",
+        "social-attention-close"
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 180
+        "max_age_minutes": 180,
+        "optional_jobs": [
+          "social-attention-close"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -135,7 +232,7 @@
         "cwd": ".",
         "timeout_seconds": 420
       },
-      "external_note": "15:05 全市场扫描并生成约200只双策略观察池；仅归档，供次日竞价和收盘复核读取"
+      "external_note": "15:07 全市场扫描并生成约200只双策略观察池；社会关注度仅作可选弱证据"
     },
     {
       "id": "auction-snapshot",
@@ -766,8 +863,6 @@
   "external_dependencies": {
     "hermes_agent": "Cron 调度运行时",
     "serpapi": "新闻搜索 API key",
-    "feishu": "飞书 CLI（lark-cli）— 仅 serenity_to_feishu.py",
-    "builderpulse": "社会情绪数据（不在本仓库）",
-    "pulse_engine": "社会情绪日报（不在本仓库）"
+    "feishu": "飞书 CLI（lark-cli）— 仅 serenity_to_feishu.py"
   }
 }

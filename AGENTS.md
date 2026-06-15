@@ -58,7 +58,7 @@
 | a-stock-data | `~/.hermes/skills/a-stock-data/` | 📦 数据源参考 |
 | a-stock-daily-report | `~/.hermes/skills/a-stock-daily-report/` | 📋 每日简报 |
 | a-stock-commands | `~/.hermes/skills/a-stock-commands/` | ⌨️ 快捷指令 |
-| pulse-engine | 外部项目 | 📡 社会情绪（不在本仓库） |
+| social-sentiment | `~/.hermes/skills/social-sentiment/` | 📡 社会关注度 |
 
 ## 数据源铁律
 
@@ -80,6 +80,7 @@
 | 东方财富 | `push2his.eastmoney.com` | NO_PROXY=.eastmoney.com |
 | 东财数据中心 | `datacenter.eastmoney.com` | NO_PROXY=.eastmoney.com |
 | SerpAPI | `serpapi.com` | SERPAPI_API_KEY |
+| 雪球关注榜 | `xueqiu.com/service/v5/stock/screener/screen` | 无；结构漂移时自动降级 |
 
 ### ❌ 不可用
 
@@ -282,6 +283,11 @@ from typing import Dict, Any, List, Optional
 11. **T+1 竞价证伪场景**（2026-06-11）：`daban_candidate_api.t1_scenario` 按封板质量
     分场景 A(强封:竞价≥+3%持有/<0%减半)/B(烂板回封:-4%看承接限1/3补/平开冲高全清)/
     C(未封回:无条件开盘3分钟斩仓)——T+1 制度下竞价出局优于盘中挨核按钮。
+12. **社会关注度回流**（2026-06-15）：`social-sentiment` 独立采集东方财富人气榜、
+    雪球讨论/关注榜及可选百度热搜，归一化为 `social_attention_snapshot_v1`。至少两个
+    独立平台同时覆盖才允许影响候选排名或四维情绪面；单源只展示。候选调整上限
+    `±3`，情绪面调整上限 `±0.8`；高关注但价格走弱标记拥挤背离。任一来源失败不得
+    阻断候选发现、竞价、开盘确认或四维评分。
 
 ## 关键文件索引
 
@@ -293,7 +299,8 @@ from typing import Dict, Any, List, Optional
 | strategy_registry.json | `stock-triage/data/` | 策略闸门+门控状态（缠论信号过闸/负期望淘汰） |
 | deep_research/{code}.json | `stock-triage/cache/` | Serenity 深研缓存（回流四维深度面） |
 | market_context.json | `stock-triage/cache/` | 大盘影响缓存（global-monitor --cache 写，四维 overlay 读） |
-| signal_context.json | `stock-triage/cache/` | 情绪上下文（hot-money/capital_flow --cache 写，情绪面读） |
+| signal_context.json | `stock-triage/cache/` | 市场情绪、资金流与社会关注度共享上下文 |
+| social_attention.json | `stock-triage/cache/` | 最近可信社会关注度快照及来源健康状态 |
 | candidate_pool_latest.json | `stock-triage/data/` | 全市场双策略动态观察池 |
 | candidate_lifecycle/YYYY-MM-DD.json | `stock-triage/data/` | 候选阶段、淘汰原因与T+1/T+3结果 |
 | auction_shortlist_latest.json | `daban-stock-picker/data/` | 09:25竞价前20短名单 |

@@ -42,6 +42,7 @@ from research_evidence import build_research_evidence  # noqa: E402
 import strategy_registry  # noqa: E402
 from tradeability import limit_pct, round_limit  # noqa: E402
 from state_store import atomic_write_json, mutate_json, read_json  # noqa: E402
+from signal_context import read_signal_context  # noqa: E402
 from paths import data_file  # noqa: E402
 
 AUCTION_OPEN_FREEZE = "09:20"  # 9:20 后委托不可撤单，9:20→9:25 委买净增 = 无撤单窗口真实意图
@@ -214,12 +215,17 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
     state = read_json(_state_path(asof), default={"series": {}})
     result = _build_result(state.get("series", {}), asof)
     pool = load_watch_pool(asof)
+    signal_ctx = read_signal_context(max_age_hours=8) or {}
     shortlist = candidate_pipeline.rank_auction_shortlist(
         pool,
         result["factors"],
         limit=shortlist_limit,
+        signal_ctx=signal_ctx,
     )
     result.update(shortlist)
+    result["social_attention_snapshot"] = signal_ctx.get(
+        "social_attention_snapshot"
+    )
     result["schema"] = "auction_finalize_v2"
     result["asof"] = asof
     top_candidates = list(result["shortlist"][:5])

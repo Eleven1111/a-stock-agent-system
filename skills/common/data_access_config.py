@@ -28,6 +28,8 @@ DEFAULTS: Dict[str, Any] = {
             "coordination_stale_seconds": 90,
         },
         "cninfo": {"timeout_seconds": 8, "max_attempts": 2},
+        "xueqiu": {"timeout_seconds": 10, "max_attempts": 2},
+        "baidu_attention": {"timeout_seconds": 10, "max_attempts": 1},
     },
     "risk": {
         "stop_loss_pct": -8.0,
@@ -60,6 +62,14 @@ DEFAULTS: Dict[str, Any] = {
             "高温 电力 电网 空调 A股",
             "地缘冲突 能源 黄金 航运 A股",
         ],
+    },
+    "social_attention": {
+        "top_limit": 200,
+        "cache_max_age_hours": 8.0,
+        "min_sources_for_boost": 2,
+        "candidate_bonus_max": 3.0,
+        "sentiment_delta_max": 0.8,
+        "baidu_enabled": False,
     },
     "global_market": {
         "switches": {
@@ -306,6 +316,42 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
     else:
         news["queries"] = [item.strip() for item in queries]
 
+    social = result["social_attention"]
+    top_limit = social.get("top_limit")
+    social["top_limit"] = (
+        top_limit
+        if isinstance(top_limit, int)
+        and not isinstance(top_limit, bool)
+        and 20 <= top_limit <= 500
+        else DEFAULTS["social_attention"]["top_limit"]
+    )
+    social["cache_max_age_hours"] = _number(
+        social.get("cache_max_age_hours"),
+        DEFAULTS["social_attention"]["cache_max_age_hours"],
+        positive=True,
+    )
+    min_sources = social.get("min_sources_for_boost")
+    social["min_sources_for_boost"] = (
+        min_sources
+        if isinstance(min_sources, int)
+        and not isinstance(min_sources, bool)
+        and 2 <= min_sources <= 3
+        else DEFAULTS["social_attention"]["min_sources_for_boost"]
+    )
+    for key, upper in (("candidate_bonus_max", 3.0), ("sentiment_delta_max", 0.8)):
+        value = social.get(key)
+        parsed = _number(value, -1)
+        social[key] = (
+            parsed
+            if 0 < parsed <= upper
+            else DEFAULTS["social_attention"][key]
+        )
+    social["baidu_enabled"] = (
+        social.get("baidu_enabled")
+        if isinstance(social.get("baidu_enabled"), bool)
+        else DEFAULTS["social_attention"]["baidu_enabled"]
+    )
+
     global_market = result["global_market"]
     for section in (
         "switches",
@@ -369,6 +415,10 @@ def news_monitor_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:
     config = dict(load_config(path)["news_monitor"])
     config["queries"] = list(config.get("queries") or DEFAULTS["news_monitor"]["queries"])
     return config
+
+
+def social_attention_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:
+    return dict(load_config(path)["social_attention"])
 
 
 def global_market_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:

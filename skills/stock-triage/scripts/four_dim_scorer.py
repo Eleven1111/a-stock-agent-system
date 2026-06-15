@@ -60,6 +60,7 @@ from market_context import read_market_context, apply_market_overlay
 
 # 情绪上下文（连板梯队/板块赚钱效应/资金流回流情绪面；无缓存则回退历史逻辑）
 from signal_context import read_signal_context, sentiment_boost
+from social_attention import sentiment_attention_overlay
 
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict[str, Any]:
@@ -321,6 +322,9 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
     boost = sentiment_boost(code, ctx, sector=sector)
     score += boost["delta"]
     signals.extend(boost["notes"])
+    social = sentiment_attention_overlay(code, ctx)
+    score += social["delta"]
+    signals.extend(social["notes"])
 
     score = max(0, min(10, score))
 
@@ -330,6 +334,8 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
         "turnover": turnover,
         "amount_yi": round(amount / 1e8, 1) if amount else None,
         "context_boost": boost["delta"],
+        "social_attention_delta": social["delta"],
+        "social_attention": social["record"],
         "sector": boost.get("sector"),
         "detail": "; ".join(signals) if signals else "情绪中性",
     }
