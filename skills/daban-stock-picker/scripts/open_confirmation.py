@@ -29,7 +29,11 @@ import candidate_pipeline  # noqa: E402
 from market_temperature import temperature_from_context  # noqa: E402
 import monitor_registry  # noqa: E402
 from paths import data_file  # noqa: E402
-from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
+from recommendation_quality import (  # noqa: E402
+    build_execution_plan,
+    build_quality_report,
+    merge_market_intelligence,
+)
 from decision_policy import evaluate_decision  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
 from market_context import market_regime, read_market_context  # noqa: E402
@@ -99,6 +103,10 @@ def _apply_policy(
         _naked_code(str(result.get("code") or "")),
         strategy_id=strategy_id,
         asof=asof,
+    )
+    result["quality_report"] = merge_market_intelligence(
+        result.get("quality_report") or {"status": "conditional"},
+        evidence.get("market_intelligence"),
     )
     prior_chanlun = ((result.get("research_evidence") or {}).get("chanlun") or {})
     for key in (

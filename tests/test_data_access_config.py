@@ -15,6 +15,8 @@ def test_missing_config_uses_historical_defaults(tmp_path):
     assert len(loaded["news_monitor"]["queries"]) == 4
     assert loaded["storage"]["snapshot_input_retention_days"] == 30
     assert loaded["storage"]["snapshot_max_total_mb"] == 4096
+    assert loaded["providers"]["eastmoney"]["circuit_failure_threshold"] == 3
+    assert loaded["providers"]["eastmoney"]["coordination_backend"] == "shared_file"
 
 
 def test_partial_config_deep_merges_without_losing_defaults(tmp_path):
@@ -45,6 +47,10 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
             "providers": {
                 "tencent": {"timeout_seconds": -1, "max_attempts": 99},
                 "serpapi": "bad",
+                "eastmoney": {
+                    "circuit_failure_threshold": 0,
+                    "coordination_backend": "memory",
+                },
             },
             "risk": {"stop_loss_pct": "bad", "portfolio_size": 0},
             "intraday_monitor": {"surge_pct": -5},
@@ -62,6 +68,8 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
 
     assert loaded["providers"]["tencent"] == {"timeout_seconds": 10, "max_attempts": 2}
     assert loaded["providers"]["serpapi"] == {"timeout_seconds": 15, "max_attempts": 2}
+    assert loaded["providers"]["eastmoney"]["circuit_failure_threshold"] == 3
+    assert loaded["providers"]["eastmoney"]["coordination_backend"] == "shared_file"
     assert loaded["risk"]["stop_loss_pct"] == -8.0
     assert loaded["risk"]["portfolio_size"] == 100000
     assert loaded["intraday_monitor"]["surge_pct"] == 5.0

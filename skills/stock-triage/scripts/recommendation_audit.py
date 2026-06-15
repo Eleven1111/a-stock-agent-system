@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common')
 from state_store import read_json, update_json_list, mutate_json
 from paths import data_file
 from a_share_rules import t1_constraint
-from recommendation_quality import build_quality_report
+from recommendation_quality import build_quality_report, merge_market_intelligence
 from decision_policy import evaluate_decision
 from market_context import market_regime, read_market_context
 from portfolio_policy import evaluate_candidate
@@ -340,6 +340,10 @@ def record_recommendation(
         code,
         strategy_id=sid,
         asof=record_date,
+    )
+    quality = merge_market_intelligence(
+        quality,
+        evidence.get("market_intelligence"),
     )
     risk = portfolio_risk or evaluate_candidate(
         read_json(PORTFOLIO_FILE, {"cash": total_asset, "positions": []}),

@@ -55,6 +55,24 @@ def test_portfolio_concentration_blocks_positive_action():
     assert "single_position_limit" in result["reasons"]
 
 
+def test_market_intelligence_not_ready_blocks_positive_action():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        research_evidence={
+            "market_intelligence": {
+                "available": True,
+                "directional_ready": False,
+                "hard_risks": [],
+            }
+        },
+    )
+
+    assert result["decision"] == "watch"
+    assert result["position_multiplier"] == 0.0
+    assert "market_intelligence_not_ready" in result["reasons"]
+
+
 def test_stale_serenity_reduces_trend_position_without_blocking_daban():
     evidence = {
         "serenity": {

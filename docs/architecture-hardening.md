@@ -240,6 +240,12 @@ python scripts/agent_runtime_context.py
 业务脚本不得直接调用 `urllib.request.urlopen`。新增数据源时先在共享 transport/provider
 实现 adapter，再由业务脚本调用。
 
+东方财富的资金流、事件、机构和筹码接口统一经过
+`skills/common/eastmoney_intelligence.py`。该 adapter 对 HTTP 200 中的业务失败和 schema
+漂移做严格校验，并在共享状态卷上协调限速与熔断。必要的解禁、两融、股东户数证据按数据集
+分别校验新鲜度；缺失或过期时 Policy fail-closed。完整协议见
+[`eastmoney-resilience.md`](eastmoney-resilience.md)。
+
 ## 部署检查
 
 ```bash

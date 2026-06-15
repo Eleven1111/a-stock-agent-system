@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-405%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-416%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -123,6 +123,12 @@ python scripts/agent_runtime_context.py
 Across two machines, `A_STOCK_STATE_HOME` must be the same mounted filesystem,
 not merely the same path string. Run leases and the canonical ledger cannot
 coordinate two independent local disks.
+
+Eastmoney traffic also shares a cross-machine rate limiter and circuit breaker.
+The mounted filesystem must support atomic directory creation and same-filesystem
+rename. Missing or stale lockup, margin, or holder-count evidence downgrades stock
+advice to watch-only; a fresh last-known-good snapshot may bridge a transient
+refresh failure. See [Eastmoney data-source resilience](docs/eastmoney-resilience.md).
 
 ### Run
 
@@ -314,7 +320,7 @@ a-stock-agent-system/
 │   ├── smoke_test.py           # 9-test validation suite
 │   ├── snapshot_gc.py          # Snapshot/artifact retention and capacity cleanup
 │   └── validate_cron_manifest.py
-├── tests/                      # 405 unit tests
+├── tests/                      # 416 unit tests
 ├── skills/
 │   ├── common/                 # Adapters, snapshots, policy, ledger, shared state
 │   ├── stock-triage/           # Orchestrator hub
@@ -393,7 +399,7 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 405 tests
+python -m pytest -q tests/        # 416 tests
 python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```

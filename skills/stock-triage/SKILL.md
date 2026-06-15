@@ -299,6 +299,7 @@ t6 = kanban_create(
 | `hk_a_linkage.py` | 港A联动：AH溢价率 + 恒生vs上证背离 + 港股通权重异动检测 |
 | `institution_tracker.py` | 机构行为：调研/研报/增减持（东财数据中心+SerpAPI） |
 | `event_calendar.py` | 事件日历：限售解禁/分红/政策窗口（东财+固定日期库） |
+| `stock_intelligence_refresh.py` | 收盘刷新全部持仓与候选前5名的解禁、两融、股东户数、龙虎榜、大宗交易和研报一致预期；写不可变快照与共享缓存，供次日Policy和Serenity读取 |
 | `performance_tracker.py` | 胜率统计：`--record`记录信号→自动跟踪表现→分S/A/B/C/策略统计命中率；`--gate`按实盘期望值淘汰负期望策略(写strategy_registry) |
 | `recommendation_audit.py` | 推荐审计档案：买/卖/加/减建议写入 `recommendations.json`，支持查询、结果更新、赔率/凯利仓位测算 |
 | `monitor_manager.py` | 动态监控订阅：股票/板块/主题的添加、取消和查询；取消写入持久墓碑 |
@@ -308,6 +309,7 @@ t6 = kanban_create(
 | `../chanlun-backtest/scripts/chan_structure.py` | 缠论结构信号：分型/笔/中枢/三买三卖/背驰 → JSON（过闸才计权） |
 | `../../common/strategy_registry.py` | 策略闸门+门控裁决：缠论信号是否计权、负期望策略是否停用 |
 | `../../common/deep_research_cache.py` | Serenity 深研缓存读写：回流四维深度面（深研一次、日评复用） |
+| `../../common/stock_intelligence.py` | 筹码/机构证据缓存与风险归纳；解禁/两融/股东户数逐数据集校验新鲜度，缺失或过期时只允许关注；短暂故障可回退到仍有效的最近可信快照 |
 
 快速命令：
 

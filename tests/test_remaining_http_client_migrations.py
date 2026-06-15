@@ -9,6 +9,7 @@ import urllib.parse
 from pathlib import Path
 
 import http_client
+import eastmoney_intelligence
 from http_client import HttpResult
 
 
@@ -62,6 +63,7 @@ def test_cninfo_fetch_preserves_post_form_and_download_contract(monkeypatch, tmp
 
 def test_news_monitor_fetchers_use_shared_json_and_text_clients(monkeypatch):
     calls = []
+    eastmoney_calls = []
 
     def fake_request_json(url, **kwargs):
         calls.append(("json", url, kwargs))
@@ -75,6 +77,14 @@ def test_news_monitor_fetchers_use_shared_json_and_text_clients(monkeypatch):
 
     monkeypatch.setattr(http_client, "request_json", fake_request_json)
     monkeypatch.setattr(http_client, "request_bytes", fake_request_bytes)
+    monkeypatch.setattr(
+        eastmoney_intelligence,
+        "eastmoney_json",
+        lambda url, **kwargs: (
+            eastmoney_calls.append((url, kwargs))
+            or {"data": {"list": []}}
+        ),
+    )
     monkeypatch.setattr(sys, "argv", ["news_monitor_v3.py", "--silent"])
 
     namespace = runpy.run_path(str(ROOT / "scripts/news_monitor_v3.py"))
@@ -92,13 +102,12 @@ def test_news_monitor_fetchers_use_shared_json_and_text_clients(monkeypatch):
         for kind, _url, kwargs in calls
     )
     assert any(
-        kind == "json"
-        and kwargs == {
-            "source": "eastmoney",
-            "timeout": 10,
+        kwargs == {
+            "required_path": ("data", "list"),
+            "required_type": list,
             "headers": namespace["UA"],
         }
-        for kind, _url, kwargs in calls
+        for _url, kwargs in eastmoney_calls
     )
     assert any(
         kind == "bytes"

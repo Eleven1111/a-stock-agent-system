@@ -157,6 +157,55 @@ def build_quality_report(
     }
 
 
+def merge_market_intelligence(
+    quality_report: Mapping[str, Any],
+    intelligence: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Attach cached chip/institution evidence and keep quality status consistent."""
+    result = dict(quality_report)
+    evidence = dict(intelligence or {})
+    result["market_intelligence"] = evidence
+    blocking = list(result.get("blocking_checks") or [])
+    warnings = list(result.get("risk_warnings") or [])
+    hard_risks = list(evidence.get("hard_risks") or [])
+    intelligence_warnings = list(evidence.get("warnings") or [])
+    if not evidence.get("available"):
+        if "market_intelligence_missing" not in blocking:
+            blocking.append("market_intelligence_missing")
+        missing = ", ".join(evidence.get("missing_datasets") or [])
+        warnings.append(
+            f"筹码/机构必要数据缺失：{missing or '未生成缓存'}"
+        )
+    elif evidence.get("directional_ready") is not True:
+        if "market_intelligence_incomplete" not in blocking:
+            blocking.append("market_intelligence_incomplete")
+        affected = sorted(set(
+            list(evidence.get("missing_datasets") or [])
+            + list(evidence.get("stale_datasets") or [])
+        ))
+        warnings.append(
+            f"筹码/机构必要数据不完整或过期：{', '.join(affected) or '状态未知'}"
+        )
+    if hard_risks:
+        if "market_intelligence_hard_risk" not in blocking:
+            blocking.append("market_intelligence_hard_risk")
+        warnings.extend(f"筹码/机构硬风险：{item}" for item in hard_risks)
+    warnings.extend(f"筹码/机构提示：{item}" for item in intelligence_warnings)
+    if hard_risks:
+        result["status"] = "rejected"
+        result["eligible_for_directional_advice"] = False
+    elif {
+        "market_intelligence_missing",
+        "market_intelligence_incomplete",
+    }.intersection(blocking):
+        if result.get("status") == "passed":
+            result["status"] = "conditional"
+        result["eligible_for_directional_advice"] = False
+    result["blocking_checks"] = blocking
+    result["risk_warnings"] = list(dict.fromkeys(warnings))
+    return result
+
+
 def build_execution_plan(
     candidate: Mapping[str, Any],
     quality_report: Mapping[str, Any],

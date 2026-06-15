@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-405%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-416%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
@@ -94,7 +94,7 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 
 ```bash
 python scripts/smoke_test.py      # 9项集成检查
-python -m pytest -q tests/        # 405项测试全部通过
+python -m pytest -q tests/        # 416项测试全部通过
 ```
 
 ### Hermes / OpenClaw 共享状态
@@ -118,6 +118,11 @@ python scripts/agent_runtime_context.py
 
 如果 Hermes 与 OpenClaw 位于两台机器，`A_STOCK_STATE_HOME` 必须指向同一个共享挂载卷；
 仅设置相同的路径字符串无法共享账本，也无法让运行租约互斥。
+
+东方财富请求也共用跨机器限速和熔断状态。共享卷必须支持原子创建目录和同文件系统重命名。
+解禁、两融或股东户数缺失/过期时，个股建议自动降为关注；短暂刷新失败只允许回退到仍在
+有效期内的最近可信快照。详见
+[东方财富数据源鲁棒性](docs/eastmoney-resilience.md)。
 
 ### 运行
 
@@ -308,7 +313,7 @@ a-stock-agent-system/
 │   ├── generate_system_crontab.py # 系统cron兜底生成器
 │   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 405个单元测试
+├── tests/                      # 416个单元测试
 ├── skills/
 │   ├── common/                 # 共享HTTP/状态 + 候选排序/生命周期
 │   ├── stock-triage/           # 编排中枢
@@ -351,7 +356,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 405项测试
+python -m pytest -q tests/        # 416项测试
 python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```

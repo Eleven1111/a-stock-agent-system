@@ -19,6 +19,7 @@ from typing import Dict, Any, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from a_stock_http import load_hermes_env
 from data_provider import fetch_tencent_quote
+from eastmoney_intelligence import eastmoney_json
 from http_client import DataSourceError, request_json
 
 load_hermes_env()
@@ -44,14 +45,11 @@ TRACKED_SECTORS = {
 def fetch_eastmoney(url: str) -> Optional[Dict]:
     """东方财富 API（需要 NO_PROXY）"""
     try:
-        result = request_json(
+        return eastmoney_json(
             url,
-            source="eastmoney",
-            timeout=10,
-            max_attempts=2,
-            headers={"User-Agent": "Mozilla/5.0"},
+            required_path=("data",),
+            required_type=dict,
         )
-        return result.data if isinstance(result.data, dict) else {}
     except (DataSourceError, AttributeError, TypeError):
         return {}
 

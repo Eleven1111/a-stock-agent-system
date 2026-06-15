@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""事件日历 — 分红除权/政策窗口
+"""事件日历 — 限售解禁/分红除权/政策窗口
 =====================================
 数据源：东方财富数据中心 (datacenter.eastmoney.com)
 
@@ -9,7 +9,6 @@ Usage:
   python3 event_calendar.py --portfolio              # 从 portfolio.json 读取持仓
   python3 event_calendar.py --codes 603859,600011    # 指定代码列表
 
-注意：限售解禁 API (RPT_STOCK_LOCKUP) 已于 2026 年下线，暂不可用。
 """
 
 import json
@@ -18,12 +17,14 @@ import sys
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional
 
-HERMES_HOME = os.path.expanduser("~/.hermes")
 COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
-from http_client import DataSourceError, request_json
+from eastmoney_intelligence import fetch_dividend as _fetch_dividend
+from eastmoney_intelligence import fetch_lockups
+from http_client import DataSourceError
+from paths import data_file
 
 # 默认跟踪标的（不持有时也会关注，用于空仓期监控）
 DEFAULT_TRACKED = {
@@ -34,7 +35,7 @@ DEFAULT_TRACKED = {
 
 def load_portfolio_codes() -> Optional[Dict[str, str]]:
     """从 portfolio.json 读取持仓标的"""
-    pf_path = os.path.join(HERMES_HOME, "skills/stock-triage/data/portfolio.json")
+    pf_path = data_file("stock-triage", "portfolio.json")
     if not os.path.exists(pf_path):
         return None
     try:
@@ -60,45 +61,12 @@ POLICY_WINDOWS = [
 ]
 
 
-def fetch_eastmoney_api(url: str) -> Dict:
-    try:
-        result = request_json(
-            url,
-            source="eastmoney",
-            timeout=10,
-            max_attempts=2,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        return result.data if isinstance(result.data, dict) else {}
-    except DataSourceError:
-        return {}
-
-
 def fetch_dividend(code: str) -> Optional[Dict]:
     """分红除权信息 — RPT_SHAREBONUS_DET（字段已更新为 2026 版）"""
-    market = "SH" if code.startswith("6") else "SZ"
-    url = (f"https://datacenter.eastmoney.com/securities/api/data/v1/get?"
-           f"reportName=RPT_SHAREBONUS_DET&columns=ALL&"
-           f"filter=(SECUCODE=%22{code}.{market}%22)&"
-           f"pageSize=1&pageNumber=1")
-    data = fetch_eastmoney_api(url)
-    if data.get("result") and data["result"].get("data"):
-        item = data["result"]["data"][0]
-        bonus_per_10 = float(item.get("PRETAX_BONUS_RMB", 0))
-        ex_date = (item.get("EX_DIVIDEND_DATE") or "")[:10]
-        reg_date = (item.get("EQUITY_RECORD_DATE") or "")[:10]
-        plan_date = (item.get("PLAN_NOTICE_DATE") or "")[:10]
-        progress = item.get("ASSIGN_PROGRESS", "")
-        if bonus_per_10 > 0:
-            return {
-                "bonus_per_10": bonus_per_10,
-                "ex_date": ex_date,
-                "reg_date": reg_date,
-                "plan_date": plan_date,
-                "progress": progress,
-                "is_upcoming": (ex_date >= date.today().isoformat() if ex_date else False),
-            }
-    return None
+    try:
+        return _fetch_dividend(code, asof=date.today())
+    except DataSourceError:
+        return None
 
 
 def get_upcoming_policy_windows(days_ahead: int = 30) -> List[str]:
@@ -137,6 +105,22 @@ def collect_events(codes: Optional[Dict[str, str]] = None) -> Dict:
 
     for code, name in codes.items():
         stock = {"code": code, "name": name, "dividend": None, "lockups": []}
+
+        try:
+            lockups = fetch_lockups(code, asof=date.today(), forward_days=90)
+            stock["lockups"] = lockups.get("upcoming") or []
+            for lockup in stock["lockups"]:
+                ratio = float(lockup.get("ratio_pct") or 0)
+                level = "🔴" if ratio >= 10 else "🟡" if ratio >= 3 else "ℹ️"
+                result["alerts"].append({
+                    "level": level,
+                    "msg": (
+                        f"{name} {lockup.get('date')}解禁"
+                        f"{ratio:.2f}%（{lockup.get('type') or '类型未知'}）"
+                    ),
+                })
+        except DataSourceError as exc:
+            stock["lockup_error"] = exc.to_dict()
 
         # 分红除权
         div = fetch_dividend(code)
@@ -179,7 +163,11 @@ def format_report(data: Dict) -> str:
             )
         if s.get("lockups"):
             lu = s["lockups"][0]
-            events.append(f"⚠️ 解禁: {lu['date']}({lu.get('ratio','')}%)")
+            events.append(
+                f"⚠️ 解禁: {lu['date']}({float(lu.get('ratio_pct') or 0):.2f}%)"
+            )
+        elif s.get("lockup_error"):
+            events.append("解禁数据暂不可用")
 
         if events:
             lines.append(f"- **{s['name']}**: {' | '.join(events)}")

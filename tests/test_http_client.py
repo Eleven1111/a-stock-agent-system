@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
+import urllib.error
 
 import pytest
 
@@ -104,6 +105,29 @@ def test_invalid_json_uses_invalid_response_error():
 
     assert caught.value.error_type == ErrorType.INVALID_RESPONSE
     assert caught.value.attempts == 1
+
+
+def test_http_error_exposes_retry_after_header():
+    error = urllib.error.HTTPError(
+        "https://example.test",
+        429,
+        "Too Many Requests",
+        {"Retry-After": "3"},
+        None,
+    )
+    client = HttpClient(
+        "test",
+        opener=lambda request, timeout: (_ for _ in ()).throw(error),
+        clock=lambda: FIXED_TIME,
+        timeout=1,
+        max_attempts=1,
+    )
+
+    with pytest.raises(DataSourceError) as caught:
+        client.request_json("https://example.test")
+
+    assert caught.value.retry_after_seconds == 3.0
+    assert caught.value.to_dict()["retry_after_seconds"] == 3.0
 
 
 def test_a_stock_http_reexports_the_same_error_type():

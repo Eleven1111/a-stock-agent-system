@@ -9,32 +9,25 @@
 import os
 import sys
 import argparse
+import urllib.parse
 from datetime import datetime
-
-# 彻底绕过系统代理（macOS ClashX 等不影响东财API）
-os.environ.pop('HTTP_PROXY', None)
-os.environ.pop('HTTPS_PROXY', None)
-os.environ.pop('http_proxy', None)
-os.environ.pop('https_proxy', None)
-os.environ.pop('ALL_PROXY', None)
-os.environ.pop('all_proxy', None)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
+COMMON_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", "common"))
+if COMMON_DIR not in sys.path:
+    sys.path.insert(0, COMMON_DIR)
 
+from eastmoney_intelligence import eastmoney_json
+from http_client import DataSourceError
 from news_parser import parse_news
 from industry_chain import find_matching_chains
 
 
-# ====== 东方财富实时数据（强制不走代理）======
+# ====== 东方财富实时数据 ======
 
-def _dfcf_req(params, retries=3):
-    """封装东财API请求——用curl绕过macOS系统代理，带重试"""
-    import subprocess
-    import json
-    import urllib.parse
-    import time
-
+def _dfcf_req(params, retries=2):
+    """通过统一东财适配器获取板块行情。"""
     url = "https://push2.eastmoney.com/api/qt/clist/get"
     params.setdefault("ut", "bd1d9ddb04089700cf9c27f6f7426281")
     params.setdefault("fltt", "2")
@@ -42,20 +35,14 @@ def _dfcf_req(params, retries=3):
 
     qs = urllib.parse.urlencode(params)
     full_url = f"{url}?{qs}"
-
-    for attempt in range(retries):
-        result = subprocess.run(
-            ["curl", "-s", "--noproxy", "*", "-H", "User-Agent: Mozilla/5.0", full_url],
-            capture_output=True, text=True, timeout=20
+    try:
+        return eastmoney_json(
+            full_url,
+            required_path=("data", "diff"),
+            required_type=list,
         )
-        if result.stdout.strip():
-            try:
-                return json.loads(result.stdout)
-            except json.JSONDecodeError:
-                pass
-        if attempt < retries - 1:
-            time.sleep(1.5)
-    return {"data": {"diff": []}}
+    except DataSourceError:
+        return {"data": {"diff": []}}
 
 
 def _fetch_board_map():

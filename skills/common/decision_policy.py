@@ -61,10 +61,29 @@ def evaluate_decision(
 
         serenity = (research_evidence or {}).get("serenity") or {}
         chanlun = (research_evidence or {}).get("chanlun") or {}
+        market_intelligence = (
+            (research_evidence or {}).get("market_intelligence") or {}
+        )
         if chanlun.get("live_bearish_signals"):
             decision = "avoid"
             multiplier = 0.0
             reasons.append("chanlun_live_bearish_signal")
+        elif market_intelligence.get("hard_risks"):
+            decision = "avoid"
+            multiplier = 0.0
+            reasons.append("market_intelligence_hard_risk")
+        elif (
+            research_evidence is not None
+            and "market_intelligence" in research_evidence
+            and (
+                not market_intelligence.get("available")
+                or market_intelligence.get("directional_ready") is not True
+            )
+            and decision in POSITIVE_ACTIONS
+        ):
+            decision = "watch"
+            multiplier = 0.0
+            reasons.append("market_intelligence_not_ready")
         elif serenity.get("hard_risks"):
             decision = "avoid"
             multiplier = 0.0

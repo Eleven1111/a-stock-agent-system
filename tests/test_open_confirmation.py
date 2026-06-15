@@ -339,6 +339,30 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
             for code in codes
         },
     )
+    monkeypatch.setattr(
+        oc,
+        "build_research_evidence",
+        lambda code, strategy_id, asof: {
+            "schema": "research_evidence_v1",
+            "chanlun": {
+                "status": "no_signal",
+                "live_bullish_signals": [],
+                "live_bearish_signals": [],
+            },
+            "serenity": {
+                "available": False,
+                "stale": None,
+                "hard_risks": [],
+            },
+            "market_intelligence": {
+                "available": True,
+                "stale": False,
+                "directional_ready": True,
+                "hard_risks": [],
+                "warnings": [],
+            },
+        },
+    )
 
     result = oc.build_confirmation([], event_asof, limit=3)
 

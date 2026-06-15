@@ -242,9 +242,10 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "candidate-discovery",
         "auction-snapshot",
         "auction-finalize",
-        "open-confirmation",
-        "closing-triage",
-        "serenity-refresh-plan",
+            "open-confirmation",
+            "closing-triage",
+            "stock-intelligence-refresh",
+            "serenity-refresh-plan",
     ]:
         assert required in jobs
         assert jobs[required]["command"] == (
@@ -259,7 +260,13 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["hot-money-context"]["run"]["command"].endswith("--cache-only")
     assert jobs["auction-snapshot"]["context_from"] == ["candidate-discovery"]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
-    assert jobs["serenity-refresh-plan"]["context_from"] == ["closing-triage"]
+    assert jobs["serenity-refresh-plan"]["context_from"] == [
+        "closing-triage",
+        "stock-intelligence-refresh",
+    ]
+    assert jobs["serenity-refresh-plan"]["dependency_policy"]["optional_jobs"] == [
+        "stock-intelligence-refresh",
+    ]
     assert jobs["serenity-refresh-plan"]["deliver"] == "local"
     assert jobs["auction-finalize"]["schedule"] == "26 9 * * 1-5"
     assert any("monitor_registry.json" in path for path in jobs["auction-finalize"]["allowed_state_writes"])

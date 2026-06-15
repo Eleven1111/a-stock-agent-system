@@ -15,7 +15,18 @@ DEFAULTS: Dict[str, Any] = {
         "sina": {"timeout_seconds": 10, "max_attempts": 2},
         "usgs": {"timeout_seconds": 10, "max_attempts": 2},
         "gdacs": {"timeout_seconds": 10, "max_attempts": 2},
-        "eastmoney": {"timeout_seconds": 10, "max_attempts": 2},
+        "eastmoney": {
+            "timeout_seconds": 10,
+            "max_attempts": 2,
+            "minimum_interval_seconds": 1.1,
+            "jitter_max_seconds": 0.25,
+            "backoff_base_seconds": 0.5,
+            "circuit_failure_threshold": 3,
+            "circuit_open_seconds": 300,
+            "coordination_backend": "shared_file",
+            "coordination_timeout_seconds": 30,
+            "coordination_stale_seconds": 90,
+        },
         "cninfo": {"timeout_seconds": 8, "max_attempts": 2},
     },
     "risk": {
@@ -212,6 +223,41 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
                 else defaults["max_attempts"]
             ),
         }
+        if name == "eastmoney":
+            eastmoney = result["providers"][name]
+            for key in (
+                "minimum_interval_seconds",
+                "backoff_base_seconds",
+                "circuit_open_seconds",
+                "coordination_timeout_seconds",
+                "coordination_stale_seconds",
+            ):
+                eastmoney[key] = _number(
+                    raw.get(key),
+                    defaults[key],
+                    positive=True,
+                )
+            eastmoney["jitter_max_seconds"] = max(
+                0.0,
+                _number(
+                    raw.get("jitter_max_seconds"),
+                    defaults["jitter_max_seconds"],
+                ),
+            )
+            threshold = raw.get("circuit_failure_threshold")
+            eastmoney["circuit_failure_threshold"] = (
+                threshold
+                if isinstance(threshold, int)
+                and not isinstance(threshold, bool)
+                and threshold > 0
+                else defaults["circuit_failure_threshold"]
+            )
+            backend = raw.get("coordination_backend")
+            eastmoney["coordination_backend"] = (
+                backend
+                if backend == "shared_file"
+                else defaults["coordination_backend"]
+            )
 
     risk = result["risk"]
     for key, default in DEFAULTS["risk"].items():

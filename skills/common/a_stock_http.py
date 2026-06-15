@@ -13,6 +13,7 @@
 import os
 import sys
 from typing import Dict, Any, List, Optional
+from urllib.parse import urlencode
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from http_client import DataSourceError, ErrorType, request_json, request_text
@@ -204,13 +205,15 @@ def fetch_eastmoney_json(path: str, params: Dict = None) -> Dict[str, Any]:
     path: "/api/qt/kamt.kline/get"
     params: {"fields1": "...", "secid": "1.000001"}
     """
+    from eastmoney_intelligence import eastmoney_json
+
     base = "https://push2his.eastmoney.com"
     if params:
-        qs = "&".join(f"{k}={v}" for k, v in params.items())
+        qs = urlencode(params)
         url = f"{base}{path}?{qs}"
     else:
         url = f"{base}{path}"
-    return http_get_json(url, timeout=10)
+    return eastmoney_json(url, required_path=("data",), required_type=dict)
 
 
 def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,

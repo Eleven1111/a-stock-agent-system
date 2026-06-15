@@ -22,7 +22,15 @@
     },
     "eastmoney": {
       "timeout_seconds": 10,
-      "max_attempts": 2
+      "max_attempts": 2,
+      "minimum_interval_seconds": 1.1,
+      "jitter_max_seconds": 0.25,
+      "backoff_base_seconds": 0.5,
+      "circuit_failure_threshold": 3,
+      "circuit_open_seconds": 300,
+      "coordination_backend": "shared_file",
+      "coordination_timeout_seconds": 30,
+      "coordination_stale_seconds": 90
     },
     "cninfo": {
       "timeout_seconds": 8,
