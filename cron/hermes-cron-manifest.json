@@ -661,6 +661,7 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
         "$A_STOCK_STATE_HOME/cron/output/news-monitor/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
@@ -670,6 +671,35 @@
         "timeout_seconds": 90
       },
       "external_note": "需 Hermes Agent + SerpAPI；固定宏观查询 + 当前股票/板块/主题动态订阅，无触发静默"
+    },
+    {
+      "id": "news-monitor-intraday",
+      "name": "盘中资讯快扫 — 持仓/候选/关注标的",
+      "schedule": "2,7,12,17,22,27,32,37,42,47,52,57 9-11,13-14 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py news-monitor-intraday --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 1800,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
+        "$A_STOCK_STATE_HOME/cron/output/news-monitor-intraday/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/news-to-sector/scripts/scheduled_monitor.py --mode intraday --json",
+        "cwd": ".",
+        "timeout_seconds": 90
+      },
+      "external_note": "09:25-11:30/13:00-14:55 内部守卫；5分钟轻量抓取动态股票/主题，超过SLA只归档不产生方向信号"
     },
     {
       "id": "institution-weekly",

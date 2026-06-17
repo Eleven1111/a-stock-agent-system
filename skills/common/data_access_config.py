@@ -56,6 +56,10 @@ DEFAULTS: Dict[str, Any] = {
     },
     "news_monitor": {
         "default_limit": 3,
+        "intraday_limit": 2,
+        "freshness_sla_minutes": 180,
+        "intraday_freshness_sla_minutes": 10,
+        "intraday_candidate_limit": 20,
         "queries": [
             "国务院 发改委 工信部 证监会 A股 产业政策",
             "地缘冲突 制裁 关税 大宗商品 A股 风险",
@@ -299,12 +303,20 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
         intraday[key] = _number(intraday.get(key), default, positive=True)
 
     news = result["news_monitor"]
-    limit = news.get("default_limit")
-    news["default_limit"] = (
-        limit
-        if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0
-        else DEFAULTS["news_monitor"]["default_limit"]
-    )
+    for key in (
+        "default_limit",
+        "intraday_limit",
+        "freshness_sla_minutes",
+        "intraday_freshness_sla_minutes",
+        "intraday_candidate_limit",
+    ):
+        value = news.get(key)
+        default = DEFAULTS["news_monitor"][key]
+        news[key] = (
+            value
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0
+            else default
+        )
     queries = news.get("queries")
     if not isinstance(queries, list) or not queries or any(
         not isinstance(item, str) or not item.strip()
