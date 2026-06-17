@@ -70,6 +70,10 @@
   },
   "news_monitor": {
     "default_limit": 3,
+    "intraday_limit": 2,
+    "freshness_sla_minutes": 180,
+    "intraday_freshness_sla_minutes": 10,
+    "intraday_candidate_limit": 20,
     "queries": [
       "国务院 发改委 工信部 证监会 A股 产业政策",
       "地缘冲突 制裁 关税 大宗商品 A股 风险"

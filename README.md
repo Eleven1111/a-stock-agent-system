@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-453%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-486%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -61,7 +61,7 @@ flowchart LR
 | **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share sector views and stock watch mappings | yfinance, USGS, GDACS |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
 | **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit. The weighted scorecard flows back into the four-dim deep dimension via a freshness-decayed cache | cninfo, pypdf |
-| **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(25%) × catalyst(25%) × deep(20%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals | All above |
+| **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(15%) × catalyst(30%) × deep(25%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals | All above |
 | **hk-a-linkage** | AH premium spreads, HSI divergence, key HK stock movements | Tencent, yfinance |
 | **capital-flow-monitor** | Northbound flows, institutional/retail flows, sector-level flows | Eastmoney |
 | **portfolio-manager** | Lot-level P&L, A-share T+1 enforcement, stop-loss, trailing stops, concentration checks | Tencent |
@@ -240,6 +240,7 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 09:25 | Auction finalize + candidate context | Workdays |
 | 09:35 | Open confirmation | Workdays |
 | 09:30–11:30, 13:00–15:00 | Intraday alerts | Every 5 min (session-guarded) |
+| 09:25–11:30, 13:00–14:55 | Intraday news sweep | Offset every 5 min; stale data is archived without directional signals |
 | 09:45, 13:45, 14:45 | HK-A linkage | Workdays |
 | 10:30, 14:30 | Capital flow monitor | Workdays |
 | 15:02 | Cache limit-up ladder and market temperature context | Workdays |
@@ -313,7 +314,7 @@ a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── config/candidate_selection.json # Dynamic-universe and funnel limits
-├── cron/hermes-cron-manifest.json  # 21 runtime-neutral scheduled jobs
+├── cron/hermes-cron-manifest.json  # 26 runtime-neutral scheduled jobs
 ├── scripts/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
 │   ├── run_agent_dag.py        # Dependency ordering, retry, resume
@@ -325,7 +326,7 @@ a-stock-agent-system/
 │   ├── smoke_test.py           # 9-test validation suite
 │   ├── snapshot_gc.py          # Snapshot/artifact retention and capacity cleanup
 │   └── validate_cron_manifest.py
-├── tests/                      # 453 unit tests
+├── tests/                      # 486 unit tests
 ├── skills/
 │   ├── common/                 # Adapters, snapshots, policy, ledger, shared state
 │   ├── stock-triage/           # Orchestrator hub
@@ -405,7 +406,7 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 453 tests
+python -m pytest -q tests/        # 486 tests
 python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```

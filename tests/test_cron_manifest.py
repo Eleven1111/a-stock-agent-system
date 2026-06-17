@@ -247,6 +247,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "auction-finalize",
             "open-confirmation",
             "closing-triage",
+            "news-monitor-intraday",
             "stock-intelligence-refresh",
             "serenity-refresh-plan",
     ]:
@@ -268,6 +269,12 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["social-attention-preopen"]["schedule"] == "42 8 * * 1-5"
     assert jobs["social-attention-midday"]["schedule"] == "37 11 * * 1-5"
     assert jobs["social-attention-close"]["schedule"] == "4 15 * * 1-5"
+    assert jobs["news-monitor-intraday"]["schedule"] == (
+        "2,7,12,17,22,27,32,37,42,47,52,57 9-11,13-14 * * 1-5"
+    )
+    assert jobs["news-monitor-intraday"]["run"]["command"].endswith("--mode intraday --json")
+    assert any("catalyst_context.json" in path for path in jobs["news-monitor"]["allowed_state_writes"])
+    assert any("catalyst_context.json" in path for path in jobs["news-monitor-intraday"]["allowed_state_writes"])
     for job_id in (
         "social-attention-preopen",
         "social-attention-midday",

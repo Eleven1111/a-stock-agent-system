@@ -1,7 +1,7 @@
 """Cron scripts that remove Gateway-side template injection."""
 
 import importlib.util
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 
@@ -85,6 +85,100 @@ def test_scheduled_news_monitor_marks_clarification_as_risk():
 
     assert event["risk_classification"]["is_risk"] is True
     assert "澄清" in event["risk_classification"]["clarification_hits"]
+
+
+def test_scheduled_news_monitor_parses_event_time_and_latency(monkeypatch):
+    monitor = load_module("scheduled_news_monitor_freshness_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    now = datetime(2026, 6, 17, 10, 0)
+    monkeypatch.setattr(monitor, "_serpapi_key", lambda: "test-key")
+    monkeypatch.setattr(
+        monitor,
+        "fetch_news",
+        lambda *args, **kwargs: [{
+            "title": "公司中标大额订单",
+            "snippet": "订单金额显著",
+            "source": "测试源",
+            "date": "5 minutes ago",
+            "link": "https://example.com/news/1",
+        }],
+    )
+    monkeypatch.setattr(monitor, "update_catalyst_context", lambda events: {})
+
+    result = monitor.run_monitor(
+        ["测试股 600001 公告"],
+        limit=1,
+        freshness_sla_minutes=10,
+        now=now,
+    )
+
+    event = result["events"][0]
+    assert event["stock_code"] == "600001"
+    assert event["published_at"] == "2026-06-17T09:55:00"
+    assert event["latency_minutes"] == 5
+    assert result["freshness"]["status"] == "fresh"
+    assert result["signals"] == result["events"]
+
+
+def test_scheduled_news_monitor_fails_closed_on_stale_news(monkeypatch):
+    monitor = load_module("scheduled_news_monitor_stale_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "_serpapi_key", lambda: "test-key")
+    monkeypatch.setattr(
+        monitor,
+        "fetch_news",
+        lambda *args, **kwargs: [{
+            "title": "公司获得订单",
+            "snippet": "订单金额显著",
+            "source": "测试源",
+            "date": "3 hours ago",
+            "link": "https://example.com/news/2",
+        }],
+    )
+    monkeypatch.setattr(monitor, "update_catalyst_context", lambda events: {})
+
+    result = monitor.run_monitor(
+        ["测试股 600001 公告"],
+        limit=1,
+        freshness_sla_minutes=30,
+        now=datetime(2026, 6, 17, 10, 0),
+    )
+
+    assert result["status"] == "stale_data"
+    assert result["freshness"]["status"] == "stale"
+    assert result["events"][0]["latency_minutes"] == 180
+    assert result["signals"] == []
+
+
+def test_intraday_news_mode_uses_high_risk_stock_queries(monkeypatch):
+    monitor = load_module("scheduled_news_monitor_intraday_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "load_stock_targets", lambda candidate_limit=0: [])
+    monkeypatch.setattr(
+        monitor,
+        "active_entries",
+        lambda kind=None: [{"kind": "stock", "key": "600001", "label": "测试股"}],
+    )
+
+    queries = monitor.build_queries(mode="intraday")
+
+    assert any("测试股 600001" in query for query in queries)
+    assert any("异动公告" in query and "减持" in query and "停牌" in query for query in queries)
+
+
+def test_intraday_news_mode_includes_runtime_stock_targets(monkeypatch):
+    monitor = load_module(
+        "scheduled_news_monitor_intraday_targets_test",
+        "skills/news-to-sector/scripts/scheduled_monitor.py",
+    )
+    monkeypatch.setattr(monitor, "active_entries", lambda kind=None: [])
+    monkeypatch.setattr(
+        monitor,
+        "load_stock_targets",
+        lambda candidate_limit=0: [{"code": "000001", "name": "平安银行"}],
+    )
+
+    queries = monitor.build_queries(mode="intraday")
+
+    assert any("平安银行 000001" in query for query in queries)
+    assert any("监管问询" in query and "停牌" in query for query in queries)
 
 
 def test_social_attention_collection_writes_snapshot_and_signal_context(
