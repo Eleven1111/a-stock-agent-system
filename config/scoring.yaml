@@ -3,9 +3,9 @@
 scoring:
   weights:
     technical: 0.30
-    sentiment: 0.25
-    catalyst: 0.25
-    deep: 0.20
+    sentiment: 0.15
+    catalyst: 0.30
+    deep: 0.25
 
   grades:
     S: {min: 8.0, emoji: "🟢🟢🟢", advice: "强烈推荐 — 多维度共振看多"}

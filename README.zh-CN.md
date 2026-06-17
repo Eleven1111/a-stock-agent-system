@@ -53,7 +53,7 @@ flowchart LR
 | **global-market-monitor** | 美股/VIX/美债/期货/外汇/自然灾害 → A股板块方向与个股观察映射 | yfinance、USGS、GDACS |
 | **news-to-sector** | 实时资讯→18条产业链映射 + 预期差分析 | SerpAPI |
 | **serenity-investment-research** | 深度投研：供应链拆解、财务分析、估值情景、熊市审计 | cninfo、pypdf |
-| **four-dim scorer** | S/A/B/C 加权分级：技术(30%)×情绪(25%)×催化(25%)×深度(20%) | 以上全部 |
+| **four-dim scorer** | S/A/B/C 加权分级：技术(30%)×情绪(15%)×催化(30%)×深度(25%) | 以上全部 |
 | **hk-a-linkage** | AH溢价率、恒生背离、港股权重异动 | 腾讯、yfinance |
 | **capital-flow-monitor** | 北向资金、主力/散户资金、板块资金 | 东方财富 |
 | **portfolio-manager** | 分批持仓、A股T+1约束、止损止盈、回撤止盈、仓位集中度风控 | 腾讯 |

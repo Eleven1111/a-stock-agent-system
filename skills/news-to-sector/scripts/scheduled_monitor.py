@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from typing import Any, Dict, List
@@ -27,6 +28,7 @@ from data_provider import fetch_serpapi_news  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from monitor_registry import active_entries  # noqa: E402
 from recommendation_quality import scan_announcement_risks  # noqa: E402
+from catalyst_context import update_catalyst_context  # noqa: E402
 
 
 _NEWS_CONFIG = news_monitor_settings()
@@ -57,6 +59,11 @@ def fetch_news(query: str, api_key: str, limit: int) -> List[Dict[str, Any]]:
     return fetch_serpapi_news(query, api_key, limit).data
 
 
+def stock_code_from_query(query: str) -> str | None:
+    match = re.search(r"(?<!\d)([036]\d{5})(?!\d)", query)
+    return match.group(1) if match else None
+
+
 def classify_event(event: Dict[str, Any]) -> Dict[str, Any]:
     classified = dict(event)
     risk = scan_announcement_risks([event])
@@ -85,7 +92,13 @@ def run_monitor(queries: List[str], limit: int) -> Dict[str, Any]:
     errors = []
     for query in queries:
         try:
-            events.extend(fetch_news(query, api_key, limit))
+            stock_code = stock_code_from_query(query)
+            for event in fetch_news(query, api_key, limit):
+                enriched = dict(event)
+                enriched["query"] = query
+                if stock_code:
+                    enriched["stock_code"] = stock_code
+                events.append(enriched)
         except DataSourceError as exc:
             errors.append({"query": query, **exc.to_dict()})
         except Exception as exc:
@@ -110,6 +123,7 @@ def run_monitor(queries: List[str], limit: int) -> Dict[str, Any]:
         event for event in deduped
         if (event.get("risk_classification") or {}).get("is_risk")
     ]
+    update_catalyst_context(deduped)
 
     return {
         "schema": "scheduled_news_monitor_v1",
