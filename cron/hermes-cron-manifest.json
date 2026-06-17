@@ -862,6 +862,42 @@
       "external_note": "周报默认归档，避免数据型输出污染主线"
     },
     {
+      "id": "catalyst-trigger",
+      "name": "盘中催化触发器（15分钟）",
+      "schedule": "3,18,33,48 9-11,13-14 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py catalyst-trigger --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 2000,
+      "context_from": [
+        "candidate-discovery"
+      ],
+      "dependency_policy": {
+        "trading_date": "previous_trading_day",
+        "max_age_minutes": 7200
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_trigger_cache.json",
+        "$A_STOCK_STATE_HOME/cron/output/catalyst-trigger/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/realtime_catalyst_trigger.py --json",
+        "cwd": ".",
+        "timeout_seconds": 60
+      },
+      "external_note": "盘中每15分钟扫描T1/T2催化并匹配候选池；T1催化15分钟响应"
+    },
+    {
       "id": "snapshot-gc",
       "name": "市场快照与任务产物清理",
       "schedule": "20 17 * * 1-5",
