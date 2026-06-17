@@ -61,6 +61,7 @@ from market_context import read_market_context, apply_market_overlay
 # 情绪上下文（连板梯队/板块赚钱效应/资金流回流情绪面；无缓存则回退历史逻辑）
 from signal_context import read_signal_context, sentiment_boost
 from social_attention import sentiment_attention_overlay
+from catalyst_context import read_catalyst_events
 
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict[str, Any]:
@@ -473,26 +474,53 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     "国家战略"同分。现按 T1/T2/T3 分级（政策战略>订单业绩>泛利好），并按
     新闻时间衰减（≤3天全额，>30天两折），更贴合打板/高成长对催化时效的要求。
     """
+    cached_news = read_catalyst_events(code)
     raw_news = fetch_serpapi_news(
         f"{name} {code} 公告 澄清 风险提示 政策 业绩",
         num=5,
     )
-    source_available = raw_news is not None   # None=数据源不可用；[]=可用但无新闻
-    news = raw_news or []
+    live_available = raw_news is not None   # None=数据源不可用；[]=可用但无新闻
+    source_available = live_available or bool(cached_news)
+
+    news = []
+    seen = set()
+    for item in [*(raw_news or []), *cached_news]:
+        key = item.get("link") or item.get("title")
+        if key in seen:
+            continue
+        seen.add(key)
+        news.append(item)
 
     catalysts = [{"title": item.get("title", ""),
-                  "source": item.get("source", {}).get("name", ""),
+                  "source": (item.get("source", {}) or {}).get("name", "")
+                            if isinstance(item.get("source", {}), dict)
+                            else item.get("source", ""),
                   "date": item.get("date", "")} for item in news[:5]]
 
     scored = news_catalyst_score(news)
-    score = max(0, min(10, 5.0 + scored["delta"]))
+    base = 5.0 if source_available else 4.5
+    score = max(0, min(10, base + scored["delta"]))
+    if live_available and cached_news:
+        source_status = "live_and_cache"
+    elif live_available:
+        source_status = "live"
+    elif cached_news:
+        source_status = "cache_only"
+    else:
+        source_status = "unavailable"
 
     return {
         "score": round(score, 1),
         "news_count": len(news),
         "available": source_available,
+        "source_status": source_status,
+        "cache_count": len(cached_news),
         "catalysts": catalysts[:3],
-        "detail": "; ".join(scored["signals"][:3]) if scored["signals"] else "无显著催化",
+        "detail": (
+            "; ".join(scored["signals"][:3])
+            if scored["signals"]
+            else ("催化源不可用" if not source_available else "无显著催化")
+        ),
     }
 
 
@@ -592,7 +620,7 @@ if _scoring_cfg:
     _grades_cfg = _scoring_cfg.get("scoring", {}).get("grades", {})
     _confidence_cfg = _scoring_cfg.get("scoring", {}).get("confidence", {})
 else:
-    WEIGHTS = {"technical": 0.30, "sentiment": 0.25, "catalyst": 0.25, "deep": 0.20}
+    WEIGHTS = {"technical": 0.30, "sentiment": 0.15, "catalyst": 0.30, "deep": 0.25}
     _grades_cfg = {}
     _confidence_cfg = {}
 
@@ -636,9 +664,17 @@ def grade(weighted_score: float) -> Tuple[str, str, str]:
     return "D", "🔴", "回避 — 多维度利空"
 
 
+def _grade_by_name(name: str) -> Tuple[str, str, str]:
+    for item in GRADES:
+        if item["name"] == name:
+            return item["name"], item["emoji"], item["advice"]
+    return grade(0)
+
+
 def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
                 klines: Optional[List[Dict]] = None,
-                market_ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                market_ctx: Optional[Dict[str, Any]] = None,
+                strategy_id: str = "four_dim") -> Dict[str, Any]:
     """完整四维评分。quote/klines 可由批量调用方预取注入，同票只抓一次（4→1）；
     market_ctx 为大盘上下文，缺省时自读缓存，用于出分后叠加大盘 overlay。"""
     print(f"🔍 正在分析 {name}({code})...", file=sys.stderr)
@@ -663,24 +699,36 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
     scores = {"technical": technical, "sentiment": sentiment,
               "catalyst": catalyst, "deep": deep}
 
-    # 各维度数据是否真实可用（避免缺失维度以中性 5.0 静默稀释总分）
+    # 各维度数据是否真实可用；催化源不可用时保留保守权重，避免被动放大情绪面。
     available = {
         "technical": technical["ma5"] is not None,        # 有K线
         "sentiment": sentiment.get("change_pct") is not None,  # 有实时
         "catalyst": catalyst.get("available", catalyst["news_count"] > 0),  # 数据源可用（无新闻=中性，仍纳入）
         "deep": deep.get("source", "").startswith("serenity") or deep.get("pe") is not None,  # 有深研或估值
     }
-    # 在可用维度上重新归一化权重；无可用维度时回退原始权重
-    eff = {k: WEIGHTS[k] for k in WEIGHTS if available.get(k, True)}
+    scoring_available = dict(available)
+    if not available["catalyst"] and catalyst.get("score") is not None:
+        scoring_available["catalyst"] = True
+    # 在可计分维度上重新归一化权重；催化不可用但可保守计分时不排除。
+    eff = {k: WEIGHTS[k] for k in WEIGHTS if scoring_available.get(k, True)}
     total_w = sum(eff.values())
     if total_w > 0:
         eff = {k: v / total_w for k, v in eff.items()}
     else:
         eff = dict(WEIGHTS)
     weighted = sum(scores[k]["score"] * eff.get(k, 0.0) for k in WEIGHTS)
-    excluded = [k for k in WEIGHTS if not available.get(k, True)]
+    excluded = [k for k in WEIGHTS if not scoring_available.get(k, True)]
+    degraded = [k for k in WEIGHTS if scoring_available.get(k, True) and not available.get(k, True)]
 
     g, emoji, advice = grade(weighted)
+    score_gates = []
+    if (
+        g == "S"
+        and not str(strategy_id or "").startswith("daban")
+        and (catalyst["score"] < 5.5 or deep["score"] < 6.0)
+    ):
+        score_gates.append("insufficient_catalyst_or_deep_for_s")
+        g, emoji, advice = _grade_by_name("A")
 
     # 计算置信度和数据覆盖率
     data_coverage = {
@@ -715,6 +763,7 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "code": code,
         "name": name,
         "timestamp": datetime.now().isoformat(),
+        "strategy_id": strategy_id,
         "confidence": confidence,
         "data_coverage": data_coverage,
         "tradeability": trade,
@@ -731,6 +780,8 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "weights": {k: f"{v*100:.0f}%" for k, v in WEIGHTS.items()},
         "effective_weights": {k: f"{eff.get(k, 0)*100:.0f}%" for k in WEIGHTS},
         "excluded_dims": excluded,
+        "degraded_dims": degraded,
+        "score_gates": score_gates,
         "deep_source": scores["deep"].get("source"),
     }
 
