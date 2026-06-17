@@ -211,14 +211,18 @@ def build_execution_plan(
     quality_report: Mapping[str, Any],
     asof: date | datetime | str | None = None,
     stage: str = "open",
+    atr: float | None = None,
+    strategy_lane: str | None = None,
 ) -> dict[str, Any]:
     price = float(candidate.get("price") or candidate.get("indicative_price") or 0.0)
     prev_close = float(candidate.get("prev_close") or 0.0)
     action = str(candidate.get("action") or "")
     quality_status = quality_report.get("status")
     tradeable = (candidate.get("tradeability") or {}).get("tradeable", True)
+    is_daban = str(strategy_lane or "").startswith("daban")
 
-    max_chase_price = round(prev_close * 1.07, 2) if prev_close > 0 else None
+    max_chase_pct = 0.07
+    max_chase_price = round(prev_close * (1 + max_chase_pct), 2) if prev_close > 0 else None
     beyond_max_chase = bool(max_chase_price and price > max_chase_price)
 
     if price <= 0 or not tradeable or quality_status == "rejected":
@@ -235,9 +239,24 @@ def build_execution_plan(
     if price > 0:
         entry_low = round(price * 0.995, 2)
         entry_high = round(price * 1.005, 2)
-        stop_price = round(price * 0.95, 2)
-        target_price = round(price * 1.08, 2)
-        target_price_2 = round(price * 1.12, 2)
+
+        if atr and atr > 0:
+            stop_mult = 1.2 if is_daban else 2.0
+            tp1_mult = 2.0 if is_daban else 3.0
+            tp2_mult = 3.5 if is_daban else 5.0
+            stop_price = round(price - stop_mult * atr, 2)
+            target_price = round(price + tp1_mult * atr, 2)
+            target_price_2 = round(price + tp2_mult * atr, 2)
+            pricing_method = "atr_adaptive"
+        else:
+            stop_pct = 0.03 if is_daban else 0.05
+            tp1_pct = 0.05 if is_daban else 0.08
+            tp2_pct = 0.08 if is_daban else 0.12
+            stop_price = round(price * (1 - stop_pct), 2)
+            target_price = round(price * (1 + tp1_pct), 2)
+            target_price_2 = round(price * (1 + tp2_pct), 2)
+            pricing_method = "fixed_pct_fallback"
+
         max_chase_price = max_chase_price or entry_high
         entry_high = min(entry_high, max_chase_price)
         price_range = (
@@ -247,24 +266,28 @@ def build_execution_plan(
     else:
         stop_price = target_price = target_price_2 = max_chase_price = None
         price_range = None
+        pricing_method = "none"
 
     selected_by = candidate.get("open_selected_by") or candidate.get("auction_selected_by") or {}
-    position_pct = 4.0 if selected_by.get("daban") else 6.0
+    position_pct = 4.0 if selected_by.get("daban") or is_daban else 6.0
     if decision not in {"buy", "conditional_buy"}:
         position_pct = 0.0
 
     constraints = dict(quality_report.get("execution_constraints") or {})
     return {
-        "schema": "a_share_execution_plan_v1",
+        "schema": "a_share_execution_plan_v2",
         "decision": decision,
         "stage": stage,
+        "strategy_lane": strategy_lane or ("daban" if is_daban else "default"),
+        "pricing_method": pricing_method,
         "entry_range": price_range,
         "max_chase_price": max_chase_price,
         "stop_price": stop_price,
         "target_price": target_price,
         "target_price_2": target_price_2,
+        "atr": round(atr, 3) if atr else None,
         "position_pct": position_pct,
-        "horizon": "T+1到T+3",
+        "horizon": "T+1" if is_daban else "T+1到T+3",
         "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
         "beyond_max_chase": beyond_max_chase,
         "invalidation": [

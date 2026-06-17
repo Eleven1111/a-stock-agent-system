@@ -87,6 +87,64 @@ def calc_rsi(closes: List[float], period: int = 14) -> List[Optional[float]]:
     return result
 
 
+def calc_atr(highs: List[float], lows: List[float], closes: List[float],
+             period: int = 14) -> List[Optional[float]]:
+    """Average True Range（Wilder 平滑）。"""
+    n = len(closes)
+    if n < 2:
+        return [None] * n
+    trs: List[float] = [highs[0] - lows[0]]
+    for i in range(1, n):
+        trs.append(max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        ))
+    result: List[Optional[float]] = [None] * (period - 1)
+    if len(trs) < period:
+        return [None] * n
+    atr = sum(trs[:period]) / period
+    result.append(atr)
+    for i in range(period, len(trs)):
+        atr = (atr * (period - 1) + trs[i]) / period
+        result.append(atr)
+    return result
+
+
+def calc_volume_ratio(volumes: List[float], current_idx: int = -1,
+                      window: int = 5) -> Optional[float]:
+    """量比 = 当前成交量 / 过去 N 日同期均量。"""
+    if current_idx < 0:
+        current_idx = len(volumes) + current_idx
+    if current_idx < window or current_idx >= len(volumes):
+        return None
+    avg = sum(volumes[current_idx - window:current_idx]) / window
+    return round(volumes[current_idx] / avg, 2) if avg > 0 else None
+
+
+def calc_chip_concentration(closes: List[float], volumes: List[float],
+                            period: int = 60, pct: float = 0.9) -> Optional[float]:
+    """筹码集中度：最近 period 日加权成本分布中 pct 获利区间宽度(%)。
+
+    简化实现：用成交量加权平均成本 ± 标准差覆盖 90% 区间，
+    区间越窄说明筹码越集中（主力控盘/建仓完成）。
+    """
+    n = min(period, len(closes))
+    if n < 10 or len(volumes) < n:
+        return None
+    c = closes[-n:]
+    v = volumes[-n:]
+    total_v = sum(v)
+    if total_v <= 0:
+        return None
+    avg_cost = sum(p * vol for p, vol in zip(c, v)) / total_v
+    variance = sum(vol * (p - avg_cost) ** 2 for p, vol in zip(c, v)) / total_v
+    std = variance ** 0.5
+    if avg_cost <= 0:
+        return None
+    return round(2 * std / avg_cost * 100, 2)
+
+
 def calc_kdj(highs: List[float], lows: List[float], closes: List[float],
              period: int = 9) -> Tuple[List, List, List]:
     """KDJ。"""

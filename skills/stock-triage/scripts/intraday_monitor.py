@@ -22,6 +22,9 @@ from state_store import atomic_write_json, read_json
 from data_access_config import intraday_settings
 from data_provider import fetch_tencent_quote
 from http_client import DataSourceError
+from exit_signals import evaluate_all_exit_signals
+from signal_context import read_signal_context
+from catalyst_context import read_catalyst_events
 import monitor_registry
 import runtime_targets
 
@@ -155,6 +158,59 @@ def check_intraday() -> Dict:
                                "msg": f"{name} {direction}{abs(pct):.1f}%，现价{price}"})
                 cache[key] = now_str
 
+    # 持仓退出信号检测
+    portfolio = read_json(PORTFOLIO_FILE, {})
+    positions = portfolio.get("positions", []) if isinstance(portfolio, dict) else []
+    signal_ctx = read_signal_context()
+    exit_alerts = []
+    for pos in positions:
+        pos_code = str(pos.get("code", ""))
+        if not pos_code:
+            continue
+        pos_data = fetch_realtime(pos_code)
+        if not pos_data.get("price"):
+            continue
+        pos_price = pos_data["price"]
+        entry_price = float(pos.get("entry_price") or pos.get("avg_cost") or 0)
+        pnl_pct = ((pos_price / entry_price - 1) * 100) if entry_price > 0 else None
+        peak = float(pos.get("peak_price") or pos.get("high_since_entry") or pos_price)
+        if pos_price > peak:
+            peak = pos_price
+
+        nb_yi = signal_ctx.get("northbound_net_yi") if signal_ctx else None
+        stock_flow = (signal_ctx.get("stock_flows") or {}).get(pos_code) if signal_ctx else None
+        stock_main = stock_flow.get("main_net_yi") if isinstance(stock_flow, dict) else None
+
+        exit_result = evaluate_all_exit_signals(
+            current_price=pos_price,
+            stop_price=float(pos.get("stop_price") or 0),
+            target_price=float(pos.get("target_price") or 0),
+            target_price_2=float(pos.get("target_price_2") or 0) or None,
+            peak_price=peak,
+            trailing_pct=5.0,
+            entry_date=pos.get("entry_date"),
+            horizon_days=int(pos.get("horizon_days") or 3),
+            current_pnl_pct=pnl_pct,
+            temperature_tier=signal_ctx.get("temperature_tier") if signal_ctx else None,
+            northbound_net_yi=nb_yi,
+            stock_main_net_yi=stock_main,
+            catalyst_events=read_catalyst_events(pos_code),
+        )
+        if exit_result["triggered_count"] > 0:
+            top = exit_result["top_signal"]
+            key = f"exit_{pos_code}_{top['signal_type']}"
+            if key not in cache:
+                severity_icon = {"critical": "🔴", "warning": "🟡"}.get(top.get("severity", ""), "⚪")
+                exit_alerts.append({
+                    "level": severity_icon,
+                    "type": f"退出信号({top['signal_type']})",
+                    "msg": f"{pos.get('name', pos_code)}({pos_code}) {top.get('reason', '')} → 建议{top['action']}",
+                    "action": top["action"],
+                    "signal": top,
+                })
+                cache[key] = now_str
+
+    alerts.extend(exit_alerts)
     save_alert_cache(cache)
 
     return {
@@ -163,6 +219,7 @@ def check_intraday() -> Dict:
         "tracked_count": len(universe),
         "tracked_stocks": universe,
         "alerts": alerts,
+        "exit_signals": exit_alerts,
         "has_alerts": len(alerts) > 0,
     }
 

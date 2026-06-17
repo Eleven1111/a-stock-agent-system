@@ -53,7 +53,10 @@ except Exception:  # noqa: BLE001
 from strategy_registry import is_allowed_in_live as _chan_allowed
 
 # 技术指标统一走 common/indicators.py（去重，数值与历史实现逐位一致）
-from indicators import calc_ma, calc_macd, calc_rsi, calc_kdj
+from indicators import (
+    calc_ma, calc_macd, calc_rsi, calc_kdj, calc_atr,
+    calc_volume_ratio, calc_chip_concentration,
+)
 
 # 大盘 context overlay（外围环境回流个股评分；无缓存则 no-op）
 from market_context import read_market_context, apply_market_overlay
@@ -237,12 +240,40 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
         elif j[-1] < 0 and last_close > (last_ma20 or 0):
             score += 0.5
 
-    # 量能
-    if vol_ma5[-1] and volumes[-1]:
+    # 量能（升级：量比 + 传统量能）
+    vol_r = calc_volume_ratio(volumes)
+    if vol_r is not None:
+        if vol_r >= 2.5:
+            score += 1.0
+            signals.append(f"量比极高({vol_r:.1f}x)")
+        elif vol_r >= 1.5:
+            score += 0.5
+            signals.append(f"放量({vol_r:.1f}x)")
+        elif vol_r <= 0.5:
+            score -= 0.3
+            signals.append(f"缩量({vol_r:.1f}x)")
+    elif vol_ma5[-1] and volumes[-1]:
         vol_ratio = volumes[-1] / vol_ma5[-1]
         if vol_ratio > 1.5:
             score += 0.5
             signals.append(f"放量({vol_ratio:.1f}x)")
+
+    # 筹码集中度（新增：主力控盘/建仓信号）
+    chip_conc = calc_chip_concentration(closes, volumes)
+    if chip_conc is not None:
+        if chip_conc < 8:
+            score += 0.8
+            signals.append(f"筹码高度集中({chip_conc:.1f}%)")
+        elif chip_conc < 15:
+            score += 0.3
+            signals.append(f"筹码较集中({chip_conc:.1f}%)")
+        elif chip_conc > 30:
+            score -= 0.3
+            signals.append(f"筹码分散({chip_conc:.1f}%)")
+
+    # ATR 波动率度量（供执行计划和报告使用，不直接加分）
+    atr_values = calc_atr(highs, lows, closes, 14)
+    last_atr = atr_values[-1] if atr_values and atr_values[-1] is not None else None
 
     # 缠论结构信号（过 research_gate 才计权，否则 display-only 标研究假设）
     chan_sigs = []
@@ -267,6 +298,9 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
         "ma60": round(last_ma60, 2) if last_ma60 else None,
         "rsi6": round(rsi6[-1], 1) if rsi6[-1] is not None else None,
         "rsi14": round(rsi14[-1], 1) if rsi14[-1] is not None else None,
+        "atr14": round(last_atr, 3) if last_atr is not None else None,
+        "volume_ratio": vol_r,
+        "chip_concentration": chip_conc,
         "price": rt.get("price"),
         "change_pct": rt.get("change_pct"),
         "detail": "; ".join(signals) if signals else "无明确信号",
@@ -616,13 +650,44 @@ def _load_scoring_config() -> Optional[Dict[str, Any]]:
 
 _scoring_cfg = _load_scoring_config()
 if _scoring_cfg:
-    WEIGHTS = _scoring_cfg.get("scoring", {}).get("weights", {})
+    _weights_cfg = _scoring_cfg.get("scoring", {}).get("weights", {})
+    if isinstance(_weights_cfg, dict) and "default" in _weights_cfg:
+        WEIGHTS_BY_LANE = _weights_cfg
+        WEIGHTS = _weights_cfg["default"]
+    else:
+        WEIGHTS = _weights_cfg if _weights_cfg else {"technical": 0.30, "sentiment": 0.15, "catalyst": 0.30, "deep": 0.25}
+        WEIGHTS_BY_LANE = {"default": WEIGHTS}
+    _temp_overlay_cfg = _scoring_cfg.get("scoring", {}).get("temperature_overlay", {})
     _grades_cfg = _scoring_cfg.get("scoring", {}).get("grades", {})
     _confidence_cfg = _scoring_cfg.get("scoring", {}).get("confidence", {})
+    _risk_cfg = _scoring_cfg.get("risk", {})
 else:
     WEIGHTS = {"technical": 0.30, "sentiment": 0.15, "catalyst": 0.30, "deep": 0.25}
+    WEIGHTS_BY_LANE = {"default": WEIGHTS}
+    _temp_overlay_cfg = {}
     _grades_cfg = {}
     _confidence_cfg = {}
+    _risk_cfg = {}
+
+
+def resolve_weights(strategy_id: str = "four_dim",
+                    temperature_tier: Optional[str] = None) -> Dict[str, float]:
+    """按策略通道 + 温度档位解析最终权重。"""
+    lane = "default"
+    sid = str(strategy_id or "")
+    if sid.startswith("daban") and "daban" in WEIGHTS_BY_LANE:
+        lane = "daban"
+    elif sid in ("trend", "trend_watch") and "trend" in WEIGHTS_BY_LANE:
+        lane = "trend"
+    base = dict(WEIGHTS_BY_LANE.get(lane, WEIGHTS))
+    overlay = _temp_overlay_cfg.get(temperature_tier, {}) if temperature_tier else {}
+    for dim, delta in overlay.items():
+        if dim in base and isinstance(delta, (int, float)):
+            base[dim] = max(0.05, base[dim] + delta)
+    total = sum(base.values())
+    if total > 0:
+        base = {k: v / total for k, v in base.items()}
+    return base
 
 GRADES = sorted(
     [
@@ -671,12 +736,94 @@ def _grade_by_name(name: str) -> Tuple[str, str, str]:
     return grade(0)
 
 
+def _detect_coherence(scores: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """信号一致性检测：多空维度矛盾/共振判定（纯函数）。"""
+    tech_score = scores["technical"]["score"]
+    sent_score = scores["sentiment"]["score"]
+    cata_score = scores["catalyst"]["score"]
+    deep_score = scores["deep"]["score"]
+
+    bullish_dims = sum(1 for s in [tech_score, sent_score, cata_score, deep_score] if s >= 6.5)
+    bearish_dims = sum(1 for s in [tech_score, sent_score, cata_score, deep_score] if s <= 3.5)
+    conflicts = []
+    tags = []
+    delta = 0.0
+
+    if bullish_dims >= 3:
+        tags.append("多维共振看多")
+        delta += 0.5
+    elif bearish_dims >= 3:
+        tags.append("多维共振看空")
+        delta -= 0.5
+
+    if cata_score >= 7 and tech_score <= 4:
+        conflicts.append("催化利好但技术偏空")
+        tags.append("消息面博弈·高波动风险")
+    if cata_score >= 7 and sent_score <= 4:
+        conflicts.append("催化利好但情绪低迷")
+        tags.append("催化未被市场认可")
+        delta -= 0.3
+    if sent_score >= 7 and tech_score <= 4:
+        conflicts.append("情绪主导超越技术")
+        tags.append("短线博弈型")
+    if tech_score >= 7 and deep_score <= 3:
+        conflicts.append("技术走强但基本面差")
+        tags.append("投机性反弹风险")
+
+    return {
+        "bullish_dims": bullish_dims,
+        "bearish_dims": bearish_dims,
+        "conflicts": conflicts,
+        "tags": tags,
+        "delta": round(delta, 2),
+    }
+
+
+def _load_historical_reference(grade: str, strategy_id: str) -> Optional[Dict[str, Any]]:
+    """从 performance_tracker 读取历史胜率参考（静默失败）。"""
+    try:
+        _perf_dir = os.path.join(os.path.dirname(__file__), "..", "..", "common")
+        _hist_file = os.path.join(
+            os.path.dirname(_perf_dir), "stock-triage", "data", "signal_history.json",
+        )
+        from state_store import read_json
+        from paths import data_file
+        hist_file = data_file("stock-triage", "signal_history.json")
+        records = read_json(hist_file, [])
+        if not isinstance(records, list) or not records:
+            return None
+        closed = [r for r in records if r.get("t1_close_ret") is not None]
+        if not closed:
+            return None
+        grade_closed = [r for r in closed if r.get("grade") == grade]
+        grade_wins = [r for r in grade_closed if str(r.get("outcome", "")).startswith("win")]
+        sid = str(strategy_id or "default")
+        strategy_closed = [r for r in closed if r.get("strategy_id", "default") == sid]
+        strategy_wins = [r for r in strategy_closed if str(r.get("outcome", "")).startswith("win")]
+        recent = [r for r in closed if r.get("outcome") and r["outcome"] != "pending"][-5:]
+        return {
+            "grade_win_rate": round(len(grade_wins) / len(grade_closed) * 100, 1) if grade_closed else None,
+            "grade_samples": len(grade_closed),
+            "strategy_win_rate": round(len(strategy_wins) / len(strategy_closed) * 100, 1) if strategy_closed else None,
+            "strategy_samples": len(strategy_closed),
+            "recent_signals": [
+                {"code": r["code"], "name": r.get("name", ""), "grade": r.get("grade", ""),
+                 "outcome": r.get("outcome", ""), "t1_ret": r.get("t1_close_ret")}
+                for r in recent
+            ],
+        }
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
                 klines: Optional[List[Dict]] = None,
                 market_ctx: Optional[Dict[str, Any]] = None,
-                strategy_id: str = "four_dim") -> Dict[str, Any]:
+                strategy_id: str = "four_dim",
+                temperature_tier: Optional[str] = None) -> Dict[str, Any]:
     """完整四维评分。quote/klines 可由批量调用方预取注入，同票只抓一次（4→1）；
-    market_ctx 为大盘上下文，缺省时自读缓存，用于出分后叠加大盘 overlay。"""
+    market_ctx 为大盘上下文，缺省时自读缓存，用于出分后叠加大盘 overlay。
+    strategy_id 决定权重通道（default/daban/trend），temperature_tier 叠加情绪偏移。"""
     print(f"🔍 正在分析 {name}({code})...", file=sys.stderr)
     market = "sz" if code.startswith(("0", "3")) else "sh"
     if quote is None:
@@ -699,26 +846,32 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
     scores = {"technical": technical, "sentiment": sentiment,
               "catalyst": catalyst, "deep": deep}
 
+    # 动态权重：按策略通道 + 温度档位解析
+    active_weights = resolve_weights(strategy_id, temperature_tier)
+
     # 各维度数据是否真实可用；催化源不可用时保留保守权重，避免被动放大情绪面。
     available = {
-        "technical": technical["ma5"] is not None,        # 有K线
-        "sentiment": sentiment.get("change_pct") is not None,  # 有实时
-        "catalyst": catalyst.get("available", catalyst["news_count"] > 0),  # 数据源可用（无新闻=中性，仍纳入）
-        "deep": deep.get("source", "").startswith("serenity") or deep.get("pe") is not None,  # 有深研或估值
+        "technical": technical["ma5"] is not None,
+        "sentiment": sentiment.get("change_pct") is not None,
+        "catalyst": catalyst.get("available", catalyst["news_count"] > 0),
+        "deep": deep.get("source", "").startswith("serenity") or deep.get("pe") is not None,
     }
     scoring_available = dict(available)
     if not available["catalyst"] and catalyst.get("score") is not None:
         scoring_available["catalyst"] = True
-    # 在可计分维度上重新归一化权重；催化不可用但可保守计分时不排除。
-    eff = {k: WEIGHTS[k] for k in WEIGHTS if scoring_available.get(k, True)}
+    eff = {k: active_weights[k] for k in active_weights if scoring_available.get(k, True)}
     total_w = sum(eff.values())
     if total_w > 0:
         eff = {k: v / total_w for k, v in eff.items()}
     else:
-        eff = dict(WEIGHTS)
-    weighted = sum(scores[k]["score"] * eff.get(k, 0.0) for k in WEIGHTS)
-    excluded = [k for k in WEIGHTS if not scoring_available.get(k, True)]
-    degraded = [k for k in WEIGHTS if scoring_available.get(k, True) and not available.get(k, True)]
+        eff = dict(active_weights)
+    weighted = sum(scores[k]["score"] * eff.get(k, 0.0) for k in active_weights)
+    excluded = [k for k in active_weights if not scoring_available.get(k, True)]
+    degraded = [k for k in active_weights if scoring_available.get(k, True) and not available.get(k, True)]
+
+    # 信号共振检测
+    coherence = _detect_coherence(scores)
+    weighted = round(weighted + coherence["delta"], 1)
 
     g, emoji, advice = grade(weighted)
     score_gates = []
@@ -730,7 +883,6 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         score_gates.append("insufficient_catalyst_or_deep_for_s")
         g, emoji, advice = _grade_by_name("A")
 
-    # 计算置信度和数据覆盖率
     data_coverage = {
         "realtime": technical["price"] is not None,
         "kline": technical["ma5"] is not None,
@@ -739,7 +891,6 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "deep_research": deep.get("source", "").startswith("serenity") and not deep.get("stale", False),
     }
 
-    # 按配置规则判定置信度（从高到低匹配）
     confidence = "low"
     for level in ["high", "medium", "low"]:
         required = CONFIDENCE_RULES[level]["requires"]
@@ -747,23 +898,32 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
             confidence = level
             break
 
-    # 低置信度时不给强烈买卖建议
     if confidence == "low":
         advice = "数据不足，无法给出方向性判断"
         emoji = "⚪"
 
-    # 可成交性：封死一字板/停牌时，分数再高也无法买入，必须在建议中点明
-    # 复用顶部预取的 quote，避免重复抓取
     trade = assess_tradeability(quote, code, name) if "error" not in quote else \
         {"tradeable": False, "status": "no_data", "reason": "行情缺失"}
     if trade.get("tradeable") is False and confidence != "low":
         advice = f"⛔ {trade['reason']}（{advice}）"
+
+    # 历史胜率参考
+    hist_ref = _load_historical_reference(g, strategy_id)
+
+    # 策略通道标注
+    lane = "default"
+    sid = str(strategy_id or "")
+    if sid.startswith("daban"):
+        lane = "daban"
+    elif sid in ("trend", "trend_watch"):
+        lane = "trend"
 
     result = {
         "code": code,
         "name": name,
         "timestamp": datetime.now().isoformat(),
         "strategy_id": strategy_id,
+        "strategy_lane": lane,
         "confidence": confidence,
         "data_coverage": data_coverage,
         "tradeability": trade,
@@ -773,30 +933,38 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
             "catalyst": catalyst,
             "deep": deep,
         },
+        "coherence": coherence,
         "weighted": round(weighted, 1),
         "grade": g,
         "emoji": emoji,
         "advice": advice,
-        "weights": {k: f"{v*100:.0f}%" for k, v in WEIGHTS.items()},
-        "effective_weights": {k: f"{eff.get(k, 0)*100:.0f}%" for k in WEIGHTS},
+        "weights": {k: f"{v*100:.0f}%" for k, v in active_weights.items()},
+        "effective_weights": {k: f"{eff.get(k, 0)*100:.0f}%" for k in active_weights},
         "excluded_dims": excluded,
         "degraded_dims": degraded,
         "score_gates": score_gates,
         "deep_source": scores["deep"].get("source"),
+        "historical_reference": hist_ref,
+        "temperature_tier": temperature_tier,
     }
 
-    # 大盘 overlay：无缓存则 no-op，不影响个股四维分；承压时降档封顶
     ctx = market_ctx if market_ctx is not None else read_market_context()
     return apply_market_overlay(result, ctx)
 
 
 def format_report(result: Dict[str, Any]) -> str:
-    """格式化报告"""
+    """格式化完整推荐报告 v2。"""
     s = result["scores"]
+    lane = result.get("strategy_lane", "default")
+    lane_label = {"daban": "打板", "trend": "趋势", "default": "综合"}.get(lane, lane)
     lines = [
-        f"🏆 **{result['name']}({result['code']})**",
+        f"🏆 **{result['name']}({result['code']})** [{lane_label}通道]",
         f"**加权总分：{result['weighted']}/10 | 等级：{result['grade']} | {result['emoji']} {result['advice']}**",
         "",
+    ]
+
+    # 1. 四维评分卡
+    lines.extend([
         "## 四维评分卡",
         "| 维度 | 权重 | 评分 | 关键发现 |",
         "|------|------|------|---------|",
@@ -805,31 +973,113 @@ def format_report(result: Dict[str, Any]) -> str:
         f"| 催化面 | {result['weights']['catalyst']} | {s['catalyst']['score']}/10 | {s['catalyst']['detail']} |",
         f"| 深度面 | {result['weights']['deep']} | {s['deep']['score']}/10 | {s['deep']['detail']} |",
         "",
-        f"**价格：** {s['technical'].get('price', 'N/A')} | "
-        f"**涨跌：** {s['technical'].get('change_pct', 'N/A')}% | "
-        f"**PE：** {s['deep'].get('pe', 'N/A')}",
-    ]
+    ])
+
+    # 2. 核心论据
+    coherence = result.get("coherence", {})
+    if coherence.get("tags") or coherence.get("conflicts"):
+        lines.append("## 信号共振分析")
+        if coherence.get("tags"):
+            lines.append(f"**标签：** {' | '.join(coherence['tags'])}")
+        if coherence.get("conflicts"):
+            for c in coherence["conflicts"]:
+                lines.append(f"  ⚠️ {c}")
+        lines.append("")
+
+    # 3. 技术指标明细
     t = s['technical']
+    lines.append("## 技术指标")
+    price_line = f"**价格：** {t.get('price', 'N/A')} | **涨跌：** {t.get('change_pct', 'N/A')}%"
+    if t.get('atr14'):
+        price_line += f" | **ATR(14)：** {t['atr14']}"
+    lines.append(price_line)
     if t.get('ma5') and t.get('ma20') and t.get('ma60'):
         lines.append(f"**MA5/20/60：** {t['ma5']} / {t['ma20']} / {t['ma60']}")
     if t.get('rsi6'):
         lines.append(f"**RSI(6)：** {t['rsi6']} | **RSI(14)：** {t.get('rsi14', 'N/A')}")
+    extra = []
+    if t.get('volume_ratio') is not None:
+        extra.append(f"量比={t['volume_ratio']:.1f}")
+    if t.get('chip_concentration') is not None:
+        extra.append(f"筹码集中度={t['chip_concentration']:.1f}%")
+    if extra:
+        lines.append(f"**微结构：** {' | '.join(extra)}")
+    lines.append(f"**PE：** {s['deep'].get('pe', 'N/A')}")
+    lines.append("")
+
+    # 4. ATR 自适应执行参考
+    if t.get("price") and t.get("atr14"):
+        price = float(t["price"])
+        atr = float(t["atr14"])
+        is_daban = lane == "daban"
+        stop_mult = float(_risk_cfg.get("stop_loss_atr_mult_daban", 1.2)) if is_daban else float(_risk_cfg.get("stop_loss_atr_mult", 2.0))
+        tp1_mult = float(_risk_cfg.get("take_profit_atr_mult", 3.0))
+        tp2_mult = float(_risk_cfg.get("take_profit_atr_mult_2", 5.0))
+        lines.extend([
+            "## 执行参考（ATR自适应）",
+            f"| 项目 | 价位 | 距现价 |",
+            f"|------|------|--------|",
+            f"| 止损 | {price - stop_mult * atr:.2f} | -{stop_mult * atr:.2f} ({stop_mult}×ATR) |",
+            f"| 目标1 | {price + tp1_mult * atr:.2f} | +{tp1_mult * atr:.2f} ({tp1_mult}×ATR) |",
+            f"| 目标2 | {price + tp2_mult * atr:.2f} | +{tp2_mult * atr:.2f} ({tp2_mult}×ATR) |",
+            "",
+        ])
+
+    # 5. 风险清单
+    risks = []
+    if s["catalyst"].get("detail") and "澄清" in s["catalyst"]["detail"]:
+        risks.append(f"公告风险：{s['catalyst']['detail']}")
+    if s["deep"].get("stale"):
+        risks.append(f"深研过期：{s['deep'].get('age_days', '?')}天未更新")
+    if result.get("market_overlay", {}).get("regime") == "risk_off":
+        risks.append(f"大盘承压：{result['market_overlay'].get('reason', '')}")
+    temp = result.get("temperature_tier")
+    if temp in ("冰点", "极热"):
+        risks.append(f"情绪温度：{temp}")
+    if risks:
+        lines.append("## 风险清单")
+        for r in risks:
+            lines.append(f"  ⚠️ {r}")
+        lines.append("")
+
+    # 6. 历史胜率参考
+    hist = result.get("historical_reference")
+    if hist:
+        lines.append("## 历史参考")
+        if hist.get("grade_win_rate") is not None:
+            n = hist["grade_samples"]
+            note = "" if n >= 10 else " (样本不足，参考价值有限)"
+            lines.append(f"  {result['grade']}级近期胜率: **{hist['grade_win_rate']}%** (N={n}){note}")
+        if hist.get("strategy_win_rate") is not None:
+            n = hist["strategy_samples"]
+            note = "" if n >= 10 else " (样本不足)"
+            lines.append(f"  策略({result['strategy_id']})胜率: **{hist['strategy_win_rate']}%** (N={n}){note}")
+        if hist.get("recent_signals"):
+            lines.append("  近5次信号:")
+            for sig in hist["recent_signals"]:
+                icon = "✅" if str(sig.get("outcome", "")).startswith("win") else "❌"
+                ret = f"{sig['t1_ret']:+.1f}%" if sig.get("t1_ret") is not None else "?"
+                lines.append(f"    {icon} {sig['name']}({sig['code']}) {sig['grade']}级 → {ret}")
+        lines.append("")
 
     return "\n".join(lines)
 
 
 def score_short_term_entry(code: str, name: str) -> Dict:
-    """短线入场时机判断（60分钟/30分钟级别）"""
+    """短线入场时机判断（60分钟/30分钟级别）→ 结构化入场条件矩阵。"""
     market = "sz" if code.startswith(("0", "3")) else "sh"
     rt = fetch_tencent_realtime(code, market)
+    daily_klines = fetch_tencent_kline(code, market, 60, "day")
 
-    # 60分钟K线
     k60 = fetch_tencent_kline(code, market, 60, "60")
-    # 30分钟K线
     k30 = fetch_tencent_kline(code, market, 60, "30")
 
     signals = []
     score = 5.0
+    entry_conditions = {}
+    has_macd_cross = False
+    above_ma20 = False
+    rsi_oversold = False
 
     if k60 and len(k60) >= 20:
         closes_60 = [k["close"] for k in k60]
@@ -838,28 +1088,33 @@ def score_short_term_entry(code: str, name: str) -> Dict:
 
         if ma20_60[-1] and closes_60[-1] > ma20_60[-1]:
             score += 1.0
+            above_ma20 = True
             signals.append("60分钟>MA20")
         if dif_60[-1] and dea_60[-1]:
             if dif_60[-1] > dea_60[-1]:
                 if dif_60[-2] and dea_60[-2] and dif_60[-2] <= dea_60[-2]:
                     score += 2.0
+                    has_macd_cross = True
                     signals.append("60分钟MACD金叉 ⭐")
             elif dif_60[-1] < dea_60[-1]:
                 score -= 1.0
                 signals.append("60分钟MACD空头")
 
+    vol_r = None
     if k30 and len(k30) >= 20:
         closes_30 = [k["close"] for k in k30]
+        volumes_30 = [k.get("volume", 0) for k in k30]
         rsi_30 = calc_rsi(closes_30, 14)
+        vol_r = calc_volume_ratio(volumes_30)
         if rsi_30[-1] is not None:
             if rsi_30[-1] < 30:
                 score += 1.5
+                rsi_oversold = True
                 signals.append(f"30分钟RSI超卖({rsi_30[-1]:.0f}) ⭐")
             elif rsi_30[-1] > 70:
                 score -= 1.0
                 signals.append(f"30分钟RSI超买({rsi_30[-1]:.0f})")
 
-    # 缠论结构（60分钟级别，过 research_gate 才计权）
     c_lock = None
     if _chan is not None and k60 and len(k60) >= 20:
         try:
@@ -875,13 +1130,62 @@ def score_short_term_entry(code: str, name: str) -> Dict:
     if c_lock is not None:
         score = min(score, c_lock)
 
-    suggestion = "可入场" if score >= 7 else ("等待" if score >= 5 else "暂不入场")
+    # ATR 用于计算入场条件的价位区间
+    atr_val = None
+    ma20_val = None
+    prev_high = None
+    if daily_klines and len(daily_klines) >= 20:
+        d_closes = [k["close"] for k in daily_klines]
+        d_highs = [k["high"] for k in daily_klines]
+        d_lows = [k["low"] for k in daily_klines]
+        atr_list = calc_atr(d_highs, d_lows, d_closes, 14)
+        atr_val = atr_list[-1] if atr_list and atr_list[-1] else None
+        ma20_list = calc_ma(d_closes, 20)
+        ma20_val = ma20_list[-1]
+        prev_high = max(d_highs[-10:]) if len(d_highs) >= 10 else None
+
+    price = rt.get("price")
+    # 入场条件矩阵
+    vol_ok = vol_r is not None and vol_r >= 1.5
+    if has_macd_cross and vol_ok and rt.get("change_pct", 0) < 3:
+        entry_conditions["immediate_buy"] = {
+            "label": "满足条件立即执行",
+            "conditions": ["60分钟MACD金叉", f"量比≥1.5({vol_r})", "高开<3%"],
+        }
+    if ma20_val and price and atr_val:
+        pullback_zone = round(ma20_val, 2)
+        if price > ma20_val:
+            entry_conditions["pullback_buy"] = {
+                "label": "回调到位再执行",
+                "trigger_price": pullback_zone,
+                "conditions": ["价格回踩MA20支撑", "RSI从超卖反弹", "量能萎缩"],
+            }
+    if prev_high and price and atr_val:
+        entry_conditions["breakout_buy"] = {
+            "label": "突破确认再执行",
+            "trigger_price": round(prev_high, 2),
+            "conditions": [f"突破近10日高点{prev_high:.2f}", "放量>1.5倍", "板块共振"],
+        }
+
+    if score >= 7:
+        suggestion = "可入场"
+        if "immediate_buy" in entry_conditions:
+            suggestion = "立即入场"
+    elif score >= 5:
+        suggestion = "等待"
+        if "pullback_buy" in entry_conditions:
+            suggestion = f"等回调至{entry_conditions['pullback_buy'].get('trigger_price', 'MA20')}"
+    else:
+        suggestion = "暂不入场"
 
     return {
         "score": round(score, 1),
         "signals": signals,
         "suggestion": suggestion,
-        "price": rt.get("price"),
+        "entry_conditions": entry_conditions,
+        "price": price,
+        "atr14": atr_val,
+        "volume_ratio": vol_r,
         "detail": "; ".join(signals) if signals else "短线无明确信号",
     }
 
