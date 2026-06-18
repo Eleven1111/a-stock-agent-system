@@ -25,7 +25,7 @@ from datetime import datetime, time as dtime
 from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'skills', 'common'))
-from catalyst_context import update_catalyst_context, read_catalyst_events  # noqa: E402
+from catalyst_context import update_catalyst_context  # noqa: E402
 from data_provider import fetch_serpapi_news  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from paths import data_file, cache_dir  # noqa: E402
@@ -106,7 +106,9 @@ def scan_fresh_catalysts() -> List[Dict[str, Any]]:
 def match_candidate_pool(catalysts: List[Dict]) -> Dict[str, List[Dict]]:
     """将催化事件匹配到候选池中的标的。"""
     pool = read_json(CANDIDATE_POOL, [])
-    if not isinstance(pool, list):
+    if isinstance(pool, dict):
+        pool = pool.get("candidates") or []
+    elif not isinstance(pool, list):
         pool = []
     name_to_codes: Dict[str, str] = {}
     for item in pool:
@@ -151,17 +153,11 @@ def run_trigger(force: bool = False) -> Dict[str, Any]:
     t1_catalysts = [c for c in new_catalysts if c.get("tier") == "T1"]
     t2_catalysts = [c for c in new_catalysts if c.get("tier") == "T2"]
 
-    if t1_catalysts or t2_catalysts:
-        update_catalyst_context(
-            [
-                {"stock_code": c.get("stock_code", "000000"), **c}
-                for c in new_catalysts
-                if c.get("stock_code")
-            ],
-            generated_at=now,
-        )
-
     matched = match_candidate_pool(new_catalysts)
+    matched_events = [event for events in matched.values() for event in events]
+    if matched_events:
+        update_catalyst_context(matched_events, generated_at=now)
+
     alerts = []
     for code, events in matched.items():
         top_tier = min(e.get("tier", "T3") for e in events)
