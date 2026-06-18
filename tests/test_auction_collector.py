@@ -187,5 +187,8 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
     assert len(result["preopen_decisions"]) == 5
     assert all(item["execution_plan"]["same_day_sell_allowed"] is False for item in result["preopen_decisions"])
     assert read_json(ac._shortlist_path(event_asof), {})["asof"] == event_asof
+    monitors = ac.monitor_registry.active_entries("stock", asof=event_asof)
+    assert len(monitors) == 5
+    assert {item["source_group"] for item in monitors} == {"auction_shortlist"}
     lifecycle = candidate_lifecycle.load_day(source_asof)
     assert sum(record["current_stage"] == "auction_shortlist" for record in lifecycle["records"]) == 5

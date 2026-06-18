@@ -458,6 +458,9 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
     ]
 
     monitor_expiry = add_trading_days(asof, 2)
+    batch_id = os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}"
+    stock_monitor_targets = []
+    sector_monitor_targets: dict[str, dict[str, Any]] = {}
     for item in signals:
         code = candidate_pipeline.naked_code(item.get("code"))
         recommendation_id = f"open-{asof}-{code}"
@@ -481,33 +484,27 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
                 reason="open_confirmation_rejected",
             )
         else:
-            monitor_registry.activate(
-                "stock",
-                code,
-                str(item.get("name") or code),
-                source="open_confirmation",
-                expires_at=monitor_expiry,
-                metadata={
+            stock_monitor_targets.append({
+                "code": code,
+                "name": str(item.get("name") or code),
+                "metadata": {
                     "decision": item.get("decision"),
                     "open_rank": item.get("open_rank"),
                     "quality_status": (item.get("quality_report") or {}).get("status"),
                     **item["ledger_links"],
                 },
-            )
+            })
         sector = str(item.get("sector") or "").strip()
         if sector and item.get("decision") != "avoid":
-            monitor_registry.activate(
-                "sector",
-                sector,
-                sector,
-                source="open_confirmation",
-                expires_at=monitor_expiry,
-                metadata={
+            sector_monitor_targets[sector] = {
+                "key": sector,
+                "label": sector,
+                "metadata": {
                     "correlation_id": links["correlation_id"],
                     "recommendation_id": links["recommendation_id"],
                     "signal_id": links["signal_id"],
                 },
-            )
+            }
         plan = item.get("execution_plan") or {}
         quality = item.get("quality_report") or {}
         recommendation_audit.record_recommendation(
@@ -540,6 +537,24 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
                 "record": dict(item.get("social_attention") or {}),
             },
         )
+    monitor_registry.reconcile_automatic(
+        "stock",
+        stock_monitor_targets,
+        source="open_confirmation",
+        source_group="open_confirmation",
+        trading_date=asof,
+        batch_id=batch_id,
+        expires_at=monitor_expiry,
+    )
+    monitor_registry.reconcile_automatic(
+        "sector",
+        sector_monitor_targets.values(),
+        source="open_confirmation",
+        source_group="open_confirmation",
+        trading_date=asof,
+        batch_id=batch_id,
+        expires_at=monitor_expiry,
+    )
     result = {
         "schema": "open_confirmation_v3",
         "asof": asof,

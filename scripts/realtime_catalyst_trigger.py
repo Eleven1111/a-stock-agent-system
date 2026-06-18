@@ -25,6 +25,7 @@ from datetime import datetime, time as dtime
 from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'skills', 'common'))
+from a_share_rules import add_trading_days  # noqa: E402
 from catalyst_context import update_catalyst_context  # noqa: E402
 from data_provider import fetch_serpapi_news  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
@@ -186,12 +187,19 @@ def run_trigger(force: bool = False) -> Dict[str, Any]:
         update_catalyst_context(context_events, generated_at=now)
 
     activated = []
+    trading_date = now.date().isoformat()
+    batch_id = f"realtime-catalyst-{trading_date.replace('-', '')}"
+    event_expiry = add_trading_days(now.date(), 1)
     for event in new_watch_events:
         outcome = monitor_registry.activate(
             "stock",
             event["stock_code"],
             event["stock_name"],
             source="realtime_catalyst_trigger",
+            expires_at=event_expiry,
+            source_group="event_watch",
+            trading_date=trading_date,
+            batch_id=batch_id,
             metadata={
                 "tier": event.get("tier"),
                 "event_title": event.get("title"),

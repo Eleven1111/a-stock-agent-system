@@ -31,7 +31,9 @@ sys.path.insert(0, COMMON)
 
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
+import monitor_registry  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
+from a_share_rules import add_trading_days  # noqa: E402
 from market_adapters import fetch_tencent_kline, fetch_tencent_quote  # noqa: E402
 from http_client import request_bytes  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
@@ -489,6 +491,7 @@ def run_discovery(
         limit=prefilter_limit,
     )
     kline_by_code = dict(kline_fetcher(enrichment_universe))
+    batch_id = os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}"
     input_snapshot = materialize_input_snapshot(
         "candidate-discovery-input",
         {
@@ -500,7 +503,7 @@ def run_discovery(
             "market_temperature": temperature,
         },
         trading_date=asof,
-        batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
+        batch_id=batch_id,
         producer="candidate-discovery",
         source_versions={
             "exchange_listing": "exchange-listing-v1",
@@ -554,6 +557,38 @@ def run_discovery(
         "input_snapshot": compact_ref(input_snapshot),
     })
     _persist_pool(asof, result)
+    monitor_registry.reconcile_automatic(
+        "stock",
+        [
+            {
+                "code": item["code"],
+                "name": item.get("name") or item["code"],
+                "metadata": {
+                    "candidate_rank": index,
+                    "daban_rank": item.get("daban_rank"),
+                    "trend_rank": item.get("trend_rank"),
+                    "selected_by": dict(item.get("selected_by") or {}),
+                    "candidate_pool_asof": asof,
+                },
+            }
+            for index, item in enumerate(result["candidates"], start=1)
+        ],
+        source="candidate_discovery",
+        source_group="daily_observation",
+        replace_source_groups=[
+            "daily_observation",
+            "candidate_discovery",
+            "event_watch",
+            "realtime_catalyst_trigger",
+            "auction_shortlist",
+            "auction_finalize",
+            "open_confirmation",
+        ],
+        trading_date=asof,
+        batch_id=batch_id,
+        expires_at=add_trading_days(asof, 1),
+    )
+    monitor_registry.gc_expired(asof=asof)
 
     selected_codes = {item["code"] for item in result["candidates"]}
     selection_by_code = {

@@ -78,6 +78,62 @@ def test_run_discovery_persists_pool_and_lifecycle(tmp_path, monkeypatch):
     assert len(report["top_candidates"]) == 5
 
 
+def test_run_discovery_reconciles_daily_observation_targets(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    listed_date = (date.today() - timedelta(days=500)).isoformat()
+    universe = [
+        {"code": f"600{i:03d}", "name": f"股票{i}", "listed_date": listed_date}
+        for i in range(10)
+    ]
+    quote_map = {
+        item["code"]: {
+            **item,
+            "price": 10 + i,
+            "prev_close": 9.5 + i,
+            "change_pct": 5 + i / 10,
+            "amount": 200_000_000 + i * 10_000_000,
+            "turnover": 4 + i,
+            "volume": 1_000_000,
+        }
+        for i, item in enumerate(universe)
+    }
+    klines = {item["code"]: _bars(8 + i) for i, item in enumerate(universe)}
+    captured = {}
+    monkeypatch.setattr(
+        discovery.monitor_registry,
+        "reconcile_automatic",
+        lambda kind, targets, **kwargs: captured.update({
+            "kind": kind,
+            "targets": list(targets),
+            **kwargs,
+        }) or {"activated": [], "deactivated": [], "skipped": {}},
+    )
+
+    result = discovery.run_discovery(
+        "2026-06-10",
+        watch_limit=5,
+        prefilter_limit=10,
+        universe_fetcher=lambda: universe,
+        quote_fetcher=lambda _universe: quote_map,
+        kline_fetcher=lambda candidates: {
+            item["code"]: klines[item["code"]] for item in candidates
+        },
+        settle_previous=False,
+    )
+
+    assert captured["kind"] == "stock"
+    assert captured["source"] == "candidate_discovery"
+    assert captured["source_group"] == "daily_observation"
+    assert captured["trading_date"] == "2026-06-10"
+    assert captured["batch_id"] == "a-share-20260610"
+    assert {"daily_observation", "event_watch", "auction_shortlist", "open_confirmation"}.issubset(
+        set(captured["replace_source_groups"])
+    )
+    assert [item["code"] for item in captured["targets"]] == [
+        item["code"] for item in result["candidates"]
+    ]
+
+
 def test_full_market_quotes_fail_closed_below_configured_coverage(monkeypatch):
     universe = [
         {"code": f"60{i:04d}", "name": f"股票{i}"}
