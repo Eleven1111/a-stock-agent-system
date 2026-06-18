@@ -240,6 +240,9 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
     )
     regime = market_regime(read_market_context())
     monitor_expiry = add_trading_days(asof, 2)
+    batch_id = os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}"
+    stock_monitor_targets = []
+    sector_monitor_targets: dict[str, dict[str, Any]] = {}
     for item in top_candidates:
         code = candidate_pipeline.naked_code(item.get("code"))
         provisional = build_execution_plan(
@@ -320,27 +323,36 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
         }
         decisions.append(decision)
         if plan["decision"] != "avoid":
-            monitor_registry.activate(
-                "stock",
-                code,
-                str(item.get("name") or code),
-                source="auction_finalize",
-                expires_at=monitor_expiry,
-                metadata={
+            stock_monitor_targets.append({
+                "code": code,
+                "name": str(item.get("name") or code),
+                "metadata": {
                     "decision": plan["decision"],
                     "auction_rank": item.get("auction_rank"),
                     "quality_status": quality["status"],
                 },
-            )
+            })
         sector = str(item.get("sector") or "").strip()
         if sector and plan["decision"] != "avoid":
-            monitor_registry.activate(
-                "sector",
-                sector,
-                sector,
-                source="auction_finalize",
-                expires_at=monitor_expiry,
-            )
+            sector_monitor_targets[sector] = {"key": sector, "label": sector}
+    monitor_registry.reconcile_automatic(
+        "stock",
+        stock_monitor_targets,
+        source="auction_finalize",
+        source_group="auction_shortlist",
+        trading_date=asof,
+        batch_id=batch_id,
+        expires_at=monitor_expiry,
+    )
+    monitor_registry.reconcile_automatic(
+        "sector",
+        sector_monitor_targets.values(),
+        source="auction_finalize",
+        source_group="auction_shortlist",
+        trading_date=asof,
+        batch_id=batch_id,
+        expires_at=monitor_expiry,
+    )
     result["preopen_decisions"] = decisions
     result["decision_count"] = len(decisions)
     _persist_shortlist(result, asof)

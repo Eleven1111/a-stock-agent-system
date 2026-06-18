@@ -92,3 +92,130 @@ def test_monitor_lifecycle_is_written_to_canonical_ledger(tmp_path, monkeypatch)
         "monitor.cancelled",
     ]
     assert events[0]["links"]["monitor_id"] == "theme:AI算力"
+
+
+def test_reconcile_automatic_replaces_latest_batch_without_touching_protected_entries(
+    tmp_path,
+    monkeypatch,
+):
+    _wire(tmp_path, monkeypatch)
+    registry.activate(
+        "stock",
+        "600001",
+        "昨日标的",
+        source="candidate_discovery",
+        source_group="daily_observation",
+        trading_date="2026-06-17",
+        batch_id="batch-old",
+    )
+    registry.activate(
+        "stock",
+        "600002",
+        "保留标的",
+        source="candidate_discovery",
+        source_group="daily_observation",
+        trading_date="2026-06-17",
+        batch_id="batch-old",
+    )
+    registry.activate("stock", "600003", "持仓标的", source="portfolio_sync")
+    registry.activate("stock", "600004", "手动标的", source="manual", force=True)
+
+    result = registry.reconcile_automatic(
+        "stock",
+        [
+            {"code": "600002", "name": "保留标的", "metadata": {"rank": 1}},
+            {"code": "600005", "name": "今日新标的", "metadata": {"rank": 2}},
+        ],
+        source="candidate_discovery",
+        source_group="daily_observation",
+        trading_date="2026-06-18",
+        batch_id="batch-new",
+        expires_at="2026-06-19",
+    )
+
+    assert result["activated"] == ["600002", "600005"]
+    assert result["deactivated"] == ["600001"]
+    assert registry.active_stock_map(asof="2026-06-18") == {
+        "600002": "保留标的",
+        "600003": "持仓标的",
+        "600004": "手动标的",
+        "600005": "今日新标的",
+    }
+    stale = registry.get_entry("stock", "600001")
+    assert stale["status"] == "inactive"
+    assert stale["reason"] == "not_in_latest_observation_batch"
+    refreshed = registry.get_entry("stock", "600002")
+    assert refreshed["source_group"] == "daily_observation"
+    assert refreshed["last_seen_trading_date"] == "2026-06-18"
+    assert refreshed["last_seen_batch_id"] == "batch-new"
+    assert refreshed["metadata"]["rank"] == 1
+
+
+def test_reconcile_automatic_can_replace_legacy_auto_sources(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    registry.activate("stock", "600001", "旧竞价标的", source="auction_finalize")
+    registry.activate("stock", "600002", "旧催化标的", source="realtime_catalyst_trigger")
+
+    registry.reconcile_automatic(
+        "stock",
+        [{"code": "600003", "name": "今日候选"}],
+        source="candidate_discovery",
+        source_group="daily_observation",
+        replace_source_groups=[
+            "daily_observation",
+            "auction_finalize",
+            "realtime_catalyst_trigger",
+        ],
+        trading_date="2026-06-18",
+        batch_id="batch-new",
+    )
+
+    assert registry.get_entry("stock", "600001")["status"] == "inactive"
+    assert registry.get_entry("stock", "600002")["status"] == "inactive"
+    assert registry.active_stock_map(asof="2026-06-18") == {"600003": "今日候选"}
+
+
+def test_reconcile_does_not_reactivate_manual_cancel_tombstone(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    registry.activate(
+        "stock",
+        "600001",
+        "取消标的",
+        source="candidate_discovery",
+        source_group="daily_observation",
+    )
+    registry.cancel("stock", "600001", reason="用户取消", manual=True)
+
+    result = registry.reconcile_automatic(
+        "stock",
+        [{"code": "600001", "name": "取消标的"}],
+        source="candidate_discovery",
+        source_group="daily_observation",
+        trading_date="2026-06-18",
+        batch_id="batch-new",
+    )
+
+    assert result["skipped"] == {"600001": "manual_cancel_tombstone"}
+    assert registry.active_stock_map(asof="2026-06-18") == {}
+    assert registry.get_entry("stock", "600001")["manual_cancelled"] is True
+
+
+def test_gc_expired_marks_automatic_entries_inactive(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    registry.activate(
+        "stock",
+        "600001",
+        "过期标的",
+        source="realtime_catalyst_trigger",
+        source_group="event_watch",
+        expires_at="2026-06-17",
+    )
+    registry.activate("stock", "600002", "持仓标的", source="portfolio_sync")
+
+    result = registry.gc_expired(asof="2026-06-18")
+
+    assert result["expired"] == ["stock:600001"]
+    assert registry.get_entry("stock", "600001")["status"] == "inactive"
+    assert registry.active_stock_map(asof="2026-06-18") == {"600002": "持仓标的"}
+    events = signal_ledger.read_events(registry.LEDGER_FILE)
+    assert events[-1]["event_type"] == "monitor.deactivated"

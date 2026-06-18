@@ -94,6 +94,10 @@ def test_realtime_catalyst_trigger_adds_coded_new_stock_to_monitor_registry(
             "key": key,
             "label": label,
             "source": source,
+            "expires_at": expires_at,
+            "source_group": kwargs.get("source_group"),
+            "trading_date": kwargs.get("trading_date"),
+            "batch_id": kwargs.get("batch_id"),
             "metadata": metadata,
         }) or {"changed": True},
     )
@@ -106,9 +110,16 @@ def test_realtime_catalyst_trigger_adds_coded_new_stock_to_monitor_registry(
         "key": "600002",
         "label": "新标的",
         "source": "realtime_catalyst_trigger",
+        "expires_at": activated[0]["expires_at"],
+        "source_group": "event_watch",
+        "trading_date": activated[0]["trading_date"],
+        "batch_id": activated[0]["batch_id"],
         "metadata": {
             "tier": "T1",
             "event_title": "新标的获得国家战略支持",
             "event_link": "https://example.com/catalyst/2",
         },
     }]
+    assert activated[0]["expires_at"] is not None
+    assert activated[0]["trading_date"]
+    assert activated[0]["batch_id"].startswith("realtime-catalyst-")
