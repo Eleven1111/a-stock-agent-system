@@ -1,5 +1,7 @@
 """盘中异动监控 — 新一天首次运行不得清空刚生成的告警（顺序 bug 回归）。"""
 
+from datetime import date
+
 import intraday_monitor as im
 from state_store import atomic_write_json
 
@@ -84,3 +86,43 @@ def test_manual_cancel_tombstone_excludes_portfolio_stock(tmp_path, monkeypatch)
     universe = im.tracked_universe()
 
     assert "600011" not in universe
+
+
+def test_exit_signal_respects_t1_lock_for_same_day_position(tmp_path, monkeypatch):
+    monkeypatch.setattr(im, "TRACKED_CODES", [])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {})
+    monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        im.PORTFOLIO_FILE,
+        {
+            "positions": [{
+                "code": "600011",
+                "name": "测试持仓",
+                "entry_date": date.today().isoformat(),
+                "entry_price": 12.0,
+                "stop_price": 11.5,
+                "target_price": 15.0,
+            }],
+        },
+    )
+    monkeypatch.setattr(
+        im,
+        "fetch_realtime",
+        lambda code: {
+            "price": 11.0,
+            "change_pct": -1.0,
+            "turnover": 1.0,
+            "amount": 1e8,
+        },
+    )
+    monkeypatch.setattr(im, "read_signal_context", lambda: {})
+    monkeypatch.setattr(im, "read_catalyst_events", lambda code: [])
+
+    data = im.check_intraday()
+
+    assert data["exit_signals"]
+    assert data["exit_signals"][0]["action"] == "hold_locked"
+    assert "T+1" in data["exit_signals"][0]["msg"]

@@ -206,6 +206,39 @@ def merge_market_intelligence(
     return result
 
 
+def _infer_strategy_lane(
+    candidate: Mapping[str, Any],
+    explicit: str | None = None,
+) -> str:
+    raw = str(explicit or candidate.get("strategy_id") or "")
+    if raw.startswith("daban"):
+        return "daban"
+    if raw.startswith("trend"):
+        return "trend"
+    for key in ("open_selected_by", "auction_selected_by", "selected_by"):
+        selected = candidate.get(key)
+        if isinstance(selected, Mapping):
+            if selected.get("daban"):
+                return "daban"
+            if selected.get("trend"):
+                return "trend"
+    return "default"
+
+
+def _candidate_atr(candidate: Mapping[str, Any]) -> float | None:
+    for key in ("atr14", "atr", "ATR14"):
+        value = candidate.get(key)
+        try:
+            if value not in (None, "", "-") and float(value) > 0:
+                return float(value)
+        except (TypeError, ValueError):
+            continue
+    technical = candidate.get("technical") or (candidate.get("scores") or {}).get("technical")
+    if isinstance(technical, Mapping):
+        return _candidate_atr(technical)
+    return None
+
+
 def build_execution_plan(
     candidate: Mapping[str, Any],
     quality_report: Mapping[str, Any],
@@ -219,7 +252,9 @@ def build_execution_plan(
     action = str(candidate.get("action") or "")
     quality_status = quality_report.get("status")
     tradeable = (candidate.get("tradeability") or {}).get("tradeable", True)
-    is_daban = str(strategy_lane or "").startswith("daban")
+    lane = _infer_strategy_lane(candidate, strategy_lane)
+    is_daban = lane == "daban"
+    atr = atr if atr is not None else _candidate_atr(candidate)
 
     max_chase_pct = 0.07
     max_chase_price = round(prev_close * (1 + max_chase_pct), 2) if prev_close > 0 else None
@@ -278,7 +313,7 @@ def build_execution_plan(
         "schema": "a_share_execution_plan_v2",
         "decision": decision,
         "stage": stage,
-        "strategy_lane": strategy_lane or ("daban" if is_daban else "default"),
+        "strategy_lane": lane,
         "pricing_method": pricing_method,
         "entry_range": price_range,
         "max_chase_price": max_chase_price,

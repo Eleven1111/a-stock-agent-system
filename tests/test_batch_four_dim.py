@@ -9,8 +9,8 @@ from state_store import atomic_write_json
 def test_score_targets_prefetch_inject_and_order(monkeypatch):
     calls = {}
 
-    def fake_score(code, name, quote=None, klines=None):
-        calls[code] = quote
+    def fake_score(code, name, quote=None, klines=None, strategy_id="four_dim", **kwargs):
+        calls[code] = {"quote": quote, "strategy_id": strategy_id}
         return {"code": code, "name": name, "weighted": 7, "grade": "A",
                 "confidence": "high", "advice": "x"}
 
@@ -18,18 +18,23 @@ def test_score_targets_prefetch_inject_and_order(monkeypatch):
     monkeypatch.setattr(batch, "_prefetch_quotes",
                         lambda targets: {"sh600011": {"price": 9.1}})
 
-    targets = [("600011", "华能国际"), ("002156", "通富微电")]
+    targets = [
+        {"code": "600011", "name": "华能国际", "selected_by": {"daban": True}},
+        {"code": "002156", "name": "通富微电", "selected_by": {"trend": True}},
+    ]
     out = batch.score_targets(targets)
 
     assert out["target_count"] == 2
     assert [r["code"] for r in out["results"]] == ["600011", "002156"]  # map 保持顺序
-    assert calls["600011"] == {"price": 9.1}   # 复用批量预取
-    assert calls["002156"] is None             # 预取未命中 → 传 None 自抓
+    assert calls["600011"]["quote"] == {"price": 9.1}   # 复用批量预取
+    assert calls["600011"]["strategy_id"] == "daban:first_board_reseal"
+    assert calls["002156"]["quote"] is None             # 预取未命中 → 传 None 自抓
+    assert calls["002156"]["strategy_id"] == "trend_pullback"
     assert out["signal_count"] == 2
 
 
 def test_score_targets_failure_isolated(monkeypatch):
-    def boom(code, name, quote=None, klines=None):
+    def boom(code, name, quote=None, klines=None, **kwargs):
         raise RuntimeError("network down")
 
     monkeypatch.setattr(batch.four_dim_scorer, "score_stock", boom)

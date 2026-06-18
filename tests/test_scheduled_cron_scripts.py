@@ -27,10 +27,10 @@ def test_batch_four_dim_targets_parse_pool_and_custom(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    assert batch.parse_targets(None, limit=1) == [("002156", "通富微电")]
+    assert batch.parse_targets(None, limit=1) == [{"code": "002156", "name": "通富微电"}]
     assert batch.parse_targets("002156:通富微电,600011:华能国际") == [
-        ("002156", "通富微电"),
-        ("600011", "华能国际"),
+        {"code": "002156", "name": "通富微电", "strategy_id": "four_dim"},
+        {"code": "600011", "name": "华能国际", "strategy_id": "four_dim"},
     ]
 
 

@@ -23,6 +23,7 @@ from data_access_config import intraday_settings
 from data_provider import fetch_tencent_quote
 from http_client import DataSourceError
 from exit_signals import evaluate_all_exit_signals
+from a_share_rules import CalendarCoverageError, t1_constraint
 from signal_context import read_signal_context
 from catalyst_context import read_catalyst_events
 import monitor_registry
@@ -80,6 +81,41 @@ def load_alert_cache() -> Dict:
 
 def save_alert_cache(cache: Dict):
     atomic_write_json(ALERT_CACHE, cache)
+
+
+def _apply_t1_exit_guard(signal: Dict, position: Dict, now: datetime) -> Dict:
+    guarded = dict(signal)
+    if guarded.get("action") not in {"sell", "reduce"}:
+        return guarded
+    entry_date = (
+        position.get("entry_date")
+        or position.get("acquired_on")
+        or position.get("buy_date")
+    )
+    if not entry_date:
+        guarded["original_action"] = guarded.get("action")
+        guarded["action"] = "hold_locked"
+        guarded["severity"] = "warning"
+        guarded["reason"] = f"{guarded.get('reason', '')}；A股T+1锁定状态未知，禁止盘中卖出建议"
+        return guarded
+    try:
+        constraint = t1_constraint(entry_date, now.date())
+    except (CalendarCoverageError, ValueError):
+        guarded["original_action"] = guarded.get("action")
+        guarded["action"] = "hold_locked"
+        guarded["severity"] = "warning"
+        guarded["reason"] = f"{guarded.get('reason', '')}；A股交易日历不足，退出建议失败关闭"
+        return guarded
+    if constraint.get("sell_allowed") is False:
+        guarded["original_action"] = guarded.get("action")
+        guarded["action"] = "hold_locked"
+        guarded["severity"] = "warning"
+        guarded["t1_constraint"] = constraint
+        guarded["reason"] = (
+            f"{guarded.get('reason', '')}；A股T+1锁定，"
+            f"最早{constraint.get('earliest_sell_date')}可卖"
+        )
+    return guarded
 
 
 def tracked_universe() -> Dict[str, str]:
@@ -197,7 +233,7 @@ def check_intraday() -> Dict:
             catalyst_events=read_catalyst_events(pos_code),
         )
         if exit_result["triggered_count"] > 0:
-            top = exit_result["top_signal"]
+            top = _apply_t1_exit_guard(exit_result["top_signal"], pos, now)
             key = f"exit_{pos_code}_{top['signal_type']}"
             if key not in cache:
                 severity_icon = {"critical": "🔴", "warning": "🟡"}.get(top.get("severity", ""), "⚪")

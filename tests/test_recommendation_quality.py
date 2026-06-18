@@ -84,6 +84,34 @@ def test_execution_plan_never_emits_inverted_entry_range_above_chase_limit():
     assert plan["beyond_max_chase"] is True
 
 
+def test_execution_plan_infers_atr_and_daban_lane_from_candidate():
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[],
+        asof=date(2026, 6, 12),
+    )
+
+    plan = quality.build_execution_plan(
+        {
+            "price": 10.0,
+            "prev_close": 9.8,
+            "action": "trend_watch",
+            "atr14": 0.4,
+            "auction_selected_by": {"daban": True, "trend": False},
+            "tradeability": {"tradeable": True},
+        },
+        report,
+        asof=date(2026, 6, 12),
+        stage="auction",
+    )
+
+    assert plan["strategy_lane"] == "daban"
+    assert plan["pricing_method"] == "atr_adaptive"
+    assert plan["stop_price"] == 9.52
+    assert plan["target_price"] == 10.8
+    assert plan["horizon"] == "T+1"
+
+
 def test_market_intelligence_hard_risk_rejects_quality_report():
     report = quality.build_quality_report(
         _complete_recommendation(),

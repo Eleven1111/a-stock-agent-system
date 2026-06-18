@@ -6,6 +6,7 @@ from datetime import date, datetime
 from statistics import pstdev
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
+from indicators import calc_atr
 from social_attention import candidate_attention_overlay
 
 
@@ -250,11 +251,19 @@ def rank_candidates(
         bars = list(kline_by_code.get(code, []))
         features = compute_price_features(bars)
         item.update(features)
+        atr_values = calc_atr(
+            [_num(bar.get("high")) for bar in bars],
+            [_num(bar.get("low")) for bar in bars],
+            [_num(bar.get("close")) for bar in bars],
+            14,
+        ) if bars else []
+        atr14 = atr_values[-1] if atr_values and atr_values[-1] is not None else None
         item.update({
             "code": code,
             "market_code": market_code(code),
             "kline_days": len(bars),
             "feature_ready": len(bars) >= 20,
+            "atr14": round(atr14, 3) if atr14 is not None else None,
         })
         enriched.append(item)
 
