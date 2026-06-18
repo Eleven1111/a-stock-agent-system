@@ -30,6 +30,7 @@ from data_provider import fetch_serpapi_news  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from paths import data_file, cache_dir  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
+import monitor_registry  # noqa: E402
 
 T1_KEYWORDS = [
     "国家战略", "政策支持", "国产替代", "重大重组", "战略合作",
@@ -63,6 +64,13 @@ def classify_catalyst(title: str, snippet: str = "") -> Optional[str]:
         if kw in text:
             return "T2"
     return None
+
+
+def _normalize_stock_code(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text.startswith(("sh", "sz")):
+        text = text[2:]
+    return text.zfill(6) if text.isdigit() else text
 
 
 def scan_fresh_catalysts() -> List[Dict[str, Any]]:
@@ -119,13 +127,25 @@ def match_candidate_pool(catalysts: List[Dict]) -> Dict[str, List[Dict]]:
     for cat in catalysts:
         text = f"{cat.get('title', '')} {cat.get('snippet', '')}"
         for stock_name, code in name_to_codes.items():
-            if stock_name in text or code in text:
-                matched.setdefault(code, []).append({
+            normalized = _normalize_stock_code(code)
+            if stock_name in text or normalized in text:
+                matched.setdefault(normalized, []).append({
                     **cat,
-                    "stock_code": code,
+                    "stock_code": normalized,
                     "stock_name": stock_name,
                 })
     return matched
+
+
+def _coded_catalysts(catalysts: List[Dict]) -> List[Dict[str, Any]]:
+    coded = []
+    for cat in catalysts:
+        code = _normalize_stock_code(cat.get("stock_code") or cat.get("code"))
+        if not code or not code.isdigit():
+            continue
+        name = str(cat.get("stock_name") or cat.get("name") or code)
+        coded.append({**cat, "stock_code": code, "stock_name": name})
+    return coded
 
 
 def run_trigger(force: bool = False) -> Dict[str, Any]:
@@ -155,8 +175,31 @@ def run_trigger(force: bool = False) -> Dict[str, Any]:
 
     matched = match_candidate_pool(new_catalysts)
     matched_events = [event for events in matched.values() for event in events]
-    if matched_events:
-        update_catalyst_context(matched_events, generated_at=now)
+    coded_events = _coded_catalysts(new_catalysts)
+    matched_codes = set(matched)
+    new_watch_events = [
+        event for event in coded_events
+        if event["stock_code"] not in matched_codes
+    ]
+    context_events = matched_events + new_watch_events
+    if context_events:
+        update_catalyst_context(context_events, generated_at=now)
+
+    activated = []
+    for event in new_watch_events:
+        outcome = monitor_registry.activate(
+            "stock",
+            event["stock_code"],
+            event["stock_name"],
+            source="realtime_catalyst_trigger",
+            metadata={
+                "tier": event.get("tier"),
+                "event_title": event.get("title"),
+                "event_link": event.get("link"),
+            },
+        )
+        if outcome.get("changed"):
+            activated.append(event["stock_code"])
 
     alerts = []
     for code, events in matched.items():
@@ -183,6 +226,7 @@ def run_trigger(force: bool = False) -> Dict[str, Any]:
         "t1_count": len(t1_catalysts),
         "t2_count": len(t2_catalysts),
         "matched_stocks": len(matched),
+        "new_watch_stocks": len(activated),
         "alerts": alerts,
     }
 

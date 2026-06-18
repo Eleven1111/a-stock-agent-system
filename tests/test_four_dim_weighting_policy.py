@@ -1,6 +1,10 @@
 """Four-dimension policy: do not let sentiment dominate normal scoring."""
 
+from datetime import datetime
+
 import four_dim_scorer as fds
+from paths import data_file
+from state_store import atomic_write_json
 
 
 def _quote():
@@ -25,6 +29,68 @@ def test_normal_four_dim_weights_reduce_sentiment_and_raise_catalyst():
         "catalyst": 0.30,
         "deep": 0.25,
     }
+
+
+def test_real_strategy_ids_resolve_to_lane_weights():
+    daban = fds.resolve_weights("daban:first_board_reseal")
+    trend = fds.resolve_weights("trend_pullback")
+
+    assert round(daban["sentiment"], 2) == 0.35
+    assert round(trend["technical"], 2) == 0.35
+    assert round(trend["deep"], 2) == 0.30
+
+
+def test_historical_reference_uses_recent_window_and_sector(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    hist_path = data_file("stock-triage", "signal_history.json")
+    atomic_write_json(
+        hist_path,
+        [
+            {
+                "code": "600001",
+                "name": "旧样本",
+                "grade": "A",
+                "strategy_id": "trend_pullback",
+                "sector": "半导体",
+                "signal_date": "2026-04-01",
+                "outcome": "win",
+                "t1_close_ret": 8.0,
+            },
+            {
+                "code": "600002",
+                "name": "近期胜",
+                "grade": "A",
+                "strategy_id": "trend_pullback",
+                "sector": "半导体",
+                "signal_date": "2026-06-10",
+                "outcome": "win",
+                "t1_close_ret": 3.0,
+            },
+            {
+                "code": "600003",
+                "name": "近期负",
+                "grade": "A",
+                "strategy_id": "trend_pullback",
+                "sector": "半导体",
+                "signal_date": "2026-06-11",
+                "outcome": "loss",
+                "t1_close_ret": -2.0,
+            },
+        ],
+    )
+
+    ref = fds._load_historical_reference(
+        "A",
+        "trend_pullback",
+        sector="半导体",
+        now=datetime(2026, 6, 18),
+    )
+
+    assert ref["window_days"] == 30
+    assert ref["grade_samples"] == 2
+    assert ref["strategy_samples"] == 2
+    assert ref["sector_samples"] == 2
+    assert ref["grade_win_rate"] == 50.0
 
 
 def test_unavailable_catalyst_keeps_weight_and_does_not_amplify_sentiment(monkeypatch, tmp_path):

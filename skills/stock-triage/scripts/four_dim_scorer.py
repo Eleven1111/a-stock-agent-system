@@ -17,7 +17,7 @@ Usage:
 import json
 import sys
 import os
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
 # ========== 路径 ==========
@@ -677,7 +677,7 @@ def resolve_weights(strategy_id: str = "four_dim",
     sid = str(strategy_id or "")
     if sid.startswith("daban") and "daban" in WEIGHTS_BY_LANE:
         lane = "daban"
-    elif sid in ("trend", "trend_watch") and "trend" in WEIGHTS_BY_LANE:
+    elif sid.startswith("trend") and "trend" in WEIGHTS_BY_LANE:
         lane = "trend"
     base = dict(WEIGHTS_BY_LANE.get(lane, WEIGHTS))
     overlay = _temp_overlay_cfg.get(temperature_tier, {}) if temperature_tier else {}
@@ -779,33 +779,69 @@ def _detect_coherence(scores: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def _load_historical_reference(grade: str, strategy_id: str) -> Optional[Dict[str, Any]]:
-    """从 performance_tracker 读取历史胜率参考（静默失败）。"""
+def _record_signal_date(record: Dict[str, Any]) -> Optional[date]:
+    raw = record.get("signal_date") or record.get("date") or record.get("created_at")
+    if not raw:
+        return None
     try:
-        _perf_dir = os.path.join(os.path.dirname(__file__), "..", "..", "common")
-        _hist_file = os.path.join(
-            os.path.dirname(_perf_dir), "stock-triage", "data", "signal_history.json",
-        )
+        return date.fromisoformat(str(raw)[:10])
+    except ValueError:
+        return None
+
+
+def _win_rate(records: List[Dict[str, Any]]) -> Optional[float]:
+    if not records:
+        return None
+    wins = [r for r in records if str(r.get("outcome", "")).startswith("win")]
+    return round(len(wins) / len(records) * 100, 1)
+
+
+def _load_historical_reference(
+    grade: str,
+    strategy_id: str,
+    sector: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> Optional[Dict[str, Any]]:
+    """从 performance_tracker 读取近30日历史胜率参考（静默失败）。"""
+    try:
         from state_store import read_json
         from paths import data_file
         hist_file = data_file("stock-triage", "signal_history.json")
         records = read_json(hist_file, [])
         if not isinstance(records, list) or not records:
             return None
-        closed = [r for r in records if r.get("t1_close_ret") is not None]
+        current = (now or datetime.now()).date()
+        cutoff = current - timedelta(days=30)
+        closed = [
+            r for r in records
+            if r.get("t1_close_ret") is not None
+            and (d := _record_signal_date(r)) is not None
+            and cutoff <= d <= current
+        ]
         if not closed:
             return None
         grade_closed = [r for r in closed if r.get("grade") == grade]
-        grade_wins = [r for r in grade_closed if str(r.get("outcome", "")).startswith("win")]
         sid = str(strategy_id or "default")
         strategy_closed = [r for r in closed if r.get("strategy_id", "default") == sid]
-        strategy_wins = [r for r in strategy_closed if str(r.get("outcome", "")).startswith("win")]
-        recent = [r for r in closed if r.get("outcome") and r["outcome"] != "pending"][-5:]
+        sector_closed = [
+            r for r in closed
+            if sector and str(r.get("sector") or "") == str(sector)
+        ]
+        recent_pool = [
+            r for r in closed
+            if r.get("outcome") and r["outcome"] != "pending"
+            and (r.get("grade") == grade or r.get("strategy_id", "default") == sid)
+        ]
+        recent = recent_pool[-5:]
         return {
-            "grade_win_rate": round(len(grade_wins) / len(grade_closed) * 100, 1) if grade_closed else None,
+            "window_days": 30,
+            "grade_win_rate": _win_rate(grade_closed),
             "grade_samples": len(grade_closed),
-            "strategy_win_rate": round(len(strategy_wins) / len(strategy_closed) * 100, 1) if strategy_closed else None,
+            "strategy_win_rate": _win_rate(strategy_closed),
             "strategy_samples": len(strategy_closed),
+            "sector": sector,
+            "sector_win_rate": _win_rate(sector_closed),
+            "sector_samples": len(sector_closed),
             "recent_signals": [
                 {"code": r["code"], "name": r.get("name", ""), "grade": r.get("grade", ""),
                  "outcome": r.get("outcome", ""), "t1_ret": r.get("t1_close_ret")}
@@ -820,7 +856,8 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
                 klines: Optional[List[Dict]] = None,
                 market_ctx: Optional[Dict[str, Any]] = None,
                 strategy_id: str = "four_dim",
-                temperature_tier: Optional[str] = None) -> Dict[str, Any]:
+                temperature_tier: Optional[str] = None,
+                sector: Optional[str] = None) -> Dict[str, Any]:
     """完整四维评分。quote/klines 可由批量调用方预取注入，同票只抓一次（4→1）；
     market_ctx 为大盘上下文，缺省时自读缓存，用于出分后叠加大盘 overlay。
     strategy_id 决定权重通道（default/daban/trend），temperature_tier 叠加情绪偏移。"""
@@ -908,14 +945,14 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         advice = f"⛔ {trade['reason']}（{advice}）"
 
     # 历史胜率参考
-    hist_ref = _load_historical_reference(g, strategy_id)
+    hist_ref = _load_historical_reference(g, strategy_id, sector=sector)
 
     # 策略通道标注
     lane = "default"
     sid = str(strategy_id or "")
     if sid.startswith("daban"):
         lane = "daban"
-    elif sid in ("trend", "trend_watch"):
+    elif sid.startswith("trend"):
         lane = "trend"
 
     result = {
@@ -946,6 +983,7 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "deep_source": scores["deep"].get("source"),
         "historical_reference": hist_ref,
         "temperature_tier": temperature_tier,
+        "sector": sector,
     }
 
     ctx = market_ctx if market_ctx is not None else read_market_context()
@@ -1046,6 +1084,8 @@ def format_report(result: Dict[str, Any]) -> str:
     hist = result.get("historical_reference")
     if hist:
         lines.append("## 历史参考")
+        if hist.get("window_days"):
+            lines.append(f"  统计窗口: 近{hist['window_days']}日")
         if hist.get("grade_win_rate") is not None:
             n = hist["grade_samples"]
             note = "" if n >= 10 else " (样本不足，参考价值有限)"
@@ -1054,6 +1094,10 @@ def format_report(result: Dict[str, Any]) -> str:
             n = hist["strategy_samples"]
             note = "" if n >= 10 else " (样本不足)"
             lines.append(f"  策略({result['strategy_id']})胜率: **{hist['strategy_win_rate']}%** (N={n}){note}")
+        if hist.get("sector_win_rate") is not None:
+            n = hist["sector_samples"]
+            note = "" if n >= 10 else " (样本不足)"
+            lines.append(f"  板块({hist.get('sector')})胜率: **{hist['sector_win_rate']}%** (N={n}){note}")
         if hist.get("recent_signals"):
             lines.append("  近5次信号:")
             for sig in hist["recent_signals"]:

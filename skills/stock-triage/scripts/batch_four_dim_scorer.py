@@ -15,7 +15,7 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 SCRIPT_DIR = os.path.dirname(__file__)
 sys.path.insert(0, SCRIPT_DIR)
@@ -26,7 +26,37 @@ from paths import data_file  # noqa: E402
 from state_store import read_json  # noqa: E402
 
 
-def load_pool_targets(limit: int = 20, asof: str | None = None) -> List[Tuple[str, str]]:
+Target = Mapping[str, Any] | Tuple[str, str]
+
+
+def _target_code_name(target: Target) -> Tuple[str, str]:
+    if isinstance(target, Mapping):
+        code = str(target["code"])
+        return code, str(target.get("name") or code)
+    return target
+
+
+def _target_strategy_id(target: Target) -> str:
+    if not isinstance(target, Mapping):
+        return "four_dim"
+    explicit = str(target.get("strategy_id") or "")
+    if explicit:
+        return explicit
+    for key in ("open_selected_by", "auction_selected_by", "selected_by"):
+        selected = target.get(key)
+        if isinstance(selected, Mapping):
+            if selected.get("daban"):
+                return "daban:first_board_reseal"
+            if selected.get("trend"):
+                return "trend_pullback"
+    return "four_dim"
+
+
+def _target_sector(target: Target) -> str | None:
+    return str(target.get("sector")) if isinstance(target, Mapping) and target.get("sector") else None
+
+
+def load_pool_targets(limit: int = 20, asof: str | None = None) -> List[Dict[str, Any]]:
     pool = read_json(data_file("stock-triage", "candidate_pool_latest.json"), {})
     expected_asof = asof or date.today().isoformat()
     if (
@@ -35,18 +65,14 @@ def load_pool_targets(limit: int = 20, asof: str | None = None) -> List[Tuple[st
         or pool.get("asof") != expected_asof
     ):
         return []
-    return [
-        (str(item["code"]), str(item.get("name") or item["code"]))
-        for item in pool.get("candidates", [])[:limit]
-        if item.get("code")
-    ]
+    return [dict(item) for item in pool.get("candidates", [])[:limit] if item.get("code")]
 
 
 def parse_targets(
     value: str | None,
     limit: int = 20,
     asof: str | None = None,
-) -> List[Tuple[str, str]]:
+) -> List[Target]:
     if not value:
         return load_pool_targets(limit, asof=asof)
     targets = []
@@ -58,7 +84,7 @@ def parse_targets(
             code, name = item.split(":", 1)
         else:
             code, name = item, item
-        targets.append((code.strip(), name.strip()))
+        targets.append({"code": code.strip(), "name": name.strip(), "strategy_id": "four_dim"})
     return targets
 
 
@@ -66,17 +92,17 @@ def _market_of(code: str) -> str:
     return "sz" if code.startswith(("0", "3")) else "sh"
 
 
-def _prefetch_quotes(targets: List[Tuple[str, str]]) -> Dict[str, Any]:
+def _prefetch_quotes(targets: List[Target]) -> Dict[str, Any]:
     """一次性批量抓全部标的实时行情（腾讯支持多代码），省去每票各抓一次。"""
     try:
         from a_stock_http import fetch_tencent_quote
-        codes = [f"{_market_of(c)}{c}" for c, _ in targets]
+        codes = [f"{_market_of(c)}{c}" for c, _ in (_target_code_name(t) for t in targets)]
         return fetch_tencent_quote(codes) or {}
     except Exception:  # noqa: BLE001
         return {}
 
 
-def score_targets(targets: List[Tuple[str, str]], max_workers: int = 5) -> Dict[str, Any]:
+def score_targets(targets: List[Target], max_workers: int = 5) -> Dict[str, Any]:
     if not targets:
         return {
             "schema": "four_dim_batch_v1",
@@ -90,13 +116,19 @@ def score_targets(targets: List[Tuple[str, str]], max_workers: int = 5) -> Dict[
         }
     quote_map = _prefetch_quotes(targets)
 
-    def _one(target: Tuple[str, str]) -> Dict[str, Any]:
-        code, name = target
+    def _one(target: Target) -> Dict[str, Any]:
+        code, name = _target_code_name(target)
         q = quote_map.get(f"{_market_of(code)}{code}")
         if not (isinstance(q, dict) and q.get("price") is not None):
             q = None  # 预取未命中/不完整 → 让 score_stock 自抓，保留原 error 处理
         try:
-            return four_dim_scorer.score_stock(code, name, quote=q)
+            return four_dim_scorer.score_stock(
+                code,
+                name,
+                quote=q,
+                strategy_id=_target_strategy_id(target),
+                sector=_target_sector(target),
+            )
         except Exception as exc:  # noqa: BLE001
             return {"code": code, "name": name, "status": "failed", "error": str(exc)}
 

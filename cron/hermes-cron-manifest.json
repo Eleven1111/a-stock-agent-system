@@ -943,6 +943,8 @@
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_trigger_cache.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
         "$A_STOCK_STATE_HOME/cron/output/catalyst-trigger/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
