@@ -248,6 +248,8 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
             "open-confirmation",
             "closing-triage",
             "news-monitor-intraday",
+            "market-pulse-1314",
+            "market-pulse-1500",
             "stock-intelligence-refresh",
             "serenity-refresh-plan",
     ]:
@@ -275,6 +277,19 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["news-monitor-intraday"]["run"]["command"].endswith("--mode intraday --json")
     assert any("catalyst_context.json" in path for path in jobs["news-monitor"]["allowed_state_writes"])
     assert any("catalyst_context.json" in path for path in jobs["news-monitor-intraday"]["allowed_state_writes"])
+    assert jobs["intraday-alert"]["run"]["command"] == "python skills/stock-triage/scripts/intraday_monitor.py --json"
+    assert jobs["intraday-alert"]["run"]["timeout_seconds"] >= 120
+    assert jobs["news-monitor"]["run"]["timeout_seconds"] >= 180
+    for job_id, profile in (
+        ("market-pulse-1314", "midday"),
+        ("market-pulse-1500", "close"),
+    ):
+        command = jobs[job_id]["run"]["command"]
+        assert command == f"python scripts/market_pulse_digest.py --profile {profile} --json --max-chars 200"
+        assert jobs[job_id]["run"]["timeout_seconds"] == 120
+        assert "prompt" not in command
+        assert "web_fetch" not in command
+        assert jobs[job_id]["max_output_chars"] <= 1200
     for job_id in (
         "social-attention-preopen",
         "social-attention-midday",

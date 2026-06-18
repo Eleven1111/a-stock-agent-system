@@ -381,7 +381,7 @@
       "run": {
         "command": "python skills/stock-triage/scripts/intraday_monitor.py --json",
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 120
       },
       "external_note": "只监控当前持仓和动态订阅；清仓/取消后自动退订；脚本内置交易时段守卫"
     },
@@ -668,9 +668,65 @@
       "run": {
         "command": "python skills/news-to-sector/scripts/scheduled_monitor.py --json",
         "cwd": ".",
-        "timeout_seconds": 90
+        "timeout_seconds": 180
       },
       "external_note": "需 Hermes Agent + SerpAPI；固定宏观查询 + 当前股票/板块/主题动态订阅，无触发静默"
+    },
+    {
+      "id": "market-pulse-1314",
+      "name": "午后市场脉冲快报",
+      "schedule": "14 13 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py market-pulse-1314 --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 1000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/market-pulse-1314/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/market_pulse_digest.py --profile midday --json --max-chars 200",
+        "cwd": ".",
+        "timeout_seconds": 120
+      },
+      "external_note": "OpenClaw/Hermes 冷启动友好：单次 SerpAPI 查询 + 200字内确定性摘要，不让模型做多步网页抓取"
+    },
+    {
+      "id": "market-pulse-1500",
+      "name": "收盘市场脉冲快报",
+      "schedule": "0 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py market-pulse-1500 --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 1000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/market-pulse-1500/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/market_pulse_digest.py --profile close --json --max-chars 200",
+        "cwd": ".",
+        "timeout_seconds": 120
+      },
+      "external_note": "OpenClaw/Hermes 冷启动友好：单次 SerpAPI 查询 + 200字内确定性摘要，不让模型做多步网页抓取"
     },
     {
       "id": "news-monitor-intraday",

@@ -15,8 +15,8 @@ severity: critical(立即卖) / warning(减仓/关注) / info(记录)
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import Any, Mapping, Optional
+from datetime import date
+from typing import Any, Mapping
 
 
 def check_stop_loss(

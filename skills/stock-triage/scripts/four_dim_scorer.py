@@ -1017,8 +1017,8 @@ def format_report(result: Dict[str, Any]) -> str:
         tp2_mult = float(_risk_cfg.get("take_profit_atr_mult_2", 5.0))
         lines.extend([
             "## 执行参考（ATR自适应）",
-            f"| 项目 | 价位 | 距现价 |",
-            f"|------|------|--------|",
+            "| 项目 | 价位 | 距现价 |",
+            "|------|------|--------|",
             f"| 止损 | {price - stop_mult * atr:.2f} | -{stop_mult * atr:.2f} ({stop_mult}×ATR) |",
             f"| 目标1 | {price + tp1_mult * atr:.2f} | +{tp1_mult * atr:.2f} ({tp1_mult}×ATR) |",
             f"| 目标2 | {price + tp2_mult * atr:.2f} | +{tp2_mult * atr:.2f} ({tp2_mult}×ATR) |",
