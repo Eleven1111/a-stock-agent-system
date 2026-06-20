@@ -206,8 +206,30 @@ def test_position_guidance_uses_startup_default_when_history_insufficient(tmp_pa
     sizing = ra.position_guidance("daban:first_board_reseal", 11.0, 12.1, 10.45, total_asset=100000)
 
     assert sizing["method"] == "startup_default"
-    assert sizing["recommended_position_pct"] == 4.0
-    assert sizing["recommended_amount"] == 4000
+    # daban startup 默认 4.0%，叠加打板战略权重 ×0.5(#28 证伪 + 1+2 定位减仓) → 2.0%
+    assert sizing["recommended_position_pct"] == 2.0
+    assert sizing["recommended_amount"] == 2000
+
+
+def test_daban_strategic_weight_scales_position(tmp_path, monkeypatch):
+    # 打板战略权重在温度倍率之上缩放 daban 仓位：weight=0.5 应是 weight=1.0 的一半
+    _wire(tmp_path, monkeypatch, history=[])
+    monkeypatch.setenv("HERMES_DABAN_STRATEGIC_WEIGHT", "1.0")
+    full = ra.position_guidance("daban:first_board_reseal", 11.0, 12.1, 10.45)
+    monkeypatch.setenv("HERMES_DABAN_STRATEGIC_WEIGHT", "0.5")
+    half = ra.position_guidance("daban:first_board_reseal", 11.0, 12.1, 10.45)
+    assert full["recommended_position_pct"] > 0
+    assert half["recommended_position_pct"] == round(full["recommended_position_pct"] * 0.5, 2)
+
+
+def test_trend_lane_ignores_daban_strategic_weight(tmp_path, monkeypatch):
+    # 趋势通道不受打板战略权重影响（只管 daban）
+    _wire(tmp_path, monkeypatch, history=[])
+    monkeypatch.setenv("HERMES_DABAN_STRATEGIC_WEIGHT", "0.5")
+    a = ra.position_guidance("trend_pullback", 10.0, 12.0, 9.0)
+    monkeypatch.setenv("HERMES_DABAN_STRATEGIC_WEIGHT", "0.1")
+    b = ra.position_guidance("trend_pullback", 10.0, 12.0, 9.0)
+    assert a["recommended_position_pct"] == b["recommended_position_pct"]
 
 
 def test_position_guidance_uses_quarter_kelly_after_ten_trades(tmp_path, monkeypatch):
