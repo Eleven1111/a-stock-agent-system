@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-495%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-529%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
@@ -94,7 +94,7 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 
 ```bash
 python scripts/smoke_test.py      # 9项集成检查
-python -m pytest -q tests/        # 495项测试全部通过
+python -m pytest -q tests/        # 529项测试全部通过
 ```
 
 ### Hermes / OpenClaw 共享状态
@@ -103,7 +103,13 @@ python -m pytest -q tests/        # 495项测试全部通过
 
 ```bash
 export A_STOCK_STATE_HOME="$HOME/.a-stock-agent"
+export A_STOCK_BACKUP_HOME="$HOME/.a-stock-agent-backups"
+# 多运行时或多机器部署建议固定该身份值
+export A_STOCK_STATE_ID="my-a-stock-cluster"
 ```
+
+OpenClaw 未显式设置 `A_STOCK_STATE_HOME`，或固定的 `A_STOCK_STATE_ID` 不匹配时，
+任务会 fail-closed。关键账户 JSON 在实时状态目录之外保存有限版本快照，缓存文件不备份。
 
 T+1 约束、推荐质检和动态订阅规则见
 [A股交易与监控生命周期](docs/trading-lifecycle.md)。
@@ -188,8 +194,9 @@ export SERPAPI_API_KEY=your_key
 排名或策略判断。例行任务可设为 `deliver=local`，
 避免定时任务输出污染主线对话。
 
-artifact v2 还包含 `trading_date`、`batch_id` 和 `dependency_gate`。必需上游缺失、失败、
-过期或交易日不匹配时，runner 写入 `status=blocked` 并拒绝启动业务脚本。推荐、成交、
+artifact v2 还包含 `trading_date`、`batch_id`、`dependency_gate` 和交易日门禁结果。
+非交易日记录为静默跳过，日历未覆盖则 fail-closed；必需上游缺失、失败、过期或交易日
+不匹配时，runner 写入 `status=blocked` 并拒绝启动业务脚本。推荐、成交、
 监控、T+1 provisional 和 T+3 final 结算统一写入 `signal_ledger.jsonl`；
 `agent_state_projector.py` 向两端提供同一份当前状态。详细契约见
 [`docs/architecture-hardening.md`](docs/architecture-hardening.md)。
@@ -203,6 +210,17 @@ python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```bash
 # 诊断 Gateway cwd/run_agent.py 影子导入和 schedule 状态风险
 python scripts/hermes_gateway_doctor.py --write-launcher
+
+# 配置、数据源与关键状态恢复检查
+python scripts/config_doctor.py
+python scripts/provider_doctor.py --json
+python scripts/state_doctor.py --runtime openclaw --recover
+
+# 生成 OpenClaw command cron；直接运行 DAG，不启动模型 isolated turn
+python scripts/generate_openclaw_cron.py \
+  --state-home "$A_STOCK_STATE_HOME" \
+  --state-id "$A_STOCK_STATE_ID"
+python scripts/cron_budget_report.py
 
 # Hermes Gateway cron 不稳定时的应急兜底：
 # 生成直接运行 isolated job 的系统 crontab 行。
@@ -303,7 +321,7 @@ a-stock-agent-system/
 ├── pyproject.toml              # 依赖管理
 ├── config/scoring.yaml         # 评分权重 & 风控参数
 ├── config/candidate_selection.json # 动态股票池与漏斗参数
-├── cron/hermes-cron-manifest.json  # 29个跨运行时隔离任务
+├── cron/hermes-cron-manifest.json  # 30个跨运行时隔离任务
 ├── scripts/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw共用任务入口
 │   ├── run_agent_dag.py        # 依赖排序、重试、断点续跑
@@ -314,7 +332,7 @@ a-stock-agent-system/
 │   ├── generate_system_crontab.py # 系统cron兜底生成器
 │   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 495个单元测试
+├── tests/                      # 529个单元测试
 ├── skills/
 │   ├── common/                 # 共享HTTP/状态 + 候选排序/生命周期
 │   ├── stock-triage/           # 编排中枢
@@ -339,7 +357,8 @@ a-stock-agent-system/
 
 **脚本优于服务。** 每个模块是独立的 CLI 脚本。无服务器、无数据库、无常驻进程。按需组合。
 
-**状态原子写入。** 所有 JSON 写入通过 `state_store.atomic_write_json()`，带备份和崩溃恢复。
+**状态可恢复。** JSON 写入保持原子性；关键账户状态另存有限版本的独立备份，主文件缺失或
+损坏时从已验证快照恢复，不再静默重置为默认空状态。
 
 ## 数据源
 
@@ -357,7 +376,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 495项测试
+python -m pytest -q tests/        # 529项测试
 python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```

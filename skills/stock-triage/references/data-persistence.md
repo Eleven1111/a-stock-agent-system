@@ -37,10 +37,16 @@ state but must not create conflicting event histories.
 
 ## Recovery
 
+Critical mutable JSON files keep bounded versioned snapshots under
+`A_STOCK_BACKUP_HOME` (or a sibling `*-backups` directory by default). Cache
+files are intentionally excluded. The canonical `signal_ledger.jsonl` uses an
+idempotent append-only mirror in the same independent backup root.
+
 1. Stop writers or acquire the appropriate lease.
-2. Preserve the damaged file and relevant artifacts.
-3. Rebuild projections from canonical events when supported.
-4. Validate balances, position quantities, and lifecycle links.
-5. Resume scheduled work only after consistency checks pass.
+2. Run `python scripts/state_doctor.py --runtime openclaw --recover`.
+3. Preserve the damaged file and relevant artifacts.
+4. Rebuild projections from canonical events when supported.
+5. Validate balances, position quantities, and lifecycle links.
+6. Resume scheduled work only after consistency checks pass.
 
 Do not reconstruct account facts from remembered conversation text.

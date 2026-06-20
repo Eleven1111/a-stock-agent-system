@@ -16,7 +16,16 @@ from typing import Dict, Any, List, Optional
 from urllib.parse import urlencode
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from http_client import DataSourceError, ErrorType, request_json, request_text
+from data_access_config import provider_settings
+from http_client import (
+    DataSourceError,
+    ErrorType,
+    HttpClient,
+    HttpResult,
+    build_request,
+    request_json,
+    request_text,
+)
 from paths import env_file as _env_file
 
 
@@ -128,22 +137,61 @@ def parse_tencent_orderbook_line(line: str) -> Optional[Dict[str, Any]]:
     return {"code": code, "bids": bids, "asks": asks}
 
 
+def tencent_symbol(code: str) -> str:
+    normalized = str(code).strip().lower()
+    if normalized.startswith(("sh", "sz", "hk")):
+        return normalized
+    return ("sh" if normalized.startswith("6") else "sz") + normalized.zfill(6)
+
+
+def fetch_tencent_quotes_result(
+    codes: List[str],
+    *,
+    client: Optional[HttpClient] = None,
+) -> HttpResult[Dict[str, Dict[str, Any]]]:
+    """Canonical Tencent quote transport with provenance metadata."""
+    symbols = [tencent_symbol(code) for code in codes]
+    request = build_request(
+        "http://qt.gtimg.cn/q=" + ",".join(symbols),
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    if client is None:
+        settings = provider_settings("tencent")
+        client = HttpClient(
+            "tencent",
+            timeout=float(settings.get("timeout_seconds", 10)),
+            max_attempts=int(settings.get("max_attempts", 2)),
+        )
+    response = client.request_text(request, encoding="gbk")
+    quotes: Dict[str, Dict[str, Any]] = {}
+    for line in response.data.strip().splitlines():
+        parsed = parse_tencent_quote_line(line)
+        if not parsed:
+            continue
+        quotes[parsed["code"]] = {
+            **parsed["fields"],
+            "provider": "tencent",
+            "fetched_at": response.fetched_at,
+        }
+    if not quotes:
+        raise DataSourceError(
+            "tencent",
+            "no valid quote records",
+            error_type=ErrorType.INVALID_RESPONSE,
+            attempts=response.attempts,
+            timestamp=response.fetched_at,
+        )
+    return HttpResult(quotes, response.fetched_at, response.attempts)
+
+
 def fetch_tencent_quote(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     """
     腾讯实时行情
     codes: ["sh600011", "sz002156", "hk00700"]
     返回: {code: {price, change_pct, volume, amount, ...}}
     """
-    url = "http://qt.gtimg.cn/q=" + ",".join(codes)
     try:
-        raw = request_text(
-            url,
-            source="tencent",
-            timeout=10,
-            max_attempts=2,
-            encoding="gbk",
-            headers={"User-Agent": "Mozilla/5.0"},
-        ).data
+        result = fetch_tencent_quotes_result(codes)
     except DataSourceError as exc:
         raise DataSourceError(
             "tencent",
@@ -155,12 +203,14 @@ def fetch_tencent_quote(codes: List[str]) -> Dict[str, Dict[str, Any]]:
             status_code=exc.status_code,
         ) from exc
 
-    results = {}
-    for line in raw.strip().split("\n"):
-        parsed = parse_tencent_quote_line(line)
-        if parsed:
-            results[parsed["code"]] = parsed["fields"]
-    return results
+    return {
+        code: {
+            key: value
+            for key, value in quote.items()
+            if key not in {"provider", "fetched_at"}
+        }
+        for code, quote in result.data.items()
+    }
 
 
 def fetch_tencent_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:

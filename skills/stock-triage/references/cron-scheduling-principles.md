@@ -76,8 +76,16 @@ runner 负责：
 - 写 `$HERMES_HOME/cron/output/job_runs.json`
 - 根据 `deliver` / `silent_when_no_signal` / `max_output_chars` 控制主线输出
 
-Agent prompt 型 cron 才使用 `delegate_task(...)`；主 cron agent 不直接抓数据、不直接重计算。
-**禁止**在 cron prompt 中直接使用 `terminal` 工具（会触发审批锁）。
+OpenClaw 部署必须使用 command cron，不创建 model-backed isolated agent turn：
+
+```bash
+python scripts/generate_openclaw_cron.py \
+  --state-home "$A_STOCK_STATE_HOME" \
+  --state-id "$A_STOCK_STATE_ID"
+```
+
+生成结果使用 `openclaw cron create --command-argv` 直接启动 DAG，因此没有模型冷启动、
+prompt 多步决策或对话上下文污染。外层 timeout 按必需依赖闭包、重试次数和缓冲自动计算。
 
 ## API 依赖设计
 

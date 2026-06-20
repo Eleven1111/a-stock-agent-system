@@ -15,6 +15,7 @@ VALID_OUTPUTS = {"json", "text", "none"}
 VALID_EXECUTION_MODES = {"isolated_subprocess"}
 VALID_CONTEXT_SCOPES = {"cron"}
 VALID_DELIVER = {"origin", "local", "silent"}
+VALID_TRADING_DAY_POLICIES = {"required", "calendar_day"}
 VALID_DEPENDENCY_DATE_MODES = {
     "latest",
     "same_trading_date",
@@ -81,6 +82,11 @@ def validate(filepath):
     jobs = data.get("jobs", [])
     if not jobs:
         errors.append("no jobs defined")
+    default_day_policy = data.get("default_trading_day_policy", "required")
+    if default_day_policy not in VALID_TRADING_DAY_POLICIES:
+        errors.append(
+            f"invalid default_trading_day_policy: {default_day_policy}"
+        )
 
     ids = set()
     dependency_graph = {}
@@ -117,6 +123,12 @@ def validate(filepath):
 
         if job.get("timezone") != "Asia/Shanghai":
             errors.append(f"job[{i}] ({jid}) timezone: {job.get('timezone', 'missing')}")
+
+        day_policy = job.get("trading_day_policy", default_day_policy)
+        if day_policy not in VALID_TRADING_DAY_POLICIES:
+            errors.append(
+                f"job[{i}] ({jid}) invalid trading_day_policy: {day_policy}"
+            )
 
         if not isinstance(job.get("enabled"), bool):
             errors.append(f"job[{i}] ({jid}) enabled must be boolean")

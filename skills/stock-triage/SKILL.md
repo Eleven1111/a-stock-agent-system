@@ -23,7 +23,7 @@ metadata:
 - 持仓、监控和候选必须从运行时状态读取，不从聊天历史恢复。
 - A股股票现货遵守 T+1；当日新增股份不得给出当日卖出动作。
 - 数据缺失、过期、来源失败或交易日历未覆盖时，降低结论或阻断方向性建议。
-- 所有定时任务由 `config/cron_jobs.yaml` 定义，并通过 `scripts/run_agent_dag.py` 启动。
+- 所有定时任务由 `cron/hermes-cron-manifest.json` 定义，并通过 `scripts/run_agent_dag.py` 启动。
 - Hermes 与 OpenClaw 共用同一状态目录和同一 Signal Ledger。
 
 ## 主决策链

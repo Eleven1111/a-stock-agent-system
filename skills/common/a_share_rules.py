@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 
+from config_registry import config_path
 
-CALENDAR_FILE = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "config", "a_share_calendar.json")
-)
+
+CALENDAR_FILE = str(config_path("calendar"))
 
 
 class CalendarCoverageError(RuntimeError):

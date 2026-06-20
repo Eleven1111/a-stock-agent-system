@@ -65,6 +65,15 @@ from market_context import read_market_context, apply_market_overlay
 from signal_context import read_signal_context, sentiment_boost
 from social_attention import sentiment_attention_overlay
 from catalyst_context import read_catalyst_events
+from config_registry import config_path
+from scoring.catalyst import (  # noqa: F401
+    CATALYST_TIERS,
+    CLARIFICATION_RISK_TERMS,
+    T1_WEIGHT as _T1_WEIGHT,
+    freshness_factor,
+    news_age_days as _news_age_days,
+    news_catalyst_score,
+)
 
 
 def fetch_tencent_realtime(code: str, market: str = "sz") -> Dict[str, Any]:
@@ -376,131 +385,6 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
     }
 
 
-# 催化关键词分级（打板/高成长玩法导向）：
-# T1 强催化——政策/战略级与重大资本动作，能直接点燃板块赚钱效应
-# T2 实质催化——订单/业绩/产能落地，高成长逻辑的硬证据
-# T3 弱催化——泛利好措辞，仅作辅助
-CATALYST_TIERS = {
-    "bullish": [
-        (1.2, ["国家战略", "政策支持", "国产替代", "重大重组", "战略合作", "补贴",
-               "纳入指数", "重大突破"]),
-        (0.8, ["业绩增长", "业绩预增", "中标", "大额订单", "订单", "产能释放",
-               "扩产", "回购", "增持", "涨价"]),
-        (0.4, ["利好", "突破", "创新高", "获批"]),
-    ],
-    "bearish": [
-        (1.2, ["退市", "暴雷", "立案调查", "财务造假", "制裁"]),
-        (0.8, ["减持", "亏损", "诉讼", "处罚", "业绩下滑", "产能过剩", "限制"]),
-        (0.4, ["利空", "回调", "破位"]),
-    ],
-}
-
-
-def _news_age_days(date_str: str, now: Optional[datetime] = None) -> Optional[float]:
-    """SerpAPI 日期解析：'MM/DD/YYYY, ...' 或 'N hours/days ago'。失败返回 None。"""
-    if not date_str:
-        return None
-    ref = now or datetime.now()
-    text = str(date_str).strip().lower()
-    try:
-        if "ago" in text:
-            num = float(text.split()[0])
-            if "minute" in text:
-                return num / 1440
-            if "hour" in text:
-                return num / 24
-            if "day" in text:
-                return num
-            if "week" in text:
-                return num * 7
-            if "month" in text:
-                return num * 30
-            return None
-        # 'MM/DD/YYYY, 07:00 AM, +0000 UTC'
-        head = text.split(",")[0].strip()
-        parsed = datetime.strptime(head, "%m/%d/%Y")
-        return max(0.0, (ref - parsed).total_seconds() / 86400)
-    except (ValueError, IndexError):
-        return None
-
-
-def freshness_factor(age_days: Optional[float], slow: bool = False) -> float:
-    """新闻新鲜度衰减：越旧的催化对短线越没意义。无法解析按 0.6 保守计。
-
-    半衰期按催化级别区分（游资选股研究报告口径）：
-    - slow=True（T1 中央级政策）：半衰期 15-30 个交易日，衰减慢，可催生跨月主线
-    - slow=False（T2/T3 订单业绩/泛利好）：半衰期 3-5 日，脉冲式，快速失效
-    """
-    if age_days is None:
-        return 0.6
-    if slow:
-        if age_days <= 10:
-            return 1.0
-        if age_days <= 30:
-            return 0.6
-        if age_days <= 60:
-            return 0.3
-        return 0.15
-    if age_days <= 3:
-        return 1.0
-    if age_days <= 7:
-        return 0.7
-    if age_days <= 30:
-        return 0.4
-    return 0.2
-
-
-# T1 权重值（中央级政策/重大资本动作）→ 慢衰减
-_T1_WEIGHT = 1.2
-CLARIFICATION_RISK_TERMS = [
-    "澄清",
-    "不属实",
-    "未涉及",
-    "不存在相关",
-    "无相关业务",
-    "尚未形成收入",
-    "未形成收入",
-    "对业绩影响较小",
-    "风险提示",
-    "异常波动",
-]
-
-
-def news_catalyst_score(news: List[Dict], now: Optional[datetime] = None) -> Dict[str, Any]:
-    """对一组新闻计算催化分增量（纯函数）：分级关键词权重 × 分级新鲜度衰减。
-    每条新闻只取多空各自命中的最高档，多空可同时计入（对冲）。
-    T1（中央级）用慢衰减曲线，T2/T3 用快衰减——一级催化主线寿命远长于二级脉冲。"""
-    delta = 0.0
-    signals = []
-    for item in news[:5]:
-        title = item.get("title", "")
-        text = title + " " + item.get("snippet", "")
-        age = _news_age_days(item.get("date", ""), now)
-        clarification = next((term for term in CLARIFICATION_RISK_TERMS if term in text), None)
-        if clarification:
-            fresh = freshness_factor(age, slow=False)
-            contribution = -_T1_WEIGHT * fresh
-            delta += contribution
-            age_str = f"{age:.0f}d" if age is not None else "?d"
-            signals.append(
-                f"⚠️ 澄清否定({clarification},{contribution:+.1f},{age_str}): {title[:24]}"
-            )
-            # 澄清公告里的“重大突破/订单”等是被否定对象，不能再计正向分。
-            continue
-        for direction, sign in (("bullish", 1), ("bearish", -1)):
-            for weight, kws in CATALYST_TIERS[direction]:
-                hit = next((kw for kw in kws if kw in text), None)
-                if hit:
-                    fresh = freshness_factor(age, slow=(weight == _T1_WEIGHT))
-                    contribution = sign * weight * fresh
-                    delta += contribution
-                    mark = "" if sign > 0 else "⚠️ "
-                    age_str = f"{age:.0f}d" if age is not None else "?d"
-                    signals.append(f"{mark}{hit}({contribution:+.1f},{age_str}): {title[:24]}")
-                    break  # 该方向取最高档后停
-    return {"delta": round(delta, 2), "signals": signals}
-
-
 def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     """催化面评分（0-10）——分级关键词权重 × 新闻新鲜度衰减。
 
@@ -638,11 +522,8 @@ import yaml
 
 
 def _load_scoring_config() -> Optional[Dict[str, Any]]:
-    config_path = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "config", "scoring.yaml",
-    )
     try:
-        with open(config_path, encoding="utf-8") as file:
+        with open(config_path("scoring"), encoding="utf-8") as file:
             return yaml.safe_load(file)
     except Exception:
         return None

@@ -288,6 +288,7 @@ def build_artifact(
     status_override: Optional[str] = None,
     runtime: Optional[str] = None,
     snapshot_ref: Optional[Dict[str, Any]] = None,
+    calendar_gate: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     parsed = try_parse_json(stdout)
     has_signal = output_has_signal(parsed, stdout)
@@ -313,6 +314,7 @@ def build_artifact(
         "summary": summarize_output(parsed, stdout),
         "context_from": context_artifacts,
         "dependency_gate": dependency_gate,
+        "calendar_gate": calendar_gate,
         "market_snapshot": snapshot_ref,
         "stdout": stdout,
         "stderr": stderr,

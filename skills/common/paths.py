@@ -28,6 +28,17 @@ def hermes_install_home() -> str:
     return os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
 
 
+def backup_home() -> str:
+    """Independent backup root for critical mutable account state."""
+    configured = os.environ.get("A_STOCK_BACKUP_HOME")
+    if configured:
+        return os.path.abspath(os.path.expanduser(configured))
+    state_root = os.path.abspath(os.path.expanduser(hermes_home()))
+    parent = os.path.dirname(state_root)
+    name = os.path.basename(state_root.rstrip(os.sep)) or "a-stock-state"
+    return os.path.join(parent, f"{name}-backups")
+
+
 def env_file() -> str:
     """.env 文件路径。"""
     return os.path.join(hermes_install_home(), ".env")

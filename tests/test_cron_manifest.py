@@ -238,6 +238,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     jobs = {job["id"]: job for job in manifest["jobs"]}
 
     for required in [
+        "provider-health",
         "hot-money-context",
         "social-attention-preopen",
         "social-attention-midday",
@@ -327,5 +328,10 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["snapshot-gc"]["context_from"] == []
     assert jobs["snapshot-gc"]["deliver"] == "local"
     assert jobs["snapshot-gc"]["run"]["command"].endswith("--apply --json")
+    assert jobs["provider-health"]["deliver"] == "local"
+    assert jobs["provider-health"]["run"]["command"] == "python scripts/provider_doctor.py --json"
+    assert manifest["default_trading_day_policy"] == "required"
+    for job_id in ("institution-weekly", "event-calendar", "performance-weekly"):
+        assert jobs[job_id]["trading_day_policy"] == "calendar_day"
     assert "pulse_engine" not in manifest.get("external_dependencies", {})
     assert "builderpulse" not in manifest.get("external_dependencies", {})

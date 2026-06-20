@@ -60,7 +60,7 @@ metadata:
 
 ## 竞价和开盘任务
 
-- 调度来源：`config/cron_jobs.yaml`。
+- 调度来源：`cron/hermes-cron-manifest.json`。
 - 入口：`scripts/run_agent_dag.py <job-id> --emit-target`。
 - 集合竞价只读取本批次快照，开盘确认只读取已通过依赖门禁的竞价 artifact。
 - 重点对象和最终候选自动写入 monitor registry；卖出、淘汰或手动取消后自动退出。

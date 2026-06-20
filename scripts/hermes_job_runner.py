@@ -35,6 +35,8 @@ from runtime_context import (  # noqa: E402
 from market_snapshot import write_snapshot  # noqa: E402
 from run_lease import claim  # noqa: E402
 from agent_state import agent_state_path  # noqa: E402
+from state_integrity import ensure_state_identity  # noqa: E402
+from trading_day_gate import evaluate_job_trading_day  # noqa: E402
 
 
 def _load_manifest(path: str) -> Dict[str, Any]:
@@ -45,7 +47,13 @@ def _load_manifest(path: str) -> Dict[str, Any]:
 def _find_job(manifest: Dict[str, Any], job_id: str) -> Dict[str, Any]:
     for job in manifest.get("jobs", []):
         if job.get("id") == job_id:
-            return job
+            return {
+                "trading_day_policy": manifest.get(
+                    "default_trading_day_policy",
+                    "required",
+                ),
+                **job,
+            }
     raise SystemExit(f"unknown job id: {job_id}")
 
 
@@ -131,9 +139,102 @@ def run_job(args: argparse.Namespace) -> int:
     timeout = int(run.get("timeout_seconds") or job.get("timeout_seconds") or 120)
     started_at = now_iso()
     run_id = args.run_id or make_run_id(job["id"], started_at)
-    trading_date = resolve_trading_date(args.trading_date or started_at)
+    calendar_date = args.calendar_date or args.trading_date or started_at[:10]
+    calendar_gate = evaluate_job_trading_day(job, calendar_date)
+    if calendar_gate["action"] == "block":
+        trading_date = args.trading_date or calendar_date
+    else:
+        trading_date = resolve_trading_date(args.trading_date or calendar_date)
     batch_id = args.batch_id or make_batch_id(trading_date)
     runtime = resolve_runtime_name(args.runtime)
+
+    if args.dry_run:
+        dependency_gate = (
+            evaluate_dependencies(
+                job.get("context_from", []),
+                trading_date=trading_date,
+                batch_id=batch_id,
+                policy=job.get("dependency_policy"),
+                now=started_at,
+            )
+            if calendar_gate["action"] == "run"
+            else None
+        )
+        print(json.dumps({
+            "job_id": job["id"],
+            "run_id": run_id,
+            "batch_id": batch_id,
+            "trading_date": trading_date,
+            "command": command,
+            "cwd": cwd,
+            "calendar_gate": calendar_gate,
+            "dependency_gate": dependency_gate,
+            "artifact_path_template": ARTIFACT_TEMPLATE,
+        }, ensure_ascii=False, indent=2))
+        return 0
+
+    state_check = ensure_state_identity(runtime)
+
+    if state_check["status"] != "ok":
+        artifact = build_artifact(
+            job=job,
+            run_id=run_id,
+            command=command,
+            cwd=cwd,
+            returncode=78,
+            stdout="",
+            stderr=json.dumps(state_check, ensure_ascii=False),
+            started_at=started_at,
+            finished_at=now_iso(),
+            duration_seconds=0,
+            context_artifacts=[],
+            trading_date=trading_date,
+            batch_id=batch_id,
+            dependency_gate=None,
+            status_override="blocked_state",
+            runtime=runtime,
+            calendar_gate=calendar_gate,
+        )
+        write_artifact(artifact)
+        record_run(artifact)
+        _emit(job, artifact, args.emit_local)
+        return 78
+
+    if calendar_gate["action"] != "run":
+        status = (
+            "skipped_non_trading_day"
+            if calendar_gate["action"] == "skip"
+            else "blocked_calendar"
+        )
+        returncode = 0 if calendar_gate["action"] == "skip" else 75
+        artifact = build_artifact(
+            job=job,
+            run_id=run_id,
+            command=command,
+            cwd=cwd,
+            returncode=returncode,
+            stdout="",
+            stderr=(
+                ""
+                if returncode == 0
+                else json.dumps(calendar_gate, ensure_ascii=False)
+            ),
+            started_at=started_at,
+            finished_at=now_iso(),
+            duration_seconds=0,
+            context_artifacts=[],
+            trading_date=trading_date,
+            batch_id=batch_id,
+            dependency_gate=None,
+            status_override=status,
+            runtime=runtime,
+            calendar_gate=calendar_gate,
+        )
+        write_artifact(artifact)
+        record_run(artifact)
+        _emit(job, artifact, args.emit_local)
+        return returncode
+
     dependency_gate = evaluate_dependencies(
         job.get("context_from", []),
         trading_date=trading_date,
@@ -142,20 +243,6 @@ def run_job(args: argparse.Namespace) -> int:
         now=started_at,
     )
     context_artifacts = dependency_gate["dependencies"]
-
-    if args.dry_run:
-        print(json.dumps({
-            "job_id": job["id"],
-            "run_id": run_id,
-            "batch_id": batch_id,
-            "trading_date": trading_date,
-            "command": command,
-            "cwd": cwd,
-            "context_from": context_artifacts,
-            "dependency_gate": dependency_gate,
-            "artifact_path_template": ARTIFACT_TEMPLATE,
-        }, ensure_ascii=False, indent=2))
-        return 0
 
     if not dependency_gate["passed"]:
         finished_at = now_iso()
@@ -176,6 +263,7 @@ def run_job(args: argparse.Namespace) -> int:
             dependency_gate=dependency_gate,
             status_override="blocked",
             runtime=runtime,
+            calendar_gate=calendar_gate,
         )
         write_artifact(artifact)
         record_run(artifact)
@@ -283,6 +371,7 @@ def run_job(args: argparse.Namespace) -> int:
         dependency_gate=dependency_gate,
         runtime=runtime,
         snapshot_ref=snapshot_ref,
+        calendar_gate=calendar_gate,
     )
     write_artifact(artifact)
     record_run(artifact)
@@ -297,6 +386,7 @@ def main() -> None:
     parser.add_argument("--run-id")
     parser.add_argument("--batch-id")
     parser.add_argument("--trading-date")
+    parser.add_argument("--calendar-date")
     parser.add_argument("--runtime", choices=["hermes", "openclaw", "local"])
     parser.add_argument("--var", action="append", default=[], help="Template variable as key=value")
     parser.add_argument("--emit-local", action="store_true", help="Emit stdout even when deliver=local")

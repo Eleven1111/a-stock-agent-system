@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-495%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-529%20passed-brightgreen)](tests/)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
@@ -112,7 +112,14 @@ monitor subscriptions stay consistent:
 
 ```bash
 export A_STOCK_STATE_HOME="$HOME/.a-stock-agent"
+export A_STOCK_BACKUP_HOME="$HOME/.a-stock-agent-backups"
+# Optional but recommended across multiple runtimes or hosts.
+export A_STOCK_STATE_ID="my-a-stock-cluster"
 ```
+
+OpenClaw fails closed when `A_STOCK_STATE_HOME` is not explicit or when a pinned
+`A_STOCK_STATE_ID` does not match. Critical account JSON keeps bounded,
+versioned snapshots outside the live state root; cache files are excluded.
 
 See [A-share trading and monitoring lifecycle](docs/trading-lifecycle.md) for
 T+1 enforcement, recommendation QC, and dynamic subscription behavior.
@@ -198,8 +205,10 @@ market snapshot for JSON output, and records `job_runs.json`. D0/D1 nodes also
 persist raw inputs and read them back before ranking or policy evaluation. Routine jobs can
 use `deliver=local` so scheduled output does not pollute active conversations.
 
-Artifact v2 also records `trading_date`, `batch_id`, and a fail-closed
-`dependency_gate`. Recommendations, executions, monitor lifecycle changes, and
+Artifact v2 also records `trading_date`, `batch_id`, a fail-closed
+`dependency_gate`, and the trading-day gate result. Non-trading days are
+recorded as silent skips; uncovered calendar dates are blocked. Recommendations,
+executions, monitor lifecycle changes, and
 T+1 provisional and T+3 final settlements are correlated in the append-only
 `signal_ledger.jsonl`. `agent_state_projector.py` exposes the same current state
 to Hermes and OpenClaw.
@@ -214,6 +223,17 @@ Deployment guardrails:
 ```bash
 # Diagnose Gateway cwd/run_agent.py shadowing and schedule-state hazards.
 python scripts/hermes_gateway_doctor.py --write-launcher
+
+# Validate config, provider endpoints, and recover missing critical state.
+python scripts/config_doctor.py
+python scripts/provider_doctor.py --json
+python scripts/state_doctor.py --runtime openclaw --recover
+
+# Generate command-cron definitions without a model-backed isolated turn.
+python scripts/generate_openclaw_cron.py \
+  --state-home "$A_STOCK_STATE_HOME" \
+  --state-id "$A_STOCK_STATE_ID"
+python scripts/cron_budget_report.py
 
 # Emergency fallback when Hermes Gateway cron is unhealthy:
 # generate system crontab lines that run isolated jobs directly.
@@ -314,7 +334,7 @@ a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── config/candidate_selection.json # Dynamic-universe and funnel limits
-├── cron/hermes-cron-manifest.json  # 29 runtime-neutral scheduled jobs
+├── cron/hermes-cron-manifest.json  # 30 runtime-neutral scheduled jobs
 ├── scripts/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
 │   ├── run_agent_dag.py        # Dependency ordering, retry, resume
@@ -326,7 +346,7 @@ a-stock-agent-system/
 │   ├── smoke_test.py           # 9-test validation suite
 │   ├── snapshot_gc.py          # Snapshot/artifact retention and capacity cleanup
 │   └── validate_cron_manifest.py
-├── tests/                      # 495 unit tests
+├── tests/                      # 529 unit tests
 ├── skills/
 │   ├── common/                 # Adapters, snapshots, policy, ledger, shared state
 │   ├── stock-triage/           # Orchestrator hub
@@ -352,7 +372,9 @@ a-stock-agent-system/
 
 **Scripts over services.** Every module is a standalone CLI script. No servers, no databases, no daemons. Pipe them together however you want.
 
-**State is atomic.** All JSON writes go through `state_store.atomic_write_json()` with backup and crash recovery.
+**State is recoverable.** JSON writes are atomic. Critical account state also
+keeps bounded independent backups; missing or corrupt primary files recover
+from validated snapshots instead of silently resetting to defaults.
 
 **Earn your weight.** Chan-structure signals and tuned thresholds carry **zero live weight** until they pass the offline research gate (out-of-sample walled), tracked in `strategy_registry`. Live performance can only *retire* a strategy (gating by expectancy), never *refit* its entry rules — that separation is what keeps the system from overfitting to recent noise.
 
@@ -406,7 +428,7 @@ get filled on is not actionable.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 495 tests
+python -m pytest -q tests/        # 529 tests
 python scripts/smoke_test.py      # 9 integration checks
 python scripts/validate_cron_manifest.py
 ```
