@@ -137,3 +137,16 @@ def test_read_temperature_keeps_weekend_context_for_date_gate(monkeypatch):
     assert captured["max_age_hours"] == 96
     assert out["context_fresh"] is True
     assert out["context_asof"] == "2026-06-12"
+
+
+def test_daban_strategic_weight_default_and_override(monkeypatch):
+    monkeypatch.delenv("HERMES_DABAN_STRATEGIC_WEIGHT", raising=False)
+    assert mt.daban_strategic_weight() == 0.5            # 1+2 定位默认温和减半
+    monkeypatch.setenv("HERMES_DABAN_STRATEGIC_WEIGHT", "0.3")
+    assert mt.daban_strategic_weight() == 0.3
+    monkeypatch.setenv("HERMES_DABAN_STRATEGIC_WEIGHT", "0")
+    assert mt.daban_strategic_weight() == 0.0
+    monkeypatch.setenv("HERMES_DABAN_STRATEGIC_WEIGHT", "1.5")   # 越界回退默认
+    assert mt.daban_strategic_weight() == 0.5
+    monkeypatch.setenv("HERMES_DABAN_STRATEGIC_WEIGHT", "abc")   # 非法回退默认
+    assert mt.daban_strategic_weight() == 0.5

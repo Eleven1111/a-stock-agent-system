@@ -213,7 +213,7 @@ def position_guidance(
     temp_allow_new = True
     if sid.startswith("daban"):
         try:
-            from market_temperature import read_temperature
+            from market_temperature import read_temperature, daban_strategic_weight
 
             temp = read_temperature(
                 event_asof=date.today().isoformat(),
@@ -227,6 +227,9 @@ def position_guidance(
                     else 0.0
                 )
                 temp_tier = temp.get("tier")
+            # 打板战略减仓：可成交 edge 已被 2 年 OOS 证伪(#28)，整体降配、重心移 trend(1+2)。
+            # 在温度倍率之上再乘，独立于温度数据是否可用。
+            temp_multiplier *= daban_strategic_weight()
         except Exception:  # noqa: BLE001
             pass
 

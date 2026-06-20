@@ -801,6 +801,18 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         score_gates.append("insufficient_catalyst_or_deep_for_s")
         g, emoji, advice = _grade_by_name("A")
 
+    # 追涨停护栏：daban 通道对当日已涨停票=「涨停后追入」，2 年全市场 OOS 证伪其在可成交
+    # 口径(open_close)下负期望(-0.6%~-1%/笔，issue #28)。定位=打板只做涨停前预判，
+    # 故抑制追涨停推荐：标 gate 并把 S/A 压到 B（trend/default 通道不受影响）。
+    chase_limitup = (
+        str(strategy_id or "").startswith("daban")
+        and (sentiment.get("change_pct") or 0) >= 9.9
+    )
+    if chase_limitup:
+        score_gates.append("chase_limitup_negative_ev")
+        if g in ("S", "A"):
+            g, emoji, advice = _grade_by_name("B")
+
     data_coverage = {
         "realtime": technical["price"] is not None,
         "kline": technical["ma5"] is not None,
@@ -824,6 +836,8 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         {"tradeable": False, "status": "no_data", "reason": "行情缺失"}
     if trade.get("tradeable") is False and confidence != "low":
         advice = f"⛔ {trade['reason']}（{advice}）"
+    if "chase_limitup_negative_ev" in score_gates and confidence != "low":
+        advice = f"⚠️已涨停·追入次日历史负期望(2年OOS)，宜等回调/埋伏下一只｜{advice}"
 
     # 历史胜率参考
     hist_ref = _load_historical_reference(g, strategy_id, sector=sector)

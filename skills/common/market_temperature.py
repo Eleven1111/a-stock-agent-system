@@ -44,6 +44,24 @@ TIER_RULES = {
              "advice": "只卖不买，防退潮"},
 }
 
+# 打板战略权重：打板可成交 edge 已被 2 年全市场 OOS 证伪(issue #28)，打板范式整体降配、
+# 重心移向 trend(1+2 定位决策)。此权重在情绪温度倍率之上再乘——温度是择时，此处是战略再平衡。
+# 默认 0.5(温和减半)；HERMES_DABAN_STRATEGIC_WEIGHT 可覆盖(0~1)。trend/中线策略不受影响。
+DABAN_STRATEGIC_WEIGHT_DEFAULT = 0.5
+
+
+def daban_strategic_weight() -> float:
+    """打板战略减仓权重(0~1，默认 0.5)。环境变量 HERMES_DABAN_STRATEGIC_WEIGHT 覆盖，非法值回退默认。"""
+    raw = os.environ.get("HERMES_DABAN_STRATEGIC_WEIGHT")
+    if raw is not None:
+        try:
+            value = float(raw)
+        except ValueError:
+            return DABAN_STRATEGIC_WEIGHT_DEFAULT
+        if 0.0 <= value <= 1.0:
+            return value
+    return DABAN_STRATEGIC_WEIGHT_DEFAULT
+
 
 def ladder_height(ladder: Optional[Mapping[str, Any]]) -> int:
     """当日最高连板数（高度板）。"""
