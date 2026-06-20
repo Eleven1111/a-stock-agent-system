@@ -158,3 +158,42 @@ def test_weak_catalyst_and_deep_cap_normal_s_grade(monkeypatch, tmp_path):
     assert result["weighted"] >= 8.0
     assert result["grade"] != "S"
     assert "insufficient_catalyst_or_deep_for_s" in result["score_gates"]
+
+
+def _mock_four_dims(monkeypatch, change_pct):
+    monkeypatch.setattr(fds, "score_technical",
+                        lambda *a, **k: {"score": 9.0, "ma5": 10.0, "price": 10.0, "detail": "s"})
+    monkeypatch.setattr(fds, "score_sentiment",
+                        lambda *a, **k: {"score": 9.0, "change_pct": change_pct, "detail": "涨停"})
+    monkeypatch.setattr(fds, "score_catalyst",
+                        lambda *a, **k: {"score": 8.0, "available": True, "news_count": 3, "detail": "ok"})
+    monkeypatch.setattr(fds, "score_deep",
+                        lambda *a, **k: {"score": 8.0, "source": "serenity_deep", "pe": 30.0, "detail": "ok"})
+
+
+def test_chase_limitup_gate_suppresses_daban_lane(monkeypatch, tmp_path):
+    # daban 通道追当日已涨停票 → 追涨停护栏触发、降级（issue #28 证伪结论落地）
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _mock_four_dims(monkeypatch, change_pct=10.0)
+    result = fds.score_stock("600001", "测试股", quote=_quote(), klines=_klines(),
+                             market_ctx={}, strategy_id="daban:first_board_reseal")
+    assert "chase_limitup_negative_ev" in result["score_gates"]
+    assert result["grade"] not in ("S", "A")   # 追涨停被抑制，不给高评级
+
+
+def test_chase_gate_skips_trend_lane_on_limit_up(monkeypatch, tmp_path):
+    # trend 通道即使当日涨停也不触发（trend 不追板，护栏只管 daban）
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _mock_four_dims(monkeypatch, change_pct=10.0)
+    result = fds.score_stock("600001", "测试股", quote=_quote(), klines=_klines(),
+                             market_ctx={}, strategy_id="trend_pullback")
+    assert "chase_limitup_negative_ev" not in result["score_gates"]
+
+
+def test_chase_gate_skips_daban_when_not_limit_up(monkeypatch, tmp_path):
+    # daban 通道但当日未涨停(+5%) → 不触发，正常打板预判不受影响
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _mock_four_dims(monkeypatch, change_pct=5.0)
+    result = fds.score_stock("600001", "测试股", quote=_quote(), klines=_klines(),
+                             market_ctx={}, strategy_id="daban:first_board_reseal")
+    assert "chase_limitup_negative_ev" not in result["score_gates"]
