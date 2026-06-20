@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 charts = ["matplotlib>=3.7"]
 fundamentals = ["baostock>=0.9"]
+deephistory = ["mootdx>=0.11"]   # 通达信 TCP 深历史回测源（akshare 免费仅最近 3-4 周）
 research = ["pypdf>=3.0"]
 dev = ["pytest>=7.0", "ruff>=0.1"]
 
