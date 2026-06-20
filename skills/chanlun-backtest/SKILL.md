@@ -118,6 +118,7 @@ $PY $SDIR/chan_structure.py 000001 --days 120
 
 `scripts/chan_signal_backtest.py` 分别验证四个可执行信号 ID。它按历史 K 线逐日前推，
 只在信号首次可观察后的下一交易日开盘入场，禁止用结构信号所指向的历史 K 线价格入场。
+买入后最早在再下一个交易日收盘计 T+1 收益，不能用买入当天收盘模拟卖出。
 三卖/顶背驰使用方向归一化收益，价格下跌才记为正收益，但其角色是验证
 “应回避/阻断买入”的预测能力，不宣称 A 股个股可直接做空。多空两类收益都扣同方向的
 成本拖累，禁止把成本反号变成熊信号的虚假正收益；多头样本还会排除下一日不可成交的一字板。
@@ -127,6 +128,7 @@ $PY $SDIR/chan_signal_backtest.py \
   --input chan_research_dataset.json \
   --split 2025-01-01 \
   --min-oos-samples 30 \
+  --artifact-dir chan-oos-artifacts \
   --register \
   --json
 ```
@@ -136,6 +138,23 @@ $PY $SDIR/chan_signal_backtest.py \
 样本不足会被研究闸门直接阻断。`--register` 会把规则、切分日和数据集指纹写入
 `chanlun_oos_runs.json`；相同输入可幂等重跑，但更换规则、切分或数据后不能覆盖既有 OOS，
 必须使用版本化策略 ID 和新的留出集重新立项。
+
+## 完整组合级回放
+
+单因子均值不能代表系统选股能力。`portfolio_backtest.py` 对决策时已经落盘的候选快照
+执行逐日组合回放，统一处理 Top N、现金/仓位、100 股整数手、成本滑点、一字板、停牌、
+A 股 T+1、基准和逐维消融：
+
+```bash
+$PY $SDIR/portfolio_backtest.py \
+  --input portfolio_backtest_input.json \
+  --split 2025-01-01 \
+  --artifact portfolio_backtest_oos.json \
+  --json
+```
+
+禁止用今天的数据重建过去候选。完整输入契约、证据边界和旧打板缓存迁移方式见
+`docs/portfolio-research-protocol.md`。
 
 **信号过闸才计权（铁律）：** chan_structure 只产出"研究假设"信号。四维技术面对这些信号，
 在对应 `strategy_id` 通过 `research_gate --register`（写入 `strategy_registry`，

@@ -66,6 +66,30 @@ def bootstrap_ci_mean(returns: Sequence[float], n_boot: int = 10000,
     return lo, hi
 
 
+def cluster_bootstrap_mean(values: Sequence[float], n_boot: int = 10000,
+                           ci: float = 0.95, seed: int = 42) -> Tuple[float, float]:
+    """Bootstrap already-clustered observations, such as one portfolio return per day."""
+    return bootstrap_ci_mean(values, n_boot=n_boot, ci=ci, seed=seed)
+
+
+def sign_flip_test_mean(values: Sequence[float], n_perm: int = 10000,
+                        seed: int = 42) -> Dict[str, float]:
+    """One-sided paired sign-flip test for mean(values) > 0."""
+    arr = _arr(values)
+    if arr.size == 0:
+        return {"observed_mean": 0.0, "p_value": 1.0}
+    observed = float(arr.mean())
+    if observed <= 0:
+        return {"observed_mean": observed, "p_value": 1.0}
+    rng = np.random.default_rng(seed)
+    count = 0
+    for _ in range(n_perm):
+        signs = rng.choice((-1.0, 1.0), size=arr.size)
+        if float((arr * signs).mean()) >= observed - 1e-12:
+            count += 1
+    return {"observed_mean": observed, "p_value": float((count + 1) / (n_perm + 1))}
+
+
 def permutation_test_diff(signal: Sequence[float], control: Sequence[float],
                           n_perm: int = 10000, seed: int = 42) -> Dict[str, float]:
     """

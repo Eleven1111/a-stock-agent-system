@@ -23,6 +23,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common")
 from a_stock_http import fetch_tencent_kline, DataSourceError  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
 from paths import data_file  # noqa: E402
+from tradeability import limit_pct, round_limit  # noqa: E402
+
+
+EVENT_SCHEMA = "daban_bt_event_table_v2"
 
 
 def market_prefix(code: str) -> str:
@@ -55,6 +59,46 @@ def kline_lookup(kline: List[Dict[str, Any]], date: str
     return None
 
 
+def kline_pair_lookup(
+    kline: List[Dict[str, Any]], date: str
+) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Return complete signal-day and T+1 bars for execution checks."""
+    target = _norm_date(date)
+    for index, bar in enumerate(kline):
+        if _norm_date(bar.get("date")) == target:
+            if index + 1 >= len(kline):
+                return None
+            return dict(bar), dict(kline[index + 1])
+    return None
+
+
+def first_sellable_exit(
+    kline: List[Dict[str, Any]],
+    entry_index: int,
+    code: str,
+    name: str,
+    minimum_holding_sessions: int = 1,
+) -> Optional[Tuple[Dict[str, Any], int]]:
+    """Find the first close that can be sold after the A-share T+1 boundary."""
+    start = entry_index + minimum_holding_sessions
+    for index in range(start, len(kline)):
+        bar = kline[index]
+        if float(bar.get("volume", 0) or 0) <= 0:
+            continue
+        previous_close = float(kline[index - 1].get("close", 0) or 0)
+        if previous_close <= 0:
+            continue
+        down = round_limit(previous_close, limit_pct(str(code).zfill(6), name), up=False)
+        one_price_limit_down = all(
+            abs(float(bar.get(field, 0) or 0) - down) < 0.01
+            for field in ("open", "high", "low", "close")
+        )
+        if one_price_limit_down:
+            continue
+        return dict(bar), index - entry_index
+    return None
+
+
 def assemble_events(raw_events: List[Dict[str, Any]],
                     kline_by_code: Dict[str, List[Dict[str, Any]]]
                     ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
@@ -70,11 +114,29 @@ def assemble_events(raw_events: List[Dict[str, Any]],
         if not kline:
             dropped["no_kline"] += 1
             continue
-        looked = kline_lookup(kline, ev.get("date"))
-        if looked is None:
+        pair = kline_pair_lookup(kline, ev.get("date"))
+        if pair is None:
             dropped["no_next_day"] += 1
             continue
-        t_close, t1_open, t1_close = looked
+        current, nxt = pair
+        entry_index = next(
+            index for index, bar in enumerate(kline)
+            if _norm_date(bar.get("date")) == _norm_date(nxt.get("date"))
+        )
+        sellable = first_sellable_exit(
+            kline,
+            entry_index,
+            code,
+            str(ev.get("name") or ""),
+        )
+        if sellable is None:
+            dropped.setdefault("no_sellable_exit", 0)
+            dropped["no_sellable_exit"] += 1
+            continue
+        exit_bar, holding_sessions = sellable
+        t_close = float(current["close"])
+        t1_open = float(nxt["open"])
+        t1_close = float(nxt["close"])
         out.append({
             "code": code,
             "name": ev.get("name", code),
@@ -82,6 +144,13 @@ def assemble_events(raw_events: List[Dict[str, Any]],
             "t_close": t_close,
             "t1_open": t1_open,
             "t1_close": t1_close,
+            "entry_date": _norm_date(nxt.get("date")),
+            "t1_high": float(nxt.get("high", max(t1_open, t1_close))),
+            "t1_low": float(nxt.get("low", min(t1_open, t1_close))),
+            "t1_volume": float(nxt.get("volume", 0) or 0),
+            "exit_date": _norm_date(exit_bar.get("date")),
+            "exit_close": float(exit_bar["close"]),
+            "holding_sessions": holding_sessions,
             "first_seal": ev.get("first_seal"),
             "lianban": ev.get("lianban"),
             "seal_amount": ev.get("seal_amount"),
@@ -244,7 +313,7 @@ def build_event_table(start: str, end: str, use_cache: bool = True,
     cache = data_file("chanlun-backtest", f"event_table_{source}_{start}_{end}.json")
     if use_cache:
         cached = read_json(cache, default=None)
-        if cached:
+        if isinstance(cached, dict) and cached.get("schema") == EVENT_SCHEMA:
             return cached
 
     raw = fetch_limitup_events(start, end, source=source)
@@ -261,7 +330,7 @@ def build_event_table(start: str, end: str, use_cache: bool = True,
         klines = fetch_klines(codes, days=_auto_days(start))
     events, dropped = assemble_events(raw, klines)
     result = {
-        "schema": "daban_bt_event_table_v1",
+        "schema": EVENT_SCHEMA,
         "source": source,
         "start": start, "end": end,
         "raw_count": len(raw), "event_count": len(events), "dropped": dropped,

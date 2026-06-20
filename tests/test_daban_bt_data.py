@@ -11,9 +11,10 @@ SPEC.loader.exec_module(dat)
 
 def _kline():
     return [
-        {"date": "2026-06-02", "open": 9.5, "close": 9.8},
-        {"date": "2026-06-03", "open": 9.9, "close": 10.0},   # T
-        {"date": "2026-06-04", "open": 10.2, "close": 10.6},  # T+1
+        {"date": "2026-06-02", "open": 9.5, "high": 9.9, "low": 9.4, "close": 9.8, "volume": 90},
+        {"date": "2026-06-03", "open": 9.9, "high": 10.0, "low": 9.8, "close": 10.0, "volume": 100},
+        {"date": "2026-06-04", "open": 10.2, "high": 10.7, "low": 10.1, "close": 10.6, "volume": 120},
+        {"date": "2026-06-05", "open": 10.5, "high": 11.0, "low": 10.4, "close": 10.9, "volume": 130},
     ]
 
 
@@ -34,7 +35,7 @@ def test_kline_lookup_returns_t_and_next():
 
 
 def test_kline_lookup_last_bar_has_no_next():
-    assert dat.kline_lookup(_kline(), "2026-06-04") is None
+    assert dat.kline_lookup(_kline(), "2026-06-05") is None
 
 
 def test_kline_lookup_missing_date():
@@ -47,13 +48,17 @@ def test_assemble_events_joins_and_counts_drops():
          "lianban": 2, "seal_amount": 3.8e8, "float_mktcap": 7.9e9, "所属行业": "金属",
          "sector": "金属新材", "is_st": False},
         {"code": "600256", "name": "无K线票", "date": "20260603", "first_seal": "100000"},
-        {"code": "600255", "name": "鑫科材料", "date": "20260604", "first_seal": "092500"},  # 末日无次日
+        {"code": "600255", "name": "鑫科材料", "date": "20260605", "first_seal": "092500"},  # 末日无次日
     ]
     kline_by_code = {"600255": _kline()}
     events, dropped = dat.assemble_events(raw, kline_by_code)
     assert len(events) == 1
     e = events[0]
     assert e["t_close"] == 10.0 and e["t1_open"] == 10.2 and e["t1_close"] == 10.6
+    assert e["t1_high"] == 10.7 and e["t1_low"] == 10.1 and e["t1_volume"] == 120
+    assert e["entry_date"] == "2026-06-04"
+    assert e["exit_date"] == "2026-06-05" and e["exit_close"] == 10.9
+    assert e["holding_sessions"] == 1
     assert e["first_seal"] == "092500" and e["sector"] == "金属新材"
     assert dropped["no_kline"] == 1      # 600256 无 K 线
     assert dropped["no_next_day"] == 1   # 600255@06-04 末日无次日

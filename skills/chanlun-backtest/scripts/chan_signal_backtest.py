@@ -29,6 +29,7 @@ import daban_bt_engine as engine  # noqa: E402
 import daban_bt_stats as stats  # noqa: E402
 import research_gate  # noqa: E402
 from paths import data_file  # noqa: E402
+from research_artifact import verify_artifact, write_artifact  # noqa: E402
 from state_store import mutate_json  # noqa: E402
 from tradeability import assess_tradeability  # noqa: E402
 
@@ -42,7 +43,7 @@ STRATEGY_DIRECTIONS = {
 REQUIRED_CONTROLS = ["random_entry", "simple_breakout", "buy_hold"]
 REQUIRED_TESTS = ["t_test", "bootstrap", "permutation"]
 RUN_REGISTRY_FILE = data_file("stock-triage", "chanlun_oos_runs.json")
-RULES_VERSION = "chan-walk-forward-v1"
+RULES_VERSION = "chan-walk-forward-v2"
 
 
 ROUND_TRIP_COST = -engine.net_return(1.0, 1.0)
@@ -72,12 +73,14 @@ def _benchmark_returns(
     output = {}
     rows = list(bars or [])
     for index, bar in enumerate(rows):
+        if index + 1 >= len(rows):
+            continue
         try:
             entry = float(bar["open"])
-            t1 = float(bar["close"]) / entry - 1.0
+            t1 = float(rows[index + 1]["close"]) / entry - 1.0
             t3 = (
-                float(rows[index + 2]["close"]) / entry - 1.0
-                if index + 2 < len(rows)
+                float(rows[index + 3]["close"]) / entry - 1.0
+                if index + 3 < len(rows)
                 else None
             )
         except (KeyError, TypeError, ValueError):
@@ -92,13 +95,13 @@ def _control_event(
     detected_idx: int,
     direction: str,
 ) -> dict[str, Any] | None:
-    if detected_idx + 1 >= len(bars):
+    if detected_idx + 2 >= len(bars):
         return None
     entry = bars[detected_idx + 1]
     if direction == "bullish":
         tradeability = assess_tradeability(
             {
-                "price": entry.get("close"),
+                "price": entry.get("open"),
                 "prev_close": bars[detected_idx].get("close"),
                 "open": entry.get("open"),
                 "high": entry.get("high"),
@@ -112,16 +115,16 @@ def _control_event(
     try:
         raw_t1 = _directional_net_return(
             float(entry["open"]),
-            float(entry["close"]),
+            float(bars[detected_idx + 2]["close"]),
             direction,
         )
         raw_t3 = (
             _directional_net_return(
                 float(entry["open"]),
-                float(bars[detected_idx + 3]["close"]),
+                float(bars[detected_idx + 4]["close"]),
                 direction,
             )
-            if detected_idx + 3 < len(bars)
+            if detected_idx + 4 < len(bars)
             else None
         )
     except (KeyError, TypeError, ValueError):
@@ -205,7 +208,7 @@ def extract_signal_events(
     benchmark = benchmark_by_date or {}
     events = []
     seen = set()
-    for detected_idx in range(4, len(bars) - 1):
+    for detected_idx in range(4, len(bars) - 2):
         result = analyze(bars[:detected_idx + 1])
         for raw in result.get("signals") or []:
             strategy_id = str(raw.get("strategy_id") or "")
@@ -225,7 +228,7 @@ def extract_signal_events(
             if direction == "bullish":
                 tradeability = assess_tradeability(
                     {
-                        "price": entry.get("close"),
+                        "price": entry.get("open"),
                         "prev_close": bars[detected_idx].get("close"),
                         "open": entry.get("open"),
                         "high": entry.get("high"),
@@ -239,14 +242,14 @@ def extract_signal_events(
             entry_price = float(entry["open"])
             raw_t1 = _directional_net_return(
                 entry_price,
-                float(entry["close"]),
+                float(bars[entry_idx + 1]["close"]),
                 direction,
             )
             raw_t3 = None
-            if detected_idx + 3 < len(bars):
+            if entry_idx + 3 < len(bars):
                 raw_t3 = _directional_net_return(
                     entry_price,
-                    float(bars[detected_idx + 3]["close"]),
+                    float(bars[entry_idx + 3]["close"]),
                     direction,
                 )
             control = benchmark.get(str(entry.get("date") or ""), {})
@@ -263,6 +266,12 @@ def extract_signal_events(
                 "detection_date": bars[detected_idx].get("date"),
                 "entry_date": entry.get("date"),
                 "entry_price": entry_price,
+                "t1_exit_date": bars[entry_idx + 1].get("date"),
+                "t3_exit_date": (
+                    bars[entry_idx + 3].get("date")
+                    if entry_idx + 3 < len(bars)
+                    else None
+                ),
                 "t1_return": raw_t1,
                 "t3_return": raw_t3,
                 "control_t1_return": _directional_net_from_gross(
@@ -561,6 +570,64 @@ def analyze_payload(
     return result
 
 
+def persist_evidence(
+    result: dict[str, Any],
+    *,
+    input_path: str,
+    artifact_dir: str,
+) -> dict[str, Any]:
+    """Write and re-verify one evidence artifact per independently gated signal."""
+    output = json.loads(json.dumps(result, ensure_ascii=False, default=str))
+    protocol = dict(output.get("research_protocol") or {})
+    for strategy_id, item in output.get("strategies", {}).items():
+        state = dict(item.get("research_state") or {})
+        primary = ((item.get("variants") or {}).get("t1") or {}).get("oos") or {}
+        controls = primary.get("controls") or {}
+        control_counts = {
+            name: int((summary or {}).get("n", 0))
+            for name, summary in controls.items()
+        }
+        metrics = {
+            field: state.get(field)
+            for field in (
+                "permutation_p",
+                "fdr_p",
+                "oos_alpha",
+                "benchmark_alpha",
+                "oos_sample_count",
+            )
+        }
+        artifact_path = os.path.abspath(os.path.join(artifact_dir, f"{strategy_id}.json"))
+        artifact = write_artifact(
+            artifact_path,
+            input_path=input_path,
+            strategy_id=strategy_id,
+            rules={
+                "rules_version": RULES_VERSION,
+                "strategy_id": strategy_id,
+                "direction": STRATEGY_DIRECTIONS.get(strategy_id),
+                **protocol,
+            },
+            result={
+                "research_protocol": protocol,
+                "strategy": item,
+            },
+            gate_metrics=metrics,
+            control_counts=control_counts,
+        )
+        state.update({
+            "evidence_artifact": artifact_path,
+            "evidence_sha256": artifact["artifact_sha256"],
+        })
+        item["research_state"] = state
+        item["gate_result"] = research_gate.evaluate_gate(state)
+        item["evidence"] = {
+            "artifact": artifact_path,
+            "sha256": artifact["artifact_sha256"],
+        }
+    return output
+
+
 def register_oos_results(
     result: dict[str, Any],
     *,
@@ -572,6 +639,24 @@ def register_oos_results(
     required = {"split_date", "rules_fingerprint", "dataset_fingerprint"}
     if not required.issubset(protocol):
         return {"status": "blocked", "reason": "missing research protocol fingerprints"}
+    for strategy_id, item in result.get("strategies", {}).items():
+        state = item.get("research_state") or {}
+        evidence_path = state.get("evidence_artifact")
+        if not evidence_path:
+            return {"status": "blocked", "reason": f"missing evidence artifact for {strategy_id}"}
+        verification = verify_artifact(
+            str(evidence_path),
+            expected_sha256=state.get("evidence_sha256"),
+        )
+        if not verification["valid"]:
+            return {
+                "status": "blocked",
+                "reason": f"invalid evidence artifact for {strategy_id}: {verification['errors']}",
+            }
+        fresh_gate = research_gate.evaluate_gate(state)
+        item["gate_result"] = fresh_gate
+        if fresh_gate.get("decision") == "blocked":
+            return {"status": "blocked", "reason": f"evidence gate blocked for {strategy_id}"}
     run_file = registry_file or RUN_REGISTRY_FILE
     outcome: dict[str, Any] = {}
 
@@ -624,8 +709,11 @@ def main() -> int:
     parser.add_argument("--min-oos-samples", type=int, default=30)
     parser.add_argument("--permutations", type=int, default=5000)
     parser.add_argument("--register", action="store_true")
+    parser.add_argument("--artifact-dir", help="每个策略的 OOS 证据产物目录；--register 时必需")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    if args.register and not args.artifact_dir:
+        parser.error("--register requires --artifact-dir")
 
     with open(args.input, encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -635,6 +723,12 @@ def main() -> int:
         min_oos_samples=args.min_oos_samples,
         n_perm=args.permutations,
     )
+    if args.artifact_dir:
+        result = persist_evidence(
+            result,
+            input_path=args.input,
+            artifact_dir=args.artifact_dir,
+        )
     if args.register:
         result["formal_registration"] = register_oos_results(result)
     print(json.dumps(result, ensure_ascii=False, indent=2))
