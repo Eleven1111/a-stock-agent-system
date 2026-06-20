@@ -1,42 +1,67 @@
 #!/usr/bin/env python3
-"""
-Trading-day gate for OpenClaw cron jobs.
+"""Fail-closed A-share trading-day policy for scheduled jobs."""
 
-Usage in cron payload message:
-    python skills/common/trading_day_gate.py && <your actual command>
+from __future__ import annotations
 
-Exit 0 → trading day, proceed
-Exit 1 → not a trading day, cron should skip silently
+import argparse
+import json
+from typing import Any, Mapping
 
-Supports --force to override (for testing).
-"""
-import sys
-from datetime import date
-from pathlib import Path
-
-# Add skills/common to path
-sys.path.insert(0, str(Path(__file__).parent))
-
-from a_share_rules import is_trading_day, CalendarCoverageError
+from a_share_rules import CalendarCoverageError, is_trading_day
 
 
-def main():
-    if "--force" in sys.argv:
-        print("force=true, skipping gate")
-        return 0
+VALID_POLICIES = {"required", "calendar_day"}
 
-    today = date.today()
+
+def evaluate_job_trading_day(
+    job: Mapping[str, Any],
+    calendar_date: str,
+) -> dict[str, Any]:
+    """Return run, skip, or block without changing process state."""
+    policy = str(job.get("trading_day_policy") or "required")
+    if policy not in VALID_POLICIES:
+        return {
+            "action": "block",
+            "calendar_date": calendar_date,
+            "policy": policy,
+            "reason": "invalid_policy",
+        }
+    if policy == "calendar_day":
+        return {
+            "action": "run",
+            "calendar_date": calendar_date,
+            "policy": policy,
+            "reason": None,
+        }
     try:
-        if is_trading_day(today):
-            return 0
-        else:
-            print(f"⛔ {today.isoformat()} is not a trading day (holiday/weekend), skipping.")
-            return 1
-    except CalendarCoverageError as e:
-        print(f"⚠️ Calendar coverage error: {e}")
-        # Fail open on coverage gap — better to run than to silently skip
-        return 0
+        trading_day = is_trading_day(calendar_date)
+    except (CalendarCoverageError, ValueError):
+        return {
+            "action": "block",
+            "calendar_date": calendar_date,
+            "policy": policy,
+            "reason": "calendar_uncovered",
+        }
+    return {
+        "action": "run" if trading_day else "skip",
+        "calendar_date": calendar_date,
+        "policy": policy,
+        "reason": None if trading_day else "non_trading_day",
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("calendar_date")
+    parser.add_argument("--policy", choices=sorted(VALID_POLICIES), default="required")
+    args = parser.parse_args()
+    result = evaluate_job_trading_day(
+        {"trading_day_policy": args.policy},
+        args.calendar_date,
+    )
+    print(json.dumps(result, ensure_ascii=False))
+    return 75 if result["action"] == "block" else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

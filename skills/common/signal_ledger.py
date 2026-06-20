@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Iterable, Mapping, Optional
 
-from paths import data_file
+from paths import backup_home, data_file, hermes_home
 from state_store import file_lock
 
 
@@ -137,10 +137,88 @@ def _read_events_unlocked(ledger_file: str) -> list[dict[str, Any]]:
     return events
 
 
+def _ledger_backup_path(ledger_file: str) -> str | None:
+    root = os.path.abspath(os.path.expanduser(hermes_home()))
+    path = os.path.abspath(os.path.expanduser(ledger_file))
+    try:
+        if os.path.commonpath([root, path]) != root:
+            return None
+    except ValueError:
+        return None
+    if os.path.basename(path) != "signal_ledger.jsonl":
+        return None
+    return os.path.join(backup_home(), os.path.relpath(path, root))
+
+
+def _sync_ledger_backup_unlocked(ledger_file: str) -> None:
+    backup = _ledger_backup_path(ledger_file)
+    if backup is None:
+        return
+    events = _read_events_unlocked(ledger_file)
+    try:
+        with file_lock(backup):
+            mirrored_ids = {
+                event.get("event_id")
+                for event in _read_events_unlocked(backup)
+            }
+            missing = [
+                event for event in events
+                if event.get("event_id") not in mirrored_ids
+            ]
+            if not missing:
+                return
+            os.makedirs(os.path.dirname(backup), mode=0o700, exist_ok=True)
+            with open(backup, "a", encoding="utf-8") as handle:
+                for event in missing:
+                    handle.write(json.dumps(event, ensure_ascii=False, default=str))
+                    handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(backup, 0o600)
+    except (OSError, TimeoutError):
+        return
+
+
+def _restore_ledger_unlocked(ledger_file: str) -> bool:
+    backup = _ledger_backup_path(ledger_file)
+    if backup is None or not os.path.exists(backup):
+        return False
+    try:
+        with file_lock(backup):
+            events = _read_events_unlocked(backup)
+        if not events:
+            return False
+        os.makedirs(os.path.dirname(ledger_file), exist_ok=True)
+        temporary = f"{ledger_file}.{os.getpid()}.restore.tmp"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            for event in events:
+                handle.write(json.dumps(event, ensure_ascii=False, default=str))
+                handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, ledger_file)
+        return True
+    except (OSError, TimeoutError):
+        return False
+
+
 def read_events(ledger_file: Optional[str] = None) -> list[dict[str, Any]]:
     path = ledger_file or LEDGER_FILE
     with file_lock(path):
+        if not os.path.exists(path):
+            _restore_ledger_unlocked(path)
         return _read_events_unlocked(path)
+
+
+def sync_backup(ledger_file: Optional[str] = None) -> str | None:
+    """Reconcile the canonical ledger mirror and return its path."""
+    path = ledger_file or LEDGER_FILE
+    with file_lock(path):
+        if not os.path.exists(path):
+            _restore_ledger_unlocked(path)
+        if os.path.exists(path):
+            _sync_ledger_backup_unlocked(path)
+    return _ledger_backup_path(path)
 
 
 def append_events(
@@ -153,6 +231,8 @@ def append_events(
     if not normalized:
         return []
     with file_lock(path):
+        if not os.path.exists(path):
+            _restore_ledger_unlocked(path)
         existing_ids = {
             event.get("event_id")
             for event in _read_events_unlocked(path)
@@ -172,6 +252,7 @@ def append_events(
                 handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+        _sync_ledger_backup_unlocked(path)
         return appended
 
 

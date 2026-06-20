@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from config_registry import config_path
+
 
 DEFAULTS: Dict[str, Any] = {
     "providers": {
@@ -187,7 +189,7 @@ DEFAULTS: Dict[str, Any] = {
     },
 }
 
-CONFIG_FILE = Path(__file__).resolve().parents[2] / "config" / "data_access.json"
+CONFIG_FILE = config_path("data_access")
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:

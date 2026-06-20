@@ -9,7 +9,9 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from typing import Any, Mapping, Optional
+from zoneinfo import ZoneInfo
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
@@ -21,6 +23,7 @@ from runtime_context import (  # noqa: E402
     resolve_runtime_name,
     resolve_trading_date,
 )
+from trading_day_gate import evaluate_job_trading_day  # noqa: E402
 
 
 def _load_manifest(path: str) -> dict[str, Any]:
@@ -125,15 +128,84 @@ def execute_dag(
 ) -> dict[str, Any]:
     manifest_path = os.path.abspath(manifest_path)
     manifest = _load_manifest(manifest_path)
-    jobs = {job["id"]: job for job in manifest.get("jobs", [])}
-    day = resolve_trading_date(trading_date)
-    batch = batch_id or make_batch_id(day)
-    order = execution_order(jobs, targets)
+    default_day_policy = manifest.get("default_trading_day_policy", "required")
+    jobs = {
+        job["id"]: {"trading_day_policy": default_day_policy, **job}
+        for job in manifest.get("jobs", [])
+    }
     run_env = dict(env or os.environ)
     runtime = resolve_runtime_name(runtime, run_env)
     run_env["A_STOCK_RUNTIME"] = runtime
+    calendar_date = (
+        str(trading_date)[:10]
+        if trading_date
+        else datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    )
+    active_targets: list[str] = []
     runs: list[dict[str, Any]] = []
-    target_set = set(targets)
+    for target in targets:
+        if target not in jobs:
+            raise ValueError(f"unknown DAG job: {target}")
+        gate = evaluate_job_trading_day(jobs[target], calendar_date)
+        if gate["action"] == "run":
+            active_targets.append(target)
+            continue
+        command = [
+            sys.executable,
+            os.path.join(ROOT, "scripts", "agent_job_runner.py"),
+            target,
+            "--manifest",
+            manifest_path,
+            "--calendar-date",
+            calendar_date,
+            "--runtime",
+            runtime,
+        ]
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=run_env,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode == 78:
+            run_status = "blocked_state"
+        elif completed.returncode == 75:
+            run_status = "blocked_calendar"
+        else:
+            run_status = (
+                "skipped_non_trading_day"
+                if gate["action"] == "skip"
+                else "blocked_calendar"
+            )
+        runs.append({
+            "job_id": target,
+            "status": run_status,
+            "returncode": completed.returncode,
+            "stderr": completed.stderr[-1000:],
+        })
+
+    if not active_targets:
+        blocked = any(run["returncode"] != 0 for run in runs)
+        result_day = (
+            str(trading_date or calendar_date)[:10]
+            if blocked
+            else resolve_trading_date(trading_date or calendar_date)
+        )
+        return {
+            "schema": "a_stock_dag_run_v1",
+            "status": "blocked" if blocked else "skipped_non_trading_day",
+            "runtime": runtime,
+            "trading_date": result_day,
+            "batch_id": batch_id or make_batch_id(result_day),
+            "targets": targets,
+            "runs": runs,
+        }
+
+    day = resolve_trading_date(trading_date or calendar_date)
+    batch = batch_id or make_batch_id(day)
+    order = execution_order(jobs, active_targets)
+    target_set = set(active_targets)
 
     for job_id in order:
         existing = _load_artifact(
@@ -160,6 +232,8 @@ def execute_dag(
             manifest_path,
             "--trading-date",
             day,
+            "--calendar-date",
+            calendar_date,
             "--batch-id",
             batch,
             "--runtime",
@@ -262,7 +336,9 @@ def main() -> None:
         max_attempts=args.max_attempts,
         reuse_targets=args.reuse_targets,
     )
-    if args.emit_target and result["status"] == "ok" and len(args.targets) == 1:
+    if args.emit_target and result["status"] == "skipped_non_trading_day":
+        print("NO_REPLY")
+    elif args.emit_target and result["status"] == "ok" and len(args.targets) == 1:
         artifact = _load_artifact(
             args.targets[0],
             trading_date=result["trading_date"],
@@ -275,7 +351,9 @@ def main() -> None:
             sys.stdout.write("\n")
     else:
         print(json.dumps(result, ensure_ascii=False, indent=2))
-    raise SystemExit(0 if result["status"] == "ok" else 1)
+    raise SystemExit(
+        0 if result["status"] in {"ok", "skipped_non_trading_day"} else 1
+    )
 
 
 if __name__ == "__main__":

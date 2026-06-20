@@ -2,8 +2,37 @@
   "version": "1.2",
   "description": "A股Agent系统运行清单 — Hermes/OpenClaw 共用 DAG 与状态协议",
   "timezone": "Asia/Shanghai",
+  "default_trading_day_policy": "required",
   "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
   "jobs": [
+    {
+      "id": "provider-health",
+      "name": "外部数据源健康探针",
+      "schedule": "5 8 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py provider-health --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 3000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/provider-health/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/provider_doctor.py --json",
+        "cwd": ".",
+        "timeout_seconds": 90
+      },
+      "external_note": "按数据集探测腾讯、东财push2his、涨停池、同花顺行业和全A行情，不按AkShare库名整体判定"
+    },
     {
       "id": "global-preopen",
       "name": "全球市场盘前扫描",
@@ -762,6 +791,7 @@
       "name": "机构行为追踪（周报）",
       "schedule": "0 10 * * 6",
       "timezone": "Asia/Shanghai",
+      "trading_day_policy": "calendar_day",
       "command": "python scripts/run_agent_dag.py institution-weekly --emit-target",
       "cwd": ".",
       "enabled": true,
@@ -790,6 +820,7 @@
       "name": "事件日历提醒",
       "schedule": "0 8 * * 1",
       "timezone": "Asia/Shanghai",
+      "trading_day_policy": "calendar_day",
       "command": "python scripts/run_agent_dag.py event-calendar --emit-target",
       "cwd": ".",
       "enabled": true,
@@ -885,6 +916,7 @@
       "name": "胜率统计（周报）",
       "schedule": "0 10 * * 7",
       "timezone": "Asia/Shanghai",
+      "trading_day_policy": "calendar_day",
       "command": "python scripts/run_agent_dag.py performance-weekly --emit-target",
       "cwd": ".",
       "enabled": true,

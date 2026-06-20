@@ -34,6 +34,7 @@ def _base_job(job_id, deliver="origin"):
         "deliver": deliver,
         "max_output_chars": 2000,
         "context_from": [],
+        "trading_day_policy": "calendar_day",
         "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
         "allowed_state_writes": [f"$HERMES_HOME/cron/output/{job_id}/"],
         "run": {"command": "", "cwd": ".", "timeout_seconds": 10},

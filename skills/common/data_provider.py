@@ -6,11 +6,17 @@ import urllib.parse
 from typing import Any, Dict, List, Optional
 
 try:
-    from .a_stock_http import parse_tencent_quote_line
+    from .a_stock_http import (
+        fetch_tencent_quotes_result as _fetch_tencent_quotes_result,
+        tencent_symbol as _tencent_symbol,
+    )
     from .data_access_config import provider_settings
     from .http_client import DataSourceError, ErrorType, HttpClient, HttpResult, build_request
 except ImportError:
-    from a_stock_http import parse_tencent_quote_line
+    from a_stock_http import (
+        fetch_tencent_quotes_result as _fetch_tencent_quotes_result,
+        tencent_symbol as _tencent_symbol,
+    )
     from data_access_config import provider_settings
     from http_client import DataSourceError, ErrorType, HttpClient, HttpResult, build_request
 
@@ -33,10 +39,7 @@ def provider_client(source: str) -> HttpClient:
 
 
 def tencent_symbol(code: str) -> str:
-    normalized = str(code).strip().lower()
-    if normalized.startswith(("sh", "sz", "hk")):
-        return normalized
-    return ("sh" if normalized.startswith("6") else "sz") + normalized.zfill(6)
+    return _tencent_symbol(code)
 
 
 def fetch_tencent_quotes(
@@ -44,31 +47,7 @@ def fetch_tencent_quotes(
     *,
     client: Optional[HttpClient] = None,
 ) -> HttpResult[Dict[str, Dict[str, Any]]]:
-    symbols = [tencent_symbol(code) for code in codes]
-    request = build_request(
-        "http://qt.gtimg.cn/q=" + ",".join(symbols),
-        headers={"User-Agent": "Mozilla/5.0"},
-    )
-    response = (client or provider_client("tencent")).request_text(request, encoding="gbk")
-    quotes: Dict[str, Dict[str, Any]] = {}
-    for line in response.data.strip().splitlines():
-        parsed = parse_tencent_quote_line(line)
-        if not parsed:
-            continue
-        quotes[parsed["code"]] = {
-            **parsed["fields"],
-            "provider": "tencent",
-            "fetched_at": response.fetched_at,
-        }
-    if not quotes:
-        raise DataSourceError(
-            "tencent",
-            "no valid quote records",
-            error_type=ErrorType.INVALID_RESPONSE,
-            attempts=response.attempts,
-            timestamp=response.fetched_at,
-        )
-    return HttpResult(quotes, response.fetched_at, response.attempts)
+    return _fetch_tencent_quotes_result(codes, client=client)
 
 
 def fetch_tencent_quote(

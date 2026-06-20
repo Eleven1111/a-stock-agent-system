@@ -25,6 +25,15 @@ from contextlib import contextmanager
 from typing import Any, Dict
 
 
+CRITICAL_JSON_FILES = {
+    "portfolio.json",
+    "trade_history.json",
+    "cash_flow.json",
+    "monitor_registry.json",
+    "strategy_registry.json",
+}
+
+
 def _ensure_dir(path: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
@@ -67,32 +76,125 @@ def file_lock(filepath: str, timeout: float = 10.0):
         os.close(fd)
 
 
+def _critical_relative_path(filepath: str) -> str | None:
+    try:
+        from paths import hermes_home
+
+        root = os.path.abspath(os.path.expanduser(hermes_home()))
+        path = os.path.abspath(os.path.expanduser(filepath))
+        if os.path.commonpath([root, path]) != root:
+            return None
+        if os.path.basename(path) not in CRITICAL_JSON_FILES:
+            return None
+        return os.path.relpath(path, root)
+    except (ImportError, OSError, ValueError):
+        return None
+
+
+def _critical_backup_dir(filepath: str) -> str | None:
+    relative = _critical_relative_path(filepath)
+    if relative is None:
+        return None
+    from paths import backup_home
+
+    return os.path.join(
+        backup_home(),
+        os.path.dirname(relative),
+        os.path.basename(relative) + ".versions",
+    )
+
+
+def _snapshot_critical_file(filepath: str) -> None:
+    backup_dir = _critical_backup_dir(filepath)
+    if backup_dir is None or not os.path.exists(filepath):
+        return
+    try:
+        with open(filepath, "r", encoding="utf-8") as handle:
+            json.load(handle)
+        os.makedirs(backup_dir, mode=0o700, exist_ok=True)
+        snapshot = os.path.join(
+            backup_dir,
+            f"{time.time_ns()}-{os.getpid()}.json",
+        )
+        shutil.copy2(filepath, snapshot)
+        os.chmod(snapshot, 0o600)
+        keep = max(1, int(os.environ.get("A_STOCK_BACKUP_KEEP", "20")))
+        snapshots = sorted(
+            (
+                os.path.join(backup_dir, name)
+                for name in os.listdir(backup_dir)
+                if name.endswith(".json")
+            ),
+            key=os.path.getmtime,
+            reverse=True,
+        )
+        for old in snapshots[keep:]:
+            os.unlink(old)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return
+
+
+def _backup_candidates(filepath: str) -> list[str]:
+    candidates: list[str] = []
+    backup_dir = _critical_backup_dir(filepath)
+    if backup_dir and os.path.isdir(backup_dir):
+        candidates.extend(
+            sorted(
+                (
+                    os.path.join(backup_dir, name)
+                    for name in os.listdir(backup_dir)
+                    if name.endswith(".json")
+                ),
+                key=os.path.getmtime,
+                reverse=True,
+            )
+        )
+    candidates.append(filepath + ".bak")
+    return candidates
+
+
+def _recover_json_unlocked(filepath: str) -> Any:
+    for candidate in _backup_candidates(filepath):
+        if not os.path.exists(candidate):
+            continue
+        try:
+            with open(candidate, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            _write_json_unlocked(filepath, data, create_backups=False)
+            return data
+        except (json.JSONDecodeError, OSError):
+            continue
+    raise FileNotFoundError(filepath)
+
+
 def _read_json_unlocked(filepath: str, default: Any = None) -> Any:
     """无锁读取 JSON（调用者必须已持有 file_lock）。返回解析后的对象，失败返回 default。"""
     if not os.path.exists(filepath):
-        return default
+        try:
+            return _recover_json_unlocked(filepath)
+        except FileNotFoundError:
+            return default
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError):
-        bak = filepath + ".bak"
-        if os.path.exists(bak):
-            try:
-                with open(bak, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                _write_json_unlocked(filepath, data)
-                return data
-            except (json.JSONDecodeError, OSError):
-                pass
-        return default
+        try:
+            return _recover_json_unlocked(filepath)
+        except FileNotFoundError:
+            return default
 
 
-def _write_json_unlocked(filepath: str, data: Any) -> None:
+def _write_json_unlocked(
+    filepath: str,
+    data: Any,
+    *,
+    create_backups: bool = True,
+) -> None:
     """无锁写入 JSON（调用者必须已持有 file_lock）。备份 + 临时写 + os.replace。"""
     content = json.dumps(data, ensure_ascii=False, indent=2, default=str)
     _ensure_dir(filepath)
 
-    if os.path.exists(filepath):
+    if create_backups and os.path.exists(filepath):
         try:
             shutil.copy2(filepath, filepath + ".bak")
         except OSError:
@@ -103,6 +205,8 @@ def _write_json_unlocked(filepath: str, data: Any) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
         os.replace(tmp, filepath)
+        if create_backups:
+            _snapshot_critical_file(filepath)
     except Exception:
         try:
             os.unlink(tmp)

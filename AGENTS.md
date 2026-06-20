@@ -54,12 +54,12 @@ Core ownership:
 | Immutable input evidence | `skills/common/market_snapshot.py` |
 | Strategy admission | `skills/common/strategy_registry.py` |
 | Recommendation and trade events | `skills/common/signal_ledger.py` |
-| Scheduled orchestration | `scripts/run_agent_dag.py`, `config/cron_jobs.yaml` |
+| Scheduled orchestration | `scripts/run_agent_dag.py`, `cron/hermes-cron-manifest.json` |
 | Deep research cache | `skills/common/deep_research_cache.py` |
 
 ## Scheduled Jobs
 
-- `config/cron_jobs.yaml` is the schedule source of truth.
+- `cron/hermes-cron-manifest.json` is the schedule source of truth.
 - Enabled commands must enter through
   `python scripts/run_agent_dag.py <job-id> --emit-target`.
 - Business scripts run in isolated child processes through

@@ -21,6 +21,7 @@ from a_stock_http import load_hermes_env
 from data_provider import fetch_tencent_quote
 from eastmoney_intelligence import eastmoney_json
 from http_client import DataSourceError, request_json
+from provider_contract import health_attempt, observation_error, observation_ok
 import runtime_targets
 
 load_hermes_env()
@@ -62,19 +63,68 @@ def load_runtime_sectors() -> tuple[list[tuple[str, str]], list[str]]:
 
 
 def fetch_eastmoney(url: str) -> Optional[Dict]:
-    """东方财富 API（需要 NO_PROXY）"""
+    """Legacy raw-payload facade retained for existing callers."""
+    observation = fetch_eastmoney_observation(url)
+    return observation.get("data") or {}
+
+
+def fetch_eastmoney_observation(url: str) -> Dict[str, Any]:
+    """Fetch Eastmoney while preserving transport and validation failures."""
     try:
-        return eastmoney_json(
-            url,
-            required_path=("data",),
-            required_type=dict,
+        return observation_ok(
+            "eastmoney",
+            eastmoney_json(
+                url,
+                required_path=("data",),
+                required_type=dict,
+            ),
         )
-    except (DataSourceError, AttributeError, TypeError):
-        return {}
+    except (DataSourceError, AttributeError, TypeError) as exc:
+        return observation_error("eastmoney", exc)
 
 
 def fetch_sina_northbound() -> Dict:
-    """新浪财经北向资金汇总"""
+    """Legacy raw-payload facade retained for existing callers."""
+    observation = fetch_sina_northbound_observation()
+    return observation.get("data") or {}
+
+
+def _as_number(value: Any) -> Optional[float]:
+    if value in (None, "", "-"):
+        return None
+    try:
+        return float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_sina_northbound(payload: Dict[str, Any]) -> Dict[str, Any]:
+    row = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    net = None
+    for key in (
+        "net_flow_yi",
+        "netFlow",
+        "net_flow",
+        "netInflow",
+        "northMoney",
+        "north_money",
+    ):
+        net = _as_number(row.get(key))
+        if net is not None:
+            break
+    if net is None:
+        raise ValueError("Sina northbound payload has no recognized net-flow field")
+    unit = str(row.get("unit") or "").lower()
+    if unit in {"yuan", "cny", "元"} or abs(net) > 100_000:
+        net /= 100_000_000
+    return {
+        "date": str(row.get("date") or row.get("trade_date") or ""),
+        "net_flow_yi": round(net, 1),
+    }
+
+
+def fetch_sina_northbound_observation() -> Dict[str, Any]:
+    """Fetch and normalize the independent Sina northbound fallback."""
     try:
         url = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/MoneyFlow/GetNorthboundFlow"
         result = request_json(
@@ -87,9 +137,41 @@ def fetch_sina_northbound() -> Dict:
                 "Referer": "https://finance.sina.com.cn",
             },
         )
-        return result.data if isinstance(result.data, dict) else {}
-    except (DataSourceError, AttributeError, TypeError):
-        return {}
+        if not isinstance(result.data, dict):
+            raise TypeError("Sina northbound response must be an object")
+        return observation_ok("sina", _parse_sina_northbound(result.data))
+    except (DataSourceError, AttributeError, TypeError, ValueError) as exc:
+        return observation_error("sina", exc)
+
+
+def _parse_eastmoney_northbound(payload: Dict[str, Any]) -> Dict[str, Any]:
+    klines = (payload.get("data") or {}).get("klines") or []
+    if not klines:
+        raise ValueError("Eastmoney northbound response has no klines")
+    parts = str(klines[-1]).split(",")
+    if len(parts) < 2:
+        raise ValueError("Eastmoney northbound row is incomplete")
+    net = _as_number(parts[1])
+    if net is None:
+        raise ValueError("Eastmoney northbound value is invalid")
+    return {"date": parts[0], "net_flow_yi": round(net / 10000, 1)}
+
+
+def _parse_eastmoney_flow(payload: Dict[str, Any]) -> Dict[str, float]:
+    klines = (payload.get("data") or {}).get("klines") or []
+    if not klines:
+        raise ValueError("Eastmoney fund-flow response has no klines")
+    parts = str(klines[-1]).split(",")
+    if len(parts) < 6:
+        raise ValueError("Eastmoney fund-flow row is incomplete")
+    main = _as_number(parts[3])
+    retail = _as_number(parts[5])
+    if main is None or retail is None:
+        raise ValueError("Eastmoney fund-flow values are invalid")
+    return {
+        "main_net_yi": round(main / 10000, 1),
+        "retail_net_yi": round(retail / 10000, 1),
+    }
 
 
 def fetch_tencent_flow(code: str, market: str) -> Dict:
@@ -118,37 +200,63 @@ def collect_flow_data(
     else:
         unmapped_sectors = []
     result = {
+        "schema": "capital_flow_v2",
+        "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "northbound": {},
         "stocks": [],
         "sectors": [],
         "unmapped_sectors": unmapped_sectors,
         "alerts": [],
+        "source_health": {
+            "northbound": {"selected_provider": None, "attempts": []},
+            "stock_main_flow": [],
+            "sector_main_flow": [],
+        },
+        "directional_ready": False,
     }
+    exact_requested = 1 + len(stocks) + len(sectors)
+    exact_available = 0
+    degraded = False
 
-    # 1. 北向资金（东财）
-    nb_data = fetch_eastmoney(
+    # 1. Northbound flow: exact Eastmoney metric, then exact Sina metric.
+    nb_observation = fetch_eastmoney_observation(
         "https://push2his.eastmoney.com/api/qt/kamt.kline/get?"
         "fields1=f1,f2,f3,f4&fields2=f51,f52,f53,f54&klt=1&lmt=5&secid=1.000001"
     )
-    if nb_data and nb_data.get("data") and nb_data["data"].get("klines"):
-        latest = nb_data["data"]["klines"][-1]
-        parts = latest.split(",")
-        if len(parts) >= 4:
-            result["northbound"] = {
-                "date": parts[0],
-                "net_flow_yi": round(float(parts[1]) / 10000, 1) if parts[1] != "-" else 0,
-            }
-            net = result["northbound"]["net_flow_yi"]
-            if net > 50:
-                result["alerts"].append({"level": "🟢", "msg": f"北向大幅净流入{net:.0f}亿，看多信号"})
-            elif net < -30:
-                result["alerts"].append({"level": "🔴", "msg": f"北向大幅净流出{abs(net):.0f}亿，外资撤离信号"})
+    result["source_health"]["northbound"]["attempts"].append(
+        health_attempt(nb_observation)
+    )
+    if nb_observation.get("status") == "ok":
+        try:
+            normalized_nb = _parse_eastmoney_northbound(nb_observation["data"])
+            nb_observation = observation_ok("eastmoney", normalized_nb)
+        except (TypeError, ValueError) as exc:
+            nb_observation = observation_error("eastmoney", exc)
+            result["source_health"]["northbound"]["attempts"][-1] = health_attempt(
+                nb_observation
+            )
+    if nb_observation.get("status") != "ok":
+        degraded = True
+        nb_observation = fetch_sina_northbound_observation()
+        result["source_health"]["northbound"]["attempts"].append(
+            health_attempt(nb_observation)
+        )
+    if nb_observation.get("status") == "ok":
+        selected = str(nb_observation["provider"])
+        result["source_health"]["northbound"]["selected_provider"] = selected
+        result["northbound"] = {**nb_observation["data"], "provider": selected}
+        exact_available += 1
+        net = result["northbound"]["net_flow_yi"]
+        if net > 50:
+            result["alerts"].append({"level": "🟢", "msg": f"北向大幅净流入{net:.0f}亿，看多信号"})
+        elif net < -30:
+            result["alerts"].append({"level": "🔴", "msg": f"北向大幅净流出{abs(net):.0f}亿，外资撤离信号"})
 
     # 2. 个股资金流
     for code, market, name in stocks:
         secid = f"1.{code}" if market == "sh" else f"0.{code}"
-        ff_data = fetch_eastmoney(
+        ff_observation = fetch_eastmoney_observation(
             f"https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?"
             f"fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56&lmt=3&secid={secid}"
         )
@@ -163,19 +271,34 @@ def collect_flow_data(
             "change_pct": qt_data.get("change_pct"),
             "turnover": qt_data.get("turnover"),
             "amount_yi": round(qt_data.get("amount", 0) / 1e8, 1) if qt_data.get("amount") else None,
+            "main_flow_status": "unavailable",
+            "proxy_metrics": {
+                "provider": "tencent",
+                "metric_type": "volume_price_proxy",
+                "available": bool(qt_data),
+            },
         }
 
-        if ff_data and ff_data.get("data") and ff_data["data"].get("klines"):
-            latest_ff = ff_data["data"]["klines"][-1]
-            parts = latest_ff.split(",")
-            if len(parts) >= 6:
-                stock_flow["main_net_yi"] = round(float(parts[3]) / 10000, 1) if parts[3] != "-" else 0
-                stock_flow["retail_net_yi"] = round(float(parts[5]) / 10000, 1) if parts[5] != "-" else 0
+        if ff_observation.get("status") == "ok":
+            try:
+                exact_flow = _parse_eastmoney_flow(ff_observation["data"])
+                stock_flow.update(exact_flow)
+                stock_flow["main_flow_status"] = "ok"
+                stock_flow["main_flow_provider"] = "eastmoney"
+                exact_available += 1
                 main = stock_flow["main_net_yi"]
                 if main > 1:
                     stock_flow["signal"] = "主力流入"
                 elif main < -1:
                     stock_flow["signal"] = "主力流出"
+            except (TypeError, ValueError) as exc:
+                ff_observation = observation_error("eastmoney", exc)
+        if ff_observation.get("status") != "ok":
+            degraded = True
+        result["source_health"]["stock_main_flow"].append({
+            "code": code,
+            **health_attempt(ff_observation),
+        })
 
         result["stocks"].append(stock_flow)
 
@@ -191,16 +314,18 @@ def collect_flow_data(
     # 3. 板块资金流
     for bk_code, bk_name in sectors:
         secid = f"90.{bk_code}"
-        bk_data = fetch_eastmoney(
+        bk_observation = fetch_eastmoney_observation(
             f"https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?"
             f"fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56&lmt=3&secid={secid}"
         )
-        sector = {"code": bk_code, "name": bk_name}
-        if bk_data and bk_data.get("data") and bk_data["data"].get("klines"):
-            latest_bk = bk_data["data"]["klines"][-1]
-            parts = latest_bk.split(",")
-            if len(parts) >= 6:
-                sector["main_net_yi"] = round(float(parts[3]) / 10000, 1) if parts[3] != "-" else 0
+        sector = {"code": bk_code, "name": bk_name, "main_flow_status": "unavailable"}
+        if bk_observation.get("status") == "ok":
+            try:
+                exact_flow = _parse_eastmoney_flow(bk_observation["data"])
+                sector["main_net_yi"] = exact_flow["main_net_yi"]
+                sector["main_flow_status"] = "ok"
+                sector["main_flow_provider"] = "eastmoney"
+                exact_available += 1
                 if sector["main_net_yi"] > 10:
                     result["alerts"].append({
                         "level": "🟢",
@@ -211,8 +336,21 @@ def collect_flow_data(
                         "level": "🟡",
                         "msg": f"{bk_name}板块主力净流出{abs(sector['main_net_yi']):.0f}亿，注意风险"
                     })
+            except (TypeError, ValueError) as exc:
+                bk_observation = observation_error("eastmoney", exc)
+        if bk_observation.get("status") != "ok":
+            degraded = True
+        result["source_health"]["sector_main_flow"].append({
+            "code": bk_code,
+            **health_attempt(bk_observation),
+        })
         result["sectors"].append(sector)
 
+    result["directional_ready"] = exact_available == exact_requested
+    if exact_available == 0:
+        result["status"] = "insufficient_data"
+    elif degraded or exact_available < exact_requested:
+        result["status"] = "degraded"
     return result
 
 

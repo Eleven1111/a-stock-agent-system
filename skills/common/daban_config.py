@@ -9,8 +9,9 @@ yaml 缺失或字段缺失时回退到 DEFAULTS（与历史硬编码完全一致
 变更纪律：阈值只能在 daban_bt_run → research_gate 通过后改动；实盘表现差走门控停用。
 """
 
-import os
 from typing import Any, Dict, Optional
+
+from config_registry import config_path
 
 try:
     import yaml  # type: ignore
@@ -43,7 +44,7 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
 
 
 def _config_path() -> str:
-    return os.path.join(os.path.dirname(__file__), "..", "..", "config", "daban_thresholds.yaml")
+    return str(config_path("daban_thresholds"))
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:

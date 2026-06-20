@@ -2,9 +2,10 @@
 
 from datetime import datetime, timezone
 
+import data_provider
 from a_stock_http import _TENCENT_FIELDS
-from data_provider import fetch_serpapi_news, fetch_tencent_quote
-from http_client import HttpClient
+from data_provider import fetch_serpapi_news, fetch_tencent_quote, fetch_tencent_quotes
+from http_client import HttpClient, HttpResult
 
 
 FIXED_TIME = datetime(2026, 6, 12, 5, 45, tzinfo=timezone.utc)
@@ -53,6 +54,21 @@ def test_tencent_quote_has_provider_timestamp():
     assert quote["amount"] == 50_000_000
     assert quote["provider"] == "tencent"
     assert quote["fetched_at"] == "2026-06-12T05:45:00+00:00"
+
+
+def test_data_provider_delegates_tencent_transport_to_canonical_adapter(monkeypatch):
+    expected = HttpResult(
+        {"sz002156": {"price": 23.45}},
+        "2026-06-12T05:45:00+00:00",
+        1,
+    )
+    monkeypatch.setattr(
+        data_provider,
+        "_fetch_tencent_quotes_result",
+        lambda codes, client=None: expected,
+    )
+
+    assert fetch_tencent_quotes(["002156"]) is expected
 
 
 def test_serpapi_news_has_provider_timestamp_and_limit():

@@ -1,6 +1,6 @@
 # Scheduled Analysis Failure Modes
 
-The canonical schedule is `config/cron_jobs.yaml`. Scheduled analysis must
+The canonical schedule is `cron/hermes-cron-manifest.json`. Scheduled analysis must
 enter through `scripts/run_agent_dag.py`; historical direct shell wrappers and
 conversation-bound prompts are unsupported.
 

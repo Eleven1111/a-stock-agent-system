@@ -18,6 +18,7 @@ ADAPTER_VERSIONS = {
     "tencent_orderbook": "tencent-adapter-v2",
     "akshare_limitup": "akshare-adapter-v1",
     "akshare_spot": "akshare-adapter-v1",
+    "ths_industry_catalog": "akshare-ths-adapter-v1",
 }
 
 
@@ -64,6 +65,19 @@ def fetch_a_share_spot():
         return ak.stock_zh_a_spot_em()
     except Exception as exc:  # noqa: BLE001
         raise DataSourceError("akshare_spot", "全A行情获取失败", exc) from exc
+
+
+def fetch_industry_catalog_ths():
+    try:
+        import akshare as ak
+
+        return ak.stock_board_industry_name_ths()
+    except Exception as exc:  # noqa: BLE001
+        raise DataSourceError(
+            "ths_industry_catalog",
+            "同花顺行业目录获取失败",
+            exc,
+        ) from exc
 
 
 def fetch_tencent_index_overview():

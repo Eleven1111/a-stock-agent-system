@@ -52,3 +52,13 @@ def test_root_agent_contract_stays_compact_and_runtime_neutral():
 def test_legacy_cron_wrappers_are_not_restored():
     wrappers = ROOT / "cron" / "wrappers"
     assert not wrappers.exists() or not any(wrappers.iterdir())
+
+
+def test_instruction_files_reference_the_real_cron_manifest():
+    stale = "config/cron_jobs.yaml"
+    offenders = [
+        str(path.relative_to(ROOT))
+        for path in INSTRUCTION_FILES
+        if stale in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
