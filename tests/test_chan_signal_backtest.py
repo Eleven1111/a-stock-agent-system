@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -57,6 +58,12 @@ def test_signal_enters_after_first_detection_without_lookahead(monkeypatch):
     assert events[0]["detection_date"] == "2026-01-05"
     assert events[0]["entry_date"] == "2026-01-06"
     assert events[0]["entry_price"] == 15.0
+    assert events[0]["t1_exit_date"] == "2026-01-07"
+    assert events[0]["t1_return"] == backtest._directional_net_return(
+        15.0,
+        16.5,
+        "bullish",
+    )
 
 
 def test_all_four_signal_ids_receive_separate_gate_results(monkeypatch):
@@ -123,6 +130,29 @@ def test_formal_registration_is_idempotent_but_blocks_changed_oos(tmp_path):
         },
         "strategies": {
             strategy_id: {
+                "research_state": {
+                    "strategy_id": strategy_id,
+                    "phase": "oos_complete",
+                    "rules_locked": True,
+                    "has_costs": True,
+                    "reports_all_variants": True,
+                    "controls": ["random_entry", "simple_breakout", "buy_hold"],
+                    "stat_tests": ["t_test", "bootstrap", "permutation"],
+                    "oos_run_count": 1,
+                    "changed_after_oos": False,
+                    "permutation_p": 0.5,
+                    "fdr_p": 0.5,
+                    "oos_alpha": -0.01,
+                    "benchmark_alpha": 0.0,
+                    "oos_sample_count": 40,
+                },
+                "variants": {
+                    "t1": {"oos": {"controls": {
+                        "random_entry": {"n": 40},
+                        "simple_breakout": {"n": 40},
+                        "buy_hold": {"n": 40},
+                    }}}
+                },
                 "gate_result": {
                     "strategy_id": strategy_id,
                     "decision": "failed",
@@ -132,6 +162,13 @@ def test_formal_registration_is_idempotent_but_blocks_changed_oos(tmp_path):
             for strategy_id in backtest.STRATEGY_DIRECTIONS
         },
     }
+    input_path = tmp_path / "chan-input.json"
+    input_path.write_text(json.dumps({"series": []}), encoding="utf-8")
+    base = backtest.persist_evidence(
+        base,
+        input_path=str(input_path),
+        artifact_dir=str(tmp_path / "artifacts"),
+    )
 
     first = backtest.register_oos_results(
         base,
@@ -160,3 +197,28 @@ def test_formal_registration_is_idempotent_but_blocks_changed_oos(tmp_path):
     assert second["status"] == "idempotent"
     assert blocked["status"] == "blocked"
     assert len(registered) == len(backtest.STRATEGY_DIRECTIONS) * 2
+
+
+def test_registration_rejects_unpersisted_gate_results(tmp_path):
+    backtest = load_module()
+    result = {
+        "research_protocol": {
+            "split_date": "2025-01-01",
+            "rules_fingerprint": "rules-v1",
+            "dataset_fingerprint": "data-v1",
+        },
+        "strategies": {
+            "chanlun_third_buy": {
+                "research_state": {"strategy_id": "chanlun_third_buy"},
+                "gate_result": {"decision": "failed", "allowed_in_live_agent": False},
+            }
+        },
+    }
+
+    outcome = backtest.register_oos_results(
+        result,
+        registry_file=str(tmp_path / "registry.json"),
+    )
+
+    assert outcome["status"] == "blocked"
+    assert "evidence" in outcome["reason"].lower()

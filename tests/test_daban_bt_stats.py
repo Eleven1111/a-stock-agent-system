@@ -79,3 +79,11 @@ def test_benjamini_hochberg_known_case():
 
 def test_benjamini_hochberg_empty():
     assert st.benjamini_hochberg([]) == []
+
+
+def test_sign_flip_is_one_sided_and_fails_closed_for_negative_mean():
+    positive = st.sign_flip_test_mean([0.02] * 20, n_perm=500, seed=7)
+    negative = st.sign_flip_test_mean([-0.02] * 20, n_perm=500, seed=7)
+
+    assert positive["p_value"] < 0.05
+    assert negative["p_value"] == 1.0

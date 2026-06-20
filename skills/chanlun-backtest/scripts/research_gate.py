@@ -28,6 +28,49 @@ REQUIRED_CONTROLS = {"random_entry", "simple_breakout", "buy_hold"}
 REQUIRED_TESTS = {"t_test", "bootstrap", "permutation"}
 
 
+def _verify_evidence(payload: Dict[str, Any]) -> Dict[str, Any]:
+    path = payload.get("evidence_artifact")
+    if not path:
+        return {"passed": False, "reason": "OOS evidence_artifact is required"}
+    common = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+    if common not in sys.path:
+        sys.path.insert(0, common)
+    from research_artifact import verify_artifact
+
+    verification = verify_artifact(
+        str(path),
+        expected_sha256=payload.get("evidence_sha256"),
+    )
+    if not verification["valid"]:
+        return {
+            "passed": False,
+            "reason": "OOS evidence verification failed: " + ",".join(verification["errors"]),
+        }
+    artifact = verification["artifact"]
+    if str(artifact.get("strategy_id") or "") != str(payload.get("strategy_id") or ""):
+        return {"passed": False, "reason": "OOS evidence strategy_id mismatch"}
+    metrics = artifact.get("gate_metrics") or {}
+    for field in (
+        "permutation_p",
+        "fdr_p",
+        "oos_alpha",
+        "benchmark_alpha",
+        "oos_sample_count",
+    ):
+        if field not in payload:
+            continue
+        expected = _num(payload.get(field))
+        actual = _num(metrics.get(field))
+        if expected is None or actual is None or abs(expected - actual) > 1e-12:
+            return {"passed": False, "reason": f"OOS evidence metric mismatch: {field}"}
+    required_controls = _set(payload.get("controls"))
+    counts = artifact.get("control_counts") or {}
+    missing = sorted(name for name in required_controls if int(_num(counts.get(name), 0) or 0) <= 0)
+    if missing:
+        return {"passed": False, "reason": f"OOS evidence controls missing samples: {missing}"}
+    return {"passed": True, "reason": "OOS evidence artifact verified"}
+
+
 def _bool(value: Any, default: bool = False) -> bool:
     if value is None:
         return default
@@ -62,6 +105,8 @@ def _set(value: Any) -> Set[str]:
 def phase_checklist(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     controls = _set(payload.get("controls"))
     tests = _set(payload.get("stat_tests") or payload.get("tests"))
+    required_controls = _set(payload.get("required_controls")) or REQUIRED_CONTROLS
+    required_tests = _set(payload.get("required_stat_tests")) or REQUIRED_TESTS
     checks = [
         {
             "id": "rules_locked_before_oos",
@@ -80,13 +125,13 @@ def phase_checklist(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         },
         {
             "id": "controls",
-            "passed": REQUIRED_CONTROLS.issubset(controls),
-            "reason": f"missing={sorted(REQUIRED_CONTROLS - controls)}",
+            "passed": required_controls.issubset(controls),
+            "reason": f"missing={sorted(required_controls - controls)}",
         },
         {
             "id": "stat_tests",
-            "passed": REQUIRED_TESTS.issubset(tests),
-            "reason": f"missing={sorted(REQUIRED_TESTS - tests)}",
+            "passed": required_tests.issubset(tests),
+            "reason": f"missing={sorted(required_tests - tests)}",
         },
         {
             "id": "oos_wall",
@@ -113,6 +158,13 @@ def phase_checklist(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
                 if actual >= min_oos_samples
                 else f"样本量不足: {actual}<{min_oos_samples}"
             ),
+        })
+    if has_oos_result:
+        evidence = _verify_evidence(payload)
+        checks.append({
+            "id": "evidence_artifact",
+            "passed": evidence["passed"],
+            "reason": evidence["reason"],
         })
     return checks
 
@@ -143,7 +195,7 @@ def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
     elif permutation_p is None or fdr_p is None or oos_alpha is None:
         blocking_reasons.append("缺少样本外统计结果，不能判断有效性")
         next_actions.append("补充 permutation_p、fdr_p、oos_alpha 后再判断")
-    elif permutation_p <= 0.05 and fdr_p <= 0.10 and oos_alpha > benchmark_alpha:
+    elif permutation_p <= 0.05 and fdr_p <= 0.10 and oos_alpha > max(0.0, benchmark_alpha):
         decision = "passed_for_reference"
         allowed_in_live_agent = True
         next_actions.append("可作为研究证据供日常 Agent 引用，但仍需实时可成交性/风控闸门")

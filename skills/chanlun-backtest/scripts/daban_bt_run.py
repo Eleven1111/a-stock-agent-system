@@ -27,8 +27,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "chanlun-
 import daban_bt_engine as eng  # noqa: E402
 import daban_bt_stats as st  # noqa: E402
 import research_gate  # noqa: E402
+from research_artifact import write_artifact  # noqa: E402
+from state_store import atomic_write_json  # noqa: E402
 
 STRATEGY_ID = "daban_auction_factors_mvp"
+EVENT_TABLE_SCHEMA = "daban_bt_event_table_v2"
 
 
 def _norm_date(value: str) -> str:
@@ -37,8 +40,8 @@ def _norm_date(value: str) -> str:
     if len(text) == 8 and text.isdigit():
         return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
     return str(value)
-REQUIRED_CONTROLS = ["random_entry", "simple_breakout", "buy_hold"]
-REQUIRED_TESTS = ["t_test", "bootstrap", "permutation"]
+REQUIRED_CONTROLS = ["non_signal_limitups"]
+REQUIRED_TESTS = ["cluster_bootstrap", "paired_sign_flip"]
 
 
 def fetch_index_benchmark(start_norm: str, end_norm: str, index_code: str = "000300") -> float:
@@ -73,16 +76,18 @@ def _two_group(name: str, a: List[float], b: List[float], a_label: str, b_label:
 
 def _oos_h1_validation(oos_events: List[Dict[str, Any]], index_benchmark: float,
                        n_perm: int) -> Dict[str, Any]:
-    """OOS 一次性验证 → research_state 增量。仅 H1 gap 假设（board_overnight 主检验）。
-    关键基线选择：benchmark 用「买全部涨停」control，而非沪深300——「gap 过滤是否更优」
-    的正确对照是朴素打板本身。signal 跑赢被动指数但跑输买全部涨停=过滤器无 alpha。
-    （permutation 是 |均值差| 双向检验，只证 signal≠control；方向由 oos_alpha>benchmark 把关。）
+    """OOS 一次性验证 → research_state 增量。仅 H1 gap 假设（A股 T+1 合法持有主检验）。
+    signal 与窗口外涨停对照互斥，并先聚合成每日等权组合，再对每日差值做配对符号置换。
+    这避免把同日横截面和同一 signal 重复放进 control 后夸大样本量。
     H2 真竞价封需 first_seal=盘口分笔，mootdx 深历史不提供，本次明确标 not_tested。"""
-    ret = eng.split_returns(oos_events, hold_mode="board_overnight")
-    sig, ctrl = ret["h1"]["signal"], ret["h1"]["control"]
-    perm = st.permutation_test_diff(sig, ctrl, n_perm=n_perm)
+    paired = eng.daily_h1_returns(oos_events, hold_mode="t1_open_next_sellable_close")
+    sig = [row["signal_mean"] for row in paired]
+    ctrl = [row["control_mean"] for row in paired]
+    differences = [a - b for a, b in zip(sig, ctrl)]
+    perm = st.sign_flip_test_mean(differences, n_perm=n_perm)
     fdr = st.benjamini_hochberg([perm["p_value"]], q=0.10)
-    sig_mean, ctrl_mean = st.summarize(sig)["mean"], st.summarize(ctrl)["mean"]
+    sig_mean = st.summarize(sig)["mean"]
+    ctrl_mean = st.summarize(ctrl)["mean"]
     return {
         "phase": "oos_complete",
         "oos_run_count": 1,
@@ -92,7 +97,12 @@ def _oos_h1_validation(oos_events: List[Dict[str, Any]], index_benchmark: float,
         "benchmark_alpha": ctrl_mean,                        # 基线=买全部涨停，非沪深300
         "oos_signal_minus_control": round(sig_mean - ctrl_mean, 6),
         "oos_index_benchmark": index_benchmark,              # 沪深300 仅参考，不进闸门判定
-        "oos_sample_count": len(sig),
+        "oos_sample_count": len(paired),
+        "oos_event_count": sum(row["signal_n"] for row in paired),
+        "primary_hold_mode": "t1_open_next_sellable_close",
+        "cluster_unit": "trading_date",
+        "oos_signal_ci": st.cluster_bootstrap_mean(sig, n_boot=2000),
+        "oos_excess_ci": st.cluster_bootstrap_mean(differences, n_boot=2000),
         "h2_status": "not_tested_no_first_seal",
     }
 
@@ -118,7 +128,7 @@ def analyze(event_table: Dict[str, Any], split_date: str,
                         "auction", "intraday", n_perm)
         variants[mode] = {"h1": h1, "h2": h2}
 
-    primary = variants["board_overnight"]
+    primary = variants["t1_open_next_sellable_close"]
     fdr = st.benjamini_hochberg(
         [primary["h1"]["permutation"]["p_value"], primary["h2"]["permutation"]["p_value"]], q=0.10)
 
@@ -130,7 +140,9 @@ def analyze(event_table: Dict[str, Any], split_date: str,
         "has_costs": True,
         "reports_all_variants": True,
         "controls": REQUIRED_CONTROLS,
+        "required_controls": REQUIRED_CONTROLS,
         "stat_tests": REQUIRED_TESTS,
+        "required_stat_tests": REQUIRED_TESTS,
         "oos_run_count": 0,
         "changed_after_oos": False,
     }
@@ -142,9 +154,10 @@ def analyze(event_table: Dict[str, Any], split_date: str,
         "schema": "daban_bt_run_v1",
         "generated_at": datetime.now().isoformat(),
         "disclaimer": ("MVP 管道验证与预读，非可上线结论；OOS 名额保留给 2 年正式样本。"
-                       "edge 须看 board_overnight 变体(含隔夜跳空=真打板)；open_close 切掉跳空、为保守可成交下限。"
+                       "正式主检验使用次日开盘买、至少隔一交易日卖的 T+1 合法口径并按交易日聚类；"
+                       "board_overnight 与 open_close 仅作诊断。"
                        "benchmark_alpha 默认 0 仅占位，正式 OOS 必须换真实指数收益，否则 alpha 混入大盘 beta。"
-                       "board_overnight 隐含板上成交假设，须配可成交性闸门(一字封死实际买不进)。"),
+                       "日线无法识别所有 T+1 一字板，仍需更细粒度成交数据复核。"),
         "sample": {
             "raw_count": event_table.get("raw_count"),
             "event_count": event_table.get("event_count", len(events)),
@@ -154,7 +167,7 @@ def analyze(event_table: Dict[str, Any], split_date: str,
             "coverage": event_table.get("coverage"),
         },
         "exploratory": {
-            "primary_hold_mode": "board_overnight",
+            "primary_hold_mode": "t1_open_next_sellable_close",
             "variants": variants,
             "fdr": fdr,
             "controls": {
@@ -166,6 +179,68 @@ def analyze(event_table: Dict[str, Any], split_date: str,
         "research_state": research_state,
         "gate_result": gate,
     }
+
+
+def persist_evidence(
+    result: Dict[str, Any],
+    *,
+    event_table: Dict[str, Any],
+    input_path: str,
+    artifact_path: str,
+    split_date: str,
+) -> Dict[str, Any]:
+    """Bind one OOS result to its exact input table before gate evaluation."""
+    if event_table.get("schema") != EVENT_TABLE_SCHEMA:
+        raise ValueError(
+            f"formal OOS requires {EVENT_TABLE_SCHEMA}; rebuild the legacy event table"
+        )
+    if result.get("research_state", {}).get("phase") != "oos_complete":
+        raise ValueError("persist_evidence requires an oos_complete result")
+    oos_events = eng.split_by_date(event_table.get("events", []), _norm_date(split_date))[1]
+    paired = eng.daily_h1_returns(oos_events, hold_mode="t1_open_next_sellable_close")
+    control_counts = {
+        "non_signal_limitups": sum(row["control_n"] for row in paired),
+    }
+    state = dict(result["research_state"])
+    metrics = {
+        field: state.get(field)
+        for field in (
+            "permutation_p",
+            "fdr_p",
+            "oos_alpha",
+            "benchmark_alpha",
+            "oos_sample_count",
+        )
+    }
+    rules = {
+        "strategy_id": STRATEGY_ID,
+        "split_date": _norm_date(split_date),
+        "gap_window": list(eng.GAP_WINDOW),
+        "primary_hold_mode": "t1_open_next_sellable_close",
+        "cluster_unit": "trading_date",
+        "cost": dict(eng.DEFAULT_COST),
+    }
+    artifact = write_artifact(
+        os.path.abspath(os.path.expanduser(artifact_path)),
+        input_path=input_path,
+        strategy_id=STRATEGY_ID,
+        rules=rules,
+        result=result,
+        gate_metrics=metrics,
+        control_counts=control_counts,
+    )
+    state.update({
+        "evidence_artifact": os.path.abspath(os.path.expanduser(artifact_path)),
+        "evidence_sha256": artifact["artifact_sha256"],
+    })
+    output = dict(result)
+    output["research_state"] = state
+    output["gate_result"] = research_gate.evaluate_gate(state)
+    output["evidence"] = {
+        "artifact": state["evidence_artifact"],
+        "sha256": state["evidence_sha256"],
+    }
+    return output
 
 
 def format_report(r: Dict[str, Any]) -> str:
@@ -207,9 +282,12 @@ def main() -> None:
                         help="事件源：akshare(默认,免费近3-4周) / mootdx(通达信深历史6年+,仅H1可验)")
     parser.add_argument("--oos", action="store_true",
                         help="正式 OOS 一次性验证(phase=oos_complete)；跑后禁止看结果改规则")
+    parser.add_argument("--artifact", help="OOS 研究产物输出路径；--oos 时必需")
     parser.add_argument("--benchmark-alpha", type=float, default=0.0)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    if args.oos and not args.artifact:
+        parser.error("--oos requires --artifact so the gate can verify evidence")
 
     if args.table:
         with open(args.table, encoding="utf-8") as f:
@@ -219,6 +297,10 @@ def main() -> None:
         table = dat.build_event_table(args.build[0], args.build[1], source=args.source)
     else:
         parser.error("需 --build 或 --table 之一")
+    if args.oos and table.get("schema") != EVENT_TABLE_SCHEMA:
+        parser.error(
+            f"formal OOS requires {EVENT_TABLE_SCHEMA}; rebuild the legacy event table"
+        )
 
     benchmark = args.benchmark_alpha
     bench_end = args.build[1] if args.build else table.get("end")
@@ -227,6 +309,18 @@ def main() -> None:
 
     result = analyze(table, split_date=args.split, benchmark_alpha=benchmark,
                      oos_validation=args.oos)
+    if args.oos:
+        input_path = args.table
+        if not input_path:
+            input_path = args.artifact + ".input.json"
+            atomic_write_json(input_path, table)
+        result = persist_evidence(
+            result,
+            event_table=table,
+            input_path=input_path,
+            artifact_path=args.artifact,
+            split_date=args.split,
+        )
     print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else format_report(result))
 
 

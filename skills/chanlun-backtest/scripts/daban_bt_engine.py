@@ -16,10 +16,11 @@
 
 import os
 import sys
+from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
-from tradeability import limit_pct  # noqa: E402
+from tradeability import assess_tradeability, limit_pct  # noqa: E402
 import daban_config as _cfg  # noqa: E402
 
 # 阈值走单一事实源 config/daban_thresholds.yaml（回退默认与历史硬编码一致）
@@ -72,29 +73,68 @@ def filter_universe(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [e for e in events if passes_universe(e)]
 
 
+def open_close_entry_tradeable(ev: Dict[str, Any]) -> bool:
+    required = ("t1_open", "t1_high", "t1_low", "t1_volume", "t_close")
+    if any(ev.get(field) is None for field in required):
+        return False
+    status = assess_tradeability(
+        {
+            "price": ev.get("t1_open"),
+            "prev_close": ev.get("t_close"),
+            "open": ev.get("t1_open"),
+            "high": ev.get("t1_high"),
+            "low": ev.get("t1_low"),
+            "volume": ev.get("t1_volume"),
+        },
+        str(ev.get("code") or "").zfill(6),
+        str(ev.get("name") or ""),
+    )
+    return status.get("tradeable") is not False
+
+
 def gap_pct(ev: Dict[str, Any]) -> float:
     return (ev["t1_open"] - ev["t_close"]) / ev["t_close"] * 100.0
 
 
 def split_by_date(events: List[Dict[str, Any]], split_date: str
                   ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """date < split_date → IS（样本内）；date >= split_date → OOS（样本外）。"""
-    is_set = [e for e in events if str(e.get("date", "")) < split_date]
-    oos_set = [e for e in events if str(e.get("date", "")) >= split_date]
+    """Split on observable entry date, falling back to legacy signal date."""
+    def key(event: Dict[str, Any]) -> str:
+        return str(event.get("entry_date") or event.get("date") or "")
+    is_set = [event for event in events if key(event) < split_date]
+    oos_set = [event for event in events if key(event) >= split_date]
     return is_set, oos_set
 
 
 # 持有窗口变体（report-all-variants）：
-# - open_close：买 T+1 开、卖 T+1 收。保守可成交（一字封死也能次日开盘买），但切掉隔夜跳空。
+# - t1_open_next_sellable_close：买 T+1 开，最早 T+2 收卖；一字跌停继续顺延，正式主检验。
+# - open_close：买 T+1 开、卖 T+1 收。切掉隔夜跳空；仍需排除 T+1 一字板/停牌。
+#   该变体违反 A 股 T+1，只能用于日内诊断，不得解释为可执行收益。
 # - board_overnight：买 T 收(涨停价/打板买在板上)、卖 T+1 收。含隔夜跳空——真打板经济学所在，
 #   但隐含「能在板上成交」假设，一字封死实际买不进，须配合可成交性闸门看待。
-HOLD_MODES = ("open_close", "board_overnight")
+HOLD_MODES = ("t1_open_next_sellable_close", "open_close", "board_overnight")
 
 
 def _event_return(ev: Dict[str, Any], hold_mode: str, cost: Dict[str, float]) -> float:
     if hold_mode == "board_overnight":
         return net_return(ev["t_close"], ev["t1_close"], cost)
+    if hold_mode == "t1_open_next_sellable_close":
+        return net_return(ev["t1_open"], ev["exit_close"], cost)
     return net_return(ev["t1_open"], ev["t1_close"], cost)
+
+
+def hold_mode_executable(ev: Dict[str, Any], hold_mode: str) -> bool:
+    if hold_mode not in {"open_close", "t1_open_next_sellable_close"}:
+        return True
+    if not open_close_entry_tradeable(ev):
+        return False
+    if hold_mode == "t1_open_next_sellable_close":
+        return (
+            ev.get("exit_close") is not None
+            and ev.get("exit_date") is not None
+            and int(ev.get("holding_sessions") or 0) >= 1
+        )
+    return True
 
 
 def strategy_returns(events: List[Dict[str, Any]],
@@ -102,7 +142,11 @@ def strategy_returns(events: List[Dict[str, Any]],
                      cost: Dict[str, float] = DEFAULT_COST,
                      hold_mode: str = "open_close") -> List[float]:
     """对 universe 内满足 predicate 的事件，按 hold_mode 计净收益列表。"""
-    return [_event_return(e, hold_mode, cost) for e in filter_universe(events) if predicate(e)]
+    return [
+        _event_return(e, hold_mode, cost)
+        for e in filter_universe(events)
+        if predicate(e) and hold_mode_executable(e, hold_mode)
+    ]
 
 
 # ---- 假设谓词 ----
@@ -127,13 +171,51 @@ def split_returns(events: List[Dict[str, Any]], cost: Dict[str, float] = DEFAULT
     返回 {"h1": {"signal", "control"}, "h2": {"auction", "intraday"}}。
     """
     universe = filter_universe(events)
+    executable = [
+        event for event in universe
+        if hold_mode_executable(event, hold_mode)
+    ]
     return {
         "h1": {
             "signal": strategy_returns(universe, is_h1_signal, cost, hold_mode),
-            "control": [_event_return(e, hold_mode, cost) for e in universe],
+            "control": [
+                _event_return(e, hold_mode, cost)
+                for e in executable
+                if not is_h1_signal(e)
+            ],
         },
         "h2": {
-            "auction": strategy_returns(universe, is_auction_seal, cost, hold_mode),
-            "intraday": strategy_returns(universe, is_intraday_seal, cost, hold_mode),
+            "auction": strategy_returns(executable, is_auction_seal, cost, hold_mode),
+            "intraday": strategy_returns(executable, is_intraday_seal, cost, hold_mode),
         },
     }
+
+
+def daily_h1_returns(
+    events: List[Dict[str, Any]],
+    cost: Dict[str, float] = DEFAULT_COST,
+    hold_mode: str = "open_close",
+) -> List[Dict[str, Any]]:
+    """Aggregate disjoint H1 signal/control observations to one paired row per trading date."""
+    grouped: Dict[str, Dict[str, List[float]]] = defaultdict(
+        lambda: {"signal": [], "control": []}
+    )
+    for event in filter_universe(events):
+        if not hold_mode_executable(event, hold_mode):
+            continue
+        bucket = "signal" if is_h1_signal(event) else "control"
+        grouped[str(event.get("date") or "")][bucket].append(
+            _event_return(event, hold_mode, cost)
+        )
+    output = []
+    for trade_date, values in sorted(grouped.items()):
+        if not values["signal"] or not values["control"]:
+            continue
+        output.append({
+            "date": trade_date,
+            "signal_mean": sum(values["signal"]) / len(values["signal"]),
+            "control_mean": sum(values["control"]) / len(values["control"]),
+            "signal_n": len(values["signal"]),
+            "control_n": len(values["control"]),
+        })
+    return output

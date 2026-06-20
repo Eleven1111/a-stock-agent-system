@@ -12,9 +12,15 @@ SPEC.loader.exec_module(eng)
 
 
 def _ev(code="600255", t_close=10.0, t1_open=10.2, t1_close=11.0,
-        first_seal="092500", date="2026-06-03", is_st=False, name="X"):
+        first_seal="092500", date="2026-06-03", is_st=False, name="X",
+        t1_high=None, t1_low=None, t1_volume=100000, exit_close=11.2):
+    t1_high = max(t1_open, t1_close) if t1_high is None and t1_open is not None else t1_high
+    t1_low = min(t1_open, t1_close) if t1_low is None and t1_open is not None else t1_low
     return {"code": code, "name": name, "t_close": t_close, "t1_open": t1_open,
-            "t1_close": t1_close, "first_seal": first_seal, "date": date, "is_st": is_st}
+            "t1_close": t1_close, "t1_high": t1_high, "t1_low": t1_low,
+            "t1_volume": t1_volume, "exit_close": exit_close, "exit_date": "2026-06-05",
+            "holding_sessions": 1, "first_seal": first_seal, "date": date,
+            "is_st": is_st}
 
 
 def test_net_return_with_costs():
@@ -72,12 +78,20 @@ def test_hold_mode_board_overnight_uses_t_close():
     assert bo == pytest.approx(eng.net_return(10.0, 11.0))
 
 
+def test_t1_legal_hold_mode_exits_no_earlier_than_following_session():
+    ev = _ev(t1_open=10.2, exit_close=11.2)
+
+    result = eng._event_return(ev, "t1_open_next_sellable_close", eng.DEFAULT_COST)
+
+    assert result == pytest.approx(eng.net_return(10.2, 11.2))
+
+
 def test_split_returns_hold_mode_threads_through():
-    events = [_ev(code="600255", t_close=10.0, t1_open=10.5, t1_close=11.0)]
-    bo = eng.split_returns(events, hold_mode="board_overnight")["h1"]["control"][0]
-    oc = eng.split_returns(events, hold_mode="open_close")["h1"]["control"][0]
+    events = [_ev(code="600255", t_close=10.0, t1_open=10.2, t1_close=11.0)]
+    bo = eng.split_returns(events, hold_mode="board_overnight")["h1"]["signal"][0]
+    oc = eng.split_returns(events, hold_mode="open_close")["h1"]["signal"][0]
     assert bo == pytest.approx(eng.net_return(10.0, 11.0))
-    assert oc == pytest.approx(eng.net_return(10.5, 11.0))
+    assert oc == pytest.approx(eng.net_return(10.2, 11.0))
 
 
 def test_split_returns_structure_and_filtering():
@@ -87,7 +101,34 @@ def test_split_returns_structure_and_filtering():
         _ev(code="300999", t1_open=10.2, first_seal="092500"),   # excluded by universe
     ]
     out = eng.split_returns(events)
-    assert len(out["h1"]["control"]) == 2     # 两只主板票
+    assert len(out["h1"]["control"]) == 1     # 对照排除 signal，避免样本重叠
     assert len(out["h1"]["signal"]) == 1      # 仅 gap=2 那只
     assert len(out["h2"]["auction"]) == 1
     assert len(out["h2"]["intraday"]) == 1
+
+
+def test_daily_h1_returns_are_paired_and_disjoint():
+    events = [
+        _ev(code="600251", date="2026-05-04", t1_open=10.2, t1_close=10.4),
+        _ev(code="600252", date="2026-05-04", t1_open=10.5, t1_close=10.3),
+        _ev(code="600253", date="2026-05-05", t1_open=10.1, t1_close=10.3),
+        _ev(code="600254", date="2026-05-05", t1_open=10.6, t1_close=10.2),
+    ]
+
+    paired = eng.daily_h1_returns(events, hold_mode="t1_open_next_sellable_close")
+
+    assert [row["date"] for row in paired] == ["2026-05-04", "2026-05-05"]
+    assert all(row["signal_n"] == 1 and row["control_n"] == 1 for row in paired)
+    assert all(row["signal_mean"] != row["control_mean"] for row in paired)
+
+
+def test_open_close_excludes_t1_sealed_limit_up_and_halted_entries():
+    events = [
+        _ev(code="600251", t1_open=11.0, t1_close=11.0, t1_high=11.0, t1_low=11.0),
+        _ev(code="600252", t1_open=10.2, t1_close=10.3, t1_volume=0),
+        _ev(code="600253", t1_open=10.2, t1_close=10.3),
+    ]
+
+    returns = eng.split_returns(events, hold_mode="open_close")["h1"]["signal"]
+
+    assert len(returns) == 1

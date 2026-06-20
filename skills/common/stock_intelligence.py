@@ -209,7 +209,7 @@ def assess_risks(
     *,
     asof: date | str | None = None,
 ) -> dict[str, Any]:
-    current = _current(asof)
+    current = _current(asof or payload.get("asof"))
     hard_risks: list[str] = []
     warnings: list[str] = []
     positives: list[str] = []
