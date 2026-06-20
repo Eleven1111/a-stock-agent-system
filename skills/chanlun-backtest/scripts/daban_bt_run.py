@@ -71,9 +71,37 @@ def _two_group(name: str, a: List[float], b: List[float], a_label: str, b_label:
     }
 
 
+def _oos_h1_validation(oos_events: List[Dict[str, Any]], index_benchmark: float,
+                       n_perm: int) -> Dict[str, Any]:
+    """OOS 一次性验证 → research_state 增量。仅 H1 gap 假设（board_overnight 主检验）。
+    关键基线选择：benchmark 用「买全部涨停」control，而非沪深300——「gap 过滤是否更优」
+    的正确对照是朴素打板本身。signal 跑赢被动指数但跑输买全部涨停=过滤器无 alpha。
+    （permutation 是 |均值差| 双向检验，只证 signal≠control；方向由 oos_alpha>benchmark 把关。）
+    H2 真竞价封需 first_seal=盘口分笔，mootdx 深历史不提供，本次明确标 not_tested。"""
+    ret = eng.split_returns(oos_events, hold_mode="board_overnight")
+    sig, ctrl = ret["h1"]["signal"], ret["h1"]["control"]
+    perm = st.permutation_test_diff(sig, ctrl, n_perm=n_perm)
+    fdr = st.benjamini_hochberg([perm["p_value"]], q=0.10)
+    sig_mean, ctrl_mean = st.summarize(sig)["mean"], st.summarize(ctrl)["mean"]
+    return {
+        "phase": "oos_complete",
+        "oos_run_count": 1,
+        "permutation_p": perm["p_value"],
+        "fdr_p": fdr[0]["adjusted"] if fdr else perm["p_value"],
+        "oos_alpha": sig_mean,
+        "benchmark_alpha": ctrl_mean,                        # 基线=买全部涨停，非沪深300
+        "oos_signal_minus_control": round(sig_mean - ctrl_mean, 6),
+        "oos_index_benchmark": index_benchmark,              # 沪深300 仅参考，不进闸门判定
+        "oos_sample_count": len(sig),
+        "h2_status": "not_tested_no_first_seal",
+    }
+
+
 def analyze(event_table: Dict[str, Any], split_date: str,
-            benchmark_alpha: float = 0.0, n_perm: int = 5000) -> Dict[str, Any]:
-    """纯计算：事件表 → 两假设统计 + FDR + research_gate 判定。不触网。"""
+            benchmark_alpha: float = 0.0, n_perm: int = 5000,
+            oos_validation: bool = False) -> Dict[str, Any]:
+    """纯计算：事件表 → 两假设统计 + FDR + research_gate 判定。不触网。
+    oos_validation=True：在 oos_events 上跑 H1 一次性 OOS 验证，填 research_state 交闸门判上线。"""
     events = event_table.get("events", [])
     pools = event_table.get("control_pools", {})
     is_events, oos_events = eng.split_by_date(events, _norm_date(split_date))
@@ -106,6 +134,8 @@ def analyze(event_table: Dict[str, Any], split_date: str,
         "oos_run_count": 0,
         "changed_after_oos": False,
     }
+    if oos_validation:
+        research_state.update(_oos_h1_validation(oos_events, benchmark_alpha, n_perm))
     gate = research_gate.evaluate_gate(research_state)
 
     return {
@@ -173,6 +203,10 @@ def main() -> None:
     parser.add_argument("--build", nargs=2, metavar=("START", "END"), help="构建事件表，如 20260301 20260531")
     parser.add_argument("--table", help="直接读已构建事件表 JSON")
     parser.add_argument("--split", required=True, help="IS/OOS 切分日 YYYYMMDD")
+    parser.add_argument("--source", choices=["akshare", "mootdx"], default="akshare",
+                        help="事件源：akshare(默认,免费近3-4周) / mootdx(通达信深历史6年+,仅H1可验)")
+    parser.add_argument("--oos", action="store_true",
+                        help="正式 OOS 一次性验证(phase=oos_complete)；跑后禁止看结果改规则")
     parser.add_argument("--benchmark-alpha", type=float, default=0.0)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -182,15 +216,17 @@ def main() -> None:
             table = json.load(f)
     elif args.build:
         import daban_bt_data as dat
-        table = dat.build_event_table(args.build[0], args.build[1])
+        table = dat.build_event_table(args.build[0], args.build[1], source=args.source)
     else:
         parser.error("需 --build 或 --table 之一")
 
     benchmark = args.benchmark_alpha
-    if benchmark == 0.0 and args.build:
-        benchmark = fetch_index_benchmark(_norm_date(args.split), _norm_date(args.build[1]))
+    bench_end = args.build[1] if args.build else table.get("end")
+    if benchmark == 0.0 and bench_end:
+        benchmark = fetch_index_benchmark(_norm_date(args.split), _norm_date(bench_end))
 
-    result = analyze(table, split_date=args.split, benchmark_alpha=benchmark)
+    result = analyze(table, split_date=args.split, benchmark_alpha=benchmark,
+                     oos_validation=args.oos)
     print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else format_report(result))
 
 

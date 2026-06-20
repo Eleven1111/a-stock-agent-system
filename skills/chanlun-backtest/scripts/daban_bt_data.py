@@ -2,8 +2,10 @@
 """
 打板回测 — 数据层（历史涨停事件 + 次日 K 线 → 事件表）
 ========================================================
-逐日拉 akshare.stock_zt_pool_em（不走 push2，本机 TUN 下可用）取历史涨停事件，
-收集代码后批量拉腾讯 ifzq 日线，把 T 收 / T+1 开 / T+1 收 join 进事件表。
+默认 source="akshare" 逐日拉 stock_zt_pool_em（不走 push2，TUN 下可用）取涨停事件，
+但免费历史仅最近约 3-4 周；source="mootdx" 走通达信 TCP 全市场日线重建，深历史 6 年+
+（仅 H1 gap 假设，first_seal 等盘口字段为 None，见 fetch_limitup_events / mootdx_source）。
+收集代码后批量拉日线（akshare→腾讯 ifzq，mootdx→同源同深度），把 T 收 / T+1 开 / T+1 收 join 进事件表。
 
 为保证 gap 口径一致，t_close / t1_open / t1_close 统一取自同一份（qfq）K 线，
 zt_pool 只负责事件筛选与 first_seal/连板/封单等元数据。
@@ -106,8 +108,21 @@ def _map_zt_row(row: Dict[str, Any], date: str) -> Dict[str, Any]:
     }
 
 
-def fetch_limitup_events(start: str, end: str, sleep: float = 0.3) -> List[Dict[str, Any]]:
-    """逐交易日拉历史涨停池。start/end 形如 '20260301'。非交易日 zt_pool 空，自动跳过。"""
+def fetch_limitup_events(start: str, end: str, sleep: float = 0.3,
+                         source: str = "akshare") -> List[Dict[str, Any]]:
+    """
+    历史涨停事件。start/end 形如 '20260301'。
+    source="akshare"（默认）：逐日 stock_zt_pool_em，元数据全（含 first_seal/封单），
+        但免费历史仅最近约 3-4 周——深历史会退化（assess_coverage 告警）。
+    source="mootdx"：通达信 TCP 全市场日线重建，历史 6 年+，但仅 code/date/lianban，
+        first_seal/seal_amount/sector 为 None——只够 H1 gap 假设，H2 真竞价封不可用。
+    """
+    if source == "mootdx":
+        sys.path.insert(0, os.path.dirname(__file__))
+        from mootdx_source import reconstruct_limitup_events  # noqa: E402
+
+        return reconstruct_limitup_events(_norm_date(start), _norm_date(end))
+
     import akshare as ak
     import pandas as pd
 
@@ -219,23 +234,35 @@ def assess_coverage(raw: List[Dict[str, Any]], start: str, end: str) -> Dict[str
     }
 
 
-def build_event_table(start: str, end: str, use_cache: bool = True) -> Dict[str, Any]:
-    """端到端：涨停事件 + 次日 K 线 → 事件表，带本地缓存。覆盖度不足会在结果里高声标注。"""
-    cache = data_file("chanlun-backtest", f"event_table_{start}_{end}.json")
+def build_event_table(start: str, end: str, use_cache: bool = True,
+                      source: str = "akshare") -> Dict[str, Any]:
+    """
+    端到端：涨停事件 + 次日 K 线 → 事件表，带本地缓存。覆盖度不足会在结果里高声标注。
+    source="akshare"（默认）：元数据全但仅最近 3-4 周；K 线走腾讯 ifzq。
+    source="mootdx"：通达信深历史重建，事件与 K 线同源同深度（6 年+），仅 H1 gap 假设可用。
+    """
+    cache = data_file("chanlun-backtest", f"event_table_{source}_{start}_{end}.json")
     if use_cache:
         cached = read_json(cache, default=None)
         if cached:
             return cached
 
-    raw = fetch_limitup_events(start, end)
+    raw = fetch_limitup_events(start, end, source=source)
     coverage = assess_coverage(raw, start, end)
     if coverage["warning"]:
         print(coverage["warning"], file=sys.stderr)
     codes = [e["code"] for e in raw]
-    klines = fetch_klines(codes, days=_auto_days(start))
+    if source == "mootdx":
+        sys.path.insert(0, os.path.dirname(__file__))
+        from mootdx_source import fetch_klines as fetch_klines_mootdx  # noqa: E402
+
+        klines = fetch_klines_mootdx(codes, _norm_date(start))
+    else:
+        klines = fetch_klines(codes, days=_auto_days(start))
     events, dropped = assemble_events(raw, klines)
     result = {
         "schema": "daban_bt_event_table_v1",
+        "source": source,
         "start": start, "end": end,
         "raw_count": len(raw), "event_count": len(events), "dropped": dropped,
         "coverage": coverage,
