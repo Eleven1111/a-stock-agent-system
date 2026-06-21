@@ -10,6 +10,16 @@ def _wire(tmp_path, monkeypatch, history=None):
     monkeypatch.setattr(ra, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(ra, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(ra, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(
+        ra.strategy_registry,
+        "live_record",
+        lambda strategy_id: {
+            "strategy_id": strategy_id,
+            "allowed_in_live_agent": True,
+            "gating_status": "enabled",
+            "runtime_allowed": True,
+        },
+    )
     if history is not None:
         atomic_write_json(ra.HISTORY_FILE, history)
 
@@ -194,10 +204,26 @@ def test_hold_and_conditional_buy_do_not_open_performance_signal(tmp_path, monke
     assert ra.signal_ledger.project_signals(events) == []
     assert conditional["record"]["quality_report"]["status"] == "conditional"
     assert conditional["record"]["settleable_signal"] is False
-    assert sum(event["event_type"] == "trade.proposed" for event in events) == 1
+    assert all(event["event_type"] != "trade.proposed" for event in events)
     assert all(event["event_type"] != "trade.executed" for event in events)
-    proposed = next(event for event in events if event["event_type"] == "trade.proposed")
-    assert proposed["payload"]["execution_status"] == "not_executed"
+
+
+def test_unregistered_strategy_is_recorded_as_watch_without_trade_or_signal(
+    tmp_path,
+    monkeypatch,
+):
+    _wire(tmp_path, monkeypatch)
+    monkeypatch.setattr(ra.strategy_registry, "live_record", lambda _strategy_id: None)
+
+    result = ra.record_recommendation(**_passed_buy(source_id="research-only"))
+
+    record = result["record"]
+    assert record["requested_action"] == "buy"
+    assert record["action"] == "hold"
+    assert record["position_sizing"]["recommended_position_pct"] == 0.0
+    assert "strategy_unverified" in record["policy_decision"]["reasons"]
+    events = ra.signal_ledger.read_events(ra.LEDGER_FILE)
+    assert [event["event_type"] for event in events] == ["recommendation.created"]
 
 
 def test_position_guidance_uses_startup_default_when_history_insufficient(tmp_path, monkeypatch):
@@ -209,6 +235,23 @@ def test_position_guidance_uses_startup_default_when_history_insufficient(tmp_pa
     # daban startup 默认 4.0%，叠加打板战略权重 ×0.5(#28 证伪 + 1+2 定位减仓) → 2.0%
     assert sizing["recommended_position_pct"] == 2.0
     assert sizing["recommended_amount"] == 2000
+
+
+def test_position_guidance_is_zero_for_unverified_strategy(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, history=[])
+    monkeypatch.setattr(ra.strategy_registry, "live_record", lambda _strategy_id: None)
+
+    sizing = ra.position_guidance(
+        "trend_pullback",
+        10.0,
+        12.0,
+        9.0,
+        total_asset=100000,
+    )
+
+    assert sizing["method"] == "research_only"
+    assert sizing["recommended_position_pct"] == 0.0
+    assert sizing["recommended_amount"] == 0.0
 
 
 def test_daban_strategic_weight_scales_position(tmp_path, monkeypatch):

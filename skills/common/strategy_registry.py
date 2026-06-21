@@ -18,6 +18,7 @@ is_allowed_in_live 才返回 True。淘汰走门控(set_gating)，改规则走 r
 import os
 import sys
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Any, Dict, Optional
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -25,6 +26,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from paths import data_file  # noqa: E402
+from research_artifact import verify_artifact  # noqa: E402
 from state_store import mutate_json, read_json  # noqa: E402
 
 
@@ -35,6 +37,65 @@ def _default_file() -> str:
 
 def _now() -> str:
     return datetime.now().isoformat()
+
+
+def _file_signature(path: str) -> tuple[int, int] | None:
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+@lru_cache(maxsize=128)
+def _verify_cached(
+    path: str,
+    expected_sha256: str,
+    artifact_signature: tuple[int, int],
+    source_signature: tuple[int, int] | None,
+) -> bool:
+    del artifact_signature, source_signature
+    return bool(
+        verify_artifact(path, expected_sha256=expected_sha256).get("valid")
+    )
+
+
+def _evidence_valid(
+    strategy_id: str,
+    artifact_path: Any,
+    expected_sha256: Any,
+    expected_stats: Optional[Dict[str, Any]] = None,
+) -> tuple[bool, str]:
+    path = os.path.abspath(os.path.expanduser(str(artifact_path or "")))
+    digest = str(expected_sha256 or "")
+    if not path or not digest:
+        return False, "verified evidence artifact is required"
+    artifact = read_json(path, None)
+    if not isinstance(artifact, dict):
+        return False, "evidence artifact is unreadable"
+    source_path = str((artifact.get("source") or {}).get("input_path") or "")
+    artifact_signature = _file_signature(path)
+    if artifact_signature is None:
+        return False, "evidence artifact is missing"
+    if not _verify_cached(
+        path,
+        digest,
+        artifact_signature,
+        _file_signature(source_path) if source_path else None,
+    ):
+        return False, "evidence artifact verification failed"
+    if str(artifact.get("strategy_id") or "") != str(strategy_id):
+        return False, "evidence artifact strategy_id mismatch"
+    metrics = artifact.get("gate_metrics") or {}
+    for field, expected in (expected_stats or {}).items():
+        if field not in metrics or expected is None:
+            continue
+        try:
+            if abs(float(metrics[field]) - float(expected)) > 1e-12:
+                return False, f"evidence metric mismatch: {field}"
+        except (TypeError, ValueError):
+            return False, f"evidence metric invalid: {field}"
+    return True, "verified"
 
 
 def get(strategy_id: str, registry_file: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -51,6 +112,18 @@ def register_gate_result(strategy_id: str, gate_output: Dict[str, Any],
                          registry_file: Optional[str] = None) -> Dict[str, Any]:
     """登记 research_gate 输出（gate_decision / allowed_in_live_agent / gate_asof）。"""
     rf = registry_file or _default_file()
+    evidence = gate_output.get("evidence") or {}
+    requested_allowed = (
+        gate_output.get("decision") == "passed_for_reference"
+        and gate_output.get("allowed_in_live_agent") is True
+    )
+    evidence_verified, evidence_reason = _evidence_valid(
+        strategy_id,
+        evidence.get("artifact"),
+        evidence.get("sha256"),
+        gate_output.get("stats") if requested_allowed else None,
+    ) if requested_allowed else (False, "gate did not allow live use")
+    allowed = requested_allowed and evidence_verified
 
     def _mut(data: Any) -> Dict[str, Any]:
         if not isinstance(data, dict):
@@ -59,9 +132,13 @@ def register_gate_result(strategy_id: str, gate_output: Dict[str, Any],
         rec.update({
             "strategy_id": strategy_id,
             "gate_decision": gate_output.get("decision"),
-            "allowed_in_live_agent": bool(gate_output.get("allowed_in_live_agent")),
+            "allowed_in_live_agent": allowed,
             "gate_asof": gate_output.get("asof") or date.today().isoformat(),
             "gate_stats": gate_output.get("stats"),
+            "evidence_verified": evidence_verified,
+            "evidence_reason": evidence_reason,
+            "evidence_artifact": evidence.get("artifact"),
+            "evidence_sha256": evidence.get("sha256"),
             "updated_at": _now(),
         })
         rec.setdefault("gating_status", "enabled")
@@ -99,7 +176,23 @@ def is_allowed_in_live(strategy_id: str, registry_file: Optional[str] = None) ->
     rec = get(strategy_id, registry_file)
     if not rec:
         return False
-    return bool(rec.get("allowed_in_live_agent")) and rec.get("gating_status", "enabled") != "disabled"
+    if not rec.get("allowed_in_live_agent") or rec.get("gating_status", "enabled") == "disabled":
+        return False
+    valid, _ = _evidence_valid(
+        strategy_id,
+        rec.get("evidence_artifact"),
+        rec.get("evidence_sha256"),
+        rec.get("gate_stats"),
+    )
+    return valid
+
+
+def live_record(strategy_id: str, registry_file: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Return the registry record with a freshly verified runtime admission bit."""
+    rec = get(strategy_id, registry_file)
+    if not rec:
+        return None
+    return {**rec, "runtime_allowed": is_allowed_in_live(strategy_id, registry_file)}
 
 
 def live_weight(strategy_id: str, registry_file: Optional[str] = None) -> float:

@@ -188,21 +188,26 @@ def position_guidance(
         "recommended_amount": None,
     }
 
-    # 实盘门控：被 strategy_registry 停用的策略 → 仓位归零（淘汰负期望策略，胜率闭环的执行点）
+    # 实盘门控：只有带可复验证据且未被实盘门控停用的策略才能给出非零仓位。
     try:
         import strategy_registry as _sr
-        _gate_rec = _sr.get(sid)
+        _gate_rec = _sr.live_record(sid)
     except Exception:  # noqa: BLE001
         _gate_rec = None
-    if _gate_rec and _gate_rec.get("gating_status") == "disabled":
+    if not _gate_rec or _gate_rec.get("runtime_allowed") is not True:
+        disabled = bool(_gate_rec and _gate_rec.get("gating_status") == "disabled")
         guidance.update({
-            "method": "gated_off",
+            "method": "gated_off" if disabled else "research_only",
             "kelly_fraction": 0.0,
             "execution_fraction": 0.0,
             "recommended_position_pct": 0.0,
             "recommended_amount": 0.0,
-            "gating_status": "disabled",
-            "reason": f"策略 {sid} 已被实盘门控停用（期望值转负），暂停建仓",
+            "gating_status": "disabled" if disabled else "unverified",
+            "reason": (
+                f"策略 {sid} 已被实盘门控停用（期望值转负），暂停建仓"
+                if disabled
+                else f"策略 {sid} 尚无可复验的组合级 OOS 证据，仅供研究观察"
+            ),
         })
         return guidance
 
@@ -357,7 +362,7 @@ def record_recommendation(
     policy = evaluate_decision(
         requested_action=action,
         quality_report=quality,
-        strategy_record=strategy_registry.get(sid),
+        strategy_record=strategy_registry.live_record(sid),
         market_regime=market_regime(read_market_context()),
         portfolio_risk=risk,
         research_evidence=evidence,
@@ -398,9 +403,9 @@ def record_recommendation(
         recommendation_id,
         correlation_id=correlation_id,
         signal_id=signal_id,
-        trade_id=trade_id,
+        trade_id=(trade_id if effective_action in signal_ledger.TRADE_ACTIONS else None),
         monitor_id=monitor_id,
-        include_trade=action in signal_ledger.TRADE_ACTIONS,
+        include_trade=effective_action in signal_ledger.TRADE_ACTIONS,
     )
     record = {
         "id": recommendation_id,

@@ -54,7 +54,7 @@ def test_chan_stale_signal_ignored():
     assert notes == []
 
 
-def test_score_technical_gates_chan_signal(monkeypatch, tmp_path):
+def test_score_technical_gates_chan_signal(monkeypatch, tmp_path, verified_gate_factory):
     if fds._chan is None:
         pytest.skip("chan_structure unavailable")
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
@@ -72,9 +72,10 @@ def test_score_technical_gates_chan_signal(monkeypatch, tmp_path):
 
     # 注册过闸 → 计权加分
     import strategy_registry as sr
-    sr.register_gate_result("chanlun_third_buy", {
-        "strategy_id": "chanlun_third_buy", "decision": "passed_for_reference",
-        "allowed_in_live_agent": True, "asof": "2026-06-03"})
+    sr.register_gate_result(
+        "chanlun_third_buy",
+        verified_gate_factory("chanlun_third_buy"),
+    )
     out2 = fds.score_technical("002156", "通富微电")
     assert "缠论三买" in out2["detail"]
     assert out2["score"] > out1["score"]

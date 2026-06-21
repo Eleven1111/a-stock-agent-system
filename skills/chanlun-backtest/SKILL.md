@@ -145,6 +145,19 @@ $PY $SDIR/chan_signal_backtest.py \
 执行逐日组合回放，统一处理 Top N、现金/仓位、100 股整数手、成本滑点、一字板、停牌、
 A 股 T+1、基准和逐维消融：
 
+实时 `open-confirmation` 会自动把当日最终候选固化到
+`portfolio_research_snapshots/`。积累后先组装回测输入：
+
+```bash
+$PY scripts/build_portfolio_research_input.py \
+  --market-data portfolio_outcome_bars.json \
+  --rules-locked-at 2026-06-21T09:34:00+08:00 \
+  --output portfolio_backtest_input.json
+```
+
+历史补跑不会生成 point-in-time 快照；同日证据也不允许覆盖。未带有效 artifact 的
+旧 `strategy_registry` 记录自动退回研究态，不能产生买入仓位或交易提案。
+
 ```bash
 $PY $SDIR/portfolio_backtest.py \
   --input portfolio_backtest_input.json \

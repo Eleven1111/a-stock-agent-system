@@ -78,6 +78,26 @@ def test_open_confirmation_policy_includes_research_evidence(monkeypatch):
     assert result["research_evidence"]["chanlun"]["status"] == "live_allowed"
 
 
+def test_research_only_watch_keeps_requested_buy_for_ledger_audit():
+    research_only = {
+        "decision": "watch",
+        "policy_decision": {
+            "requested_action": "buy",
+            "reasons": ["strategy_unverified"],
+        },
+    }
+    risk_blocked = {
+        "decision": "watch",
+        "policy_decision": {
+            "requested_action": "buy",
+            "reasons": ["market_risk_off"],
+        },
+    }
+
+    assert oc._recommendation_action(research_only) == "buy"
+    assert oc._recommendation_action(risk_blocked) == "hold"
+
+
 def test_rank_confirmations_returns_top_five_and_keeps_strategy_scores():
     shortlist = [
         {
@@ -288,6 +308,16 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(
+        oc.strategy_registry,
+        "live_record",
+        lambda strategy_id: {
+            "strategy_id": strategy_id,
+            "allowed_in_live_agent": True,
+            "gating_status": "enabled",
+            "runtime_allowed": True,
+        },
+    )
     monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"

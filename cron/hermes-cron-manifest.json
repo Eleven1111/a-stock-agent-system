@@ -367,6 +367,7 @@
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/recommendations.json",
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/portfolio_research_snapshots/",
         "$A_STOCK_STATE_HOME/cron/output/open-confirmation/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
