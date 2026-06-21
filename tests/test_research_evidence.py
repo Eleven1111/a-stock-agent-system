@@ -3,16 +3,15 @@ import research_evidence
 import strategy_registry
 
 
-def test_research_evidence_combines_chanlun_gate_and_serenity_risk(tmp_path, monkeypatch):
+def test_research_evidence_combines_chanlun_gate_and_serenity_risk(
+    tmp_path,
+    monkeypatch,
+    verified_gate_factory,
+):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     strategy_registry.register_gate_result(
         "chanlun_third_buy",
-        {
-            "decision": "pass",
-            "allowed_in_live_agent": True,
-            "asof": "2026-06-10",
-            "stats": {"trades": 100},
-        },
+        verified_gate_factory("chanlun_third_buy"),
     )
     deep_research_cache.write_deep_research(
         "600001",

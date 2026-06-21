@@ -31,7 +31,12 @@ REQUIRED_TESTS = {"t_test", "bootstrap", "permutation"}
 def _verify_evidence(payload: Dict[str, Any]) -> Dict[str, Any]:
     path = payload.get("evidence_artifact")
     if not path:
-        return {"passed": False, "reason": "OOS evidence_artifact is required"}
+        return {
+            "passed": False,
+            "reason": "OOS evidence_artifact is required",
+            "artifact": None,
+            "sha256": None,
+        }
     common = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
     if common not in sys.path:
         sys.path.insert(0, common)
@@ -45,10 +50,17 @@ def _verify_evidence(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "passed": False,
             "reason": "OOS evidence verification failed: " + ",".join(verification["errors"]),
+            "artifact": str(path),
+            "sha256": payload.get("evidence_sha256"),
         }
     artifact = verification["artifact"]
     if str(artifact.get("strategy_id") or "") != str(payload.get("strategy_id") or ""):
-        return {"passed": False, "reason": "OOS evidence strategy_id mismatch"}
+        return {
+            "passed": False,
+            "reason": "OOS evidence strategy_id mismatch",
+            "artifact": str(path),
+            "sha256": artifact.get("artifact_sha256"),
+        }
     metrics = artifact.get("gate_metrics") or {}
     for field in (
         "permutation_p",
@@ -62,13 +74,28 @@ def _verify_evidence(payload: Dict[str, Any]) -> Dict[str, Any]:
         expected = _num(payload.get(field))
         actual = _num(metrics.get(field))
         if expected is None or actual is None or abs(expected - actual) > 1e-12:
-            return {"passed": False, "reason": f"OOS evidence metric mismatch: {field}"}
+            return {
+                "passed": False,
+                "reason": f"OOS evidence metric mismatch: {field}",
+                "artifact": str(path),
+                "sha256": artifact.get("artifact_sha256"),
+            }
     required_controls = _set(payload.get("controls"))
     counts = artifact.get("control_counts") or {}
     missing = sorted(name for name in required_controls if int(_num(counts.get(name), 0) or 0) <= 0)
     if missing:
-        return {"passed": False, "reason": f"OOS evidence controls missing samples: {missing}"}
-    return {"passed": True, "reason": "OOS evidence artifact verified"}
+        return {
+            "passed": False,
+            "reason": f"OOS evidence controls missing samples: {missing}",
+            "artifact": str(path),
+            "sha256": artifact.get("artifact_sha256"),
+        }
+    return {
+        "passed": True,
+        "reason": "OOS evidence artifact verified",
+        "artifact": str(path),
+        "sha256": artifact.get("artifact_sha256"),
+    }
 
 
 def _bool(value: Any, default: bool = False) -> bool:
@@ -207,6 +234,11 @@ def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
         decision = "blocked"
         allowed_in_live_agent = False
 
+    evidence_check = next(
+        (item for item in checklist if item.get("id") == "evidence_artifact"),
+        None,
+    )
+
     return {
         "schema": "chanlun_research_gate_v1",
         "generated_at": datetime.now().isoformat(),
@@ -223,6 +255,13 @@ def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
             "fdr_p": fdr_p,
             "oos_alpha": oos_alpha,
             "benchmark_alpha": benchmark_alpha,
+            "oos_sample_count": int(_num(payload.get("oos_sample_count"), 0) or 0),
+        },
+        "evidence": {
+            "verified": bool(evidence_check and evidence_check.get("passed")),
+            "artifact": payload.get("evidence_artifact"),
+            "sha256": payload.get("evidence_sha256"),
+            "reason": (evidence_check or {}).get("reason"),
         },
         "warnings": [
             "本工具只做离线研究验证，不输出实时买卖指令",

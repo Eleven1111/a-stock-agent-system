@@ -158,6 +158,10 @@ python skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
 python skills/chanlun-backtest/scripts/research_gate.py --example --json
 
 # 组合级无前视回放（必须使用当时落盘的历史候选快照）
+python scripts/build_portfolio_research_input.py \
+  --market-data portfolio_outcome_bars.json \
+  --rules-locked-at 2026-06-21T09:34:00+08:00 \
+  --output portfolio_backtest_input.json
 python skills/chanlun-backtest/scripts/portfolio_backtest.py \
   --input portfolio_backtest_input.json --split 2025-01-01 \
   --artifact portfolio_backtest_oos.json --json

@@ -23,6 +23,41 @@ The input also contains historical OHLCV by code and benchmark OHLCV. The CLI
 binds the exact input file, rules, results, controls, and gate metrics into a
 SHA-256 research artifact.
 
+## Automatic evidence collection
+
+The live `open-confirmation` job writes one immutable research snapshot per
+trading date under:
+
+```text
+$A_STOCK_STATE_HOME/skills/stock-triage/data/portfolio_research_snapshots/
+```
+
+Only a run generated on its actual trading date may create this evidence.
+Historical reruns are skipped because they have already observed future
+information. Repeating the same live result is idempotent; replacing that day's
+snapshot with different content fails closed.
+
+An unregistered strategy remains `watch` in the live recommendation, but its
+pre-admission `buy` intent is retained in the research snapshot only when the
+sole blocking reason is `strategy_unverified`. Announcement, market-regime,
+portfolio-risk, and data-quality blocks are never removed for research replay.
+
+After outcome OHLCV has accumulated, assemble the executable input without
+reconstructing candidate lists:
+
+```bash
+python scripts/build_portfolio_research_input.py \
+  --market-data portfolio_outcome_bars.json \
+  --rules-locked-at 2026-06-21T09:34:00+08:00 \
+  --start 2026-06-21 \
+  --end 2026-09-30 \
+  --output portfolio_backtest_input.json
+```
+
+`portfolio_outcome_bars.json` contains `bars_by_code` and `benchmark_bars`.
+Outcome bars may be collected later; candidate membership, scores, policy state,
+source versions, and evidence time must come from the immutable daily snapshots.
+
 ## Execution model
 
 - Default entry: the next trading session open after the persisted snapshot.
@@ -107,3 +142,10 @@ valid but the strategy did not clear the return/statistical threshold. Only
 `passed_for_reference` may enter `strategy_registry`, and it remains subject to
 announcement, tradeability, portfolio-risk, and live-performance retirement
 gates.
+
+Live admission is fail-closed. A missing registry record, a legacy record with
+no evidence artifact, a mismatched strategy ID, a modified artifact/source, or
+a disabled live-performance gate produces zero position sizing. Existing
+pre-artifact registry entries therefore become research-only until rerun through
+the current gate; do not manually edit `strategy_registry.json` to bypass this
+migration.

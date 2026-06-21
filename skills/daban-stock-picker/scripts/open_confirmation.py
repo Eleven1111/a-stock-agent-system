@@ -38,6 +38,7 @@ from decision_policy import evaluate_decision  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
 from market_context import market_regime, read_market_context  # noqa: E402
 from portfolio_policy import evaluate_candidate  # noqa: E402
+from portfolio_research_history import record_open_confirmation  # noqa: E402
 import recommendation_audit  # noqa: E402
 from research_evidence import build_research_evidence  # noqa: E402
 import signal_ledger  # noqa: E402
@@ -47,10 +48,26 @@ from state_store import atomic_write_json, read_json  # noqa: E402
 from tradeability import assess_tradeability  # noqa: E402
 
 QUOTE_BATCH_SIZE = 80
+POSITIVE_ACTIONS = {"buy", "add", "conditional_buy"}
 
 
 def _naked_code(code: str) -> str:
     return code[2:] if code.startswith(("sh", "sz")) else code
+
+
+def _recommendation_action(item: Mapping[str, Any]) -> str:
+    """Preserve research intent in the ledger without reviving other blocks."""
+    decision = str(item.get("decision") or "watch").lower()
+    if decision == "avoid":
+        return "avoid"
+    if decision in POSITIVE_ACTIONS:
+        return decision
+    policy = item.get("policy_decision") or {}
+    requested = str(policy.get("requested_action") or "hold").lower()
+    reasons = {str(reason) for reason in policy.get("reasons") or []}
+    if decision == "watch" and requested in POSITIVE_ACTIONS and reasons == {"strategy_unverified"}:
+        return requested
+    return "hold"
 
 
 def _enrich_decision(
@@ -126,7 +143,7 @@ def _apply_policy(
     policy = evaluate_decision(
         requested_action=str((result.get("execution_plan") or {}).get("decision") or "watch"),
         quality_report=result.get("quality_report") or {"status": "conditional"},
-        strategy_record=strategy_registry.get(strategy_id),
+        strategy_record=strategy_registry.live_record(strategy_id),
         market_regime=regime,
         portfolio_risk=portfolio_risk,
         research_evidence=evidence,
@@ -464,15 +481,11 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
     for item in signals:
         code = candidate_pipeline.naked_code(item.get("code"))
         recommendation_id = f"open-{asof}-{code}"
-        recommendation_action = (
-            "buy" if item.get("decision") == "buy"
-            else "avoid" if item.get("decision") == "avoid"
-            else "hold"
-        )
+        recommendation_action = _recommendation_action(item)
         links = signal_ledger.make_links(
             recommendation_id,
             monitor_id=f"stock:{code}",
-            include_trade=recommendation_action in signal_ledger.TRADE_ACTIONS,
+            include_trade=item.get("decision") in signal_ledger.TRADE_ACTIONS,
         )
         item["ledger_links"] = {
             key: value for key, value in links.items() if value is not None
@@ -567,6 +580,15 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
         "confirmations": confirmations,
         "signals": signals,
         "signal_count": len(signals),
+    }
+    research_snapshot = record_open_confirmation(result)
+    result["portfolio_research_snapshot"] = {
+        "status": research_snapshot["status"],
+        "path": research_snapshot.get("path"),
+        "snapshot_sha256": (
+            (research_snapshot.get("snapshot") or {}).get("snapshot_sha256")
+        ),
+        "reason": research_snapshot.get("reason"),
     }
     atomic_write_json(_confirmation_path(asof), result)
     atomic_write_json(_confirmation_latest_path(), result)

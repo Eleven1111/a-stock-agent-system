@@ -36,11 +36,12 @@ def test_apply_gating_skips_skip(tmp_path, monkeypatch):
     assert sr.get("x") is None
 
 
-def test_position_guidance_gated_off(tmp_path, monkeypatch):
+def test_position_guidance_gated_off(tmp_path, monkeypatch, verified_gate_factory):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    sr.register_gate_result("chanlun_third_buy", {
-        "strategy_id": "chanlun_third_buy", "decision": "passed_for_reference",
-        "allowed_in_live_agent": True, "asof": "2026-06-03"})
+    sr.register_gate_result(
+        "chanlun_third_buy",
+        verified_gate_factory("chanlun_third_buy"),
+    )
     sr.set_gating("chanlun_third_buy", enabled=False, reason="实盘期望转负")
     g = ra.position_guidance("chanlun_third_buy", entry_price=10, target_price=12, stop_price=9)
     assert g["method"] == "gated_off"
@@ -48,7 +49,15 @@ def test_position_guidance_gated_off(tmp_path, monkeypatch):
     assert g["execution_fraction"] == 0.0
 
 
-def test_position_guidance_not_gated_when_enabled(tmp_path, monkeypatch):
+def test_position_guidance_not_gated_when_enabled(
+    tmp_path,
+    monkeypatch,
+    verified_gate_factory,
+):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    sr.register_gate_result(
+        "daban:first_board_reseal",
+        verified_gate_factory("daban:first_board_reseal"),
+    )
     g = ra.position_guidance("daban:first_board_reseal", entry_price=10, target_price=12, stop_price=9)
     assert g["method"] != "gated_off"

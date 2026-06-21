@@ -41,13 +41,15 @@ def evaluate_decision(
             multiplier = 0.0
             reasons.append("quality_not_passed")
 
-        if strategy_record:
-            research_allowed = strategy_record.get("allowed_in_live_agent")
-            gating_status = strategy_record.get("gating_status", "enabled")
-            if gating_status == "disabled" or research_allowed is False:
-                decision = "avoid"
-                multiplier = 0.0
-                reasons.append("strategy_not_allowed")
+        if strategy_record is None:
+            if decision in POSITIVE_ACTIONS:
+                decision = "watch"
+            multiplier = 0.0
+            reasons.append("strategy_unverified")
+        elif strategy_record.get("runtime_allowed") is not True:
+            decision = "avoid"
+            multiplier = 0.0
+            reasons.append("strategy_not_allowed")
 
         if (market_regime or {}).get("regime") == "risk_off" and decision in POSITIVE_ACTIONS:
             decision = "watch"
