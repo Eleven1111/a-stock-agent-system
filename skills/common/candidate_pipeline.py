@@ -83,7 +83,9 @@ def filter_universe(
             reasons.append(f"股价低于{min_price:g}元")
         if amount < min_amount:
             reasons.append(f"成交额低于{min_amount / 1e8:g}亿元")
-        if listed_days is not None and listed_days < min_listed_days:
+        if listed_days is None:
+            reasons.append("上市日期缺失或无效")
+        elif listed_days < min_listed_days:
             reasons.append(f"上市不足{min_listed_days}天")
 
         item.update({

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timedelta
-from statistics import median
 from typing import Any, Mapping, Optional, Sequence
 
 
@@ -85,7 +84,10 @@ def assess_behavior_risk(
         if (parsed := _parse_date(s.get("signal_date") or s.get("date")))
     ]
     dated.sort(key=lambda pair: pair[0])
-    asof_date = _parse_date(asof) or (dated[-1][0] if dated else None)
+    requested_asof = _parse_date(asof)
+    if requested_asof is not None:
+        dated = [(day, signal) for day, signal in dated if day <= requested_asof]
+    asof_date = requested_asof or (dated[-1][0] if dated else None)
 
     classes = [cls for _, s in dated if (cls := _outcome_class(s))]
     streak_len, streak_kind = _tail_streak(classes)

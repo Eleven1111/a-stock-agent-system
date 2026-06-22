@@ -30,6 +30,7 @@ def build_runtime_context(*, refresh: bool = True) -> dict[str, Any]:
         "portfolio": state.get("portfolio"),
         "recommendations": state.get("recommendations"),
         "signals": state.get("signals"),
+        "behavior_risk": state.get("behavior_risk"),
         "pending_settlements": state.get("pending_settlements"),
         "monitors": state.get("monitors"),
         "strategies": state.get("strategies"),

@@ -74,8 +74,11 @@ source versions, and evidence time must come from the immutable daily snapshots.
 - Missing bars, zero volume, sealed one-price limit-up entries, future-dated
   evidence, duplicate open positions, incomplete horizons, and policy-rejected
   candidates fail closed.
-- OOS equity and benchmark curves begin at the first OOS entry and end at the
-  last OOS exit. IS dates and pre-entry cash periods do not leak into OOS alpha.
+- The production ranking, controls, ablations, and counterfactuals use one fixed
+  evaluation horizon derived from the same snapshot split. Cash-only dates stay
+  in the curve so a delayed or sparse variant cannot improve its comparison by
+  silently shortening the benchmark period. IS evaluation stops before the OOS
+  split.
 
 ## Required comparisons
 
@@ -86,9 +89,16 @@ The report contains:
 - deterministic random ranking;
 - an equal-weight candidate ranking control;
 - one full replay per disabled score component.
+- a rank-shift proxy and a one-session entry-delay proxy on the same OOS dates;
+- a no-action baseline whose excess return is the negative benchmark return.
 
 Ablation re-ranks candidates and replays trades. It does not subtract a component
 from already observed returns.
+
+The delay proxy does not observe a new confirmation signal and must not be
+described as "confirmation then buy". With `top_n > 1`, the rank-shift proxy is a
+shifted basket rather than one runner-up stock. These limitations are emitted in
+`counterfactual_contracts`.
 
 ## Run
 

@@ -53,6 +53,16 @@ def test_filter_universe_returns_rejection_reasons():
     assert "成交额" in rejected["600005"][0]
 
 
+def test_missing_listing_date_fails_closed():
+    record = _quote("600006", "上市日期未知", 2.0, 300_000_000)
+    record.pop("listed_date")
+
+    eligible, rejected = cp.filter_universe([record], min_amount=100_000_000)
+
+    assert eligible == []
+    assert any("上市日期缺失" in reason for reason in rejected["600006"])
+
+
 def test_missing_kline_cannot_receive_strategy_score():
     ranked = cp.rank_candidates(
         [_quote("600001", "缺历史数据", 9.9, 2_000_000_000, turnover=20)],

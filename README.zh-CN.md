@@ -5,10 +5,10 @@
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-574%20passed-brightgreen)](tests/)
+[![CI](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
-A 股多智能体投研系统。11 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
+A 股多智能体投研系统。12 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
 
 **非交易机器人。** 系统只做数据分析和分级建议，不下单、不操盘。
 
@@ -94,7 +94,7 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 
 ```bash
 python scripts/smoke_test.py      # 9项集成检查
-python -m pytest -q tests/        # 574项测试全部通过
+python -m pytest -q tests/        # 全量回归测试
 ```
 
 ### Hermes / OpenClaw 共享状态
@@ -345,7 +345,7 @@ a-stock-agent-system/
 │   ├── generate_system_crontab.py # 系统cron兜底生成器
 │   ├── smoke_test.py           # 9项集成验证
 │   └── validate_cron_manifest.py
-├── tests/                      # 574个单元测试
+├── tests/                      # 全量回归测试
 ├── skills/
 │   ├── common/                 # 共享HTTP/状态 + 候选排序/生命周期
 │   ├── stock-triage/           # 编排中枢
@@ -389,7 +389,7 @@ a-stock-agent-system/
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q tests/        # 574项测试
+python -m pytest -q tests/        # 全量回归测试
 python scripts/smoke_test.py      # 9项集成检查
 python scripts/validate_cron_manifest.py
 ```

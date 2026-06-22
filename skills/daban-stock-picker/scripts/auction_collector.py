@@ -316,6 +316,7 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
             portfolio_risk=portfolio_risk,
             research_evidence=evidence,
             strategy_lane=lane,
+            market_crowding=selection_context.get("market_timing") or {},
         )
         if policy["decision"] in {"avoid", "watch"}:
             plan["decision"] = policy["decision"]
