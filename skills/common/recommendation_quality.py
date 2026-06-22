@@ -21,17 +21,26 @@ REQUIRED_BUY_FIELDS = (
     "position_pct",
 )
 
-CLARIFICATION_TERMS = (
-    "澄清",
+THESIS_INVALIDATION_TERMS = (
     "不属实",
     "未涉及",
-    "不存在",
     "无相关业务",
     "尚未形成收入",
     "未形成收入",
     "对业绩影响较小",
     "对公司业绩无重大影响",
+)
+
+REVIEW_TERMS = (
+    "澄清",
     "风险提示",
+    "监管问询",
+    "问询函",
+    "监管函",
+    "更正",
+)
+
+WARNING_ONLY_TERMS = (
     "异常波动",
 )
 
@@ -42,7 +51,6 @@ HARD_RISK_TERMS = (
     "资金占用",
     "违规担保",
     "财务造假",
-    "监管问询",
     "减持计划",
 )
 
@@ -63,7 +71,9 @@ def scan_announcement_risks(
     max_age_days: int = 30,
 ) -> dict[str, Any]:
     warnings: list[str] = []
-    clarification_hits: list[str] = []
+    thesis_invalidation_hits: list[str] = []
+    review_hits: list[str] = []
+    warning_only_hits: list[str] = []
     hard_risk_hits: list[str] = []
     scanned = 0
     current = _as_date(asof)
@@ -78,17 +88,31 @@ def scan_announcement_risks(
         title = str(item.get("title") or "")
         body = str(item.get("text") or item.get("snippet") or "")
         text = f"{title} {body}"
-        clarification = [term for term in CLARIFICATION_TERMS if term in text]
+        invalidations = [term for term in THESIS_INVALIDATION_TERMS if term in text]
+        reviews = [term for term in REVIEW_TERMS if term in text]
+        warning_only = [term for term in WARNING_ONLY_TERMS if term in text]
         hard_risks = [term for term in HARD_RISK_TERMS if term in text]
-        if clarification:
-            clarification_hits.extend(clarification)
-            warnings.append(f"公告澄清/风险提示：{title or text[:40]}")
+        if invalidations:
+            thesis_invalidation_hits.extend(invalidations)
+            warnings.append(f"公告澄清/事实否定交易逻辑：{title or text[:40]}")
+        if reviews:
+            review_hits.extend(reviews)
+        if reviews and not invalidations and not hard_risks:
+            warnings.append(f"公告需人工复核：{title or text[:40]}")
+        if warning_only:
+            warning_only_hits.extend(warning_only)
+            warnings.append(f"公告波动提示：{title or text[:40]}")
         if hard_risks:
             hard_risk_hits.extend(hard_risks)
             warnings.append(f"公告硬风险：{title or text[:40]}")
     return {
         "scanned": scanned,
-        "clarification_hits": sorted(set(clarification_hits)),
+        "thesis_invalidation_hits": sorted(set(thesis_invalidation_hits)),
+        "review_hits": sorted(set(review_hits)),
+        "warning_only_hits": sorted(set(warning_only_hits)),
+        "clarification_hits": sorted(set(
+            thesis_invalidation_hits + review_hits
+        )),
         "hard_risk_hits": sorted(set(hard_risk_hits)),
         "warnings": warnings,
     }
@@ -119,6 +143,9 @@ def build_quality_report(
     if announcements is None:
         announcement_report = {
             "scanned": 0,
+            "thesis_invalidation_hits": [],
+            "review_hits": [],
+            "warning_only_hits": [],
             "clarification_hits": [],
             "hard_risk_hits": [],
             "warnings": ["未完成公司公告扫描"],
@@ -128,14 +155,20 @@ def build_quality_report(
     else:
         announcement_report = scan_announcement_risks(announcements, asof=asof)
         warnings.extend(announcement_report["warnings"])
-        if announcement_report["clarification_hits"]:
-            blocking.append("announcement_clarification")
+        if announcement_report["thesis_invalidation_hits"]:
+            blocking.append("announcement_thesis_invalidated")
+        if (
+            announcement_report["review_hits"]
+            and not announcement_report["thesis_invalidation_hits"]
+            and not announcement_report["hard_risk_hits"]
+        ):
+            blocking.append("announcement_review_required")
         if announcement_report["hard_risk_hits"]:
             blocking.append("announcement_hard_risk")
 
     hard_blocks = {
         "not_tradeable",
-        "announcement_clarification",
+        "announcement_thesis_invalidated",
         "announcement_hard_risk",
     }
     if hard_blocks.intersection(blocking):

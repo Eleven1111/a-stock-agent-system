@@ -14,13 +14,13 @@ import json
 import sys
 import os
 from datetime import datetime, time as dtime
-from typing import Dict
+from typing import Any, Dict, Mapping
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from paths import data_file
 from state_store import atomic_write_json, read_json
 from data_access_config import intraday_settings
-from data_provider import fetch_tencent_quote
+from data_provider import fetch_tencent_quote, fetch_tencent_quotes
 from http_client import DataSourceError
 from exit_signals import evaluate_all_exit_signals
 from a_share_rules import CalendarCoverageError, t1_constraint
@@ -35,12 +35,18 @@ TRACKED_NAMES = {}
 
 ALERT_CACHE = data_file("stock-triage", "intraday_alerts.json")
 PORTFOLIO_FILE = data_file("stock-triage", "portfolio.json")
+SHORTLIST_FILE = data_file("daban-stock-picker", "auction_shortlist_latest.json")
 
 _MONITOR_CONFIG = intraday_settings()
 LIMIT_MOVE_PCT = float(_MONITOR_CONFIG["limit_move_pct"])
 HIGH_TURNOVER_PCT = float(_MONITOR_CONFIG["high_turnover_pct"])
 SURGE_PCT = float(_MONITOR_CONFIG["surge_pct"])
 DIRECTIONAL_MOVE_PCT = float(_MONITOR_CONFIG["directional_move_pct"])
+INTRADAY_QUOTE_BATCH_SIZE = int(_MONITOR_CONFIG["quote_batch_size"])
+SECTOR_MIN_MEMBERS = int(_MONITOR_CONFIG["sector_min_members"])
+SECTOR_MIN_POSITIVE_RATIO = float(_MONITOR_CONFIG["sector_min_positive_ratio"])
+SECTOR_MIN_AVERAGE_PCT = float(_MONITOR_CONFIG["sector_min_average_pct"])
+SECTOR_MIN_ACCELERATION_PCT = float(_MONITOR_CONFIG["sector_min_acceleration_pct"])
 
 
 def in_trading_session(now: datetime = None) -> bool:
@@ -73,6 +79,43 @@ def fetch_realtime(code: str) -> Dict:
         }
     except DataSourceError:
         return {}
+
+
+def fetch_realtime_many(codes: list[str]) -> Dict[str, Dict[str, Any]]:
+    """Fetch the intraday universe in one Tencent request."""
+    unique = list(dict.fromkeys(
+        runtime_targets.normalize_stock_code(code)
+        for code in codes
+        if runtime_targets.normalize_stock_code(code)
+    ))
+    if not unique:
+        return {}
+    output: Dict[str, Dict[str, Any]] = {}
+    for index in range(0, len(unique), INTRADAY_QUOTE_BATCH_SIZE):
+        batch = unique[index:index + INTRADAY_QUOTE_BATCH_SIZE]
+        try:
+            result = fetch_tencent_quotes(batch)
+        except DataSourceError:
+            continue
+        for raw_code, quote in result.data.items():
+            code = runtime_targets.normalize_stock_code(raw_code)
+            if not code:
+                continue
+            output[code] = {
+                key: quote.get(key)
+                for key in (
+                    "price",
+                    "change_pct",
+                    "high",
+                    "low",
+                    "volume",
+                    "amount",
+                    "turnover",
+                    "prev_close",
+                    "fetched_at",
+                )
+            }
+    return output
 
 
 def load_alert_cache() -> Dict:
@@ -138,6 +181,85 @@ def tracked_universe() -> Dict[str, str]:
     return tracked
 
 
+def load_sector_watchlist(asof: str) -> Dict[str, Dict[str, str]]:
+    payload = read_json(SHORTLIST_FILE, {})
+    if not isinstance(payload, dict) or str(payload.get("asof") or "")[:10] != asof:
+        return {}
+    members: Dict[str, Dict[str, str]] = {}
+    for item in payload.get("shortlist") or []:
+        code = runtime_targets.normalize_stock_code(item.get("code"))
+        sector = str(item.get("sector") or "").strip()
+        if code and sector:
+            members[code] = {
+                "name": str(item.get("name") or code),
+                "sector": sector,
+            }
+    return members
+
+
+def detect_sector_acceleration(
+    quotes: Mapping[str, Mapping[str, Any]],
+    members: Mapping[str, Mapping[str, str]],
+    *,
+    previous: Mapping[str, Mapping[str, Any]],
+    min_members: int,
+    min_positive_ratio: float,
+    min_average_pct: float,
+    min_acceleration_pct: float,
+) -> tuple[list[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    """Detect broad sector momentum without converting it into a buy signal."""
+    grouped: Dict[str, list[tuple[str, str, float]]] = {}
+    for code, metadata in members.items():
+        sector = str(metadata.get("sector") or "").strip()
+        quote = quotes.get(code) or {}
+        if not sector or quote.get("change_pct") is None:
+            continue
+        grouped.setdefault(sector, []).append((
+            code,
+            str(metadata.get("name") or code),
+            float(quote.get("change_pct") or 0.0),
+        ))
+
+    alerts: list[Dict[str, Any]] = []
+    state: Dict[str, Dict[str, Any]] = {}
+    for sector, rows in grouped.items():
+        average = sum(row[2] for row in rows) / len(rows)
+        positive = sum(row[2] > 0 for row in rows)
+        positive_ratio = positive / len(rows)
+        prior = previous.get(sector) or {}
+        prior_average = float(prior.get("average_pct") or 0.0)
+        qualifies = (
+            len(rows) >= min_members
+            and positive_ratio >= min_positive_ratio
+            and average >= min_average_pct
+        )
+        should_alert = qualifies and (
+            not prior.get("alerted")
+            or average - prior_average >= min_acceleration_pct
+        )
+        state[sector] = {
+            "average_pct": round(average, 2),
+            "positive_ratio": round(positive_ratio, 4),
+            "member_count": len(rows),
+            "alerted": qualifies,
+        }
+        if not should_alert:
+            continue
+        leaders = sorted(rows, key=lambda row: (-row[2], row[0]))[:3]
+        leader_text = "、".join(f"{name}{pct:+.1f}%" for _, name, pct in leaders)
+        alerts.append({
+            "level": "🟡",
+            "type": "板块加速",
+            "sector": sector,
+            "action": "watch",
+            "msg": (
+                f"{sector}候选集体走强：{positive}/{len(rows)}上涨，"
+                f"均涨{average:.1f}%；领先 {leader_text}。仅升级关注，不构成买入信号"
+            ),
+        })
+    return alerts, state
+
+
 def check_intraday() -> Dict:
     """检测盘中异动（阈值触发）"""
     alerts = []
@@ -149,8 +271,10 @@ def check_intraday() -> Dict:
         cache = {"_date": today}
 
     universe = tracked_universe()
+    sector_members = load_sector_watchlist(now.date().isoformat())
+    quote_by_code = fetch_realtime_many(list(universe) + list(sector_members))
     for code, name in universe.items():
-        data = fetch_realtime(code)
+        data = quote_by_code.get(code) or {}
         if not data.get("price"):
             continue
 
@@ -165,6 +289,7 @@ def check_intraday() -> Dict:
                 alerts.append({"level": "🔴", "type": "涨停",
                                "msg": f"{name}({code}) 涨停！现价{price} (+{pct}%)"})
                 cache[key] = now_str
+
         elif pct and pct <= -LIMIT_MOVE_PCT:
             key = f"dt_{code}"
             if key not in cache:
@@ -194,6 +319,18 @@ def check_intraday() -> Dict:
                                "msg": f"{name} {direction}{abs(pct):.1f}%，现价{price}"})
                 cache[key] = now_str
 
+    sector_alerts, sector_state = detect_sector_acceleration(
+        quote_by_code,
+        sector_members,
+        previous=cache.get("_sector_state") or {},
+        min_members=SECTOR_MIN_MEMBERS,
+        min_positive_ratio=SECTOR_MIN_POSITIVE_RATIO,
+        min_average_pct=SECTOR_MIN_AVERAGE_PCT,
+        min_acceleration_pct=SECTOR_MIN_ACCELERATION_PCT,
+    )
+    alerts.extend(sector_alerts)
+    cache["_sector_state"] = sector_state
+
     # 持仓退出信号检测
     portfolio = read_json(PORTFOLIO_FILE, {})
     positions = portfolio.get("positions", []) if isinstance(portfolio, dict) else []
@@ -203,7 +340,8 @@ def check_intraday() -> Dict:
         pos_code = str(pos.get("code", ""))
         if not pos_code:
             continue
-        pos_data = fetch_realtime(pos_code)
+        normalized_pos_code = runtime_targets.normalize_stock_code(pos_code)
+        pos_data = quote_by_code.get(normalized_pos_code) or {}
         if not pos_data.get("price"):
             continue
         pos_price = pos_data["price"]
@@ -254,6 +392,8 @@ def check_intraday() -> Dict:
         "time": now_str,
         "tracked_count": len(universe),
         "tracked_stocks": universe,
+        "sector_member_count": len(sector_members),
+        "sector_alerts": sector_alerts,
         "alerts": alerts,
         "exit_signals": exit_alerts,
         "has_alerts": len(alerts) > 0,

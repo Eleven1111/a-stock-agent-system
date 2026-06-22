@@ -80,6 +80,8 @@ def build_openclaw_commands(
     state_home: str | None = None,
     state_id: str | None = None,
 ) -> list[str]:
+    state_home = state_home or os.environ.get("A_STOCK_STATE_HOME")
+    state_id = state_id or os.environ.get("A_STOCK_STATE_ID")
     jobs = {
         str(job["id"]): job
         for job in manifest.get("jobs", [])
@@ -144,9 +146,11 @@ def main() -> int:
     parser.add_argument("--repo-dir", default=os.getcwd())
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--grace-seconds", type=int, default=60)
-    parser.add_argument("--state-home")
-    parser.add_argument("--state-id")
+    parser.add_argument("--state-home", default=os.environ.get("A_STOCK_STATE_HOME"))
+    parser.add_argument("--state-id", default=os.environ.get("A_STOCK_STATE_ID"))
     args = parser.parse_args()
+    if not args.state_home:
+        parser.error("--state-home or A_STOCK_STATE_HOME is required for OpenClaw jobs")
     with open(args.manifest, encoding="utf-8") as handle:
         manifest = json.load(handle)
     for command in build_openclaw_commands(

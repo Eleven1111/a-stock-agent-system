@@ -44,6 +44,7 @@ from state_store import atomic_write_json, read_json  # noqa: E402
 
 
 CONFIG_FILE = str(config_path("candidate_selection"))
+MAX_BOOTSTRAP_POOL_AGE_DAYS = 4
 
 
 def load_config() -> Dict[str, Any]:
@@ -61,6 +62,23 @@ def dated_pool_file(asof: str) -> str:
 
 def universe_cache_file() -> str:
     return data_file("stock-triage", "exchange_universe.json")
+
+
+def reusable_pool(
+    pool: Mapping[str, Any],
+    event_asof: str,
+    max_age_days: int = MAX_BOOTSTRAP_POOL_AGE_DAYS,
+) -> bool:
+    if pool.get("status") != "ready" or not pool.get("candidates"):
+        return False
+    try:
+        age = (
+            datetime.fromisoformat(event_asof).date()
+            - datetime.fromisoformat(str(pool.get("asof"))).date()
+        ).days
+    except (TypeError, ValueError):
+        return False
+    return 0 <= age <= max_age_days
 
 
 def _request_bytes(
@@ -653,6 +671,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "asof": result.get("asof"),
         "generated_at": result.get("generated_at"),
         "status": result.get("status"),
+        "bootstrap_status": result.get("bootstrap_status"),
         "universe_source": result.get("universe_source"),
         "scanned_count": result.get("scanned_count", 0),
         "eligible_count": result.get("eligible_count", 0),
@@ -680,15 +699,32 @@ def main() -> None:
     parser.add_argument("--asof", default=date.today().isoformat())
     parser.add_argument("--watch-limit", type=int, default=config["pipeline"]["watch_limit"])
     parser.add_argument("--prefilter-limit", type=int, default=config["universe"]["prefilter_limit"])
+    parser.add_argument(
+        "--no-settle",
+        action="store_true",
+        help="Skip prior-candidate settlement for pre-open bootstrap runs",
+    )
+    parser.add_argument(
+        "--bootstrap-if-missing",
+        action="store_true",
+        help="Reuse a recent closing pool and scan only for cold start or expiry",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     try:
-        result = run_discovery(
-            args.asof,
-            watch_limit=args.watch_limit,
-            prefilter_limit=args.prefilter_limit,
-        )
+        existing = read_json(latest_pool_file(), {})
+        if args.bootstrap_if_missing and reusable_pool(existing, args.asof):
+            result = {**existing, "bootstrap_status": "reused_existing"}
+        else:
+            result = run_discovery(
+                args.asof,
+                watch_limit=args.watch_limit,
+                prefilter_limit=args.prefilter_limit,
+                settle_previous=not args.no_settle,
+            )
+            if args.bootstrap_if_missing:
+                result["bootstrap_status"] = "generated_missing_or_stale"
     except Exception as exc:  # noqa: BLE001
         result = {
             "schema": "candidate_watch_pool_v1",

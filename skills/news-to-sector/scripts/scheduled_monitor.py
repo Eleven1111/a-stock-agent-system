@@ -192,8 +192,15 @@ def classify_event(event: Dict[str, Any]) -> Dict[str, Any]:
     classified = dict(event)
     risk = scan_announcement_risks([event])
     classified["risk_classification"] = {
-        "is_risk": bool(risk["clarification_hits"] or risk["hard_risk_hits"]),
+        "is_risk": bool(
+            risk["thesis_invalidation_hits"]
+            or risk["review_hits"]
+            or risk["hard_risk_hits"]
+        ),
         "clarification_hits": risk["clarification_hits"],
+        "thesis_invalidation_hits": risk["thesis_invalidation_hits"],
+        "review_hits": risk["review_hits"],
+        "warning_only_hits": risk["warning_only_hits"],
         "hard_risk_hits": risk["hard_risk_hits"],
         "warnings": risk["warnings"],
     }

@@ -33,8 +33,52 @@ def test_clarification_announcement_vetoes_bullish_claim():
     )
 
     assert report["status"] == "rejected"
-    assert "announcement_clarification" in report["blocking_checks"]
+    assert "announcement_thesis_invalidated" in report["blocking_checks"]
     assert any("澄清" in risk for risk in report["risk_warnings"])
+
+
+def test_generic_abnormal_volatility_notice_is_warning_not_automatic_veto():
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[{
+            "title": "股票交易异常波动公告",
+            "text": "公司经营情况正常，不存在应披露而未披露的重大事项。",
+        }],
+        asof=date(2026, 6, 12),
+    )
+
+    assert report["status"] == "passed"
+    assert report["announcement_scan"]["warning_only_hits"] == ["异常波动"]
+    assert "announcement_thesis_invalidated" not in report["blocking_checks"]
+
+
+def test_procedural_regulatory_notice_requires_review_without_claiming_hard_risk():
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[{
+            "title": "关于收到监管问询函的公告",
+            "text": "公司将在规定期限内回复。",
+        }],
+        asof=date(2026, 6, 12),
+    )
+
+    assert report["status"] == "conditional"
+    assert "announcement_review_required" in report["blocking_checks"]
+    assert "announcement_hard_risk" not in report["blocking_checks"]
+
+
+def test_disclosed_hard_risk_still_rejects_recommendation():
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[{
+            "title": "关于公司被立案调查的公告",
+            "text": "公司收到中国证监会立案告知书。",
+        }],
+        asof=date(2026, 6, 12),
+    )
+
+    assert report["status"] == "rejected"
+    assert "announcement_hard_risk" in report["blocking_checks"]
 
 
 def test_missing_announcement_scan_cannot_be_full_pass():

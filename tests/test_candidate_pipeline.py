@@ -74,6 +74,20 @@ def test_rank_candidates_carries_atr_for_execution_plans():
     assert ranked[0]["atr14"] > 0
 
 
+def test_rank_candidates_propagates_sector_from_live_context():
+    ranked = cp.rank_candidates(
+        [_quote("600001", "测试股", 3.0, 500_000_000, turnover=8)],
+        {"600001": _klines([10 + i * 0.1 for i in range(60)])},
+        signal_ctx={
+            "lianban_ladder": {
+                "600001": {"sector": "半导体", "lianban": 1},
+            },
+        },
+    )
+
+    assert ranked[0]["sector"] == "半导体"
+
+
 def test_missing_kline_cannot_enter_watch_pool_as_balanced_fill():
     missing = _quote("600001", "缺历史数据", 9.9, 2_000_000_000, turnover=20)
     ready = _quote("600002", "历史完整", 2.0, 500_000_000, turnover=5)

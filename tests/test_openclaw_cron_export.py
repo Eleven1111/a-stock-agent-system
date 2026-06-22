@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from scripts.generate_openclaw_cron import build_openclaw_commands, dependency_timeout_budget
 
@@ -78,3 +81,42 @@ def test_export_can_pin_shared_state_identity(tmp_path):
 
     assert "A_STOCK_STATE_HOME=/shared/a-stock" in command
     assert "A_STOCK_STATE_ID=cluster-1" in command
+
+
+def test_export_defaults_to_explicit_environment_state_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", "/shared/from-env")
+    monkeypatch.setenv("A_STOCK_STATE_ID", "cluster-env")
+
+    command = build_openclaw_commands(
+        {"jobs": [_job("target", 30)]},
+        repo_dir=str(tmp_path),
+        python="/venv/bin/python",
+    )[0]
+
+    assert "A_STOCK_STATE_HOME=/shared/from-env" in command
+    assert "A_STOCK_STATE_ID=cluster-env" in command
+
+
+def test_cli_refuses_to_generate_unpinned_openclaw_jobs(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [_job("target", 30)]}), encoding="utf-8")
+    env = os.environ.copy()
+    env.pop("A_STOCK_STATE_HOME", None)
+    env.pop("A_STOCK_STATE_ID", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "generate_openclaw_cron.py"),
+            "--manifest",
+            str(manifest),
+            "--repo-dir",
+            str(ROOT),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "A_STOCK_STATE_HOME" in result.stderr

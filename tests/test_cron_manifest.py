@@ -243,6 +243,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "social-attention-preopen",
         "social-attention-midday",
         "social-attention-close",
+        "candidate-preopen",
         "candidate-discovery",
         "auction-snapshot",
         "auction-finalize",
@@ -268,6 +269,10 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["candidate-discovery"]["dependency_policy"]["optional_jobs"] == [
         "social-attention-close",
     ]
+    assert jobs["candidate-preopen"]["schedule"] == "45 8 * * 1-5"
+    assert jobs["candidate-preopen"]["run"]["command"].endswith(
+        "candidate_discovery.py --bootstrap-if-missing --no-settle --json"
+    )
     assert jobs["hot-money-context"]["run"]["command"].endswith("--cache-only")
     assert jobs["social-attention-preopen"]["schedule"] == "42 8 * * 1-5"
     assert jobs["social-attention-midday"]["schedule"] == "37 11 * * 1-5"
@@ -302,7 +307,14 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
             "social_attention.json" in path
             for path in jobs[job_id]["allowed_state_writes"]
         )
-    assert jobs["auction-snapshot"]["context_from"] == ["candidate-discovery"]
+    assert jobs["auction-snapshot"]["context_from"] == ["candidate-preopen"]
+    assert jobs["auction-snapshot"]["dependency_policy"].get("optional_jobs") == []
+    from scripts.run_agent_dag import execution_order
+
+    assert execution_order(jobs, ["auction-snapshot"])[-2:] == [
+        "candidate-preopen",
+        "auction-snapshot",
+    ]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
     assert jobs["serenity-refresh-plan"]["context_from"] == [
         "closing-triage",

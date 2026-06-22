@@ -76,6 +76,11 @@ def _format_command(command: str, values: Dict[str, str]) -> str:
     return command.format_map(_SafeDict(values))
 
 
+def build_runtime_env(runtime: str) -> Dict[str, str]:
+    """Copy scheduler state explicitly; never invent a second state root."""
+    return os.environ.copy()
+
+
 def _producer_version() -> str:
     configured = os.environ.get("A_STOCK_CODE_VERSION")
     if configured:
@@ -151,13 +156,7 @@ def run_job(args: argparse.Namespace) -> int:
     batch_id = args.batch_id or make_batch_id(trading_date)
     runtime = resolve_runtime_name(args.runtime)
 
-    # Build runtime env early with fallbacks so cron contexts always have
-    # A_STOCK_STATE_HOME / A_STOCK_STATE_ID
-    run_env = os.environ.copy()
-    if not run_env.get("A_STOCK_STATE_HOME"):
-        run_env["A_STOCK_STATE_HOME"] = ROOT
-    if not run_env.get("A_STOCK_STATE_ID"):
-        run_env["A_STOCK_STATE_ID"] = "default"
+    run_env = build_runtime_env(runtime)
 
     if args.dry_run:
         dependency_gate = (
@@ -390,7 +389,7 @@ def run_job(args: argparse.Namespace) -> int:
     return returncode
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run one isolated A-stock agent job")
     parser.add_argument("job_id")
     parser.add_argument("--manifest", default=os.path.join(ROOT, "cron", "hermes-cron-manifest.json"))
@@ -402,7 +401,11 @@ def main() -> None:
     parser.add_argument("--var", action="append", default=[], help="Template variable as key=value")
     parser.add_argument("--emit-local", action="store_true", help="Emit stdout even when deliver=local")
     parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
     raise SystemExit(run_job(args))
 
 

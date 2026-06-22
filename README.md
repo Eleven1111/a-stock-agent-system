@@ -256,15 +256,17 @@ Cron jobs in this repo must be fully self-contained. Do not deploy jobs that req
 The scheduled workflow no longer scans a fixed symbol list:
 
 1. **15:02 hot-money context** — cache the current limit-up ladder, sector clusters, and ladder date. Consumers reject missing, future, or stale context instead of silently applying it.
-2. **15:05 discovery** — official SSE/SZSE listings + Tencent full-market quotes, deterministic liquidity/tradeability filters, then qfq K-line enrichment. Separate limit-up and trend rankers build a balanced watch pool of about 200 stocks.
-3. **09:15–09:25 auction** — the next trading day collects Tencent five-level order-book snapshots for that pool and ranks an auction shortlist of 20. Limit-up and trend lanes remain separate; one-price limit-up and missing-data candidates are rejected explicitly.
-4. **09:35 confirmation** — current quotes and tradeability reduce the shortlist to at most five executable observations. Fresh temperature context enforces the limit-up `top_n_limit`; a height-board or broad low-open retreat signal blocks new limit-up entries.
+2. **15:07 close discovery** — official SSE/SZSE listings + Tencent full-market quotes, deterministic liquidity/tradeability filters, then qfq K-line enrichment. Separate limit-up and trend rankers build the next-session D0 watch pool of about 200 stocks.
+3. **08:45 pre-open bootstrap** — reuse the valid D0 pool. Only a cold start or expired pool triggers a full scan; this path never settles prior candidates with incomplete pre-open prices.
+4. **09:15–09:25 auction** — collect Tencent five-level order-book snapshots for that pool and rank an auction shortlist of 20. Limit-up and trend lanes remain separate; one-price limit-up and missing-data candidates are rejected explicitly.
+5. **09:35 confirmation** — current quotes and tradeability reduce the shortlist to at most five executable observations. Fresh temperature context enforces the limit-up `top_n_limit`; a height-board or broad low-open retreat signal blocks new limit-up entries.
 
 Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, including stage history, rejection reasons, and incremental T+1/T+3 outcomes. Full state is stored under `HERMES_HOME`; cron artifacts contain only compact summaries.
 
 | Time (CST) | Job | Frequency |
 |------------|-----|-----------|
 | 08:15 | Global pre-market scan | Workdays |
+| 08:45 | Candidate-pool cold-start guard | Workdays |
 | 09:15–09:24 | Auction snapshots | Every minute, workdays |
 | 09:25 | Auction finalize + candidate context | Workdays |
 | 09:35 | Open confirmation | Workdays |
@@ -273,7 +275,7 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 09:45, 13:45, 14:45 | HK-A linkage | Workdays |
 | 10:30, 14:30 | Capital flow monitor | Workdays |
 | 15:02 | Cache limit-up ladder and market temperature context | Workdays |
-| 15:05 | Full-market candidate discovery | Workdays |
+| 15:07 | Full-market candidate discovery | Workdays |
 | 15:18 | Four-dim review of dynamic top 20 | Workdays |
 | 15:25 | Portfolio risk check | Workdays |
 | 15:35 | Triage → Kanban dispatch | Workdays |

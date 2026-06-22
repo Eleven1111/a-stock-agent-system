@@ -129,6 +129,46 @@
       "external_note": "08:42 多源采集东方财富/雪球社会关注度；单源仅展示，失败不阻断交易主链路"
     },
     {
+      "id": "candidate-preopen",
+      "name": "盘前候选池引导",
+      "schedule": "45 8 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py candidate-preopen --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2500,
+      "context_from": [],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 90,
+        "optional_jobs": []
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_pool_latest.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_pools/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_lifecycle/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/exchange_universe.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/candidate-preopen/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/stock-triage/scripts/candidate_discovery.py --bootstrap-if-missing --no-settle --json",
+        "cwd": ".",
+        "timeout_seconds": 420
+      },
+      "external_note": "08:45 复用有效的 D0 收盘候选池；仅冷启动或池过期时扫描，且不在盘前价格结算历史候选"
+    },
+    {
       "id": "social-attention-midday",
       "name": "社会关注度午间快照",
       "schedule": "37 11 * * 1-5",
@@ -253,6 +293,9 @@
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_pools/",
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_lifecycle/",
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/exchange_universe.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
         "$A_STOCK_STATE_HOME/cron/output/candidate-discovery/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
@@ -279,14 +322,12 @@
       "deliver": "local",
       "max_output_chars": 800,
       "context_from": [
-        "candidate-discovery"
+        "candidate-preopen"
       ],
       "dependency_policy": {
-        "trading_date": "previous_trading_day",
-        "max_age_minutes": 7200,
-        "optional_jobs": [
-          "candidate-discovery"
-        ]
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 90,
+        "optional_jobs": []
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [

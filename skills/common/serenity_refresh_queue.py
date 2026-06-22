@@ -196,7 +196,9 @@ def collect_targets(
             (item.get("quality_report") or {}).get("announcement_scan") or {}
         )
         material_event = bool(
-            announcement_scan.get("clarification_hits")
+            announcement_scan.get("thesis_invalidation_hits")
+            or announcement_scan.get("review_hits")
+            or announcement_scan.get("clarification_hits")
             or announcement_scan.get("hard_risk_hits")
         )
         append_target({
