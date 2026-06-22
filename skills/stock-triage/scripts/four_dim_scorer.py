@@ -37,7 +37,7 @@ from a_stock_http import (
     fetch_tencent_quote as _http_quote,
     fetch_tencent_kline as _http_kline,
 )
-from data_provider import fetch_serpapi_news as _fetch_serpapi_news
+from data_provider import fetch_serper_news as _fetch_serper_news
 from http_client import DataSourceError
 from tradeability import assess_tradeability
 from deep_research_cache import read_deep_research, decay_stale_score
@@ -95,13 +95,13 @@ def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60, ktype: st
         return []
 
 
-def fetch_serpapi_news(query: str, num: int = 5) -> Optional[List[Dict]]:
-    """SerpAPI 新闻；None 表示源不可用，空列表表示可用但无结果。"""
-    api_key = os.environ.get("SERPAPI_API_KEY")
+def fetch_serper_news(query: str, num: int = 5) -> Optional[List[Dict]]:
+    """Serper.dev 新闻；None 表示源不可用，空列表表示可用但无结果。"""
+    api_key = os.environ.get("SERPER_API_KEY")
     if not api_key:
         return None
     try:
-        result = _fetch_serpapi_news(query, api_key, num)
+        result = _fetch_serper_news(query, api_key, num)
         return [
             {
                 "title": item.get("title", ""),

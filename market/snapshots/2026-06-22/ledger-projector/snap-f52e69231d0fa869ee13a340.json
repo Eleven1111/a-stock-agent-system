@@ -1,0 +1,3909 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-f52e69231d0fa869ee13a340",
+  "dataset": "ledger-projector",
+  "trading_date": "2026-06-22",
+  "batch_id": "a-share-20260622",
+  "producer": "ledger-projector",
+  "producer_version": "81a2ed8ce0d0bf8fd77e663454d4f6809bff5578",
+  "captured_at": "2026-06-22T09:40:00+08:00",
+  "payload_schema": "a_stock_agent_state_v1",
+  "payload_hash": "3c98578d18d1b6f8f0977e77d6757fa35a5cdbae62743ddd2b69b58bf1111c89",
+  "source_versions": {},
+  "payload": {
+    "schema": "a_stock_agent_state_v1",
+    "generated_at": "2026-06-22T01:40:00+00:00",
+    "runtime_contract": {
+      "state_root_env": "A_STOCK_STATE_HOME",
+      "supported_runtimes": [
+        "hermes",
+        "openclaw"
+      ],
+      "source_of_truth": "signal_ledger.jsonl",
+      "required_loader": "python scripts/agent_runtime_context.py",
+      "cross_host_coordination": "shared_filesystem_required"
+    },
+    "portfolio": {
+      "cash": 0,
+      "positions": []
+    },
+    "recommendations": [
+      {
+        "id": "open-2026-06-22-002436",
+        "correlation_id": "corr-79184d7ecc5ee46fdd5e",
+        "recommendation_id": "open-2026-06-22-002436",
+        "signal_id": "sig-79184d7ecc5ee46fdd5e",
+        "monitor_id": "stock:002436",
+        "code": "002436",
+        "name": "兴森科技",
+        "date": "2026-06-22",
+        "created_at": "2026-06-22T09:30:07.840862",
+        "requested_action": "avoid",
+        "action": "avoid",
+        "entry_price": 53.69,
+        "price_range": "53.42-53.96",
+        "rationale": "符合趋势策略3%-10%中度上涨观察窗口",
+        "risks": [
+          "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+          "公告澄清/风险提示：关于股票交易异常波动的公告",
+          "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+          "筹码/机构提示：missing_dataset:lockups",
+          "筹码/机构提示：missing_dataset:margin_trading",
+          "筹码/机构提示：missing_dataset:holder_changes",
+          "超过最高追价线",
+          "开盘后快速跌破竞价价且无法收回",
+          "公告质检出现澄清、监管或硬风险"
+        ],
+        "target_price": 59.91,
+        "stop_price": 49.96,
+        "horizon": "T+1",
+        "grade": "B",
+        "confidence": "medium",
+        "strategy_id": "daban:first_board_reseal",
+        "position_sizing": {
+          "strategy_id": "daban:first_board_reseal",
+          "odds_b": 1.6676,
+          "history_total": 0,
+          "history_win_rate": null,
+          "method": "research_only",
+          "kelly_fraction": 0.0,
+          "execution_fraction": 0.0,
+          "recommended_position_pct": 0.0,
+          "recommended_amount": 0.0,
+          "gating_status": "unverified",
+          "reason": "策略 daban:first_board_reseal 尚无可复验的组合级 OOS 证据，仅供研究观察"
+        },
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "公告澄清/风险提示：关于股票交易异常波动的公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 2,
+            "clarification_hits": [
+              "异常波动"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：关于股票交易异常波动的公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "daban",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": 0.0,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "002436",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "daban:first_board_reseal",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔3/中枢0 | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": 0.0,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "002436",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "daban:first_board_reseal",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔3/中枢0 | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "strategy_attributions": [],
+        "social_attention": {
+          "candidate_bonus": 0.0,
+          "auction_delta": 0.0,
+          "notes": [],
+          "record": {}
+        },
+        "execution_constraints": {
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "settleable_signal": false,
+        "outcome": "pending"
+      },
+      {
+        "id": "open-2026-06-22-002281",
+        "correlation_id": "corr-332929fadb7a31ed4bf8",
+        "recommendation_id": "open-2026-06-22-002281",
+        "signal_id": "sig-332929fadb7a31ed4bf8",
+        "monitor_id": "stock:002281",
+        "code": "002281",
+        "name": "光迅科技",
+        "date": "2026-06-22",
+        "created_at": "2026-06-22T09:30:07.854301",
+        "requested_action": "hold",
+        "action": "hold",
+        "entry_price": 277.72,
+        "price_range": "276.33-279.11",
+        "rationale": "符合趋势策略3%-10%中度上涨观察窗口",
+        "risks": [
+          "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+          "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+          "筹码/机构提示：missing_dataset:lockups",
+          "筹码/机构提示：missing_dataset:margin_trading",
+          "筹码/机构提示：missing_dataset:holder_changes",
+          "超过最高追价线",
+          "开盘后快速跌破竞价价且无法收回",
+          "公告质检出现澄清、监管或硬风险"
+        ],
+        "target_price": 326.21,
+        "stop_price": 245.39,
+        "horizon": "T+1到T+3",
+        "grade": "B",
+        "confidence": "medium",
+        "strategy_id": "trend_pullback",
+        "position_sizing": {
+          "strategy_id": "trend_pullback",
+          "odds_b": 1.4998,
+          "history_total": 0,
+          "history_win_rate": null,
+          "method": "research_only",
+          "kelly_fraction": 0.0,
+          "execution_fraction": 0.0,
+          "recommended_position_pct": 0.0,
+          "recommended_amount": 0.0,
+          "gating_status": "unverified",
+          "reason": "策略 trend_pullback 尚无可复验的组合级 OOS 证据，仅供研究观察"
+        },
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 12,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": []
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "hold",
+          "decision": "hold",
+          "position_multiplier": 1.0,
+          "quality_status": "conditional",
+          "reasons": [],
+          "strategy_lane": "trend",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 6.0,
+            "projected_sector_exposure_pct": 6.0,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "002281",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "trend_pullback",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔3/中枢0 | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 6.0,
+          "projected_sector_exposure_pct": 6.0,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "002281",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "trend_pullback",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔3/中枢0 | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "strategy_attributions": [],
+        "social_attention": {
+          "candidate_bonus": 0.0,
+          "auction_delta": 0.0,
+          "notes": [],
+          "record": {}
+        },
+        "execution_constraints": {
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "settleable_signal": false,
+        "outcome": "pending"
+      },
+      {
+        "id": "open-2026-06-22-600487",
+        "correlation_id": "corr-bef979489ffd5eca987a",
+        "recommendation_id": "open-2026-06-22-600487",
+        "signal_id": "sig-bef979489ffd5eca987a",
+        "monitor_id": "stock:600487",
+        "code": "600487",
+        "name": "亨通光电",
+        "date": "2026-06-22",
+        "created_at": "2026-06-22T09:30:07.890164",
+        "requested_action": "avoid",
+        "action": "avoid",
+        "entry_price": 115.45,
+        "price_range": "114.87-116.03",
+        "rationale": "符合趋势策略3%-10%中度上涨观察窗口",
+        "risks": [
+          "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+          "公告澄清/风险提示：亨通光电股票交易异常波动的公告",
+          "公告澄清/风险提示：亨通光电关于分拆所属子公司上市的一般风险提示性公告",
+          "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+          "筹码/机构提示：missing_dataset:lockups",
+          "筹码/机构提示：missing_dataset:margin_trading",
+          "筹码/机构提示：missing_dataset:holder_changes",
+          "超过最高追价线",
+          "开盘后快速跌破竞价价且无法收回",
+          "公告质检出现澄清、监管或硬风险"
+        ],
+        "target_price": 136.19,
+        "stop_price": 101.62,
+        "horizon": "T+1到T+3",
+        "grade": "B",
+        "confidence": "medium",
+        "strategy_id": "trend_pullback",
+        "position_sizing": {
+          "strategy_id": "trend_pullback",
+          "odds_b": 1.4996,
+          "history_total": 0,
+          "history_win_rate": null,
+          "method": "research_only",
+          "kelly_fraction": 0.0,
+          "execution_fraction": 0.0,
+          "recommended_position_pct": 0.0,
+          "recommended_amount": 0.0,
+          "gating_status": "unverified",
+          "reason": "策略 trend_pullback 尚无可复验的组合级 OOS 证据，仅供研究观察"
+        },
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "公告澄清/风险提示：亨通光电股票交易异常波动的公告",
+            "公告澄清/风险提示：亨通光电关于分拆所属子公司上市的一般风险提示性公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 20,
+            "clarification_hits": [
+              "异常波动",
+              "风险提示"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：亨通光电股票交易异常波动的公告",
+              "公告澄清/风险提示：亨通光电关于分拆所属子公司上市的一般风险提示性公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "trend",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": null,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "600487",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "trend_pullback",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔6/中枢1 | 最新中枢[50.89,54.30] | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": null,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "600487",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "trend_pullback",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔6/中枢1 | 最新中枢[50.89,54.30] | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "strategy_attributions": [],
+        "social_attention": {
+          "candidate_bonus": 0.0,
+          "auction_delta": 0.0,
+          "notes": [],
+          "record": {}
+        },
+        "execution_constraints": {
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "settleable_signal": false,
+        "outcome": "pending"
+      },
+      {
+        "id": "open-2026-06-22-300285",
+        "correlation_id": "corr-dec07539117dd92027ff",
+        "recommendation_id": "open-2026-06-22-300285",
+        "signal_id": "sig-dec07539117dd92027ff",
+        "monitor_id": "stock:300285",
+        "code": "300285",
+        "name": "国瓷材料",
+        "date": "2026-06-22",
+        "created_at": "2026-06-22T09:30:07.925204",
+        "requested_action": "avoid",
+        "action": "avoid",
+        "entry_price": 93.8,
+        "price_range": "93.33-94.27",
+        "rationale": "符合趋势策略3%-10%中度上涨观察窗口",
+        "risks": [
+          "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+          "公告澄清/风险提示：关于股票交易异常波动的公告",
+          "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+          "筹码/机构提示：missing_dataset:lockups",
+          "筹码/机构提示：missing_dataset:margin_trading",
+          "筹码/机构提示：missing_dataset:holder_changes",
+          "超过最高追价线",
+          "开盘后快速跌破竞价价且无法收回",
+          "公告质检出现澄清、监管或硬风险"
+        ],
+        "target_price": 113.4,
+        "stop_price": 80.73,
+        "horizon": "T+1到T+3",
+        "grade": "B",
+        "confidence": "medium",
+        "strategy_id": "trend_pullback",
+        "position_sizing": {
+          "strategy_id": "trend_pullback",
+          "odds_b": 1.4996,
+          "history_total": 0,
+          "history_win_rate": null,
+          "method": "research_only",
+          "kelly_fraction": 0.0,
+          "execution_fraction": 0.0,
+          "recommended_position_pct": 0.0,
+          "recommended_amount": 0.0,
+          "gating_status": "unverified",
+          "reason": "策略 trend_pullback 尚无可复验的组合级 OOS 证据，仅供研究观察"
+        },
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "公告澄清/风险提示：关于股票交易异常波动的公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 12,
+            "clarification_hits": [
+              "异常波动"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：关于股票交易异常波动的公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "trend",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": 0.0,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "300285",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "trend_pullback",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔2/中枢0 | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": 0.0,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "300285",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "trend_pullback",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔2/中枢0 | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "strategy_attributions": [],
+        "social_attention": {
+          "candidate_bonus": 0.0,
+          "auction_delta": 0.0,
+          "notes": [],
+          "record": {}
+        },
+        "execution_constraints": {
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "settleable_signal": false,
+        "outcome": "pending"
+      },
+      {
+        "id": "open-2026-06-22-600392",
+        "correlation_id": "corr-45c01b4a56566a26608d",
+        "recommendation_id": "open-2026-06-22-600392",
+        "signal_id": "sig-45c01b4a56566a26608d",
+        "monitor_id": "stock:600392",
+        "code": "600392",
+        "name": "盛和资源",
+        "date": "2026-06-22",
+        "created_at": "2026-06-22T09:30:07.963006",
+        "requested_action": "avoid",
+        "action": "avoid",
+        "entry_price": 32.8,
+        "price_range": "32.64-32.96",
+        "rationale": "符合趋势策略3%-10%中度上涨观察窗口",
+        "risks": [
+          "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+          "公告澄清/风险提示：盛和资源控股股份有限公司股票交易异常波动公告",
+          "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+          "筹码/机构提示：missing_dataset:lockups",
+          "筹码/机构提示：missing_dataset:margin_trading",
+          "筹码/机构提示：missing_dataset:holder_changes",
+          "超过最高追价线",
+          "开盘后快速跌破竞价价且无法收回",
+          "公告质检出现澄清、监管或硬风险"
+        ],
+        "target_price": 35.85,
+        "stop_price": 30.97,
+        "horizon": "T+1",
+        "grade": "B",
+        "confidence": "medium",
+        "strategy_id": "daban:first_board_reseal",
+        "position_sizing": {
+          "strategy_id": "daban:first_board_reseal",
+          "odds_b": 1.6667,
+          "history_total": 0,
+          "history_win_rate": null,
+          "method": "research_only",
+          "kelly_fraction": 0.0,
+          "execution_fraction": 0.0,
+          "recommended_position_pct": 0.0,
+          "recommended_amount": 0.0,
+          "gating_status": "unverified",
+          "reason": "策略 daban:first_board_reseal 尚无可复验的组合级 OOS 证据，仅供研究观察"
+        },
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "公告澄清/风险提示：盛和资源控股股份有限公司股票交易异常波动公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 6,
+            "clarification_hits": [
+              "异常波动"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：盛和资源控股股份有限公司股票交易异常波动公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "daban",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": null,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "600392",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "daban:first_board_reseal",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔5/中枢1 | 最新中枢[23.73,27.82] | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": null,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "600392",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "daban:first_board_reseal",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔5/中枢1 | 最新中枢[23.73,27.82] | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "strategy_attributions": [],
+        "social_attention": {
+          "candidate_bonus": 0.0,
+          "auction_delta": 0.0,
+          "notes": [],
+          "record": {}
+        },
+        "execution_constraints": {
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "settleable_signal": false,
+        "outcome": "pending"
+      },
+      {
+        "id": "open-2026-06-22-600549",
+        "correlation_id": "corr-9040bb2ef8e0ec498119",
+        "recommendation_id": "open-2026-06-22-600549",
+        "signal_id": "sig-9040bb2ef8e0ec498119",
+        "monitor_id": "stock:600549",
+        "code": "600549",
+        "name": "厦门钨业",
+        "date": "2026-06-22",
+        "created_at": "2026-06-22T09:30:14.538959",
+        "requested_action": "avoid",
+        "action": "avoid",
+        "entry_price": 89.64,
+        "price_range": "89.19-90.09",
+        "rationale": "符合趋势策略3%-10%中度上涨观察窗口",
+        "risks": [
+          "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+          "公告澄清/风险提示：厦门钨业关于股票交易异常波动的公告",
+          "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+          "筹码/机构提示：missing_dataset:lockups",
+          "筹码/机构提示：missing_dataset:margin_trading",
+          "筹码/机构提示：missing_dataset:holder_changes",
+          "超过最高追价线",
+          "开盘后快速跌破竞价价且无法收回",
+          "公告质检出现澄清、监管或硬风险"
+        ],
+        "target_price": 99.65,
+        "stop_price": 83.63,
+        "horizon": "T+1",
+        "grade": "B",
+        "confidence": "medium",
+        "strategy_id": "daban:first_board_reseal",
+        "position_sizing": {
+          "strategy_id": "daban:first_board_reseal",
+          "odds_b": 1.6656,
+          "history_total": 0,
+          "history_win_rate": null,
+          "method": "research_only",
+          "kelly_fraction": 0.0,
+          "execution_fraction": 0.0,
+          "recommended_position_pct": 0.0,
+          "recommended_amount": 0.0,
+          "gating_status": "unverified",
+          "reason": "策略 daban:first_board_reseal 尚无可复验的组合级 OOS 证据，仅供研究观察"
+        },
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "公告澄清/风险提示：厦门钨业关于股票交易异常波动的公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 15,
+            "clarification_hits": [
+              "异常波动"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：厦门钨业关于股票交易异常波动的公告",
+              "公告澄清/风险提示：厦门钨业关于股票交易异常波动的公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "daban",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": null,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "600549",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "daban:first_board_reseal",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔5/中枢1 | 最新中枢[54.09,59.52] | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": null,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "600549",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "daban:first_board_reseal",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔5/中枢1 | 最新中枢[54.09,59.52] | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "strategy_attributions": [],
+        "social_attention": {
+          "candidate_bonus": 0.0,
+          "auction_delta": 0.0,
+          "notes": [],
+          "record": {}
+        },
+        "execution_constraints": {
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "settleable_signal": false,
+        "outcome": "pending"
+      },
+      {
+        "id": "open-2026-06-22-688146",
+        "correlation_id": "corr-330d446e3269c327226c",
+        "recommendation_id": "open-2026-06-22-688146",
+        "signal_id": "sig-330d446e3269c327226c",
+        "monitor_id": "stock:688146",
+        "code": "688146",
+        "name": "中船特气",
+        "date": "2026-06-22",
+        "created_at": "2026-06-22T09:35:04.644195",
+        "requested_action": "avoid",
+        "action": "avoid",
+        "entry_price": 384.0,
+        "price_range": "382.08-385.92",
+        "rationale": "符合趋势策略3%-10%中度上涨观察窗口",
+        "risks": [
+          "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+          "公告澄清/风险提示：中船特气股票交易风险提示公告",
+          "公告澄清/风险提示：中船特气股票交易异常波动公告",
+          "公告澄清/风险提示：中船特气股票交易异常波动暨严重异常波动公告",
+          "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+          "筹码/机构提示：missing_dataset:lockups",
+          "筹码/机构提示：missing_dataset:margin_trading",
+          "筹码/机构提示：missing_dataset:holder_changes",
+          "超过最高追价线",
+          "开盘后快速跌破竞价价且无法收回",
+          "公告质检出现澄清、监管或硬风险"
+        ],
+        "target_price": 472.12,
+        "stop_price": 325.25,
+        "horizon": "T+1到T+3",
+        "grade": "A",
+        "confidence": "medium",
+        "strategy_id": "trend_pullback",
+        "position_sizing": {
+          "strategy_id": "trend_pullback",
+          "odds_b": 1.4999,
+          "history_total": 0,
+          "history_win_rate": null,
+          "method": "research_only",
+          "kelly_fraction": 0.0,
+          "execution_fraction": 0.0,
+          "recommended_position_pct": 0.0,
+          "recommended_amount": 0.0,
+          "gating_status": "unverified",
+          "reason": "策略 trend_pullback 尚无可复验的组合级 OOS 证据，仅供研究观察"
+        },
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "公告澄清/风险提示：中船特气股票交易风险提示公告",
+            "公告澄清/风险提示：中船特气股票交易异常波动公告",
+            "公告澄清/风险提示：中船特气股票交易异常波动暨严重异常波动公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 14,
+            "clarification_hits": [
+              "异常波动",
+              "风险提示"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：中船特气股票交易风险提示公告",
+              "公告澄清/风险提示：中船特气股票交易异常波动公告",
+              "公告澄清/风险提示：中船特气股票交易异常波动暨严重异常波动公告",
+              "公告澄清/风险提示：中船特气股票交易异常波动公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "trend",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": null,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "688146",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "trend_pullback",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔4/中枢1 | 最新中枢[121.80,150.80] | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": null,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "688146",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "trend_pullback",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔4/中枢1 | 最新中枢[121.80,150.80] | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "strategy_attributions": [],
+        "social_attention": {
+          "candidate_bonus": 0.0,
+          "auction_delta": 0.0,
+          "notes": [],
+          "record": {}
+        },
+        "execution_constraints": {
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "settleable_signal": false,
+        "outcome": "pending"
+      },
+      {
+        "id": "open-2026-06-22-600522",
+        "correlation_id": "corr-9332ad4769f47a08b3ea",
+        "recommendation_id": "open-2026-06-22-600522",
+        "signal_id": "sig-9332ad4769f47a08b3ea",
+        "monitor_id": "stock:600522",
+        "code": "600522",
+        "name": "中天科技",
+        "date": "2026-06-22",
+        "created_at": "2026-06-22T09:35:04.687782",
+        "requested_action": "hold",
+        "action": "hold",
+        "entry_price": 58.7,
+        "price_range": "58.41-58.99",
+        "rationale": "符合趋势策略3%-10%中度上涨观察窗口",
+        "risks": [
+          "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+          "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+          "筹码/机构提示：missing_dataset:lockups",
+          "筹码/机构提示：missing_dataset:margin_trading",
+          "筹码/机构提示：missing_dataset:holder_changes",
+          "超过最高追价线",
+          "开盘后快速跌破竞价价且无法收回",
+          "公告质检出现澄清、监管或硬风险"
+        ],
+        "target_price": 69.58,
+        "stop_price": 51.44,
+        "horizon": "T+1到T+3",
+        "grade": "B",
+        "confidence": "medium",
+        "strategy_id": "trend_pullback",
+        "position_sizing": {
+          "strategy_id": "trend_pullback",
+          "odds_b": 1.4986,
+          "history_total": 0,
+          "history_win_rate": null,
+          "method": "research_only",
+          "kelly_fraction": 0.0,
+          "execution_fraction": 0.0,
+          "recommended_position_pct": 0.0,
+          "recommended_amount": 0.0,
+          "gating_status": "unverified",
+          "reason": "策略 trend_pullback 尚无可复验的组合级 OOS 证据，仅供研究观察"
+        },
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 2,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": []
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "hold",
+          "decision": "hold",
+          "position_multiplier": 1.0,
+          "quality_status": "conditional",
+          "reasons": [],
+          "strategy_lane": "trend",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 6.0,
+            "projected_sector_exposure_pct": null,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "600522",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "trend_pullback",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [
+                {
+                  "type": "top_divergence",
+                  "idx": 61,
+                  "price": 54.48,
+                  "detail": "顶背驰:价创新高但MACD动能8.4<24.9",
+                  "date": "2026-06-09",
+                  "strategy_id": "chanlun_top_divergence",
+                  "gate_status": "display_only"
+                }
+              ],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [
+                {
+                  "type": "top_divergence",
+                  "idx": 61,
+                  "price": 54.48,
+                  "detail": "顶背驰:价创新高但MACD动能8.4<24.9",
+                  "date": "2026-06-09",
+                  "strategy_id": "chanlun_top_divergence",
+                  "gate_status": "display_only"
+                }
+              ],
+              "structure_summary": "笔6/中枢1 | 最新中枢[27.42,31.74] | 信号:top_divergence"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 6.0,
+          "projected_sector_exposure_pct": null,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "600522",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "trend_pullback",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [
+              {
+                "type": "top_divergence",
+                "idx": 61,
+                "price": 54.48,
+                "detail": "顶背驰:价创新高但MACD动能8.4<24.9",
+                "date": "2026-06-09",
+                "strategy_id": "chanlun_top_divergence",
+                "gate_status": "display_only"
+              }
+            ],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [
+              {
+                "type": "top_divergence",
+                "idx": 61,
+                "price": 54.48,
+                "detail": "顶背驰:价创新高但MACD动能8.4<24.9",
+                "date": "2026-06-09",
+                "strategy_id": "chanlun_top_divergence",
+                "gate_status": "display_only"
+              }
+            ],
+            "structure_summary": "笔6/中枢1 | 最新中枢[27.42,31.74] | 信号:top_divergence"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "strategy_attributions": [],
+        "social_attention": {
+          "candidate_bonus": 0.0,
+          "auction_delta": 0.0,
+          "notes": [],
+          "record": {}
+        },
+        "execution_constraints": {
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "settleable_signal": false,
+        "outcome": "pending"
+      }
+    ],
+    "signals": [],
+    "pending_settlements": [],
+    "monitors": [
+      {
+        "id": "stock:002297",
+        "kind": "stock",
+        "key": "002297",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "博云新材",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 1,
+          "daban_rank": 1,
+          "trend_rank": 13,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600353",
+        "kind": "stock",
+        "key": "600353",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "旭光电子",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 2,
+          "daban_rank": 2,
+          "trend_rank": 22,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600172",
+        "kind": "stock",
+        "key": "600172",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "黄河旋风",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 3,
+          "daban_rank": 3,
+          "trend_rank": 24,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002491",
+        "kind": "stock",
+        "key": "002491",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "通鼎互联",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 4,
+          "daban_rank": 4,
+          "trend_rank": 2,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600397",
+        "kind": "stock",
+        "key": "600397",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "江钨装备",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 5,
+          "daban_rank": 5,
+          "trend_rank": 38,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:003031",
+        "kind": "stock",
+        "key": "003031",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "中瓷电子",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 6,
+          "daban_rank": 6,
+          "trend_rank": 6,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002655",
+        "kind": "stock",
+        "key": "002655",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "共达电声",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 7,
+          "daban_rank": 7,
+          "trend_rank": 10,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:000811",
+        "kind": "stock",
+        "key": "000811",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "冰轮环境",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 8,
+          "daban_rank": 8,
+          "trend_rank": 15,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600703",
+        "kind": "stock",
+        "key": "600703",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "三安光电",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 9,
+          "daban_rank": 9,
+          "trend_rank": 57,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002579",
+        "kind": "stock",
+        "key": "002579",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "中京电子",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 11,
+          "daban_rank": 10,
+          "trend_rank": 49,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600552",
+        "kind": "stock",
+        "key": "600552",
+        "created_at": "2026-06-22T09:29:11",
+        "label": "凯盛科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:11",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 13,
+          "daban_rank": 11,
+          "trend_rank": 30,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:603986",
+        "kind": "stock",
+        "key": "603986",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "兆易创新",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 14,
+          "daban_rank": 29,
+          "trend_rank": 4,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600183",
+        "kind": "stock",
+        "key": "600183",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "生益科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 15,
+          "daban_rank": 34,
+          "trend_rank": 5,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002428",
+        "kind": "stock",
+        "key": "002428",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "云南锗业",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 17,
+          "daban_rank": 12,
+          "trend_rank": 12,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600522",
+        "kind": "stock",
+        "key": "600522",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "中天科技",
+        "status": "active",
+        "source": "open_confirmation",
+        "source_group": "open_confirmation",
+        "updated_at": "2026-06-22T09:35:06",
+        "expires_at": "2026-06-24",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 18,
+          "daban_rank": 27,
+          "trend_rank": 8,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22",
+          "decision": "watch",
+          "auction_rank": 4,
+          "quality_status": "conditional",
+          "deactivated_by_batch_id": "a-share-20260622",
+          "deactivated_by_trading_date": "2026-06-22",
+          "previous_source_group": "auction_shortlist",
+          "open_rank": 5,
+          "correlation_id": "corr-9332ad4769f47a08b3ea",
+          "recommendation_id": "open-2026-06-22-600522",
+          "signal_id": "sig-9332ad4769f47a08b3ea",
+          "monitor_id": "stock:600522"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622",
+        "reason": "not_in_latest_observation_batch"
+      },
+      {
+        "id": "stock:600667",
+        "kind": "stock",
+        "key": "600667",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "太极实业",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 19,
+          "daban_rank": 13,
+          "trend_rank": 21,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002384",
+        "kind": "stock",
+        "key": "002384",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "东山精密",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 20,
+          "daban_rank": 35,
+          "trend_rank": 9,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:601869",
+        "kind": "stock",
+        "key": "601869",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "长飞光纤",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 21,
+          "daban_rank": 23,
+          "trend_rank": 11,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300433",
+        "kind": "stock",
+        "key": "300433",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "蓝思科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 22,
+          "daban_rank": 64,
+          "trend_rank": 14,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:000725",
+        "kind": "stock",
+        "key": "000725",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "京东方Ａ",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 23,
+          "daban_rank": 16,
+          "trend_rank": 16,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:603663",
+        "kind": "stock",
+        "key": "603663",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "三祥新材",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 26,
+          "daban_rank": 14,
+          "trend_rank": 31,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:000657",
+        "kind": "stock",
+        "key": "000657",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "中钨高新",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 27,
+          "daban_rank": 17,
+          "trend_rank": 19,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300179",
+        "kind": "stock",
+        "key": "300179",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "四方达",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 28,
+          "daban_rank": 56,
+          "trend_rank": 20,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600206",
+        "kind": "stock",
+        "key": "600206",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "有研新材",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 29,
+          "daban_rank": 15,
+          "trend_rank": 28,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300319",
+        "kind": "stock",
+        "key": "300319",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "麦捷科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 32,
+          "daban_rank": 60,
+          "trend_rank": 26,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300308",
+        "kind": "stock",
+        "key": "300308",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "中际旭创",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 33,
+          "daban_rank": 59,
+          "trend_rank": 27,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:601208",
+        "kind": "stock",
+        "key": "601208",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "东材科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 34,
+          "daban_rank": 33,
+          "trend_rank": 29,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300408",
+        "kind": "stock",
+        "key": "300408",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "三环集团",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 35,
+          "daban_rank": 63,
+          "trend_rank": 32,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300502",
+        "kind": "stock",
+        "key": "300502",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "新易盛",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 36,
+          "daban_rank": 67,
+          "trend_rank": 33,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300548",
+        "kind": "stock",
+        "key": "300548",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "长芯博创",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 37,
+          "daban_rank": 68,
+          "trend_rank": 34,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:000636",
+        "kind": "stock",
+        "key": "000636",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "风华高科",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 38,
+          "daban_rank": 40,
+          "trend_rank": 35,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600498",
+        "kind": "stock",
+        "key": "600498",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "烽火通信",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 39,
+          "daban_rank": 25,
+          "trend_rank": 36,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002916",
+        "kind": "stock",
+        "key": "002916",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "深南电路",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 40,
+          "daban_rank": 38,
+          "trend_rank": 37,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:603083",
+        "kind": "stock",
+        "key": "603083",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "剑桥科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 41,
+          "daban_rank": 21,
+          "trend_rank": 45,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300666",
+        "kind": "stock",
+        "key": "300666",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "江丰电子",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 42,
+          "daban_rank": 69,
+          "trend_rank": 39,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:688525",
+        "kind": "stock",
+        "key": "688525",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "佰维存储",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 43,
+          "daban_rank": 79,
+          "trend_rank": 40,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300475",
+        "kind": "stock",
+        "key": "300475",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "香农芯创",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 44,
+          "daban_rank": 65,
+          "trend_rank": 41,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:001309",
+        "kind": "stock",
+        "key": "001309",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "德明利",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 45,
+          "daban_rank": 36,
+          "trend_rank": 42,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600378",
+        "kind": "stock",
+        "key": "600378",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "昊华科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 46,
+          "daban_rank": 31,
+          "trend_rank": 43,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:688498",
+        "kind": "stock",
+        "key": "688498",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "源杰科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 47,
+          "daban_rank": 78,
+          "trend_rank": 44,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300223",
+        "kind": "stock",
+        "key": "300223",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "北京君正",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 48,
+          "daban_rank": 57,
+          "trend_rank": 46,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:601138",
+        "kind": "stock",
+        "key": "601138",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "工业富联",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 49,
+          "daban_rank": 44,
+          "trend_rank": 47,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600110",
+        "kind": "stock",
+        "key": "600110",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "诺德股份",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 50,
+          "daban_rank": 39,
+          "trend_rank": 48,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002463",
+        "kind": "stock",
+        "key": "002463",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "沪电股份",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 51,
+          "daban_rank": 46,
+          "trend_rank": 50,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002354",
+        "kind": "stock",
+        "key": "002354",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "天娱数科",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 52,
+          "daban_rank": 26,
+          "trend_rank": 66,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:688008",
+        "kind": "stock",
+        "key": "688008",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "澜起科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 53,
+          "daban_rank": 73,
+          "trend_rank": 51,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:000021",
+        "kind": "stock",
+        "key": "000021",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "深科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 54,
+          "daban_rank": 32,
+          "trend_rank": 52,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:301308",
+        "kind": "stock",
+        "key": "301308",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "江波龙",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 55,
+          "daban_rank": 72,
+          "trend_rank": 53,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:688012",
+        "kind": "stock",
+        "key": "688012",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "中微公司",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 56,
+          "daban_rank": 74,
+          "trend_rank": 54,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600584",
+        "kind": "stock",
+        "key": "600584",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "长电科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 57,
+          "daban_rank": 30,
+          "trend_rank": 55,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600176",
+        "kind": "stock",
+        "key": "600176",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "中国巨石",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 58,
+          "daban_rank": 47,
+          "trend_rank": 56,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:000988",
+        "kind": "stock",
+        "key": "000988",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "华工科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 59,
+          "daban_rank": 37,
+          "trend_rank": 58,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:000960",
+        "kind": "stock",
+        "key": "000960",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "锡业股份",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 60,
+          "daban_rank": 28,
+          "trend_rank": 62,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:000630",
+        "kind": "stock",
+        "key": "000630",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "铜陵有色",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 61,
+          "daban_rank": 42,
+          "trend_rank": 59,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:688256",
+        "kind": "stock",
+        "key": "688256",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "寒武纪",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 62,
+          "daban_rank": 77,
+          "trend_rank": 60,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:301217",
+        "kind": "stock",
+        "key": "301217",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "铜冠铜箔",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 63,
+          "daban_rank": 71,
+          "trend_rank": 61,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600111",
+        "kind": "stock",
+        "key": "600111",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "北方稀土",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 64,
+          "daban_rank": 45,
+          "trend_rank": 63,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600362",
+        "kind": "stock",
+        "key": "600362",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "江西铜业",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 65,
+          "daban_rank": 41,
+          "trend_rank": 64,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:601958",
+        "kind": "stock",
+        "key": "601958",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "金钼股份",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 66,
+          "daban_rank": 43,
+          "trend_rank": 65,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300476",
+        "kind": "stock",
+        "key": "300476",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "胜宏科技",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 67,
+          "daban_rank": 66,
+          "trend_rank": 67,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300394",
+        "kind": "stock",
+        "key": "300394",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "天孚通信",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 68,
+          "daban_rank": 62,
+          "trend_rank": 68,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002008",
+        "kind": "stock",
+        "key": "002008",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "大族激光",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 69,
+          "daban_rank": 53,
+          "trend_rank": 69,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:603993",
+        "kind": "stock",
+        "key": "603993",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "洛阳钼业",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 70,
+          "daban_rank": 48,
+          "trend_rank": 70,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:688981",
+        "kind": "stock",
+        "key": "688981",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "中芯国际",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 71,
+          "daban_rank": 80,
+          "trend_rank": 71,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002475",
+        "kind": "stock",
+        "key": "002475",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "立讯精密",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 72,
+          "daban_rank": 49,
+          "trend_rank": 72,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:688041",
+        "kind": "stock",
+        "key": "688041",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "海光信息",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 73,
+          "daban_rank": 75,
+          "trend_rank": 73,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:002407",
+        "kind": "stock",
+        "key": "002407",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "多氟多",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 74,
+          "daban_rank": 50,
+          "trend_rank": 74,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300136",
+        "kind": "stock",
+        "key": "300136",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "信维通信",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 75,
+          "daban_rank": 55,
+          "trend_rank": 75,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:601991",
+        "kind": "stock",
+        "key": "601991",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "大唐发电",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 76,
+          "daban_rank": 51,
+          "trend_rank": 76,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:603629",
+        "kind": "stock",
+        "key": "603629",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "利通电子",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 77,
+          "daban_rank": 52,
+          "trend_rank": 77,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300750",
+        "kind": "stock",
+        "key": "300750",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "宁德时代",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 78,
+          "daban_rank": 70,
+          "trend_rank": 78,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:300390",
+        "kind": "stock",
+        "key": "300390",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "天华新能",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 79,
+          "daban_rank": 61,
+          "trend_rank": 79,
+          "selected_by": {
+            "daban": false,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      },
+      {
+        "id": "stock:600519",
+        "kind": "stock",
+        "key": "600519",
+        "created_at": "2026-06-22T09:29:12",
+        "label": "贵州茅台",
+        "status": "active",
+        "source": "candidate_discovery",
+        "source_group": "daily_observation",
+        "updated_at": "2026-06-22T09:29:12",
+        "expires_at": "2026-06-23",
+        "manual_cancelled": false,
+        "metadata": {
+          "candidate_rank": 80,
+          "daban_rank": 54,
+          "trend_rank": 80,
+          "selected_by": {
+            "daban": true,
+            "trend": true,
+            "balanced_fill": false
+          },
+          "candidate_pool_asof": "2026-06-22"
+        },
+        "last_seen_trading_date": "2026-06-22",
+        "last_seen_batch_id": "a-share-20260622"
+      }
+    ],
+    "strategies": {},
+    "serenity_refresh_requests": []
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/ledger-projector/snap-f52e69231d0fa869ee13a340.json"
+}

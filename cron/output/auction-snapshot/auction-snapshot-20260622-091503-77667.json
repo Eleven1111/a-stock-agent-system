@@ -1,0 +1,89 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "auction-snapshot",
+  "run_id": "auction-snapshot-20260622-091503-77667",
+  "batch_id": "a-share-20260622",
+  "trading_date": "2026-06-22",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "local",
+  "status": "failed",
+  "returncode": 1,
+  "started_at": "2026-06-22T09:15:03+08:00",
+  "finished_at": "2026-06-22T09:15:03+08:00",
+  "duration_seconds": 0.187,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/daban-stock-picker/scripts/auction_collector.py --snapshot --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "status": "insufficient_data"
+  },
+  "context_from": [
+    {
+      "job_id": "candidate-discovery",
+      "run_id": "candidate-discovery-20260621-100001-55796",
+      "batch_id": "a-share-20260618",
+      "trading_date": "2026-06-18",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-discovery/candidate-discovery-20260621-100001-55796.json",
+      "status": "skipped_non_trading_day",
+      "finished_at": "2026-06-21T10:00:01+08:00",
+      "summary": {
+        "text_preview": ""
+      },
+      "age_minutes": 1395.033,
+      "required": false,
+      "reasons": [
+        "status_skipped_non_trading_day"
+      ],
+      "gate_status": "optional_failed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-22",
+    "batch_id": "a-share-20260622",
+    "policy": {
+      "trading_date": "previous_trading_day",
+      "max_age_minutes": 7200,
+      "optional_jobs": [
+        "candidate-discovery"
+      ],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "candidate-discovery",
+        "run_id": "candidate-discovery-20260621-100001-55796",
+        "batch_id": "a-share-20260618",
+        "trading_date": "2026-06-18",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-discovery/candidate-discovery-20260621-100001-55796.json",
+        "status": "skipped_non_trading_day",
+        "finished_at": "2026-06-21T10:00:01+08:00",
+        "summary": {
+          "text_preview": ""
+        },
+        "age_minutes": 1395.033,
+        "required": false,
+        "reasons": [
+          "status_skipped_non_trading_day"
+        ],
+        "gate_status": "optional_failed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-22",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": null,
+  "stdout": "{\"status\": \"insufficient_data\", \"error\": \"[candidate_pool:unknown] 动态观察池缺失或不可用，请先运行 candidate-discovery\"}\n",
+  "stderr": "",
+  "stdout_preview": "{\"status\": \"insufficient_data\", \"error\": \"[candidate_pool:unknown] 动态观察池缺失或不可用，请先运行 candidate-discovery\"}\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/auction-snapshot/auction-snapshot-20260622-091503-77667.json"
+}

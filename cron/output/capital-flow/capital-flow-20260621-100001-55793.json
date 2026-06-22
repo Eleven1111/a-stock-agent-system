@@ -1,0 +1,36 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "capital-flow",
+  "run_id": "capital-flow-20260621-100001-55793",
+  "batch_id": "a-share-20260618",
+  "trading_date": "2026-06-18",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "skipped_non_trading_day",
+  "returncode": 0,
+  "started_at": "2026-06-21T10:00:01+08:00",
+  "finished_at": "2026-06-21T10:00:01+08:00",
+  "duration_seconds": 0,
+  "command": "python skills/stock-triage/scripts/capital_flow_monitor.py --json --cache",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": false,
+  "summary": {
+    "text_preview": ""
+  },
+  "context_from": [],
+  "dependency_gate": null,
+  "calendar_gate": {
+    "action": "skip",
+    "calendar_date": "2026-06-21",
+    "policy": "required",
+    "reason": "non_trading_day"
+  },
+  "market_snapshot": null,
+  "stdout": "",
+  "stderr": "",
+  "stdout_preview": "",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/capital-flow/capital-flow-20260621-100001-55793.json"
+}

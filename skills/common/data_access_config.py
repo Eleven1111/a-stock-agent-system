@@ -14,6 +14,7 @@ DEFAULTS: Dict[str, Any] = {
     "providers": {
         "tencent": {"timeout_seconds": 10, "max_attempts": 2},
         "serpapi": {"timeout_seconds": 15, "max_attempts": 2},
+        "serper": {"timeout_seconds": 10, "max_attempts": 2},
         "sina": {"timeout_seconds": 10, "max_attempts": 2},
         "usgs": {"timeout_seconds": 10, "max_attempts": 2},
         "gdacs": {"timeout_seconds": 10, "max_attempts": 2},
@@ -85,6 +86,7 @@ DEFAULTS: Dict[str, Any] = {
             "yfinance": True,
             "sina": True,
             "serpapi": True,
+            "serper": True,
         },
         "us_indices": {
             "^GSPC": {"name": "标普500", "sina_code": "gb_$spx", "weight": "major"},

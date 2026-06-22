@@ -1,0 +1,62 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "provider-health",
+  "run_id": "provider-health-20260622-134255-82300",
+  "batch_id": "a-share-20260622",
+  "trading_date": "2026-06-22",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "local",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-22T13:42:55+08:00",
+  "finished_at": "2026-06-22T13:43:07+08:00",
+  "duration_seconds": 12.309,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python scripts/provider_doctor.py --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "schema": "a_stock_provider_health_v1",
+    "status": "degraded"
+  },
+  "context_from": [],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-22",
+    "batch_id": "a-share-20260622",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": null,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": []
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-22",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-4cf9922466e43311d3177e8d",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/provider-health/snap-4cf9922466e43311d3177e8d.json",
+    "payload_hash": "54e78db66184c877af88a0f1de285c36f554933000a5c5190041e116ce792c50",
+    "source_versions": {
+      "akshare_push2": "external-source-v1",
+      "akshare_push2ex": "external-source-v1",
+      "akshare_ths": "external-source-v1",
+      "eastmoney_push2his": "external-source-v1",
+      "tencent": "tencent-adapter-v2"
+    }
+  },
+  "stdout": "{\n  \"schema\": \"a_stock_provider_health_v1\",\n  \"status\": \"degraded\",\n  \"datasets\": {\n    \"tencent_quote\": {\n      \"dataset\": \"tencent_quote\",\n      \"provider\": \"tencent\",\n      \"required\": true,\n      \"status\": \"ok\",\n      \"row_count\": 1,\n      \"duration_seconds\": 0.121\n    },\n    \"eastmoney_fund_flow\": {\n      \"dataset\": \"eastmoney_fund_flow\",\n      \"provider\": \"eastmoney_push2his\",\n      \"required\": false,\n      \"status\": \"error\",\n      \"error_type\": \"DataSourceError\",\n      \"error\": \"[eastmoney:network] circuit open until 1782107172\",\n      \"duration_seconds\": 0.008\n    },\n    \"akshare_limitup\": {\n      \"dataset\": \"akshare_limitup\",\n      \"provider\": \"akshare_push2ex\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 91,\n      \"duration_seconds\": 2.721\n    },\n    \"ths_industry_catalog\": {\n      \"dataset\": \"ths_industry_catalog\",\n      \"provider\": \"akshare_ths\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 90,\n      \"duration_seconds\": 0.364\n    },\n    \"akshare_spot_em\": {\n      \"dataset\": \"akshare_spot_em\",\n      \"provider\": \"akshare_push2\",\n      \"required\": false,\n      \"status\": \"error\",\n      \"error_type\": \"DataSourceError\",\n      \"error\": \"[akshare_spot:unknown] 全A行情获取失败\",\n      \"duration_seconds\": 8.727\n    }\n  }\n}\n",
+  "stderr": "\n  0%|          | 0/58 [00:00<?, ?it/s]\n  2%|▏         | 1/58 [00:01<01:02,  1.10s/it]\n                                              \n",
+  "stdout_preview": "{\n  \"schema\": \"a_stock_provider_health_v1\",\n  \"status\": \"degraded\",\n  \"datasets\": {\n    \"tencent_quote\": {\n      \"dataset\": \"tencent_quote\",\n      \"provider\": \"tencent\",\n      \"required\": true,\n      \"status\": \"ok\",\n      \"row_count\": 1,\n      \"duration_seconds\": 0.121\n    },\n    \"eastmoney_fund_flow\": {\n      \"dataset\": \"eastmoney_fund_flow\",\n      \"provider\": \"eastmoney_push2his\",\n      \"required\": false,\n      \"status\": \"error\",\n      \"error_type\": \"DataSourceError\",\n      \"error\": \"[eastmoney:network] circuit open until 1782107172\",\n      \"duration_seconds\": 0.008\n    },\n    \"akshare_limitup\": {\n      \"dataset\": \"akshare_limitup\",\n      \"provider\": \"akshare_push2ex\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 91,\n      \"duration_seconds\": 2.721\n    },\n    \"ths_industry_catalog\": {\n      \"dataset\": \"ths_industry_catalog\",\n      \"provider\": \"akshare_ths\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 90,\n      \"duration_seconds\": 0.364\n    },\n    \"akshare_spot_em\": {\n      \"dataset\": \"akshare_spot_em\",\n      \"provider\": \"akshare_push2\",\n      \"required\": false,\n      \"status\": \"error\",\n      \"error_type\": \"DataSourceError\",\n      \"error\"\n...[truncated 81 chars]",
+  "stderr_preview": "\n  0%|          | 0/58 [00:00<?, ?it/s]\n  2%|▏         | 1/58 [00:01<01:02,  1.10s/it]\n                                              \n",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/provider-health/provider-health-20260622-134255-82300.json"
+}

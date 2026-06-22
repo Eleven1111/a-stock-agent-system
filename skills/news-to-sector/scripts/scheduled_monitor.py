@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 
 from a_stock_http import load_hermes_env  # noqa: E402
 from data_access_config import news_monitor_settings  # noqa: E402
-from data_provider import fetch_serpapi_news  # noqa: E402
+from data_provider import fetch_serper_news  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from monitor_registry import active_entries  # noqa: E402
 from recommendation_quality import scan_announcement_risks  # noqa: E402
@@ -63,14 +63,13 @@ def build_queries(base_queries: List[str] | None = None, *, mode: str = "schedul
     return list(dict.fromkeys(query for query in queries if query.strip()))
 
 
-def _serpapi_key() -> str | None:
+def _serper_key() -> str | None:
     load_hermes_env()
-    keys = os.environ.get("SERPAPI_KEYS") or os.environ.get("SERPAPI_API_KEY") or ""
-    return next((k.strip() for k in keys.split(",") if k.strip()), None)
+    return os.environ.get("SERPER_API_KEY") or None
 
 
 def fetch_news(query: str, api_key: str, limit: int) -> List[Dict[str, Any]]:
-    return fetch_serpapi_news(query, api_key, limit).data
+    return fetch_serper_news(query, api_key, limit).data
 
 
 def stock_code_from_query(query: str) -> str | None:
@@ -241,14 +240,14 @@ def run_monitor(
             "freshness": evaluate_freshness([], sla_minutes=sla),
         }
 
-    api_key = _serpapi_key()
+    api_key = _serper_key()
     if not api_key:
         return {
             "schema": "scheduled_news_monitor_v1",
             "generated_at": current.isoformat(timespec="seconds"),
             "status": "insufficient_data",
             "mode": mode,
-            "message": "SERPAPI_API_KEY/SERPAPI_KEYS missing; no directional news judgement",
+            "message": "SERPER_API_KEY missing; no directional news judgement",
             "events": [],
             "signals": [],
             "freshness": evaluate_freshness([], sla_minutes=sla),

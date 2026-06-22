@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import urllib.parse
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +23,7 @@ except ImportError:
 
 __all__ = [
     "fetch_serpapi_news",
+    "fetch_serper_news",
     "fetch_tencent_quote",
     "fetch_tencent_quotes",
     "provider_client",
@@ -122,6 +124,61 @@ def fetch_serpapi_news(
             "date": item.get("date"),
             "link": item.get("link"),
             "provider": "serpapi",
+            "fetched_at": response.fetched_at,
+        })
+    return HttpResult(events, response.fetched_at, response.attempts)
+
+
+def fetch_serper_news(
+    query: str,
+    api_key: str,
+    limit: int,
+    *,
+    client: Optional[HttpClient] = None,
+) -> HttpResult[List[Dict[str, Any]]]:
+    request = build_request(
+        "https://google.serper.dev/news",
+        data=json.dumps({"q": query, "gl": "cn", "hl": "zh-cn", "num": max(1, int(limit))}).encode("utf-8"),
+        headers={
+            "X-API-KEY": api_key,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    response = (client or provider_client("serper")).request_json(request)
+    if not isinstance(response.data, dict):
+        raise DataSourceError(
+            "serper",
+            "expected a JSON object",
+            error_type=ErrorType.INVALID_RESPONSE,
+            attempts=response.attempts,
+            timestamp=response.fetched_at,
+        )
+    items = response.data.get("news") or []
+    if not isinstance(items, list):
+        raise DataSourceError(
+            "serper",
+            "news must be a list",
+            error_type=ErrorType.INVALID_RESPONSE,
+            attempts=response.attempts,
+            timestamp=response.fetched_at,
+        )
+    events = []
+    for item in items[:limit]:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title") or ""
+        snippet = item.get("snippet") or ""
+        if not title and not snippet:
+            continue
+        events.append({
+            "query": query,
+            "title": title,
+            "snippet": snippet,
+            "source": item.get("source"),
+            "date": item.get("date"),
+            "link": item.get("link"),
+            "provider": "serper",
             "fetched_at": response.fetched_at,
         })
     return HttpResult(events, response.fetched_at, response.attempts)

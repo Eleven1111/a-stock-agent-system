@@ -35,7 +35,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 MARKET_CONFIG = global_market_settings()
 USE_YFINANCE = MARKET_CONFIG["switches"]["yfinance"]
 USE_SINA = MARKET_CONFIG["switches"]["sina"]
-USE_SERPAPI = MARKET_CONFIG["switches"]["serpapi"]
+USE_SERPER = MARKET_CONFIG["switches"].get("serper", True)
 US_INDICES = MARKET_CONFIG["us_indices"]
 US_SECTOR_ETFS = MARKET_CONFIG["us_sector_etfs"]
 GLOBAL_INDICES = MARKET_CONFIG["global_indices"]
@@ -231,31 +231,26 @@ def fetch_sina_us_indices() -> Dict[str, Dict]:
     return results
 
 
-def fetch_serpapi_news(query: str = "global market breaking news financial", num: int = 5) -> List[Dict]:
-    """通过 SerpAPI 抓取重大新闻"""
-    api_key = os.environ.get("SERPAPI_API_KEY")
+def fetch_serper_news(query: str = "global market breaking news financial", num: int = 5) -> List[Dict]:
+    """通过 serper.dev 抓取重大新闻"""
+    from data_provider import fetch_serper_news as _fetch_serper
+    api_key = os.environ.get("SERPER_API_KEY")
     if not api_key:
-        return [{"error": "SERPAPI_API_KEY not set"}]
-
-    url = f"https://serpapi.com/search?engine=google_news&q={quote(query)}&num={num}&api_key={api_key}"
+        return [{"error": "SERPER_API_KEY not set"}]
     try:
-        data = provider_client("serpapi").request_json(
-            url,
-            headers={"User-Agent": "Mozilla/5.0"},
-        ).data
+        result = _fetch_serper(query, api_key, num)
+        return [
+            {
+                "title": item.get("title"),
+                "source": item.get("source"),
+                "date": item.get("date"),
+                "snippet": item.get("snippet"),
+                "link": item.get("link"),
+            }
+            for item in result.data
+        ]
     except Exception as e:
-        return [{"error": f"SerpAPI fetch failed: {e}"}]
-
-    news = []
-    for item in data.get("news_results", [])[:num]:
-        news.append({
-            "title": item.get("title"),
-            "source": item.get("source", {}).get("name"),
-            "date": item.get("date"),
-            "snippet": item.get("snippet"),
-            "link": item.get("link"),
-        })
-    return news
+        return [{"error": f"serper fetch failed: {e}"}]
 
 
 def fetch_geopolitical_news() -> List[Dict]:

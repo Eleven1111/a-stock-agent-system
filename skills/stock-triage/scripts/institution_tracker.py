@@ -19,7 +19,7 @@ COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..",
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
-from data_provider import fetch_serpapi_news as _fetch_serpapi_news
+from data_provider import fetch_serper_news as _fetch_serper_news
 from eastmoney_intelligence import (
     fetch_insider_trades as _fetch_insider_trades,
     fetch_reports,
@@ -71,14 +71,14 @@ def fetch_insider_trades(code: str) -> List[Dict]:
         return []
 
 
-def fetch_serpapi_inst_news(code: str, name: str) -> List[Dict]:
-    """通过 SerpAPI 搜索机构相关新闻"""
-    api_key = os.environ.get("SERPAPI_API_KEY")
+def fetch_serper_inst_news(code: str, name: str) -> List[Dict]:
+    """通过 Serper.dev 搜索机构相关新闻"""
+    api_key = os.environ.get("SERPER_API_KEY")
     if not api_key:
         return []
     query = f"{name} {code} 券商研报 机构调研 评级 目标价"
     try:
-        result = _fetch_serpapi_news(query, api_key, 3)
+        result = _fetch_serper_news(query, api_key, 3)
         return [
             {
                 "title": item.get("title", ""),
@@ -152,7 +152,7 @@ def collect_institution_data(targets: Dict[str, str] | None = None) -> Dict:
                 })
 
         # 新闻
-        stock["news"] = fetch_serpapi_inst_news(code, name)
+        stock["news"] = fetch_serper_inst_news(code, name)
 
         result["stocks"].append(stock)
 

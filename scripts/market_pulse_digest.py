@@ -19,7 +19,7 @@ COMMON = os.path.join(ROOT, "skills", "common")
 sys.path.insert(0, COMMON)
 
 from a_stock_http import load_hermes_env  # noqa: E402
-from data_provider import fetch_serpapi_news  # noqa: E402
+from data_provider import fetch_serper_news  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 
 
@@ -35,10 +35,9 @@ PROFILES = {
 }
 
 
-def _serpapi_key() -> str | None:
+def _serper_key() -> str | None:
     load_hermes_env()
-    keys = os.environ.get("SERPAPI_KEYS") or os.environ.get("SERPAPI_API_KEY") or ""
-    return next((key.strip() for key in keys.split(",") if key.strip()), None)
+    return os.environ.get("SERPER_API_KEY") or None
 
 
 def _clip(text: str, max_chars: int) -> str:
@@ -78,20 +77,20 @@ def run_pulse(
             "signals": [],
         }
 
-    api_key = _serpapi_key()
+    api_key = _serper_key()
     if not api_key:
         return {
             "schema": "market_pulse_digest_v1",
             "status": "insufficient_data",
             "profile": profile,
             "generated_at": current.isoformat(timespec="seconds"),
-            "message": "SERPAPI_API_KEY/SERPAPI_KEYS missing; no market pulse judgement",
+            "message": "SERPER_API_KEY missing; no market pulse judgement",
             "events": [],
             "signals": [],
         }
 
     try:
-        result = fetch_serpapi_news(selected["query"], api_key, max(1, int(limit)))
+        result = fetch_serper_news(selected["query"], api_key, max(1, int(limit)))
         events = result.data if hasattr(result, "data") else []
     except DataSourceError as exc:
         return {

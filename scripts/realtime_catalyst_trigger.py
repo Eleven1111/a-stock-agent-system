@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'skills', 'common'))
 from a_share_rules import add_trading_days  # noqa: E402
 from catalyst_context import update_catalyst_context  # noqa: E402
-from data_provider import fetch_serpapi_news  # noqa: E402
+from data_provider import fetch_serper_news  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from paths import data_file, cache_dir  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
@@ -76,7 +76,7 @@ def _normalize_stock_code(value: Any) -> str:
 
 def scan_fresh_catalysts() -> List[Dict[str, Any]]:
     """从 SerpAPI 抓取最近新闻并分级。"""
-    api_key = os.environ.get("SERPAPI_API_KEY")
+    api_key = os.environ.get("SERPER_API_KEY")
     if not api_key:
         return []
     queries = [
@@ -88,7 +88,7 @@ def scan_fresh_catalysts() -> List[Dict[str, Any]]:
     results = []
     for query in queries:
         try:
-            items = fetch_serpapi_news(query, api_key, 5)
+            items = fetch_serper_news(query, api_key, 5)
             for item in items.data if hasattr(items, "data") else []:
                 link = item.get("link", "")
                 if link in seen_links:

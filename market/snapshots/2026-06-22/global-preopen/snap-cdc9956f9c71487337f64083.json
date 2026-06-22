@@ -1,0 +1,391 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-cdc9956f9c71487337f64083",
+  "dataset": "global-preopen",
+  "trading_date": "2026-06-22",
+  "batch_id": "a-share-20260622",
+  "producer": "global-preopen",
+  "producer_version": "81a2ed8ce0d0bf8fd77e663454d4f6809bff5578",
+  "captured_at": "2026-06-22T09:45:19+08:00",
+  "payload_schema": null,
+  "payload_hash": "e83148a0e145d5c3fa1ff62d2e15624fcd3c441d8139fe8454ca457454f07dbd",
+  "source_versions": {
+    "serpapi": "serpapi-adapter-v1",
+    "usgs": "usgs-adapter-v1",
+    "yfinance": "yfinance-adapter-v1"
+  },
+  "payload": {
+    "timestamp": "2026-06-22T09:45:00.417184",
+    "timezone": "Asia/Shanghai",
+    "source_health": {
+      "yfinance": {
+        "status": "ok",
+        "indices_ok": 2
+      },
+      "serpapi": {
+        "status": "failed",
+        "error": "SERPAPI_API_KEY not set"
+      },
+      "usgs": {
+        "status": "ok"
+      }
+    },
+    "us_indices": {
+      "^GSPC": {
+        "name": "标普500",
+        "price": 7500.580078125,
+        "prev_close": 7420.10009765625,
+        "change_pct": 1.0846212235623431,
+        "day_high": 7511.06982421875,
+        "day_low": 7468.31982421875
+      },
+      "^IXIC": {
+        "name": "纳斯达克",
+        "price": 26517.9296875,
+        "prev_close": 26021.66015625,
+        "change_pct": 1.9071401604282556,
+        "day_high": 26559.740234375,
+        "day_low": 26188.689453125
+      },
+      "^DJI": {
+        "name": "道琼斯",
+        "price": 51564.69921875,
+        "prev_close": 51492.55078125,
+        "change_pct": 0.14011432023730563,
+        "day_high": 51949.26171875,
+        "day_low": 51554.53125
+      },
+      "^RUT": {
+        "name": "罗素2000",
+        "price": 2979.77001953125,
+        "prev_close": 2917.97998046875,
+        "change_pct": 2.11756213120331,
+        "day_high": 2980.60009765625,
+        "day_low": 2939.820068359375
+      }
+    },
+    "vix": {
+      "price": null,
+      "prev_close": null,
+      "change_pct": null
+    },
+    "treasuries": {
+      "^TNX": {
+        "name": "10年期美债",
+        "price": null,
+        "change_pct": null
+      }
+    },
+    "us_sectors": {},
+    "global_indices": {},
+    "commodities": {},
+    "fx": {},
+    "key_stocks": {},
+    "china_adrs": {},
+    "news": [
+      {
+        "error": "SERPAPI_API_KEY not set"
+      }
+    ],
+    "geopolitical_news": [
+      {
+        "error": "SERPAPI_API_KEY not set"
+      },
+      {
+        "error": "SERPAPI_API_KEY not set"
+      },
+      {
+        "error": "SERPAPI_API_KEY not set"
+      },
+      {
+        "error": "SERPAPI_API_KEY not set"
+      }
+    ],
+    "disasters": [
+      {
+        "type": "飓风/气旋",
+        "source": "GDACS",
+        "a_impact": [
+          "石油",
+          "石化",
+          "保险"
+        ],
+        "alert_level": "🟡"
+      },
+      {
+        "type": "洪水",
+        "source": "GDACS",
+        "a_impact": [
+          "农业",
+          "保险",
+          "建材"
+        ],
+        "alert_level": "🟡"
+      },
+      {
+        "type": "海啸",
+        "source": "GDACS",
+        "a_impact": [
+          "保险",
+          "核电",
+          "航运"
+        ],
+        "alert_level": "🟡"
+      },
+      {
+        "type": "干旱",
+        "source": "GDACS",
+        "a_impact": [
+          "农业",
+          "食品",
+          "电力"
+        ],
+        "alert_level": "🟡"
+      }
+    ],
+    "impact": {
+      "alerts": [
+        {
+          "level": "🟡 中",
+          "msg": "标普500涨1.1%",
+          "sectors": [
+            "AI算力",
+            "半导体"
+          ]
+        },
+        {
+          "level": "🟡 中",
+          "msg": "纳斯达克涨1.9%",
+          "sectors": [
+            "AI算力",
+            "半导体"
+          ]
+        },
+        {
+          "level": "ℹ️",
+          "msg": "科技强于传统（纳指-道指=1.8%），A股科技板块或受益",
+          "sectors": [
+            "AI算力",
+            "半导体",
+            "消费电子"
+          ]
+        },
+        {
+          "level": "🟡",
+          "msg": "飓风/气旋于GDACS，可能影响A股石油, 石化, 保险",
+          "sectors": [
+            "石油",
+            "石化",
+            "保险"
+          ],
+          "action": "关注供应链扰动和保险赔付"
+        },
+        {
+          "level": "🟡",
+          "msg": "洪水于GDACS，可能影响A股农业, 保险, 建材",
+          "sectors": [
+            "农业",
+            "保险",
+            "建材"
+          ],
+          "action": "关注供应链扰动和保险赔付"
+        },
+        {
+          "level": "🟡",
+          "msg": "海啸于GDACS，可能影响A股保险, 核电, 航运",
+          "sectors": [
+            "保险",
+            "核电",
+            "航运"
+          ],
+          "action": "关注供应链扰动和保险赔付"
+        },
+        {
+          "level": "🟡",
+          "msg": "干旱于GDACS，可能影响A股农业, 食品, 电力",
+          "sectors": [
+            "农业",
+            "食品",
+            "电力"
+          ],
+          "action": "关注供应链扰动和保险赔付"
+        }
+      ],
+      "sector_impact": {
+        "AI算力": 3,
+        "半导体": 3,
+        "消费电子": 1,
+        "石油": 1,
+        "石化": 1,
+        "保险": 3,
+        "农业": 2,
+        "建材": 1,
+        "核电": 1,
+        "航运": 1,
+        "食品": 1,
+        "电力": 1
+      },
+      "a_share_analysis": {
+        "schema": "global_to_a_share_analysis_v1",
+        "sector_views": [
+          {
+            "sector": "AI算力",
+            "direction": "bullish",
+            "impact_score": 3,
+            "confidence": "high",
+            "evidence": [
+              "标普500涨1.1%",
+              "纳斯达克涨1.9%",
+              "科技强于传统（纳指-道指=1.8%），A股科技板块或受益"
+            ]
+          },
+          {
+            "sector": "保险",
+            "direction": "bullish",
+            "impact_score": 3,
+            "confidence": "high",
+            "evidence": [
+              "飓风/气旋于GDACS，可能影响A股石油, 石化, 保险",
+              "洪水于GDACS，可能影响A股农业, 保险, 建材",
+              "海啸于GDACS，可能影响A股保险, 核电, 航运"
+            ]
+          },
+          {
+            "sector": "半导体",
+            "direction": "bullish",
+            "impact_score": 3,
+            "confidence": "high",
+            "evidence": [
+              "标普500涨1.1%",
+              "纳斯达克涨1.9%",
+              "科技强于传统（纳指-道指=1.8%），A股科技板块或受益"
+            ]
+          },
+          {
+            "sector": "农业",
+            "direction": "bullish",
+            "impact_score": 2,
+            "confidence": "medium",
+            "evidence": [
+              "洪水于GDACS，可能影响A股农业, 保险, 建材",
+              "干旱于GDACS，可能影响A股农业, 食品, 电力"
+            ]
+          },
+          {
+            "sector": "建材",
+            "direction": "bullish",
+            "impact_score": 1,
+            "confidence": "medium",
+            "evidence": [
+              "洪水于GDACS，可能影响A股农业, 保险, 建材"
+            ]
+          },
+          {
+            "sector": "核电",
+            "direction": "bullish",
+            "impact_score": 1,
+            "confidence": "medium",
+            "evidence": [
+              "海啸于GDACS，可能影响A股保险, 核电, 航运"
+            ]
+          },
+          {
+            "sector": "消费电子",
+            "direction": "bullish",
+            "impact_score": 1,
+            "confidence": "medium",
+            "evidence": [
+              "科技强于传统（纳指-道指=1.8%），A股科技板块或受益"
+            ]
+          },
+          {
+            "sector": "电力",
+            "direction": "bullish",
+            "impact_score": 1,
+            "confidence": "medium",
+            "evidence": [
+              "干旱于GDACS，可能影响A股农业, 食品, 电力"
+            ]
+          }
+        ],
+        "stock_watchlist": [
+          {
+            "code": "000977",
+            "name": "浪潮信息",
+            "sector": "AI算力",
+            "direction": "bullish",
+            "impact_score": 3,
+            "advice": "watch_only_pending_stock_qc",
+            "reason": "全球因子映射至AI算力，尚未完成个股公告/可成交性质检"
+          },
+          {
+            "code": "603019",
+            "name": "中科曙光",
+            "sector": "AI算力",
+            "direction": "bullish",
+            "impact_score": 3,
+            "advice": "watch_only_pending_stock_qc",
+            "reason": "全球因子映射至AI算力，尚未完成个股公告/可成交性质检"
+          },
+          {
+            "code": "002371",
+            "name": "北方华创",
+            "sector": "半导体",
+            "direction": "bullish",
+            "impact_score": 3,
+            "advice": "watch_only_pending_stock_qc",
+            "reason": "全球因子映射至半导体，尚未完成个股公告/可成交性质检"
+          },
+          {
+            "code": "688981",
+            "name": "中芯国际",
+            "sector": "半导体",
+            "direction": "bullish",
+            "impact_score": 3,
+            "advice": "watch_only_pending_stock_qc",
+            "reason": "全球因子映射至半导体，尚未完成个股公告/可成交性质检"
+          },
+          {
+            "code": "002475",
+            "name": "立讯精密",
+            "sector": "消费电子",
+            "direction": "bullish",
+            "impact_score": 1,
+            "advice": "watch_only_pending_stock_qc",
+            "reason": "全球因子映射至消费电子，尚未完成个股公告/可成交性质检"
+          },
+          {
+            "code": "002241",
+            "name": "歌尔股份",
+            "sector": "消费电子",
+            "direction": "bullish",
+            "impact_score": 1,
+            "advice": "watch_only_pending_stock_qc",
+            "reason": "全球因子映射至消费电子，尚未完成个股公告/可成交性质检"
+          },
+          {
+            "code": "600900",
+            "name": "长江电力",
+            "sector": "电力",
+            "direction": "bullish",
+            "impact_score": 1,
+            "advice": "watch_only_pending_stock_qc",
+            "reason": "全球因子映射至电力，尚未完成个股公告/可成交性质检"
+          },
+          {
+            "code": "600011",
+            "name": "华能国际",
+            "sector": "电力",
+            "direction": "bullish",
+            "impact_score": 1,
+            "advice": "watch_only_pending_stock_qc",
+            "reason": "全球因子映射至电力，尚未完成个股公告/可成交性质检"
+          }
+        ],
+        "risk_note": "全球联动只生成观察名单，不可直接转成买入建议；个股需通过09:35质检。"
+      },
+      "summary": "利好：AI算力(+3)、半导体(+3)、保险(+3)"
+    }
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/global-preopen/snap-cdc9956f9c71487337f64083.json"
+}
