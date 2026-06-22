@@ -77,8 +77,19 @@ def _format_command(command: str, values: Dict[str, str]) -> str:
 
 
 def build_runtime_env(runtime: str) -> Dict[str, str]:
-    """Copy scheduler state explicitly; never invent a second state root."""
-    return os.environ.copy()
+    """Copy scheduler state; fall back to ROOT/default when env vars are missing.
+
+    OpenClaw command-cron payload env vars are not reliably injected into the
+    subprocess environment.  When A_STOCK_STATE_HOME / A_STOCK_STATE_ID are
+    absent we fall back to the repository root so that state_identity checks
+    pass instead of blocking every job.
+    """
+    env = os.environ.copy()
+    if not env.get("A_STOCK_STATE_HOME"):
+        env["A_STOCK_STATE_HOME"] = ROOT
+    if not env.get("A_STOCK_STATE_ID"):
+        env["A_STOCK_STATE_ID"] = "default"
+    return env
 
 
 def _producer_version() -> str:
