@@ -239,3 +239,37 @@ def test_portfolio_gate_uses_verified_artifact(tmp_path):
 
     assert gate["decision"] in {"passed_for_reference", "failed"}
     assert not gate["blocking_reasons"]
+
+
+def _two_tradeable_payload():
+    # 龙一(600001)强、次强(600002)弱, 两者都可成交, top_n=1 便于隔离龙头 vs 次强
+    payload = _payload(top_n=1)
+    payload["bars_by_code"]["600002"] = _bars("600002", [10.0, 10.2, 10.1, 10.1])
+    return payload
+
+
+def test_rank_offset_selects_runner_up_candidate():
+    payload = _two_tradeable_payload()
+    leader = portfolio_backtest.run_portfolio(payload)
+    runner_up = portfolio_backtest.run_portfolio(payload, rank_offset=1)
+    assert leader["trades"][0]["code"] == "600001"
+    assert runner_up["trades"][0]["code"] == "600002"
+
+
+def test_entry_delay_pushes_entry_one_session_later():
+    payload = _two_tradeable_payload()
+    immediate = portfolio_backtest.run_portfolio(payload)
+    waited = portfolio_backtest.run_portfolio(payload, entry_delay_sessions=1)
+    assert immediate["trades"][0]["entry_date"] == "2026-01-06"
+    assert waited["trades"][0]["entry_date"] == "2026-01-07"
+
+
+def test_counterfactual_shadows_compare_actual_against_alternatives():
+    payload = _two_tradeable_payload()
+    report = portfolio_backtest.analyze_payload(payload, split_date="2026-01-05")
+    assert set(report["counterfactuals"]) == {"second_best", "wait_one_session"}
+    summary = report["counterfactual_summary"]
+    # 实际选龙头优于次强 → edge>0; no_action 的 edge=实际超额本身
+    assert summary["second_best"]["edge_vs_actual"] > 0
+    assert summary["no_action"]["edge_vs_actual"] == pytest.approx(
+        report["oos"]["metrics"]["excess_return"], abs=1e-6)
