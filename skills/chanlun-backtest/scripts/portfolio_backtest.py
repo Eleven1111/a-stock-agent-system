@@ -197,6 +197,8 @@ def _prepare_orders(
     *,
     disabled_component: str | None,
     ranking_mode: str,
+    rank_offset: int = 0,
+    entry_delay_sessions: int = 0,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     policy = _policy(payload)
     weights = dict(payload.get("weights") or {})
@@ -228,9 +230,13 @@ def _prepare_orders(
                 continue
             eligible.append((score, code, candidate))
         eligible.sort(key=lambda item: (-item[0], item[1]))
-        for score, code, candidate in eligible[:policy["top_n"]]:
+        for score, code, candidate in eligible[rank_offset:rank_offset + policy["top_n"]]:
             rows = bars.get(code) or []
             located = _next_bar(rows, snapshot_date)
+            for _ in range(entry_delay_sessions):
+                if located is None:
+                    break
+                located = _next_bar(rows, str(located[1].get("date")))
             if located is None:
                 rejections.append({"date": snapshot_date, "code": code, "reason": "missing_entry_bar"})
                 continue
@@ -349,6 +355,8 @@ def run_portfolio(
     snapshots: Sequence[Mapping[str, Any]] | None = None,
     disabled_component: str | None = None,
     ranking_mode: str = "score",
+    rank_offset: int = 0,
+    entry_delay_sessions: int = 0,
 ) -> dict[str, Any]:
     validate_payload(payload)
     policy = _policy(payload)
@@ -358,6 +366,8 @@ def run_portfolio(
         selected_snapshots,
         disabled_component=disabled_component,
         ranking_mode=ranking_mode,
+        rank_offset=rank_offset,
+        entry_delay_sessions=entry_delay_sessions,
     )
     bars = _bars_by_code(payload)
     all_sessions = _sessions(payload, bars)
@@ -481,6 +491,23 @@ def _gate_statistics(result: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _counterfactual_summary(
+    oos_result: Mapping[str, Any],
+    counterfactuals: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """实际决策 vs 影子的超额对照(报告 8.3)。edge_vs_actual>0 = 实际优于该影子。"""
+    base = _num((oos_result.get("metrics") or {}).get("excess_return"))
+    summary = {
+        name: {
+            "excess_return": _num((cf.get("metrics") or {}).get("excess_return")),
+            "edge_vs_actual": round(base - _num((cf.get("metrics") or {}).get("excess_return")), 6),
+        }
+        for name, cf in counterfactuals.items()
+    }
+    summary["no_action"] = {"excess_return": 0.0, "edge_vs_actual": round(base, 6)}
+    return summary
+
+
 def analyze_payload(payload: Mapping[str, Any], *, split_date: str) -> dict[str, Any]:
     validate_payload(payload)
     snapshots = list(payload.get("snapshots") or [])
@@ -508,6 +535,10 @@ def analyze_payload(payload: Mapping[str, Any], *, split_date: str) -> dict[str,
         "random_rank": run_portfolio(payload, snapshots=oos_snapshots, ranking_mode="random"),
         "equal_weight_candidates": run_portfolio(payload, snapshots=oos_snapshots, ranking_mode="code"),
     }
+    counterfactuals = {
+        "second_best": run_portfolio(payload, snapshots=oos_snapshots, rank_offset=1),
+        "wait_one_session": run_portfolio(payload, snapshots=oos_snapshots, entry_delay_sessions=1),
+    }
     return {
         "schema": REPORT_SCHEMA,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -518,6 +549,8 @@ def analyze_payload(payload: Mapping[str, Any], *, split_date: str) -> dict[str,
         "oos": oos_result,
         "ablations": ablations,
         "controls": controls,
+        "counterfactuals": counterfactuals,
+        "counterfactual_summary": _counterfactual_summary(oos_result, counterfactuals),
         "gate_metrics": _gate_statistics(oos_result),
     }
 
