@@ -32,6 +32,7 @@ from announcement_risk import scan_many  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
+import hot_money_selection  # noqa: E402
 import monitor_registry  # noqa: E402
 from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
 from decision_policy import evaluate_decision  # noqa: E402
@@ -228,6 +229,8 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
     )
     result["schema"] = "auction_finalize_v2"
     result["asof"] = asof
+    result["status"] = "ready"
+    result["research_only"] = True
     top_candidates = list(result["shortlist"][:5])
     announcement_map = scan_many(
         candidate_pipeline.naked_code(item.get("code"))
@@ -275,12 +278,20 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
             asof=asof,
             stage="auction",
         )
-        strategy_id = (
-            "daban:first_board_reseal"
+        selected_lane = (
+            "daban"
             if (item.get("auction_selected_by") or {}).get("daban")
-            else "trend_pullback"
+            else "trend"
+        )
+        strategy_id = hot_money_selection.selection_strategy_id(
+            item,
+            selected_lane,
         )
         lane = "daban" if strategy_id.startswith("daban") else "trend"
+        selection_context = hot_money_selection.advance_selection_context(
+            item,
+            window="09:25",
+        )
         evidence = build_research_evidence(code, strategy_id=strategy_id, asof=asof)
         prior_chanlun = ((item.get("research_evidence") or {}).get("chanlun") or {})
         for key in (
@@ -319,6 +330,7 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
             "research_evidence": evidence,
             "market_regime": regime,
             "strategy_id": strategy_id,
+            "selection_context": selection_context,
             "announcements": announcement_map.get(code),
         }
         decisions.append(decision)
@@ -330,6 +342,9 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
                     "decision": plan["decision"],
                     "auction_rank": item.get("auction_rank"),
                     "quality_status": quality["status"],
+                    "strategy_id": strategy_id,
+                    "sector_rank": item.get("sector_rank"),
+                    "leader_rank": item.get("leader_rank"),
                 },
             })
         sector = str(item.get("sector") or "").strip()
@@ -368,6 +383,8 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
             candidate_pipeline.naked_code(item["code"]): {
                 "auction_rank": item["auction_rank"],
                 "auction_score": item["auction_score"],
+                "auction_sector_rank": item.get("auction_sector_rank"),
+                "hot_money_qualified": item.get("hot_money_qualified"),
             }
             for item in result["shortlist"]
         },
@@ -410,6 +427,42 @@ def example_result() -> Dict[str, Any]:
         ],
     }
     return _build_result(series, "2026-06-04")
+
+
+def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
+    decisions = list(result.get("preopen_decisions") or [])
+    return {
+        "schema": result.get("schema"),
+        "status": result.get("status", "ready"),
+        "asof": result.get("asof"),
+        "generated_at": result.get("generated_at"),
+        "source_asof": result.get("source_asof"),
+        "research_only": True,
+        "input_count": result.get("input_count"),
+        "shortlist_count": result.get("shortlist_count", len(result.get("shortlist") or [])),
+        "decision_count": result.get("decision_count", len(decisions)),
+        "top_candidates": [
+            {
+                "code": item.get("code"),
+                "name": item.get("name"),
+                "sector": item.get("sector"),
+                "sector_rank": item.get("sector_rank"),
+                "leader_rank": item.get("leader_rank"),
+                "auction_rank": item.get("auction_rank"),
+                "auction_sector_rank": item.get("auction_sector_rank"),
+                "auction_score": item.get("auction_score"),
+                "strategy_id": item.get("strategy_id"),
+                "hot_money_qualified": item.get("hot_money_qualified"),
+                "decision": item.get("decision"),
+                "quality_status": (item.get("quality_report") or {}).get("status"),
+                "policy_reasons": list((item.get("policy_decision") or {}).get("reasons") or []),
+                "selection_context": hot_money_selection.compact_selection_context(
+                    item.get("selection_context")
+                ),
+            }
+            for item in decisions[:5]
+        ],
+    }
 
 
 def main() -> None:
@@ -462,7 +515,7 @@ def main() -> None:
         parser.error("需指定 --snapshot / --finalize / --once / --example 之一")
 
     if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(json.dumps(json_report(result), ensure_ascii=False))
     else:
         print(f"## 集合竞价因子 | {result['asof']}")
         for f in result["factors"]:

@@ -162,6 +162,58 @@ def test_build_watch_pool_scans_all_candidates_and_balances_strategies():
     assert all(any(item["selected_by"].values()) for item in result["candidates"])
 
 
+def test_missing_hot_money_state_closes_daban_but_keeps_trend_lane():
+    quotes = [
+        _quote("600001", "高分打板", 10.0, 1_000_000_000, turnover=18),
+        _quote("600002", "趋势候选", 2.0, 900_000_000, turnover=5),
+    ]
+    klines = {
+        item["code"]: _klines([10 + day * 0.05 for day in range(60)])
+        for item in quotes
+    }
+
+    result = cp.build_watch_pool(
+        quotes,
+        klines,
+        watch_limit=2,
+        selection_state={"status": "insufficient_data", "daban_ready": False},
+    )
+
+    assert not any(item["selected_by"]["daban"] for item in result["candidates"])
+    assert any(item["selected_by"]["trend"] for item in result["candidates"])
+
+
+def test_non_mainline_candidate_cannot_consume_daban_quota():
+    quotes = [
+        {**_quote("600001", "非主线高分", 10.0, 2_000_000_000, turnover=20), "sector": "煤炭"},
+        {**_quote("600002", "主线龙头", 9.8, 1_000_000_000, turnover=15), "sector": "半导体"},
+    ]
+    klines = {
+        item["code"]: _klines([10 + day * 0.05 for day in range(60)])
+        for item in quotes
+    }
+    selection_state = {
+        "status": "ready",
+        "daban_ready": True,
+        "sectors": [
+            {"sector": "半导体", "rank": 1, "qualified_for_daban": True},
+            {"sector": "煤炭", "rank": 3, "qualified_for_daban": False},
+        ],
+        "stock_sectors": {"600001": "煤炭", "600002": "半导体"},
+    }
+
+    result = cp.build_watch_pool(
+        quotes,
+        klines,
+        watch_limit=2,
+        selection_state=selection_state,
+    )
+    by_code = {item["code"]: item for item in result["candidates"]}
+
+    assert by_code["600001"]["selected_by"]["daban"] is False
+    assert by_code["600002"]["selected_by"]["daban"] is True
+
+
 def test_auction_shortlist_rejects_yiziban_and_limits_to_top_n():
     pool = {
         "asof": "2026-06-10",
@@ -237,6 +289,45 @@ def test_auction_shortlist_preserves_daban_and_trend_lanes():
 
     assert sum(item["auction_selected_by"]["daban"] for item in result["shortlist"]) >= 5
     assert sum(item["auction_selected_by"]["trend"] for item in result["shortlist"]) >= 5
+
+
+def test_auction_fill_does_not_revive_non_mainline_daban_candidate():
+    pool = {
+        "asof": "2026-06-10",
+        "candidates": [
+            {
+                "code": "sh600001",
+                "name": "非主线高分",
+                "daban_score": 99,
+                "trend_score": 1,
+                "hot_money_qualified": False,
+                "selected_by": {"daban": True, "trend": False, "balanced_fill": False},
+            },
+            {
+                "code": "sz300001",
+                "name": "趋势候选",
+                "daban_score": 0,
+                "trend_score": 80,
+                "hot_money_qualified": False,
+                "selected_by": {"daban": False, "trend": True, "balanced_fill": False},
+            },
+        ],
+    }
+    factors = [
+        {
+            "code": item["code"],
+            "auction_gap_pct": 2.0,
+            "auction_amount": 20_000_000,
+            "auction_bid_ask_ratio": 2.0,
+            "auction_net_bid_delta": 10_000,
+            "is_yiziban": False,
+        }
+        for item in pool["candidates"]
+    ]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=2)
+
+    assert [item["code"] for item in result["shortlist"]] == ["sz300001"]
 
 
 def test_auction_social_attention_is_current_bounded_tiebreaker():

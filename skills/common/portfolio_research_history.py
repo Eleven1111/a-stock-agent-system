@@ -82,6 +82,7 @@ def _candidate(item: Mapping[str, Any], generated_at: str) -> dict[str, Any]:
         "quality_status": quality.get("status"),
         "evidence_asof": generated_at,
         "policy_reasons": list((item.get("policy_decision") or {}).get("reasons") or []),
+        "selection_context": dict(item.get("selection_context") or {}),
         "research_evidence": dict(item.get("research_evidence") or {}),
     }
 

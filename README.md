@@ -256,10 +256,11 @@ Cron jobs in this repo must be fully self-contained. Do not deploy jobs that req
 The scheduled workflow no longer scans a fixed symbol list:
 
 1. **15:02 hot-money context** — cache the current limit-up ladder, sector clusters, and ladder date. Consumers reject missing, future, or stale context instead of silently applying it.
-2. **15:07 close discovery** — official SSE/SZSE listings + Tencent full-market quotes, deterministic liquidity/tradeability filters, then qfq K-line enrichment. Separate limit-up and trend rankers build the next-session D0 watch pool of about 200 stocks.
+2. **15:07 close discovery** — official SSE/SZSE listings + Tencent full-market quotes, deterministic liquidity/tradeability filters, then qfq K-line enrichment. The same immutable input derives market breadth, top-two mainline sectors, and within-sector leaders. Missing timing/sector evidence closes only the limit-up lane; the trend lane remains available.
 3. **08:45 pre-open bootstrap** — reuse the valid D0 pool. Only a cold start or expired pool triggers a full scan; this path never settles prior candidates with incomplete pre-open prices.
-4. **09:15–09:25 auction** — collect Tencent five-level order-book snapshots for that pool and rank an auction shortlist of 20. Limit-up and trend lanes remain separate; one-price limit-up and missing-data candidates are rejected explicitly.
-5. **09:35 confirmation** — current quotes and tradeability reduce the shortlist to at most five executable observations. Fresh temperature context enforces the limit-up `top_n_limit`; a height-board or broad low-open retreat signal blocks new limit-up entries.
+4. **09:15–09:25 auction** — collect Tencent five-level order-book snapshots for that pool and rank an auction shortlist of 20. Limit-up and trend lanes remain separate; one-price limit-up, missing-data, non-mainline, and non-leader candidates are rejected explicitly.
+5. **09:35 confirmation** — current quotes and tradeability reduce the shortlist to at most five policy-gated observations. Reports expose market timing, sector rank, leader rank, research/live status, and T+1 constraints.
+6. **09:50 / 13:15 checkpoints** — bounded Tencent refreshes validate opening support and afternoon reflow for the five observations. They update research state only and never place trades or suggest a same-day exit.
 
 Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, including stage history, rejection reasons, and incremental T+1/T+3 outcomes. Full state is stored under `HERMES_HOME`; cron artifacts contain only compact summaries.
 
@@ -270,6 +271,8 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 09:15–09:24 | Auction snapshots | Every minute, workdays |
 | 09:25 | Auction finalize + candidate context | Workdays |
 | 09:35 | Open confirmation | Workdays |
+| 09:50 | Mainline-leader support checkpoint | Workdays |
+| 13:15 | Mainline-leader afternoon reflow checkpoint | Workdays |
 | 09:30–11:30, 13:00–15:00 | Intraday alerts | Every 5 min (session-guarded) |
 | 09:25–11:30, 13:00–14:55 | Intraday news sweep | Offset every 5 min; stale data is archived without directional signals |
 | 09:45, 13:45, 14:45 | HK-A linkage | Workdays |
@@ -345,7 +348,7 @@ a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── config/candidate_selection.json # Dynamic-universe and funnel limits
-├── cron/hermes-cron-manifest.json  # 30 runtime-neutral scheduled jobs
+├── cron/hermes-cron-manifest.json  # 33 runtime-neutral scheduled jobs
 ├── scripts/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
 │   ├── run_agent_dag.py        # Dependency ordering, retry, resume

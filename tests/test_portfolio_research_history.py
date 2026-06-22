@@ -32,6 +32,12 @@ def _confirmation(*, decision="watch", reason="strategy_unverified"):
                 "reasons": [reason],
             },
             "research_evidence": {"asof": today},
+            "selection_context": {
+                "window": "09:35",
+                "market_timing": {"tier": "发酵", "daban_ready": True},
+                "sector": {"name": "半导体", "rank": 1, "state": "confirmed"},
+                "leader": {"rank": 1, "role": "sector_leader"},
+            },
         }],
     }
 
@@ -51,6 +57,8 @@ def test_record_snapshot_preserves_research_intent_but_not_live_permission(
     assert candidate["live_decision"] == "watch"
     assert candidate["eligible"] is True
     assert snapshot["source_versions"] == {"tencent": "v2", "cninfo": "v1"}
+    assert candidate["selection_context"]["sector"]["rank"] == 1
+    assert candidate["selection_context"]["leader"]["role"] == "sector_leader"
 
 
 def test_non_research_policy_block_stays_ineligible(tmp_path, monkeypatch):

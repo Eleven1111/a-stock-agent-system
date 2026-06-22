@@ -14,6 +14,20 @@
     "auction_shortlist_limit": 20,
     "open_confirmation_limit": 5
   },
+  "hot_money_selection": {
+    "research_only": true,
+    "min_quote_count": 500,
+    "min_sector_coverage": 0.2,
+    "mainline_top_n": 2,
+    "leader_top_n": 2,
+    "min_sector_limitups": 3,
+    "sector_weights": {
+      "limitup_count": 0.45,
+      "amount": 0.2,
+      "top10_change": 0.25,
+      "attention": 0.1
+    }
+  },
   "network": {
     "quote_batch_size": 80,
     "quote_workers": 8,

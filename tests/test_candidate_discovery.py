@@ -85,11 +85,29 @@ def test_run_discovery_persists_pool_and_lifecycle(tmp_path, monkeypatch):
     assert lifecycle["metadata"]["scanned_count"] == 12
     assert len(lifecycle["records"]) == 12
     assert sum(record["current_stage"] == "watch_pool" for record in lifecycle["records"]) == 6
+    selected_lifecycle = next(
+        record for record in lifecycle["records"]
+        if record["current_stage"] == "watch_pool"
+    )
+    assert selected_lifecycle["strategy_id"] == "trend_pullback"
+    assert selected_lifecycle["selection_context"]["window"] == "D0_close"
     assert latest["input_snapshot"]["snapshot_id"].startswith("snap-")
     assert latest["input_snapshot"]["consumed_from_snapshot"] is True
+    selection = read_json(discovery.hot_money_selection_file(), {})
+    assert selection["schema"] == "hot_money_selection_state_v1"
+    assert selection["snapshot"]["snapshot_id"].startswith("snap-")
+    assert selection["status"] == "insufficient_data"
+    assert all(
+        not item["selected_by"]["daban"]
+        for item in latest["candidates"]
+    )
+    assert all("selection_context" in item for item in latest["candidates"])
     report = discovery.json_report(result)
     assert "rejected" not in report
     assert len(report["top_candidates"]) == 5
+    assert report["hot_money_selection"]["status"] == "insufficient_data"
+    assert "sector_rank" in report["top_candidates"][0]
+    assert "leader_rank" in report["top_candidates"][0]
 
 
 def test_run_discovery_reconciles_daily_observation_targets(tmp_path, monkeypatch):
