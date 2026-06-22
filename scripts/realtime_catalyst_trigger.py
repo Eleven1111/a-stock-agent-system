@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'skills', 'comm
 from a_share_rules import add_trading_days  # noqa: E402
 from catalyst_context import update_catalyst_context  # noqa: E402
 from data_provider import fetch_serper_news  # noqa: E402
+from data_provider import _next_serper_key  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from paths import data_file, cache_dir  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
@@ -76,7 +77,7 @@ def _normalize_stock_code(value: Any) -> str:
 
 def scan_fresh_catalysts() -> List[Dict[str, Any]]:
     """从 SerpAPI 抓取最近新闻并分级。"""
-    api_key = os.environ.get("SERPER_API_KEY")
+    api_key = _next_serper_key()
     if not api_key:
         return []
     queries = [

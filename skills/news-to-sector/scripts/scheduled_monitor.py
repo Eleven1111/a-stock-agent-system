@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 from a_stock_http import load_hermes_env  # noqa: E402
 from data_access_config import news_monitor_settings  # noqa: E402
 from data_provider import fetch_serper_news  # noqa: E402
+from data_provider import _next_serper_key as _serper_key  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from monitor_registry import active_entries  # noqa: E402
 from recommendation_quality import scan_announcement_risks  # noqa: E402
@@ -61,11 +62,6 @@ def build_queries(base_queries: List[str] | None = None, *, mode: str = "schedul
         elif kind in {"theme", "sector"}:
             queries.append(f"{label} A股 政策 产业链 订单 风险")
     return list(dict.fromkeys(query for query in queries if query.strip()))
-
-
-def _serper_key() -> str | None:
-    load_hermes_env()
-    return os.environ.get("SERPER_API_KEY") or None
 
 
 def fetch_news(query: str, api_key: str, limit: int) -> List[Dict[str, Any]]:

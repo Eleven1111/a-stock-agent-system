@@ -20,6 +20,7 @@ sys.path.insert(0, COMMON)
 
 from a_stock_http import load_hermes_env  # noqa: E402
 from data_provider import fetch_serper_news  # noqa: E402
+from data_provider import _next_serper_key as _serper_key  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 
 
@@ -33,11 +34,6 @@ PROFILES = {
         "query": "A股 收盘 板块 异动 资金 风险 最新",
     },
 }
-
-
-def _serper_key() -> str | None:
-    load_hermes_env()
-    return os.environ.get("SERPER_API_KEY") or None
 
 
 def _clip(text: str, max_chars: int) -> str:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 import urllib.parse
 from typing import Any, Dict, List, Optional
 
@@ -129,56 +131,109 @@ def fetch_serpapi_news(
     return HttpResult(events, response.fetched_at, response.attempts)
 
 
+# ─── serper.dev multi-key rotation ───
+
+_SERPER_KEY_INDEX = 0
+_SERPER_KEY_LOCK = threading.Lock()
+
+
+def _serper_keys() -> List[str]:
+    """Load all serper.dev API keys from env (comma-separated or single)."""
+    raw = os.environ.get("SERPER_API_KEYS") or os.environ.get("SERPER_API_KEY") or ""
+    return [k.strip() for k in raw.split(",") if k.strip()]
+
+
+def _next_serper_key() -> str:
+    """Round-robin key selection. Returns empty string if none configured."""
+    global _SERPER_KEY_INDEX
+    keys = _serper_keys()
+    if not keys:
+        return ""
+    with _SERPER_KEY_LOCK:
+        key = keys[_SERPER_KEY_INDEX % len(keys)]
+        _SERPER_KEY_INDEX += 1
+    return key
+
+
 def fetch_serper_news(
     query: str,
-    api_key: str,
-    limit: int,
+    api_key: Optional[str] = None,
+    limit: int = 5,
     *,
     client: Optional[HttpClient] = None,
 ) -> HttpResult[List[Dict[str, Any]]]:
-    request = build_request(
-        "https://google.serper.dev/news",
-        data=json.dumps({"q": query, "gl": "cn", "hl": "zh-cn", "num": max(1, int(limit))}).encode("utf-8"),
-        headers={
-            "X-API-KEY": api_key,
-            "Content-Type": "application/json",
-        },
-        method="POST",
+    """Fetch news via serper.dev with automatic multi-key rotation.
+
+    If *api_key* is provided, uses it directly. Otherwise picks the next key
+    from the round-robin pool (SERPER_API_KEYS / SERPER_API_KEY env var).
+    On 429/403 errors, retries with the next available key.
+    """
+    keys = [api_key] if api_key else _serper_keys()
+    if not keys:
+        raise DataSourceError(
+            "serper",
+            "SERPER_API_KEY not configured",
+            error_type=ErrorType.MISSING_KEY,
+            attempts=0,
+            timestamp="",
+        )
+
+    last_error: Optional[Exception] = None
+    for attempt, key in enumerate(keys):
+        request = build_request(
+            "https://google.serper.dev/news",
+            data=json.dumps({"q": query, "gl": "cn", "hl": "zh-cn", "num": max(1, int(limit))}).encode("utf-8"),
+            headers={
+                "X-API-KEY": key,
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            response = (client or provider_client("serper")).request_json(request)
+        except DataSourceError as exc:
+            last_error = exc
+            # 429 = rate limit, 403 = invalid key → try next key
+            if attempt < len(keys) - 1:
+                continue
+            raise
+        if not isinstance(response.data, dict):
+            raise DataSourceError(
+                "serper",
+                "expected a JSON object",
+                error_type=ErrorType.INVALID_RESPONSE,
+                attempts=response.attempts,
+                timestamp=response.fetched_at,
+            )
+        items = response.data.get("news") or []
+        if not isinstance(items, list):
+            raise DataSourceError(
+                "serper",
+                "news must be a list",
+                error_type=ErrorType.INVALID_RESPONSE,
+                attempts=response.attempts,
+                timestamp=response.fetched_at,
+            )
+        events = []
+        for item in items[:limit]:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title") or ""
+            snippet = item.get("snippet") or ""
+            if not title and not snippet:
+                continue
+            events.append({
+                "query": query,
+                "title": title,
+                "snippet": snippet,
+                "source": item.get("source"),
+                "date": item.get("date"),
+                "link": item.get("link"),
+                "provider": "serper",
+                "fetched_at": response.fetched_at,
+            })
+        return HttpResult(events, response.fetched_at, response.attempts)
+
+    raise last_error or DataSourceError(
+        "serper", "all keys exhausted", error_type=ErrorType.MISSING_KEY, attempts=len(keys), timestamp="",
     )
-    response = (client or provider_client("serper")).request_json(request)
-    if not isinstance(response.data, dict):
-        raise DataSourceError(
-            "serper",
-            "expected a JSON object",
-            error_type=ErrorType.INVALID_RESPONSE,
-            attempts=response.attempts,
-            timestamp=response.fetched_at,
-        )
-    items = response.data.get("news") or []
-    if not isinstance(items, list):
-        raise DataSourceError(
-            "serper",
-            "news must be a list",
-            error_type=ErrorType.INVALID_RESPONSE,
-            attempts=response.attempts,
-            timestamp=response.fetched_at,
-        )
-    events = []
-    for item in items[:limit]:
-        if not isinstance(item, dict):
-            continue
-        title = item.get("title") or ""
-        snippet = item.get("snippet") or ""
-        if not title and not snippet:
-            continue
-        events.append({
-            "query": query,
-            "title": title,
-            "snippet": snippet,
-            "source": item.get("source"),
-            "date": item.get("date"),
-            "link": item.get("link"),
-            "provider": "serper",
-            "fetched_at": response.fetched_at,
-        })
-    return HttpResult(events, response.fetched_at, response.attempts)

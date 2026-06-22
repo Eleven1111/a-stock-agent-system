@@ -20,6 +20,7 @@ if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
 from data_provider import fetch_serper_news as _fetch_serper_news
+from data_provider import _next_serper_key
 from eastmoney_intelligence import (
     fetch_insider_trades as _fetch_insider_trades,
     fetch_reports,
@@ -73,7 +74,7 @@ def fetch_insider_trades(code: str) -> List[Dict]:
 
 def fetch_serper_inst_news(code: str, name: str) -> List[Dict]:
     """通过 Serper.dev 搜索机构相关新闻"""
-    api_key = os.environ.get("SERPER_API_KEY")
+    api_key = _next_serper_key()
     if not api_key:
         return []
     query = f"{name} {code} 券商研报 机构调研 评级 目标价"

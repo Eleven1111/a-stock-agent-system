@@ -234,7 +234,8 @@ def fetch_sina_us_indices() -> Dict[str, Dict]:
 def fetch_serper_news(query: str = "global market breaking news financial", num: int = 5) -> List[Dict]:
     """通过 serper.dev 抓取重大新闻"""
     from data_provider import fetch_serper_news as _fetch_serper
-    api_key = os.environ.get("SERPER_API_KEY")
+    from data_provider import _next_serper_key
+    api_key = _next_serper_key()
     if not api_key:
         return [{"error": "SERPER_API_KEY not set"}]
     try:
@@ -883,8 +884,8 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
             )
             if news_ok:
                 source_health["serpapi"] = {"status": "ok"}
-            elif not os.environ.get("SERPAPI_API_KEY"):
-                source_health["serpapi"] = {"status": "failed", "error": "SERPAPI_API_KEY not set"}
+            elif not _next_serper_key():
+                source_health["serpapi"] = {"status": "failed", "error": "SERPER_API_KEY not set"}
             else:
                 source_health["serpapi"] = {"status": "failed", "error": "no news results"}
         except Exception as exc:

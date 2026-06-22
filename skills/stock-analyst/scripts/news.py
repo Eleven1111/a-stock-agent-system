@@ -1,6 +1,6 @@
 """
 股票新闻模块
-数据源：serper.dev Google News（需要 SERPER_API_KEY 环境变量）
+数据源：serper.dev Google News（多 key 轮换，由 data_provider._next_serper_key 管理）
 """
 
 import os
@@ -12,20 +12,8 @@ _COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
 if _COMMON_DIR not in sys.path:
     sys.path.insert(0, os.path.abspath(_COMMON_DIR))
 from paths import env_file
-from data_provider import fetch_serper_news as _fetch_serper_news
+from data_provider import fetch_serper_news as _fetch_serper_news, _next_serper_key
 from http_client import DataSourceError
-
-# serper.dev key
-SERPER_KEY = os.environ.get("SERPER_API_KEY") or ""
-if not SERPER_KEY:
-    try:
-        with open(env_file()) as f:
-            for line in f:
-                if line.startswith("SERPER_API_KEY="):
-                    SERPER_KEY = line.split("=", 1)[1].strip().strip("'").strip('"')
-                    break
-    except Exception:
-        pass
 
 # 自动加载 NO_PROXY，绕过 Clash 代理的 DNS 劫持
 if not os.environ.get("NO_PROXY"):
@@ -40,12 +28,13 @@ if not os.environ.get("NO_PROXY"):
 
 
 def _serper_request(params: dict) -> Optional[Dict]:
-    """通用 serper.dev 请求"""
-    if not SERPER_KEY:
+    """通用 serper.dev 请求（多 key 轮换）"""
+    api_key = _next_serper_key()
+    if not api_key:
         return {"error": "SERPER_API_KEY 未配置"}
     try:
         limit = int(params.get("num", 10))
-        result = _fetch_serper_news(str(params.get("q", "")), SERPER_KEY, limit)
+        result = _fetch_serper_news(str(params.get("q", "")), api_key, limit)
         return {
             "news_results": [
                 {
