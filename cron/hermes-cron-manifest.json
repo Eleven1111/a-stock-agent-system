@@ -553,7 +553,8 @@
       "deliver": "origin",
       "max_output_chars": 3500,
       "context_from": [
-        "intraday-alert"
+        "intraday-alert",
+        "open-confirmation"
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",

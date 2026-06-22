@@ -31,6 +31,36 @@ def _score(value: Any) -> Optional[float]:
         return None
 
 
+# 市场状态 → (continue, constructive_divergence, collapse) 情景基准概率(报告 7.3)。
+# 启发式映射, 非校准模型; 高脆弱时向 collapse 倾斜。
+SCENARIO_BASE = {
+    "S0": (0.15, 0.25, 0.60), "S1": (0.45, 0.35, 0.20),
+    "S2": (0.60, 0.25, 0.15), "S3": (0.55, 0.30, 0.15),
+    "S4": (0.35, 0.30, 0.35), "S5": (0.30, 0.45, 0.25),
+    "S6": (0.10, 0.20, 0.70),
+}
+
+
+def _expected_paths(market_crowding: Optional[Mapping[str, Any]]) -> Optional[list[dict[str, Any]]]:
+    """三情景分布。无市场状态证据时返回 None(不臆造情景)。"""
+    if not isinstance(market_crowding, Mapping):
+        return None
+    base = SCENARIO_BASE.get(str(market_crowding.get("dominant_state") or ""))
+    if base is None:
+        return None
+    cont, div, coll = base
+    fragility = _score(market_crowding.get("fragility_score"))
+    if fragility is not None and fragility >= FRAGILITY_CLIMAX_THRESHOLD:
+        shift = 0.15
+        cont, coll = max(0.0, cont - shift), coll + shift
+    total = cont + div + coll
+    return [
+        {"scenario": "continue", "prob": round(cont / total, 4)},
+        {"scenario": "constructive_divergence", "prob": round(div / total, 4)},
+        {"scenario": "collapse", "prob": round(coll / total, 4)},
+    ]
+
+
 def evaluate_decision(
     *,
     requested_action: str,
@@ -151,4 +181,6 @@ def evaluate_decision(
         "portfolio_risk": dict(portfolio_risk or {}),
         "research_evidence": dict(research_evidence or {}),
         "market_crowding": dict(market_crowding or {}),
+        "expected_paths": _expected_paths(market_crowding),
+        "abstain": decision == "watch",
     }
