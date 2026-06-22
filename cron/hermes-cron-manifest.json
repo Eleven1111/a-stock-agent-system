@@ -283,7 +283,10 @@
       ],
       "dependency_policy": {
         "trading_date": "previous_trading_day",
-        "max_age_minutes": 7200
+        "max_age_minutes": 7200,
+        "optional_jobs": [
+          "candidate-discovery"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [

@@ -135,6 +135,9 @@ def run_job(args: argparse.Namespace) -> int:
         raise SystemExit(f"job {args.job_id} missing run.command")
 
     command = _format_command(raw_command, variables)
+    # Replace bare 'python' with sys.executable so cron jobs work without PATH
+    if command.startswith("python ") or command == "python":
+        command = sys.executable + command[6:]
     cwd = os.path.abspath(os.path.join(ROOT, run.get("cwd", job.get("cwd", "."))))
     timeout = int(run.get("timeout_seconds") or job.get("timeout_seconds") or 120)
     started_at = now_iso()
@@ -147,6 +150,14 @@ def run_job(args: argparse.Namespace) -> int:
         trading_date = resolve_trading_date(args.trading_date or calendar_date)
     batch_id = args.batch_id or make_batch_id(trading_date)
     runtime = resolve_runtime_name(args.runtime)
+
+    # Build runtime env early with fallbacks so cron contexts always have
+    # A_STOCK_STATE_HOME / A_STOCK_STATE_ID
+    run_env = os.environ.copy()
+    if not run_env.get("A_STOCK_STATE_HOME"):
+        run_env["A_STOCK_STATE_HOME"] = ROOT
+    if not run_env.get("A_STOCK_STATE_ID"):
+        run_env["A_STOCK_STATE_ID"] = "default"
 
     if args.dry_run:
         dependency_gate = (
@@ -173,7 +184,7 @@ def run_job(args: argparse.Namespace) -> int:
         }, ensure_ascii=False, indent=2))
         return 0
 
-    state_check = ensure_state_identity(runtime)
+    state_check = ensure_state_identity(runtime, env=run_env)
 
     if state_check["status"] != "ok":
         artifact = build_artifact(
@@ -270,7 +281,7 @@ def run_job(args: argparse.Namespace) -> int:
         _emit(job, artifact, args.emit_local)
         return 75
 
-    env = os.environ.copy()
+    env = run_env.copy()
     env.update({
         "HERMES_JOB_ID": job["id"],
         "HERMES_RUN_ID": run_id,
