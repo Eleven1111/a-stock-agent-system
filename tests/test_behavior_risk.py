@@ -62,3 +62,18 @@ def test_pending_signals_excluded_from_streak():
     r = behavior_risk.assess_behavior_risk(sigs, asof="2026-06-20")
     assert r["settled_count"] == 1
     assert r["win_streak"] == 1
+
+
+def test_asof_excludes_future_signals_from_all_behavior_metrics():
+    sigs = [
+        _sig("2026-06-18", "loss", -2.0, strat="trend_pullback"),
+        _sig("2026-06-19", "loss", -2.0, strat="trend_pullback"),
+        _sig("2026-06-21", "win", 8.0, strat="future_strategy"),
+    ]
+
+    r = behavior_risk.assess_behavior_risk(sigs, asof="2026-06-20")
+
+    assert r["signal_count"] == 2
+    assert r["settled_count"] == 2
+    assert r["loss_streak"] == 2
+    assert r["win_streak"] == 0

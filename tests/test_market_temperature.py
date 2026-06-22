@@ -165,6 +165,7 @@ def test_market_state_maps_tier_to_base_state():
 def test_market_state_neutral_when_temperature_missing():
     out = mt.classify_market_state({"tier": "neutral"})
     assert out["available"] is False
+    assert out["calibrated"] is False
     assert out["dominant_state"] is None
     assert out["market_state_prob"] == {}
 

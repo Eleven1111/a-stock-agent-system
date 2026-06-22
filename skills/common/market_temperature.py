@@ -330,6 +330,7 @@ def classify_market_state(
         return {
             "schema": "market_state_machine_v1",
             "available": False,
+            "calibrated": False,
             "market_state_prob": {},
             "dominant_state": None,
             "previous_state": previous_state,
@@ -376,6 +377,7 @@ def classify_market_state(
     return {
         "schema": "market_state_machine_v1",
         "available": True,
+        "calibrated": False,
         "market_state_prob": prob,
         "dominant_state": dominant,
         "dominant_label": STATE_LABELS.get(dominant),

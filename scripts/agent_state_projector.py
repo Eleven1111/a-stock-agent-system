@@ -15,6 +15,7 @@ COMMON = os.path.join(ROOT, "skills", "common")
 sys.path.insert(0, COMMON)
 
 import monitor_registry  # noqa: E402
+import behavior_risk  # noqa: E402
 from agent_state import agent_state_path  # noqa: E402
 from paths import data_file  # noqa: E402
 import signal_ledger  # noqa: E402
@@ -64,6 +65,10 @@ def build_agent_state(
         ),
         "recommendations": list(recommendations.values()),
         "signals": signals,
+        "behavior_risk": behavior_risk.assess_behavior_risk(
+            signals,
+            asof=datetime.now().date().isoformat(),
+        ),
         "pending_settlements": pending,
         "monitors": monitors if monitors is not None else monitor_registry.active_entries(),
         "strategies": strategies if strategies is not None else strategy_registry.all_strategies(),

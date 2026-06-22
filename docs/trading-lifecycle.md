@@ -30,6 +30,10 @@ Python 虚拟环境和 `.env`。两者不要混用。
 兼容视图使用。完整事件和迁移说明见
 [`architecture-hardening.md`](architecture-hardening.md)。
 
+`agent_state_latest.json` 还包含由规范账本投影得到的 `behavior_risk`。它统计连胜后
+动作扩张、连亏后追损、动作频率漂移和策略集中度；指定 `asof` 时会排除未来信号，
+目前作为运行时第二观察者暴露给 Hermes/OpenClaw，不伪装成已验证的选股 alpha。
+
 ## Hermes / OpenClaw 执行入口
 
 两端都调用同一个 runtime-neutral 入口，不把业务脚本直接塞进 Agent 对话：

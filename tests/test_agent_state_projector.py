@@ -54,3 +54,5 @@ def test_projector_exposes_one_runtime_neutral_decision_surface(tmp_path):
     assert state["runtime_contract"]["state_root_env"] == "A_STOCK_STATE_HOME"
     assert state["runtime_contract"]["cross_host_coordination"] == "shared_filesystem_required"
     assert state["serenity_refresh_requests"][0]["code"] == "002156"
+    assert state["behavior_risk"]["schema"] == "behavior_risk_v1"
+    assert state["behavior_risk"]["signal_count"] == 1

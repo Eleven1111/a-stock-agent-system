@@ -208,7 +208,7 @@ def test_crowding_guard_skips_below_threshold(monkeypatch):
 
 
 def test_ebbing_state_reduces_position_when_enforced(monkeypatch):
-    # S6 退潮态 → 与高潮拥挤同等温和降级（含 trend lane）
+    # S6 退潮态是硬风险态，始终降到报告建议的 0-20% 暴露（含 trend lane）
     monkeypatch.setenv("HERMES_CROWDING_GUARD", "enforce")
     result = decision_policy.evaluate_decision(
         requested_action="buy",
@@ -217,11 +217,11 @@ def test_ebbing_state_reduces_position_when_enforced(monkeypatch):
         market_crowding={"dominant_state": "S6"},
     )
 
-    assert result["position_multiplier"] == 0.5
+    assert result["position_multiplier"] == 0.2
     assert "market_state_ebbing_reduced" in result["reasons"]
 
 
-def test_ebbing_state_only_observed_by_default(monkeypatch):
+def test_ebbing_state_reduces_risk_by_default(monkeypatch):
     monkeypatch.delenv("HERMES_CROWDING_GUARD", raising=False)
     result = decision_policy.evaluate_decision(
         requested_action="buy",
@@ -230,8 +230,8 @@ def test_ebbing_state_only_observed_by_default(monkeypatch):
         market_crowding={"dominant_state": "S6"},
     )
 
-    assert result["position_multiplier"] == 1.0
-    assert "market_state_ebbing_observed" in result["reasons"]
+    assert result["position_multiplier"] == 0.2
+    assert "market_state_ebbing_reduced" in result["reasons"]
 
 
 def test_expected_paths_collapse_dominates_in_ebbing_state():
@@ -242,6 +242,7 @@ def test_expected_paths_collapse_dominates_in_ebbing_state():
         market_crowding={"dominant_state": "S6"},
     )
     paths = {p["scenario"]: p["prob"] for p in result["expected_paths"]}
+    assert result["expected_paths_calibrated"] is False
     assert paths["collapse"] == max(paths.values())
     assert abs(sum(paths.values()) - 1.0) < 1e-3
 

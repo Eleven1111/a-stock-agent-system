@@ -15,6 +15,7 @@ EXIT_ACTIONS = {"sell", "reduce"}
 CROWDING_CLIMAX_THRESHOLD = 0.60
 FRAGILITY_CLIMAX_THRESHOLD = 0.55
 CROWDING_CLIMAX_MULTIPLIER = 0.5
+STATE_RISK_OFF_MULTIPLIER = 0.2
 # S6 退潮/级联是比拥挤更明确的危险态，对 trend lane 同样有效；S0 冰点已由温度
 # allow_new_daban 上游门控，这里不重复。
 STATE_RISK_OFF_DOWNGRADE = {"S6"}
@@ -162,13 +163,15 @@ def evaluate_decision(
                 and fragility >= FRAGILITY_CLIMAX_THRESHOLD
             )
             ebbing = str(market_crowding.get("dominant_state") or "") in STATE_RISK_OFF_DOWNGRADE
-            if climax or ebbing:
-                tag = "crowding_climax" if climax else "market_state_ebbing"
+            if ebbing:
+                multiplier = min(multiplier, STATE_RISK_OFF_MULTIPLIER)
+                reasons.append("market_state_ebbing_reduced")
+            elif climax:
                 if _crowding_guard_enforced():
                     multiplier = min(multiplier, CROWDING_CLIMAX_MULTIPLIER)
-                    reasons.append(f"{tag}_reduced")
+                    reasons.append("crowding_climax_reduced")
                 else:
-                    reasons.append(f"{tag}_observed")
+                    reasons.append("crowding_climax_observed")
 
     return {
         "schema": "a_share_decision_policy_v1",
@@ -182,5 +185,6 @@ def evaluate_decision(
         "research_evidence": dict(research_evidence or {}),
         "market_crowding": dict(market_crowding or {}),
         "expected_paths": _expected_paths(market_crowding),
+        "expected_paths_calibrated": False,
         "abstain": decision == "watch",
     }

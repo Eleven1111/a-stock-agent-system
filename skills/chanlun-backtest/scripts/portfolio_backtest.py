@@ -115,6 +115,23 @@ def _sessions(payload: Mapping[str, Any], bars: Mapping[str, Sequence[Mapping[st
     return sorted(dates)
 
 
+def _evaluation_dates(
+    snapshots: Sequence[Mapping[str, Any]],
+    sessions: Sequence[str],
+    *,
+    end_before: str | None = None,
+) -> list[str]:
+    """Return one fixed replay horizon shared by a strategy and all variants."""
+    signal_dates = sorted(str(row.get("date") or "") for row in snapshots if row.get("date"))
+    if not signal_dates:
+        return []
+    first_signal = signal_dates[0]
+    return [
+        session for session in sessions
+        if session > first_signal and (end_before is None or session < end_before)
+    ]
+
+
 def _score(
     candidate: Mapping[str, Any],
     weights: Mapping[str, Any],
@@ -357,8 +374,13 @@ def run_portfolio(
     ranking_mode: str = "score",
     rank_offset: int = 0,
     entry_delay_sessions: int = 0,
+    evaluation_dates: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     validate_payload(payload)
+    if rank_offset < 0:
+        raise ValueError("rank_offset must not be negative")
+    if entry_delay_sessions < 0:
+        raise ValueError("entry_delay_sessions must not be negative")
     policy = _policy(payload)
     selected_snapshots = list(payload.get("snapshots") if snapshots is None else snapshots)
     orders, rejections = _prepare_orders(
@@ -371,7 +393,21 @@ def run_portfolio(
     )
     bars = _bars_by_code(payload)
     all_sessions = _sessions(payload, bars)
-    if orders:
+    if evaluation_dates is not None:
+        evaluation_set = set(evaluation_dates)
+        retained_orders = []
+        for order in orders:
+            if order["entry_date"] in evaluation_set and order["exit_date"] in evaluation_set:
+                retained_orders.append(order)
+            else:
+                rejections.append({
+                    "date": order["signal_date"],
+                    "code": order["code"],
+                    "reason": "outside_evaluation_window",
+                })
+        orders = retained_orders
+        sessions = [date for date in all_sessions if date in evaluation_set]
+    elif orders:
         first_entry = min(order["entry_date"] for order in orders)
         last_exit = max(order["exit_date"] for order in orders)
         sessions = [date for date in all_sessions if first_entry <= date <= last_exit]
@@ -454,6 +490,11 @@ def run_portfolio(
         "rejections": rejections,
         "equity_curve": equity_curve,
         "benchmark_curve": benchmark_curve,
+        "evaluation_window": {
+            "start": sessions[0] if sessions else None,
+            "end": sessions[-1] if sessions else None,
+            "sessions": len(sessions),
+        },
     }
 
 
@@ -497,14 +538,22 @@ def _counterfactual_summary(
 ) -> dict[str, Any]:
     """实际决策 vs 影子的超额对照(报告 8.3)。edge_vs_actual>0 = 实际优于该影子。"""
     base = _num((oos_result.get("metrics") or {}).get("excess_return"))
+    base_window = dict(oos_result.get("evaluation_window") or {})
     summary = {
         name: {
             "excess_return": _num((cf.get("metrics") or {}).get("excess_return")),
             "edge_vs_actual": round(base - _num((cf.get("metrics") or {}).get("excess_return")), 6),
+            "comparable_window": dict(cf.get("evaluation_window") or {}) == base_window,
         }
         for name, cf in counterfactuals.items()
     }
-    summary["no_action"] = {"excess_return": 0.0, "edge_vs_actual": round(base, 6)}
+    benchmark_return = _num((oos_result.get("metrics") or {}).get("benchmark_return"))
+    no_action_excess = -benchmark_return
+    summary["no_action"] = {
+        "excess_return": no_action_excess,
+        "edge_vs_actual": round(base - no_action_excess, 6),
+        "comparable_window": True,
+    }
     return summary
 
 
@@ -521,23 +570,36 @@ def analyze_payload(payload: Mapping[str, Any], *, split_date: str) -> dict[str,
             raise ValueError("rules_locked_at and OOS generated_at must be valid timestamps") from exc
         if locked_at > first_oos:
             raise ValueError("rules_locked_at must not be after the first OOS snapshot")
-    is_result = run_portfolio(payload, snapshots=is_snapshots)
-    oos_result = run_portfolio(payload, snapshots=oos_snapshots)
+    bars = _bars_by_code(payload)
+    sessions = _sessions(payload, bars)
+    is_dates = _evaluation_dates(is_snapshots, sessions, end_before=split_date)
+    oos_dates = _evaluation_dates(oos_snapshots, sessions)
+    is_result = run_portfolio(payload, snapshots=is_snapshots, evaluation_dates=is_dates)
+    oos_result = run_portfolio(payload, snapshots=oos_snapshots, evaluation_dates=oos_dates)
     ablations = {
         f"without_{component}": run_portfolio(
             payload,
             snapshots=oos_snapshots,
             disabled_component=str(component),
+            evaluation_dates=oos_dates,
         )
         for component in (payload.get("weights") or {})
     }
     controls = {
-        "random_rank": run_portfolio(payload, snapshots=oos_snapshots, ranking_mode="random"),
-        "equal_weight_candidates": run_portfolio(payload, snapshots=oos_snapshots, ranking_mode="code"),
+        "random_rank": run_portfolio(
+            payload, snapshots=oos_snapshots, ranking_mode="random", evaluation_dates=oos_dates
+        ),
+        "equal_weight_candidates": run_portfolio(
+            payload, snapshots=oos_snapshots, ranking_mode="code", evaluation_dates=oos_dates
+        ),
     }
     counterfactuals = {
-        "second_best": run_portfolio(payload, snapshots=oos_snapshots, rank_offset=1),
-        "wait_one_session": run_portfolio(payload, snapshots=oos_snapshots, entry_delay_sessions=1),
+        "second_best": run_portfolio(
+            payload, snapshots=oos_snapshots, rank_offset=1, evaluation_dates=oos_dates
+        ),
+        "wait_one_session": run_portfolio(
+            payload, snapshots=oos_snapshots, entry_delay_sessions=1, evaluation_dates=oos_dates
+        ),
     }
     return {
         "schema": REPORT_SCHEMA,
@@ -550,6 +612,17 @@ def analyze_payload(payload: Mapping[str, Any], *, split_date: str) -> dict[str,
         "ablations": ablations,
         "controls": controls,
         "counterfactuals": counterfactuals,
+        "counterfactual_contracts": {
+            "second_best": {
+                "method": "rank_shift_proxy",
+                "description": "同一候选截面的排名整体后移一位；top_n>1 时不是单只次强股。",
+            },
+            "wait_one_session": {
+                "method": "entry_delay_proxy",
+                "description": "仅延迟一个交易日入场，未观察新的确认信号，不等同于确认后买入。",
+                "confirmation_observed": False,
+            },
+        },
         "counterfactual_summary": _counterfactual_summary(oos_result, counterfactuals),
         "gate_metrics": _gate_statistics(oos_result),
     }

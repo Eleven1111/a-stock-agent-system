@@ -245,3 +245,61 @@ def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch)
     assert report["top_candidates"][0]["sector"] == "半导体"
     assert report["top_candidates"][0]["strategy_id"] == "daban:mainline_leader_confirm"
     assert "factors" not in report
+
+
+def test_finalize_passes_selection_market_risk_to_policy(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    captured = []
+
+    def _policy(**kwargs):
+        captured.append(kwargs.get("market_crowding"))
+        return {
+            "decision": "watch",
+            "position_multiplier": 0.0,
+            "requested_action": kwargs["requested_action"],
+            "reasons": ["test"],
+        }
+
+    monkeypatch.setattr(ac, "evaluate_decision", _policy)
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    candidate = {
+        "code": "600001",
+        "name": "退潮候选",
+        "daban_score": 95,
+        "trend_score": 20,
+        "hot_money_qualified": True,
+        "selected_by": {"daban": True, "trend": False},
+        "selection_context": {
+            "window": "D0_close",
+            "market_timing": {"dominant_state": "S6", "fragility_score": 0.8},
+        },
+    }
+    atomic_write_json(ac._pool_path(), {
+        "status": "ready",
+        "asof": source_asof,
+        "candidates": [candidate],
+    })
+    candidate_lifecycle.initialize_day(source_asof, [candidate])
+    atomic_write_json(ac._state_path(event_asof), {
+        "asof": event_asof,
+        "series": {
+            "sh600001": [{
+                "t": "09:24:50",
+                "name": "退潮候选",
+                "price": 10.5,
+                "prev_close": 10.0,
+                "volume": 20_000,
+                "market_cap": 100.0,
+                "bids": [(10.5, 5_000)] * 5,
+                "asks": [(10.51, 2_000)] * 5,
+            }],
+        },
+    })
+
+    ac.finalize(event_asof, shortlist_limit=1)
+
+    assert captured == [{"dominant_state": "S6", "fragility_score": 0.8}]

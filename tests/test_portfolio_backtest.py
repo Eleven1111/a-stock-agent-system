@@ -269,7 +269,32 @@ def test_counterfactual_shadows_compare_actual_against_alternatives():
     report = portfolio_backtest.analyze_payload(payload, split_date="2026-01-05")
     assert set(report["counterfactuals"]) == {"second_best", "wait_one_session"}
     summary = report["counterfactual_summary"]
-    # 实际选龙头优于次强 → edge>0; no_action 的 edge=实际超额本身
+    assert report["oos"]["evaluation_window"] == report["counterfactuals"]["second_best"]["evaluation_window"]
+    assert report["oos"]["evaluation_window"] == report["counterfactuals"]["wait_one_session"]["evaluation_window"]
+    # 实际选龙头优于次强 → edge>0；相对空仓的 edge 等于组合总收益。
     assert summary["second_best"]["edge_vs_actual"] > 0
     assert summary["no_action"]["edge_vs_actual"] == pytest.approx(
-        report["oos"]["metrics"]["excess_return"], abs=1e-6)
+        report["oos"]["metrics"]["total_return"], abs=1e-6)
+    assert summary["no_action"]["excess_return"] == pytest.approx(
+        -report["oos"]["metrics"]["benchmark_return"], abs=1e-6)
+
+
+@pytest.mark.parametrize("kwargs", [{"rank_offset": -1}, {"entry_delay_sessions": -1}])
+def test_counterfactual_parameters_reject_negative_values(kwargs):
+    with pytest.raises(ValueError, match="must not be negative"):
+        portfolio_backtest.run_portfolio(_payload(), **kwargs)
+
+
+def test_is_evaluation_window_cannot_cross_oos_split():
+    report = portfolio_backtest.analyze_payload(_payload(top_n=1), split_date="2026-01-07")
+
+    assert report["is"]["evaluation_window"] == {
+        "start": "2026-01-06",
+        "end": "2026-01-06",
+        "sessions": 1,
+    }
+    assert report["is"]["trades"] == []
+    assert any(
+        row["reason"] == "outside_evaluation_window"
+        for row in report["is"]["rejections"]
+    )
