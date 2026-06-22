@@ -192,3 +192,56 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
     assert {item["source_group"] for item in monitors} == {"auction_shortlist"}
     lifecycle = candidate_lifecycle.load_day(source_asof)
     assert sum(record["current_stage"] == "auction_shortlist" for record in lifecycle["records"]) == 5
+
+
+def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    monkeypatch.setattr(ac.strategy_registry, "live_record", lambda _strategy_id: None)
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    candidate = {
+        "code": "600001",
+        "name": "主线龙头",
+        "sector": "半导体",
+        "daban_score": 95,
+        "trend_score": 20,
+        "hot_money_qualified": True,
+        "selected_by": {"daban": True, "trend": False},
+        "selection_context": {"window": "D0_close"},
+    }
+    atomic_write_json(ac._pool_path(), {
+        "status": "ready",
+        "asof": source_asof,
+        "candidates": [candidate],
+    })
+    candidate_lifecycle.initialize_day(source_asof, [candidate])
+    atomic_write_json(ac._state_path(event_asof), {
+        "asof": event_asof,
+        "series": {
+            "sh600001": [{
+                "t": "09:24:50",
+                "name": "主线龙头",
+                "price": 10.5,
+                "prev_close": 10.0,
+                "volume": 20_000,
+                "market_cap": 100.0,
+                "bids": [(10.5, 5_000)] * 5,
+                "asks": [(10.51, 2_000)] * 5,
+            }],
+        },
+    })
+
+    result = ac.finalize(event_asof, shortlist_limit=1)
+
+    decision = result["preopen_decisions"][0]
+    assert decision["strategy_id"] == "daban:mainline_leader_confirm"
+    assert decision["selection_context"]["window"] == "09:25"
+    assert decision["policy_decision"]["decision"] == "watch"
+    report = ac.json_report(result)
+    assert report["research_only"] is True
+    assert report["top_candidates"][0]["sector"] == "半导体"
+    assert report["top_candidates"][0]["strategy_id"] == "daban:mainline_leader_confirm"
+    assert "factors" not in report

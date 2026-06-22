@@ -248,6 +248,8 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "auction-snapshot",
         "auction-finalize",
             "open-confirmation",
+            "hot-money-morning-checkpoint",
+            "hot-money-afternoon-checkpoint",
             "closing-triage",
             "news-monitor-intraday",
             "market-pulse-1314",
@@ -316,6 +318,23 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "auction-snapshot",
     ]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
+    assert jobs["hot-money-morning-checkpoint"]["context_from"] == ["open-confirmation"]
+    assert jobs["hot-money-morning-checkpoint"]["schedule"] == "50 9 * * 1-5"
+    assert jobs["hot-money-afternoon-checkpoint"]["context_from"] == ["open-confirmation"]
+    assert jobs["hot-money-afternoon-checkpoint"]["schedule"] == "15 13 * * 1-5"
+    for job_id, profile in (
+        ("hot-money-morning-checkpoint", "morning_confirm"),
+        ("hot-money-afternoon-checkpoint", "afternoon_reflow"),
+    ):
+        assert jobs[job_id]["run"]["command"] == (
+            f"python skills/daban-stock-picker/scripts/hot_money_checkpoint.py "
+            f"--profile {profile} --json"
+        )
+        assert jobs[job_id]["run"]["timeout_seconds"] <= 45
+        assert any(
+            "hot_money_checkpoint" in path
+            for path in jobs[job_id]["allowed_state_writes"]
+        )
     assert jobs["serenity-refresh-plan"]["context_from"] == [
         "closing-triage",
         "stock-intelligence-refresh",

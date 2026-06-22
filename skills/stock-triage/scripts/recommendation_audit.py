@@ -305,6 +305,7 @@ def record_recommendation(
     research_evidence: Optional[Dict[str, Any]] = None,
     portfolio_risk: Optional[Dict[str, Any]] = None,
     social_attention: Optional[Dict[str, Any]] = None,
+    selection_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -433,6 +434,7 @@ def record_recommendation(
         "research_evidence": evidence,
         "strategy_attributions": strategy_attributions(evidence),
         "social_attention": dict(social_attention or {}),
+        "selection_context": dict(selection_context or {}),
         "execution_constraints": quality["execution_constraints"],
         "settleable_signal": opens_signal,
         "outcome": "pending",

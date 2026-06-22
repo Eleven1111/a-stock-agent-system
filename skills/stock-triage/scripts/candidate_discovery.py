@@ -31,13 +31,14 @@ sys.path.insert(0, COMMON)
 
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
+import hot_money_selection  # noqa: E402
 import monitor_registry  # noqa: E402
 from config_registry import config_path  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
 from market_adapters import fetch_tencent_kline, fetch_tencent_quote  # noqa: E402
 from http_client import request_bytes  # noqa: E402
-from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
+from market_snapshot import compact_ref, materialize_input_snapshot, write_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
 from research_evidence import build_research_evidence  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
@@ -62,6 +63,10 @@ def dated_pool_file(asof: str) -> str:
 
 def universe_cache_file() -> str:
     return data_file("stock-triage", "exchange_universe.json")
+
+
+def hot_money_selection_file() -> str:
+    return data_file("stock-triage", "hot_money_selection_latest.json")
 
 
 def reusable_pool(
@@ -543,6 +548,38 @@ def run_discovery(
     if settle_previous:
         observe_recent_candidates(asof, quote_map)
     quotes = list(quote_map.values())
+    selection_config = dict(config.get("hot_money_selection") or {})
+    prior_selection = read_json(hot_money_selection_file(), {})
+    if str(prior_selection.get("asof") or "") >= asof:
+        prior_selection = {}
+    market_timing = hot_money_selection.build_market_timing(
+        quotes,
+        signal_ctx,
+        event_asof=asof,
+        config=selection_config,
+    )
+    selection_state = hot_money_selection.build_sector_leadership(
+        quotes,
+        signal_ctx,
+        market_timing,
+        previous_snapshot=prior_selection,
+        config=selection_config,
+    )
+    selection_state.update({
+        "asof": asof,
+        "batch_id": batch_id,
+        "input_snapshot": compact_ref(input_snapshot),
+    })
+    selection_snapshot = write_snapshot(
+        "hot-money-selection-state",
+        selection_state,
+        trading_date=asof,
+        batch_id=batch_id,
+        producer="candidate-discovery",
+        producer_version="hot-money-selection-v1",
+        source_versions=input_snapshot.get("source_versions") or {},
+    )
+    selection_state["snapshot"] = compact_ref(selection_snapshot)
     result = candidate_pipeline.build_watch_pool(
         quotes,
         kline_by_code,
@@ -551,13 +588,20 @@ def run_discovery(
         min_price=float(universe_config["min_price"]),
         min_listed_days=int(universe_config["min_listed_days"]),
         signal_ctx=signal_ctx,
+        selection_state=selection_state,
     )
     for item in result.get("candidates", []):
         selected_by = item.get("selected_by") or {}
-        strategy_id = (
-            "daban:first_board_reseal"
-            if selected_by.get("daban")
-            else "trend_pullback"
+        lane = "daban" if selected_by.get("daban") else "trend"
+        strategy_id = hot_money_selection.selection_strategy_id(
+            item,
+            lane,
+        )
+        item["strategy_id"] = strategy_id
+        item["selection_context"] = hot_money_selection.selection_context_for(
+            item,
+            selection_state,
+            window="D0_close",
         )
         code = candidate_pipeline.naked_code(item.get("code"))
         item["research_evidence"] = build_research_evidence(
@@ -573,9 +617,11 @@ def run_discovery(
         "universe_source": "SSE+SZSE listings / Tencent quotes",
         "enriched_count": len(kline_by_code),
         "market_temperature": temperature,
+        "hot_money_selection": selection_state,
         "input_snapshot": compact_ref(input_snapshot),
     })
     _persist_pool(asof, result)
+    atomic_write_json(hot_money_selection_file(), selection_state)
     monitor_registry.reconcile_automatic(
         "stock",
         [
@@ -587,6 +633,9 @@ def run_discovery(
                     "daban_rank": item.get("daban_rank"),
                     "trend_rank": item.get("trend_rank"),
                     "selected_by": dict(item.get("selected_by") or {}),
+                    "strategy_id": item.get("strategy_id"),
+                    "sector_rank": item.get("sector_rank"),
+                    "leader_rank": item.get("leader_rank"),
                     "candidate_pool_asof": asof,
                 },
             }
@@ -610,15 +659,20 @@ def run_discovery(
     monitor_registry.gc_expired(asof=asof)
 
     selected_codes = {item["code"] for item in result["candidates"]}
-    selection_by_code = {
-        item["code"]: dict(item.get("selected_by") or {})
+    selected_item_by_code = {
+        item["code"]: item
         for item in result["candidates"]
     }
     lifecycle_candidates = []
     for item in evaluated:
         record = dict(item)
         if item["code"] in selected_codes:
-            record["selected_by"] = selection_by_code[item["code"]]
+            selected_item = selected_item_by_code[item["code"]]
+            record.update({
+                "selected_by": dict(selected_item.get("selected_by") or {}),
+                "strategy_id": selected_item.get("strategy_id"),
+                "selection_context": dict(selected_item.get("selection_context") or {}),
+            })
         else:
             record["selected_by"] = {"daban": False, "trend": False}
             record["rejection_reasons"] = [f"双策略综合排名未进入前{watch_limit}"]
@@ -652,40 +706,93 @@ def format_report(result: Mapping[str, Any]) -> str:
             f"→ {temp.get('advice')}｜打板仓位×{temp.get('position_multiplier')}"
             + (f"｜当日最多{temp['top_n_limit']}只" if temp.get("top_n_limit") else "")
         )
+    selection = result.get("hot_money_selection") or {}
+    timing = selection.get("market_timing") or {}
+    timing_temp = timing.get("temperature") or {}
+    lines.append(
+        f"游资门禁：**{selection.get('status', 'insufficient_data')}** | "
+        f"打板可用={bool(selection.get('daban_ready'))} | "
+        f"时点={timing_temp.get('tier') or 'N/A'} | "
+        f"板块覆盖={float(selection.get('sector_coverage') or 0):.1%}"
+    )
+    mainlines = [
+        item for item in selection.get("sectors") or []
+        if int(item.get("rank") or 999) <= 2
+    ]
+    if mainlines:
+        lines.append(
+            "主线板块：" + "；".join(
+                f"{item.get('rank')}.{item.get('sector')}({item.get('state')},"
+                f"涨停{item.get('limitup_count')},分{item.get('score')})"
+                for item in mainlines
+            )
+        )
+    elif selection.get("reasons"):
+        lines.append("打板关闭原因：" + "；".join(selection.get("reasons") or []))
     lines.extend([
         "",
-        "| 代码 | 名称 | 打板排名 | 打板分 | 趋势排名 | 趋势分 |",
-        "|------|------|----------|--------|----------|--------|",
+        "| 代码 | 名称 | 板块/排名 | 龙头排名 | 打板门禁 | 打板分 | 趋势分 |",
+        "|------|------|-----------|----------|----------|--------|--------|",
     ])
     for item in result.get("candidates", [])[:20]:
         lines.append(
-            f"| {item['code']} | {item['name']} | {item['daban_rank']} | "
-            f"{item['daban_score']} | {item['trend_rank']} | {item['trend_score']} |"
+            f"| {item['code']} | {item['name']} | "
+            f"{item.get('sector') or '-'} / {item.get('sector_rank') or '-'} | "
+            f"{item.get('leader_rank') or '-'} | "
+            f"{'通过' if item.get('hot_money_qualified') else '关闭'} | "
+            f"{item['daban_score']} | {item['trend_score']} |"
         )
     return "\n".join(lines)
 
 
 def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
+    selection = result.get("hot_money_selection") or {}
+    timing = selection.get("market_timing") or {}
     return {
         "schema": result.get("schema"),
         "asof": result.get("asof"),
-        "generated_at": result.get("generated_at"),
         "status": result.get("status"),
         "bootstrap_status": result.get("bootstrap_status"),
-        "universe_source": result.get("universe_source"),
         "scanned_count": result.get("scanned_count", 0),
         "eligible_count": result.get("eligible_count", 0),
         "rejected_count": result.get("rejected_count", 0),
         "enriched_count": result.get("enriched_count", 0),
         "candidate_count": result.get("candidate_count", 0),
-        "market_temperature": result.get("market_temperature"),
+        "hot_money_selection": {
+            "status": selection.get("status") or "insufficient_data",
+            "daban_ready": bool(selection.get("daban_ready")),
+            "research_only": bool(selection.get("research_only", True)),
+            "sector_coverage": selection.get("sector_coverage"),
+            "market_timing": {
+                "status": timing.get("status"),
+                "daban_ready": bool(timing.get("daban_ready")),
+                "breadth": timing.get("breadth"),
+                "previous_ladder_premium": timing.get("previous_ladder_premium"),
+                "tier": (timing.get("temperature") or {}).get("tier"),
+            },
+            "mainline_sectors": [
+                {
+                    key: item.get(key)
+                    for key in (
+                        "sector", "rank", "score", "state",
+                        "limitup_count", "qualified_for_daban",
+                    )
+                }
+                for item in selection.get("sectors") or []
+                if int(item.get("rank") or 999) <= 2
+            ],
+            "reasons": list(selection.get("reasons") or []),
+            "snapshot_id": (selection.get("snapshot") or {}).get("snapshot_id"),
+        },
         "rejection_reason_counts": _reason_counts(result.get("rejected", {})),
         "top_candidates": [
             {
                 key: item.get(key)
                 for key in (
                     "code", "name", "daban_rank", "daban_score",
-                    "trend_rank", "trend_score", "selected_by",
+                    "trend_rank", "trend_score", "strategy_id",
+                    "sector", "sector_rank", "sector_state",
+                    "leader_rank", "leader_role", "hot_money_qualified",
                 )
             }
             for item in result.get("candidates", [])[:5]
@@ -742,7 +849,7 @@ def main() -> None:
         raise SystemExit(1)
 
     if args.json:
-        print(json.dumps(json_report(result), ensure_ascii=False, indent=2, default=str))
+        print(json.dumps(json_report(result), ensure_ascii=False, default=str))
     else:
         print(format_report(result))
 

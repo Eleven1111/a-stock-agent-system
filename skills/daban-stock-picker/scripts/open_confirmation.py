@@ -26,6 +26,7 @@ from announcement_risk import scan_many  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
+import hot_money_selection  # noqa: E402
 from market_temperature import temperature_from_context  # noqa: E402
 import monitor_registry  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -110,12 +111,12 @@ def _apply_policy(
 ) -> Dict[str, Any]:
     result = dict(item)
     selected_by = result.get("open_selected_by") or {}
-    strategy_id = (
-        "daban:first_board_reseal"
-        if selected_by.get("daban")
-        else "trend_pullback"
+    selected_lane = "daban" if selected_by.get("daban") else "trend"
+    strategy_id = hot_money_selection.selection_strategy_id(
+        result,
+        selected_lane,
     )
-    lane = "daban" if selected_by.get("daban") else "trend"
+    lane = "daban" if strategy_id.startswith("daban") else "trend"
     evidence = build_research_evidence(
         _naked_code(str(result.get("code") or "")),
         strategy_id=strategy_id,
@@ -150,6 +151,10 @@ def _apply_policy(
         strategy_lane=lane,
     )
     result["strategy_id"] = strategy_id
+    result["selection_context"] = hot_money_selection.advance_selection_context(
+        result,
+        window="09:35",
+    )
     result["research_evidence"] = evidence
     result["portfolio_risk"] = portfolio_risk
     result["market_regime"] = dict(regime or {})
@@ -273,6 +278,24 @@ def rank_confirmations(
         )
         eligible.append(merged)
 
+    sector_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for item in eligible:
+        sector = str(item.get("sector") or "").strip()
+        if sector:
+            sector_groups.setdefault(sector, []).append(item)
+    for members in sector_groups.values():
+        ordered = sorted(
+            members,
+            key=lambda row: (-float(row.get("open_daban_score") or 0.0), str(row.get("code"))),
+        )
+        leader_score = float(ordered[0].get("open_daban_score") or 0.0) if ordered else 0.0
+        for rank, item in enumerate(ordered, 1):
+            item["open_sector_rank"] = rank
+            item["open_sector_delta"] = round(
+                float(item.get("open_daban_score") or 0.0) - leader_score,
+                2,
+            )
+
     temperature_active = bool(
         temperature
         and temperature.get("tier") != "neutral"
@@ -293,6 +316,9 @@ def rank_confirmations(
     def _lane_member(item: Mapping[str, Any], lane: str) -> bool:
         if lane == "daban" and not allow_new_daban:
             return False
+        if lane == "daban" and "hot_money_qualified" in item:
+            if not item.get("hot_money_qualified"):
+                return False
         selected_by = item.get("auction_selected_by") or item.get("selected_by")
         if isinstance(selected_by, Mapping):
             return bool(selected_by.get(lane))
@@ -339,6 +365,12 @@ def rank_confirmations(
         ):
             code = candidate_pipeline.naked_code(item.get("code"))
             if code in selected:
+                continue
+            if (
+                "hot_money_qualified" in item
+                and not item.get("hot_money_qualified")
+                and not _lane_member(item, "trend")
+            ):
                 continue
             if temperature_active and not _lane_member(item, "trend"):
                 continue
@@ -549,6 +581,7 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
                 "notes": list(item.get("social_attention_notes") or []),
                 "record": dict(item.get("social_attention") or {}),
             },
+            selection_context=item.get("selection_context"),
         )
     monitor_registry.reconcile_automatic(
         "stock",
@@ -610,6 +643,9 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
                     "open_rank": item["open_rank"],
                     "open_score": item["open_score"],
                     "action": item["action"],
+                    "strategy_id": item.get("strategy_id"),
+                    "open_sector_rank": item.get("open_sector_rank"),
+                    "hot_money_qualified": item.get("hot_money_qualified"),
                 }
                 for item in signals
             },
@@ -628,18 +664,63 @@ def format_report(result: Dict[str, Any]) -> str:
             f"竞价={item.get('auction_gap_pct')}% | {'；'.join(item['reasons'])}"
         )
     if result.get("signals"):
-        lines.append("\n### 可执行建议")
+        lines.append("\n### 策略门禁后的研究/执行状态")
         for item in result["signals"]:
             plan = item.get("execution_plan") or {}
             quality = item.get("quality_report") or {}
+            context = item.get("selection_context") or {}
+            sector = context.get("sector") or {}
+            leader = context.get("leader") or {}
             lines.append(
                 f"- {item['name']}({item['code']}): {item.get('decision')} | "
+                f"策略={item.get('strategy_id')} | "
+                f"板块={sector.get('name') or '-'}#{sector.get('rank') or '-'} "
+                f"龙头#{leader.get('rank') or '-'} | "
                 f"买入区间={plan.get('entry_range')} 最高追价={plan.get('max_chase_price')} "
                 f"止损={plan.get('stop_price')} 目标={plan.get('target_price')} "
                 f"仓位={plan.get('position_pct')}% | 质检={quality.get('status')} | "
                 f"A股T+1，最早卖出={plan.get('earliest_sell_date')}"
             )
     return "\n".join(lines)
+
+
+def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "schema": result.get("schema"),
+        "status": result.get("status"),
+        "asof": result.get("asof"),
+        "generated_at": result.get("generated_at"),
+        "source_asof": result.get("source_asof"),
+        "market_temperature": result.get("market_temperature"),
+        "signal_count": result.get("signal_count", 0),
+        "portfolio_research_snapshot": result.get("portfolio_research_snapshot"),
+        "signals": [
+            {
+                "code": item.get("code"),
+                "name": item.get("name"),
+                "sector": item.get("sector"),
+                "open_rank": item.get("open_rank"),
+                "open_sector_rank": item.get("open_sector_rank"),
+                "open_score": item.get("open_score"),
+                "strategy_id": item.get("strategy_id"),
+                "decision": item.get("decision"),
+                "quality_status": (item.get("quality_report") or {}).get("status"),
+                "policy_reasons": list((item.get("policy_decision") or {}).get("reasons") or []),
+                "selection_context": hot_money_selection.compact_selection_context(
+                    item.get("selection_context")
+                ),
+                "execution_plan": {
+                    key: (item.get("execution_plan") or {}).get(key)
+                    for key in (
+                        "decision", "entry_range", "max_chase_price",
+                        "stop_price", "target_price", "position_pct",
+                        "earliest_sell_date", "same_day_sell_allowed",
+                    )
+                },
+            }
+            for item in result.get("signals") or []
+        ],
+    }
 
 
 def main() -> None:
@@ -666,7 +747,7 @@ def main() -> None:
         }
 
     if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(json.dumps(json_report(result), ensure_ascii=False))
     else:
         print(format_report(result))
 

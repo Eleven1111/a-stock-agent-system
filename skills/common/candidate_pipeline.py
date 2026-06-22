@@ -7,6 +7,7 @@ from statistics import pstdev
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from indicators import calc_atr
+from hot_money_selection import apply_leader_identity
 from social_attention import candidate_attention_overlay
 
 
@@ -354,6 +355,7 @@ def build_watch_pool(
     min_price: float = 2.0,
     min_listed_days: int = 60,
     signal_ctx: Mapping[str, Any] | None = None,
+    selection_state: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     eligible, rejected = filter_universe(
         quotes,
@@ -362,15 +364,25 @@ def build_watch_pool(
         min_listed_days=min_listed_days,
     )
     ranked = rank_candidates(eligible, kline_by_code, signal_ctx=signal_ctx)
+    ranked = apply_leader_identity(ranked, selection_state, signal_ctx)
     selectable = [item for item in ranked if item["feature_ready"]]
+    selection_gate_enabled = selection_state is not None
     daban_order = sorted(
-        selectable,
+        (
+            item for item in selectable
+            if not selection_gate_enabled or item.get("hot_money_qualified")
+        ),
         key=lambda row: (not row["daban_eligible"], -row["daban_score"], row["code"]),
     )
     trend_order = sorted(selectable, key=lambda row: (-row["trend_score"], row["code"]))
     daban_quota = watch_limit // 2
     trend_quota = watch_limit - daban_quota
-    daban_codes = {item["code"] for item in daban_order[:daban_quota] if item["daban_eligible"]}
+    daban_codes = {
+        item["code"]
+        for item in daban_order[:daban_quota]
+        if item["daban_eligible"]
+        and (not selection_gate_enabled or item.get("hot_money_qualified"))
+    }
     trend_codes = {item["code"] for item in trend_order[:trend_quota]}
     selected_codes = daban_codes | trend_codes
     if len(selected_codes) < watch_limit:
@@ -409,6 +421,11 @@ def build_watch_pool(
         "rejected_count": len(rejected),
         "rejected": rejected,
         "candidate_count": len(candidates),
+        "hot_money_selection_status": (
+            str(selection_state.get("status") or "insufficient_data")
+            if selection_state is not None
+            else "legacy_unscoped"
+        ),
         "candidates": candidates[:watch_limit],
         "evaluated_candidates": ranked,
     }
@@ -483,7 +500,28 @@ def rank_auction_shortlist(
             item["auction_trend_score"],
         )
 
+    sector_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for item in rows:
+        sector = str(item.get("sector") or "").strip()
+        if sector:
+            sector_groups.setdefault(sector, []).append(item)
+    for members in sector_groups.values():
+        ordered = sorted(
+            members,
+            key=lambda item: (-_num(item.get("auction_daban_score")), item["code"]),
+        )
+        leader_score = _num(ordered[0].get("auction_daban_score")) if ordered else 0.0
+        for rank, item in enumerate(ordered, 1):
+            item["auction_sector_rank"] = rank
+            item["auction_sector_delta"] = round(
+                _num(item.get("auction_daban_score")) - leader_score,
+                2,
+            )
+
     def _lane_member(item: Mapping[str, Any], lane: str) -> bool:
+        if lane == "daban" and "hot_money_qualified" in item:
+            if not item.get("hot_money_qualified"):
+                return False
         selected_by = item.get("selected_by")
         if isinstance(selected_by, Mapping):
             return bool(selected_by.get(lane))
@@ -530,6 +568,14 @@ def rank_auction_shortlist(
         for item in fill_order:
             code = naked_code(item["code"])
             if code in selected:
+                continue
+            selected_by = item.get("selected_by")
+            if (
+                "hot_money_qualified" in item
+                and not item.get("hot_money_qualified")
+                and isinstance(selected_by, Mapping)
+                and not selected_by.get("trend")
+            ):
                 continue
             chosen = dict(item)
             chosen["auction_selected_by"] = {

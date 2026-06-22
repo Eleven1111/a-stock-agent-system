@@ -37,6 +37,12 @@ Historical reruns are skipped because they have already observed future
 information. Repeating the same live result is idempotent; replacing that day's
 snapshot with different content fails closed.
 
+Each candidate preserves `selection_context`: market-timing status,
+mainline-sector rank and persistence, within-sector leader rank, confirmation
+window, and the immutable selection snapshot reference. Portfolio OOS reports
+can therefore test whether timing/sector/leader gates add incremental value
+instead of attributing all performance to the combined score.
+
 An unregistered strategy remains `watch` in the live recommendation, but its
 pre-admission `buy` intent is retained in the research snapshot only when the
 sole blocking reason is `strategy_unverified`. Announcement, market-regime,

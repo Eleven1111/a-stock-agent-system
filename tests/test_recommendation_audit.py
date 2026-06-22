@@ -85,6 +85,26 @@ def test_record_recommendation_writes_audit_file(tmp_path, monkeypatch):
     ]
 
 
+def test_record_recommendation_preserves_selection_context_in_ledger(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    selection_context = {
+        "window": "09:35",
+        "market_timing": {"tier": "发酵", "daban_ready": True},
+        "sector": {"name": "半导体", "rank": 1, "state": "confirmed"},
+        "leader": {"rank": 1, "role": "sector_leader"},
+    }
+
+    result = ra.record_recommendation(
+        **_passed_buy(selection_context=selection_context)
+    )
+
+    created = ra.signal_ledger.read_events(ra.LEDGER_FILE)[0]
+    projected = ra.signal_ledger.project_signals(ledger_file=ra.LEDGER_FILE)[0]
+    assert result["record"]["selection_context"] == selection_context
+    assert created["payload"]["selection_context"] == selection_context
+    assert projected["selection_context"] == selection_context
+
+
 def test_record_recommendation_carries_chanlun_attribution_into_signal(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch)
     evidence = {

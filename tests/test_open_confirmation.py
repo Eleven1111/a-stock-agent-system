@@ -78,6 +78,78 @@ def test_open_confirmation_policy_includes_research_evidence(monkeypatch):
     assert result["research_evidence"]["chanlun"]["status"] == "live_allowed"
 
 
+def test_hot_money_policy_uses_research_strategy_not_reseal_proxy(monkeypatch):
+    monkeypatch.setattr(oc.strategy_registry, "live_record", lambda _strategy_id: None)
+    monkeypatch.setattr(
+        oc,
+        "build_research_evidence",
+        lambda code, strategy_id, asof: {
+            "schema": "research_evidence_v1",
+            "chanlun": {"live_bullish_signals": [], "live_bearish_signals": []},
+            "serenity": {"available": False, "stale": None, "hard_risks": []},
+            "market_intelligence": {
+                "available": True,
+                "stale": False,
+                "directional_ready": True,
+                "hard_risks": [],
+                "warnings": [],
+            },
+        },
+    )
+    item = {
+        "code": "sh600001",
+        "sector": "半导体",
+        "hot_money_qualified": True,
+        "open_selected_by": {"daban": True, "trend": False},
+        "execution_plan": {"decision": "buy", "position_pct": 4.0},
+        "quality_report": {"status": "passed"},
+        "selection_context": {"window": "09:25"},
+    }
+
+    result = oc._apply_policy(item, asof="2026-06-12")
+
+    assert result["strategy_id"] == "daban:mainline_leader_confirm"
+    assert result["decision"] == "watch"
+    assert result["selection_context"]["window"] == "09:35"
+
+
+def test_open_daban_lane_rejects_candidate_outside_mainline_leader_gate():
+    shortlist = [
+        {
+            "code": "sh600001",
+            "name": "非主线高分",
+            "auction_score": 99,
+            "auction_daban_score": 99,
+            "auction_trend_score": 10,
+            "hot_money_qualified": False,
+            "auction_selected_by": {"daban": True, "trend": False},
+        },
+        {
+            "code": "sz300001",
+            "name": "趋势候选",
+            "auction_score": 80,
+            "auction_daban_score": 0,
+            "auction_trend_score": 80,
+            "auction_selected_by": {"daban": False, "trend": True},
+        },
+    ]
+    confirmations = [
+        {
+            "code": item["code"],
+            "name": item["name"],
+            "action": "trend_watch",
+            "change_pct": 5.0,
+            "tradeability": {"tradeable": True, "status": "normal"},
+            "reasons": [],
+        }
+        for item in shortlist
+    ]
+
+    ranked = oc.rank_confirmations(shortlist, confirmations, limit=2)
+
+    assert [item["code"] for item in ranked] == ["sz300001"]
+
+
 def test_research_only_watch_keeps_requested_buy_for_ledger_audit():
     research_only = {
         "decision": "watch",
@@ -408,5 +480,9 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
     signal = oc.signal_ledger.project_signals(events)[0]
     assert signal["recommendation_id"].startswith(f"open-{event_asof}-")
     assert signal["monitor_id"].startswith("stock:")
+    report = oc.json_report(result)
+    assert report["signal_count"] == 3
+    assert "confirmations" not in report
+    assert "selection_context" in report["signals"][0]
     lifecycle = candidate_lifecycle.load_day(source_asof)
     assert sum(record["current_stage"] == "open_confirmed" for record in lifecycle["records"]) == 3
