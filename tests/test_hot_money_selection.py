@@ -65,6 +65,16 @@ def _config():
     }
 
 
+def test_build_sector_leadership_emits_crowding_fragility():
+    timing = hms.build_market_timing(_quotes(), _context(), event_asof="2026-06-22", config=_config())
+    state = hms.build_sector_leadership(_quotes(), _context(), timing, config=_config())
+    # 市场级拥挤/脆弱字段在册（样本不足时 fails closed，不臆造分数）
+    assert state["crowding_fragility"]["schema"] == "market_crowding_fragility_v1"
+    # 板块级：每个 sector row 暴露 crowding/fragility 维度
+    semi = next(r for r in state["sectors"] if r["sector"] == "半导体")
+    assert "crowding_score" in semi and "fragility_score" in semi
+
+
 def test_stale_or_missing_context_fails_closed_for_daban():
     timing = hms.build_market_timing(
         _quotes(),
