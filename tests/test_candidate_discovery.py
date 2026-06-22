@@ -29,6 +29,20 @@ def _bars(start):
     ]
 
 
+def test_preopen_bootstrap_reuses_only_ready_recent_nonfuture_pool():
+    ready = {
+        "status": "ready",
+        "asof": "2026-06-19",
+        "candidates": [{"code": "600001"}],
+    }
+
+    assert discovery.reusable_pool(ready, "2026-06-22") is True
+    assert discovery.reusable_pool({**ready, "asof": "2026-06-17"}, "2026-06-22") is False
+    assert discovery.reusable_pool({**ready, "asof": "2026-06-23"}, "2026-06-22") is False
+    assert discovery.reusable_pool({**ready, "status": "insufficient_data"}, "2026-06-22") is False
+    assert discovery.reusable_pool({**ready, "candidates": []}, "2026-06-22") is False
+
+
 def test_run_discovery_persists_pool_and_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     listed_date = (date.today() - timedelta(days=500)).isoformat()

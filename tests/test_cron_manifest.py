@@ -271,7 +271,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     ]
     assert jobs["candidate-preopen"]["schedule"] == "45 8 * * 1-5"
     assert jobs["candidate-preopen"]["run"]["command"].endswith(
-        "candidate_discovery.py --no-settle --json"
+        "candidate_discovery.py --bootstrap-if-missing --no-settle --json"
     )
     assert jobs["hot-money-context"]["run"]["command"].endswith("--cache-only")
     assert jobs["social-attention-preopen"]["schedule"] == "42 8 * * 1-5"

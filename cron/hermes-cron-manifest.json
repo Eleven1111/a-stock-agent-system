@@ -162,11 +162,11 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/candidate_discovery.py --no-settle --json",
+        "command": "python skills/stock-triage/scripts/candidate_discovery.py --bootstrap-if-missing --no-settle --json",
         "cwd": ".",
         "timeout_seconds": 420
       },
-      "external_note": "08:45 生成当日竞价使用的动态候选池；冷启动时由 auction-snapshot DAG 强制补跑，不在盘前价格结算历史候选"
+      "external_note": "08:45 复用有效的 D0 收盘候选池；仅冷启动或池过期时扫描，且不在盘前价格结算历史候选"
     },
     {
       "id": "social-attention-midday",
