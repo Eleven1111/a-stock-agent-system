@@ -1,9 +1,17 @@
 """盘中异动监控 — 新一天首次运行不得清空刚生成的告警（顺序 bug 回归）。"""
 
 from datetime import date
+from types import SimpleNamespace
 
 import intraday_monitor as im
+import pytest
+from http_client import DataSourceError
 from state_store import atomic_write_json
+
+
+@pytest.fixture(autouse=True)
+def _isolate_shortlist(tmp_path, monkeypatch):
+    monkeypatch.setattr(im, "SHORTLIST_FILE", str(tmp_path / "auction_shortlist_latest.json"))
 
 
 def _stub_market(monkeypatch):
@@ -12,6 +20,19 @@ def _stub_market(monkeypatch):
     monkeypatch.setattr(
         im, "fetch_realtime",
         lambda code: {"price": 11.0, "change_pct": 9.8, "turnover": 5.0, "amount": 1e8},
+    )
+    monkeypatch.setattr(
+        im,
+        "fetch_realtime_many",
+        lambda codes: {
+            str(code)[-6:]: {
+                "price": 11.0,
+                "change_pct": 9.8,
+                "turnover": 5.0,
+                "amount": 1e8,
+            }
+            for code in codes
+        },
     )
 
 
@@ -44,6 +65,122 @@ def test_same_day_dedup_still_works(tmp_path, monkeypatch):
 
     second = im.check_intraday()
     assert not any(a["type"] == "涨停" for a in second["alerts"]), "同日涨停应已去重"
+
+
+def test_sector_acceleration_detects_breadth_before_individual_limit_up():
+    quotes = {
+        "600001": {"change_pct": 4.2},
+        "600002": {"change_pct": 3.6},
+        "600003": {"change_pct": 2.8},
+        "600004": {"change_pct": -0.2},
+    }
+    members = {
+        "600001": {"name": "甲", "sector": "半导体"},
+        "600002": {"name": "乙", "sector": "半导体"},
+        "600003": {"name": "丙", "sector": "半导体"},
+        "600004": {"name": "丁", "sector": "电力"},
+    }
+
+    alerts, state = im.detect_sector_acceleration(
+        quotes,
+        members,
+        previous={},
+        min_members=3,
+        min_positive_ratio=2 / 3,
+        min_average_pct=2.5,
+        min_acceleration_pct=0.8,
+    )
+
+    assert len(alerts) == 1
+    assert alerts[0]["type"] == "板块加速"
+    assert alerts[0]["sector"] == "半导体"
+    assert alerts[0]["action"] == "watch"
+    assert state["半导体"]["average_pct"] > 3.0
+
+
+def test_batch_quote_fetch_keeps_successful_chunks_when_one_provider_call_fails(
+    monkeypatch,
+):
+    calls = []
+
+    def fake_fetch(codes):
+        calls.append(list(codes))
+        if codes == ["600003"]:
+            raise DataSourceError("tencent", "temporary failure")
+        return SimpleNamespace(data={
+            f"sh{code}": {"price": 10.0, "change_pct": 1.0}
+            for code in codes
+        })
+
+    monkeypatch.setattr(im, "INTRADAY_QUOTE_BATCH_SIZE", 2)
+    monkeypatch.setattr(im, "fetch_tencent_quotes", fake_fetch)
+
+    result = im.fetch_realtime_many(["600001", "600002", "600003"])
+
+    assert calls == [["600001", "600002"], ["600003"]]
+    assert set(result) == {"600001", "600002"}
+
+
+def test_sector_acceleration_requires_increment_after_first_alert():
+    quotes = {
+        "600001": {"change_pct": 4.3},
+        "600002": {"change_pct": 3.7},
+        "600003": {"change_pct": 2.9},
+    }
+    members = {
+        code: {"name": code, "sector": "半导体"}
+        for code in quotes
+    }
+
+    alerts, _ = im.detect_sector_acceleration(
+        quotes,
+        members,
+        previous={"半导体": {"average_pct": 3.6, "alerted": True}},
+        min_members=3,
+        min_positive_ratio=2 / 3,
+        min_average_pct=2.5,
+        min_acceleration_pct=0.8,
+    )
+
+    assert alerts == []
+
+
+def test_intraday_check_consumes_same_day_auction_shortlist_for_sector_alert(
+    tmp_path,
+    monkeypatch,
+):
+    today = date.today().isoformat()
+    monkeypatch.setattr(im, "TRACKED_CODES", [])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {})
+    monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(im.PORTFOLIO_FILE, {"positions": []})
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {
+            "asof": today,
+            "shortlist": [
+                {"code": f"60000{i}", "name": f"股票{i}", "sector": "半导体"}
+                for i in range(1, 4)
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        im,
+        "fetch_realtime_many",
+        lambda codes: {
+            str(code)[-6:]: {"price": 10.0, "change_pct": 3.5, "turnover": 2.0}
+            for code in codes
+        },
+    )
+
+    result = im.check_intraday()
+
+    assert result["sector_member_count"] == 3
+    assert result["sector_alerts"][0]["sector"] == "半导体"
+    assert result["sector_alerts"][0]["action"] == "watch"
 
 
 def test_sold_stock_is_removed_from_dynamic_universe(tmp_path, monkeypatch):
@@ -116,6 +253,19 @@ def test_exit_signal_respects_t1_lock_for_same_day_position(tmp_path, monkeypatc
             "change_pct": -1.0,
             "turnover": 1.0,
             "amount": 1e8,
+        },
+    )
+    monkeypatch.setattr(
+        im,
+        "fetch_realtime_many",
+        lambda codes: {
+            str(code)[-6:]: {
+                "price": 11.0,
+                "change_pct": -1.0,
+                "turnover": 1.0,
+                "amount": 1e8,
+            }
+            for code in codes
         },
     )
     monkeypatch.setattr(im, "read_signal_context", lambda: {})

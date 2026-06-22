@@ -66,7 +66,12 @@
     "limit_move_pct": 9.5,
     "high_turnover_pct": 10.0,
     "surge_pct": 5.0,
-    "directional_move_pct": 2.0
+    "directional_move_pct": 2.0,
+    "quote_batch_size": 60,
+    "sector_min_members": 3,
+    "sector_min_positive_ratio": 0.67,
+    "sector_min_average_pct": 2.5,
+    "sector_min_acceleration_pct": 0.8
   },
   "news_monitor": {
     "default_limit": 3,

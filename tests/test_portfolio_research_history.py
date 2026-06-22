@@ -1,8 +1,6 @@
 import json
 from datetime import date, datetime
 
-import pytest
-
 import portfolio_research_history as history
 
 
@@ -67,7 +65,7 @@ def test_non_research_policy_block_stays_ineligible(tmp_path, monkeypatch):
     assert candidate["eligible"] is False
 
 
-def test_same_day_snapshot_is_idempotent_but_cannot_be_rewritten(tmp_path, monkeypatch):
+def test_same_day_snapshot_is_idempotent_and_preserves_first_on_conflict(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     payload = _confirmation()
 
@@ -78,8 +76,11 @@ def test_same_day_snapshot_is_idempotent_but_cannot_be_rewritten(tmp_path, monke
 
     assert second["status"] == "reused"
     assert second["snapshot"]["snapshot_sha256"] == first["snapshot"]["snapshot_sha256"]
-    with pytest.raises(ValueError, match="immutable"):
-        history.record_open_confirmation(changed)
+    conflict = history.record_open_confirmation(changed)
+
+    assert conflict["status"] == "conflict_preserved"
+    assert conflict["snapshot"]["snapshot_sha256"] == first["snapshot"]["snapshot_sha256"]
+    assert conflict["attempted_snapshot_sha256"] != first["snapshot"]["snapshot_sha256"]
 
 
 def test_historical_backfill_is_not_mislabeled_point_in_time(tmp_path, monkeypatch):

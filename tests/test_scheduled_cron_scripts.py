@@ -85,6 +85,23 @@ def test_scheduled_news_monitor_marks_clarification_as_risk():
 
     assert event["risk_classification"]["is_risk"] is True
     assert "澄清" in event["risk_classification"]["clarification_hits"]
+    assert "澄清" in event["risk_classification"]["review_hits"]
+    assert "不属实" in event["risk_classification"]["thesis_invalidation_hits"]
+
+
+def test_scheduled_news_monitor_keeps_abnormal_volatility_as_warning_only():
+    monitor = load_module(
+        "scheduled_news_monitor_warning_test",
+        "skills/news-to-sector/scripts/scheduled_monitor.py",
+    )
+
+    event = monitor.classify_event({
+        "title": "股票交易异常波动公告",
+        "snippet": "公司经营正常，不存在应披露而未披露事项",
+    })
+
+    assert event["risk_classification"]["is_risk"] is False
+    assert event["risk_classification"]["warning_only_hits"] == ["异常波动"]
 
 
 def test_scheduled_news_monitor_parses_event_time_and_latency(monkeypatch):

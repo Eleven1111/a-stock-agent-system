@@ -295,6 +295,16 @@ def rank_candidates(
         hm_bonus, hm_notes = hot_money_bonus(code, item, signal_ctx)
         social = candidate_attention_overlay(code, signal_ctx)
         social_delta = float(social["delta"])
+        ladder = ((signal_ctx or {}).get("lianban_ladder") or {}).get(code) or {}
+        social_record = social.get("record") or {}
+        sector = str(
+            item.get("sector")
+            or item.get("industry")
+            or ladder.get("sector")
+            or social_record.get("sector")
+            or social_record.get("industry")
+            or ""
+        ).strip()
         daban_score = min(100.0, daban_score + hm_bonus + social_delta)
         if not daban_eligible or not item["feature_ready"]:
             daban_score = 0.0
@@ -323,6 +333,7 @@ def rank_candidates(
             "social_attention_bonus": round(social_delta, 2),
             "social_attention_notes": social["notes"],
             "social_attention": social["record"],
+            "sector": sector or None,
         })
 
     daban_order = sorted(enriched, key=lambda row: (-row["daban_score"], row["code"]))

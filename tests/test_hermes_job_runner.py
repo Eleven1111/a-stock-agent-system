@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 
+from scripts import hermes_job_runner as job_runner
 from state_store import read_json
 from runtime_context import (
     evaluate_dependencies,
@@ -15,6 +16,43 @@ from runtime_context import (
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def test_openclaw_runtime_env_does_not_fabricate_repo_local_state(monkeypatch):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.delenv("A_STOCK_STATE_ID", raising=False)
+
+    run_env = job_runner.build_runtime_env("openclaw")
+
+    assert "A_STOCK_STATE_HOME" not in run_env
+    assert "A_STOCK_STATE_ID" not in run_env
+
+
+def test_dry_run_replaces_bare_python_with_current_interpreter(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    worker = tmp_path / "worker.py"
+    worker.write_text("print('ok')\n", encoding="utf-8")
+    job = _base_job("python-path")
+    job["run"]["command"] = f"python {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args([
+            "python-path",
+            "--manifest",
+            str(manifest),
+            "--dry-run",
+        ])
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert payload["command"].startswith(sys.executable + " ")
 
 
 def _base_job(job_id, deliver="origin"):

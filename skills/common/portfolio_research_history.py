@@ -129,7 +129,13 @@ def record_open_confirmation(result: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(existing, dict):
         if existing.get("snapshot_sha256") == body["snapshot_sha256"]:
             return {"status": "reused", "path": path, "snapshot": existing}
-        raise ValueError(f"portfolio research snapshot is immutable for {asof}")
+        return {
+            "status": "conflict_preserved",
+            "reason": "daily research snapshot already recorded; first observation retained",
+            "path": path,
+            "snapshot": existing,
+            "attempted_snapshot_sha256": body["snapshot_sha256"],
+        }
     atomic_write_json(path, body)
     return {"status": "recorded", "path": path, "snapshot": body}
 

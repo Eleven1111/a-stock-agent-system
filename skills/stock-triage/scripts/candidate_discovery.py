@@ -680,6 +680,11 @@ def main() -> None:
     parser.add_argument("--asof", default=date.today().isoformat())
     parser.add_argument("--watch-limit", type=int, default=config["pipeline"]["watch_limit"])
     parser.add_argument("--prefilter-limit", type=int, default=config["universe"]["prefilter_limit"])
+    parser.add_argument(
+        "--no-settle",
+        action="store_true",
+        help="Skip prior-candidate settlement for pre-open bootstrap runs",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -688,6 +693,7 @@ def main() -> None:
             args.asof,
             watch_limit=args.watch_limit,
             prefilter_limit=args.prefilter_limit,
+            settle_previous=not args.no_settle,
         )
     except Exception as exc:  # noqa: BLE001
         result = {
