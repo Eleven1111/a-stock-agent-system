@@ -232,3 +232,63 @@ def test_ebbing_state_only_observed_by_default(monkeypatch):
 
     assert result["position_multiplier"] == 1.0
     assert "market_state_ebbing_observed" in result["reasons"]
+
+
+def test_expected_paths_collapse_dominates_in_ebbing_state():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_crowding={"dominant_state": "S6"},
+    )
+    paths = {p["scenario"]: p["prob"] for p in result["expected_paths"]}
+    assert paths["collapse"] == max(paths.values())
+    assert abs(sum(paths.values()) - 1.0) < 1e-3
+
+
+def test_expected_paths_continue_dominates_in_expansion():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_crowding={"dominant_state": "S2"},
+    )
+    paths = {p["scenario"]: p["prob"] for p in result["expected_paths"]}
+    assert paths["continue"] == max(paths.values())
+
+
+def test_expected_paths_none_without_market_state():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+    )
+    assert result["expected_paths"] is None
+
+
+def test_fragility_shifts_paths_toward_collapse():
+    base = decision_policy.evaluate_decision(
+        requested_action="buy", quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY, market_crowding={"dominant_state": "S4"},
+    )
+    fragile = decision_policy.evaluate_decision(
+        requested_action="buy", quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_crowding={"dominant_state": "S4", "fragility_score": 0.8},
+    )
+    base_coll = next(p["prob"] for p in base["expected_paths"] if p["scenario"] == "collapse")
+    fragile_coll = next(p["prob"] for p in fragile["expected_paths"] if p["scenario"] == "collapse")
+    assert fragile_coll > base_coll
+
+
+def test_abstain_marks_non_action_watch_but_not_executable_buy():
+    # 未注册策略 → watch → abstain(无优势主动弃权, 报告"ABSTAIN 是完整正确输出")
+    watched = decision_policy.evaluate_decision(
+        requested_action="buy", quality_report={"status": "passed"}, strategy_record=None,
+    )
+    assert watched["decision"] == "watch" and watched["abstain"] is True
+    # 可执行 buy → 非 abstain
+    executable = decision_policy.evaluate_decision(
+        requested_action="buy", quality_report={"status": "passed"}, strategy_record=ALLOWED_STRATEGY,
+    )
+    assert executable["decision"] == "buy" and executable["abstain"] is False

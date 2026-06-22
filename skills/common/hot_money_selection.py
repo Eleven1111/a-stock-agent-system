@@ -328,6 +328,32 @@ def build_sector_leadership(
     }
 
 
+def _is_limit_up(quote: Mapping[str, Any]) -> bool:
+    threshold = limit_pct(_code(quote.get("code")), str(quote.get("name") or ""))
+    return _num(quote.get("change_pct")) >= threshold - 0.2
+
+
+def _leader_ablation(leader: Mapping[str, Any], sector_state: Mapping[str, Any]) -> dict[str, Any]:
+    """日线宽度近似的龙头消融检验（报告 4.3，非时序因果，无逐笔数据）。
+
+    真龙头能带动板块扩散——移除后板块仍有涨停集群=结构性带动；移除后板块塌（无其他
+    涨停）或龙头独占成交=孤立单核（脆弱），不是结构性龙头。
+    """
+    sector_amount = _num(sector_state.get("amount"))
+    leader_amount = _num(leader.get("amount"))
+    amount_share = round(leader_amount / sector_amount, 4) if sector_amount > 0 else None
+    sector_limitups = int(_num(sector_state.get("limitup_count")))
+    breadth_without_leader = max(0, sector_limitups - (1 if _is_limit_up(leader) else 0))
+    structural = breadth_without_leader >= 1 and (amount_share is None or amount_share < 0.6)
+    return {
+        "method": "daily_breadth_proxy",
+        "leader_amount_share": amount_share,
+        "breadth_without_leader": breadth_without_leader,
+        "structural_leader": structural,
+        "note": "移除龙头后板块仍有涨停集群=结构性带动；否则孤立单核(脆弱)。日线近似, 非时序因果。",
+    }
+
+
 def apply_leader_identity(
     candidates: Sequence[Mapping[str, Any]],
     selection_state: Mapping[str, Any] | None,
@@ -376,6 +402,8 @@ def apply_leader_identity(
                 else "sector_follower"
             )
             item["leader_score"] = round(max(0.0, 100.0 - (rank - 1) * 15.0), 2)
+            if rank == 1:
+                item["ablation"] = _leader_ablation(item, sector_state)
             item["hot_money_qualified"] = bool(
                 state.get("daban_ready")
                 and sector_state.get("qualified_for_daban")
@@ -453,6 +481,7 @@ def selection_context_for(
             "role": candidate.get("leader_role"),
             "score": candidate.get("leader_score"),
             "qualified": bool(candidate.get("hot_money_qualified")),
+            "ablation": candidate.get("ablation"),
         },
         "selection_snapshot": dict(state.get("snapshot") or {}),
     }

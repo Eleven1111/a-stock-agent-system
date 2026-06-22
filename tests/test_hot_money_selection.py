@@ -201,3 +201,28 @@ def test_strategy_id_never_mislabels_generic_candidate_as_first_board_reseal():
         "daban:mainline_leader_confirm"
     )
     assert hms.selection_strategy_id({}, "trend") == "trend_pullback"
+
+
+def test_sector_leader_gets_structural_ablation():
+    timing = hms.build_market_timing(_quotes(), _context(), event_asof="2026-06-22", config=_config())
+    sectors = hms.build_sector_leadership(_quotes(), _context(), timing, config=_config())
+    candidates = [{**item, "daban_eligible": True, "hot_money_bonus": 10.0} for item in _quotes()]
+    ranked = hms.apply_leader_identity(candidates, sectors, _context(), config=_config())
+    by_code = {item["code"]: item for item in ranked}
+
+    # 半导体龙一(600001): 板块去龙头仍有涨停集群(600002/600003) 且不独占成交 → 结构性
+    abl = by_code["600001"]["ablation"]
+    assert abl["structural_leader"] is True
+    assert abl["breadth_without_leader"] == 2
+    assert 0 < abl["leader_amount_share"] < 0.6
+    # 非龙头候选不做消融检验
+    assert "ablation" not in by_code["600003"]
+
+
+def test_leader_ablation_flags_isolated_single_core():
+    # 板块仅龙头一个涨停 + 龙头独占成交 → 非结构性(孤立单核, 脆弱)
+    leader = {"code": "600001", "name": "", "change_pct": 10.0, "amount": 9e8}
+    abl = hms._leader_ablation(leader, {"limitup_count": 1, "amount": 1e9})
+    assert abl["structural_leader"] is False
+    assert abl["breadth_without_leader"] == 0
+    assert abl["leader_amount_share"] == 0.9
