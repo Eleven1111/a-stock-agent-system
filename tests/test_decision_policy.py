@@ -149,3 +149,86 @@ def test_stale_serenity_reduces_trend_position_without_blocking_daban():
     assert trend["decision"] == "buy"
     assert trend["position_multiplier"] == 0.5
     assert daban["position_multiplier"] == 1.0
+
+
+def test_crowding_climax_only_observed_by_default(monkeypatch):
+    # 默认 observe：高拥挤+高脆弱只记录，不降级（横截面预警是非确定性证据）
+    monkeypatch.delenv("HERMES_CROWDING_GUARD", raising=False)
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_crowding={"crowding_score": 0.7, "fragility_score": 0.6},
+    )
+
+    assert result["decision"] == "buy"
+    assert result["position_multiplier"] == 1.0
+    assert "crowding_climax_observed" in result["reasons"]
+
+
+def test_crowding_climax_reduces_position_when_enforced(monkeypatch):
+    monkeypatch.setenv("HERMES_CROWDING_GUARD", "enforce")
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_crowding={"crowding_score": 0.7, "fragility_score": 0.6},
+    )
+
+    assert result["decision"] == "buy"
+    assert result["position_multiplier"] == 0.5
+    assert "crowding_climax_reduced" in result["reasons"]
+
+
+def test_crowding_guard_fails_open_when_scores_missing(monkeypatch):
+    # 数据不足 → 不干预（避免缺数据误杀正常建议）
+    monkeypatch.setenv("HERMES_CROWDING_GUARD", "enforce")
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_crowding={"status": "insufficient_data", "crowding_score": None, "fragility_score": None},
+    )
+
+    assert result["position_multiplier"] == 1.0
+    assert not any("crowding_climax" in reason for reason in result["reasons"])
+
+
+def test_crowding_guard_skips_below_threshold(monkeypatch):
+    monkeypatch.setenv("HERMES_CROWDING_GUARD", "enforce")
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_crowding={"crowding_score": 0.5, "fragility_score": 0.4},
+    )
+
+    assert result["position_multiplier"] == 1.0
+    assert not any("crowding_climax" in reason for reason in result["reasons"])
+
+
+def test_ebbing_state_reduces_position_when_enforced(monkeypatch):
+    # S6 退潮态 → 与高潮拥挤同等温和降级（含 trend lane）
+    monkeypatch.setenv("HERMES_CROWDING_GUARD", "enforce")
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_crowding={"dominant_state": "S6"},
+    )
+
+    assert result["position_multiplier"] == 0.5
+    assert "market_state_ebbing_reduced" in result["reasons"]
+
+
+def test_ebbing_state_only_observed_by_default(monkeypatch):
+    monkeypatch.delenv("HERMES_CROWDING_GUARD", raising=False)
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_crowding={"dominant_state": "S6"},
+    )
+
+    assert result["position_multiplier"] == 1.0
+    assert "market_state_ebbing_observed" in result["reasons"]

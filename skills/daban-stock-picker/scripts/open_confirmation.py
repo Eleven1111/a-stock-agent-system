@@ -141,6 +141,7 @@ def _apply_policy(
         result,
         float((result.get("execution_plan") or {}).get("position_pct") or 0),
     )
+    selection_market = (result.get("selection_context") or {}).get("market_timing") or {}
     policy = evaluate_decision(
         requested_action=str((result.get("execution_plan") or {}).get("decision") or "watch"),
         quality_report=result.get("quality_report") or {"status": "conditional"},
@@ -149,6 +150,7 @@ def _apply_policy(
         portfolio_risk=portfolio_risk,
         research_evidence=evidence,
         strategy_lane=lane,
+        market_crowding=selection_market,
     )
     result["strategy_id"] = strategy_id
     result["selection_context"] = hot_money_selection.advance_selection_context(

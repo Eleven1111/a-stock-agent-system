@@ -9,7 +9,8 @@ from __future__ import annotations
 from statistics import mean
 from typing import Any, Mapping, Sequence
 
-from market_temperature import temperature_from_context
+from crowding_fragility import build_market_crowding_fragility, sector_crowding_fragility
+from market_temperature import classify_market_state, temperature_from_context
 from tradeability import limit_pct
 
 
@@ -223,6 +224,7 @@ def build_sector_leadership(
                     or stock_sectors.get(_code(code)) == sector
                 )
             )
+        sector_cf = sector_crowding_fragility(members)
         rows.append({
             "sector": sector,
             "stock_count": len(members),
@@ -230,6 +232,8 @@ def build_sector_leadership(
             "amount": round(sum(_num(member.get("amount")) for member in members), 2),
             "top10_change": round(mean(top_changes), 4) if top_changes else 0.0,
             "attention": round(attention, 4),
+            "crowding_score": sector_cf.get("crowding_score"),
+            "fragility_score": sector_cf.get("fragility_score"),
         })
 
     percentiles = {
@@ -281,6 +285,23 @@ def build_sector_leadership(
         )
     if timing_ready and coverage_ready and not qualified:
         reasons.append("没有板块同时满足主线排名和涨停集群门槛")
+
+    crowding = build_market_crowding_fragility(
+        quotes, context, market_timing,
+        event_asof=str(market_timing.get("event_asof") or ""),
+    )
+    state_count = len(rows) or 1
+    market_state = classify_market_state(
+        dict(market_timing.get("temperature") or {}),
+        breadth=market_timing.get("breadth"),
+        crowding_score=crowding.get("crowding_score"),
+        fragility_score=crowding.get("fragility_score"),
+        sector_rotation={
+            "weakening_ratio": round(sum(r.get("state") == "weakening" for r in rows) / state_count, 4),
+            "emerging_ratio": round(sum(r.get("state") == "emerging" for r in rows) / state_count, 4),
+        },
+        previous_state=((previous_snapshot or {}).get("market_state") or {}).get("dominant_state"),
+    )
     return {
         "schema": SCHEMA,
         "status": "ready" if timing_ready and coverage_ready and qualified else "insufficient_data",
@@ -289,6 +310,8 @@ def build_sector_leadership(
         "market_timing": dict(market_timing),
         "sector_coverage": coverage,
         "stock_sectors": stock_sectors,
+        "crowding_fragility": crowding,
+        "market_state": market_state,
         "sectors": rows,
         "reasons": reasons,
         "config": {
@@ -388,6 +411,8 @@ def selection_context_for(
     """Build the bounded attribution surface stored in reports and the ledger."""
     state = dict(selection_state or {})
     market = dict(state.get("market_timing") or {})
+    crowding = dict(state.get("crowding_fragility") or {})
+    market_state = dict(state.get("market_state") or {})
     temperature = dict(market.get("temperature") or {})
     sector_name = str(candidate.get("sector") or "")
     sector = next(
@@ -407,6 +432,12 @@ def selection_context_for(
             "daban_ready": market.get("daban_ready", False),
             "breadth": dict(market.get("breadth") or {}),
             "previous_ladder_premium": market.get("previous_ladder_premium"),
+            "crowding_score": crowding.get("crowding_score"),
+            "fragility_score": crowding.get("fragility_score"),
+            "crowding_signals": crowding.get("signals") or [],
+            "dominant_state": market_state.get("dominant_state"),
+            "market_state_label": market_state.get("dominant_label"),
+            "state_risk_off": bool(market_state.get("risk_off")),
         },
         "sector": {
             "name": sector_name or None,
@@ -414,6 +445,8 @@ def selection_context_for(
             "state": sector.get("state") or candidate.get("sector_state"),
             "score": sector.get("score"),
             "qualified": bool(sector.get("qualified_for_daban")),
+            "crowding_score": sector.get("crowding_score"),
+            "fragility_score": sector.get("fragility_score"),
         },
         "leader": {
             "rank": candidate.get("leader_rank"),
@@ -471,6 +504,9 @@ def compact_selection_context(context: Mapping[str, Any] | None) -> dict[str, An
         "status": value.get("selection_status"),
         "tier": market.get("tier"),
         "daban_ready": bool(market.get("daban_ready")),
+        "crowding_score": market.get("crowding_score"),
+        "fragility_score": market.get("fragility_score"),
+        "dominant_state": market.get("dominant_state"),
         "sector": sector.get("name"),
         "sector_rank": sector.get("rank"),
         "sector_state": sector.get("state"),

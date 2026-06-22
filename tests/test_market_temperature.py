@@ -150,3 +150,57 @@ def test_daban_strategic_weight_default_and_override(monkeypatch):
     assert mt.daban_strategic_weight() == 0.5
     monkeypatch.setenv("HERMES_DABAN_STRATEGIC_WEIGHT", "abc")   # 非法回退默认
     assert mt.daban_strategic_weight() == 0.5
+
+
+# ── S0-S6 概率状态机 ──────────────────────────────────────────────────────────
+
+def test_market_state_maps_tier_to_base_state():
+    out = mt.classify_market_state({"tier": "发酵", "retreat_signal": None})
+    assert out["available"] is True
+    assert out["dominant_state"] == "S2"   # 发酵 → S2 主峰
+    assert out["market_state_prob"]["S2"] == max(out["market_state_prob"].values())
+    assert abs(sum(out["market_state_prob"].values()) - 1.0) < 1e-3
+
+
+def test_market_state_neutral_when_temperature_missing():
+    out = mt.classify_market_state({"tier": "neutral"})
+    assert out["available"] is False
+    assert out["dominant_state"] is None
+    assert out["market_state_prob"] == {}
+
+
+def test_retreat_and_fragility_push_state_to_ebbing():
+    out = mt.classify_market_state(
+        {"tier": "加速", "retreat_signal": "高度板今晨-6%"}, fragility_score=0.7)
+    assert out["market_state_prob"]["S6"] > out["market_state_prob"]["S3"]
+    assert out["risk_off"] == (out["dominant_state"] in mt.STATE_RISK_OFF)
+
+
+def test_crowding_lifts_climax_state():
+    base = mt.classify_market_state({"tier": "加速", "retreat_signal": None})
+    crowded = mt.classify_market_state({"tier": "加速", "retreat_signal": None}, crowding_score=0.9)
+    assert crowded["market_state_prob"]["S4"] > base["market_state_prob"]["S4"]
+
+
+def test_sector_rotation_raises_divergence_state():
+    temp = {"tier": "加速", "retreat_signal": None}
+    rotated = mt.classify_market_state(
+        temp, sector_rotation={"weakening_ratio": 0.5, "emerging_ratio": 0.3})
+    base = mt.classify_market_state(temp)
+    assert rotated["market_state_prob"]["S5"] > base["market_state_prob"]["S5"]
+
+
+def test_state_hysteresis_holds_when_advantage_thin():
+    # base=S3(加速) 但拥挤把 S4 抬到接近 S3；上一日已是 S4 → 优势不足不切回 S3
+    out = mt.classify_market_state(
+        {"tier": "加速", "retreat_signal": None}, crowding_score=0.9, previous_state="S4")
+    assert out["raw_dominant_state"] == "S3"
+    assert out["dominant_state"] == "S4"
+    assert out["switched"] is False
+
+
+def test_state_switches_when_advantage_clear():
+    out = mt.classify_market_state({"tier": "冰点", "retreat_signal": None}, previous_state="S4")
+    assert out["dominant_state"] == "S0"
+    assert out["switched"] is True
+    assert out["risk_off"] is True

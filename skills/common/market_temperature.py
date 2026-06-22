@@ -281,6 +281,114 @@ def read_temperature(
     )
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# S0-S6 概率状态机（游资方法论报告第六章）
+# 五档温度是它的离散骨架；这里叠加拥挤/脆弱/板块轮动/广度证据，细化到七态并输出
+# 概率而非硬标签，再用滞后(SWITCH_MARGIN)避免单日证据让主导状态来回翻转。
+# 纯标准库启发式映射 —— 无训练数据、无 hmmlearn，是工程约束下的可解释近似，
+# 不假装是校准过的 HMM/HSMM（报告第十章："不能复刻也不应假装复刻"）。
+# ────────────────────────────────────────────────────────────────────────────
+
+MARKET_STATES = ("S0", "S1", "S2", "S3", "S4", "S5", "S6")
+STATE_LABELS = {
+    "S0": "收缩/冰点", "S1": "修复", "S2": "点火", "S3": "扩散/主升",
+    "S4": "高潮/拥挤", "S5": "分歧/轮动", "S6": "退潮/级联",
+}
+STATE_ACTION = {
+    "S0": "ABSTAIN/观察", "S1": "小仓 TEST", "S2": "建池识龙头",
+    "S3": "确认后加风险预算", "S4": "停止追一致/准备 REDUCE",
+    "S5": "区分换手/切换", "S6": "INVALIDATE/降暴露",
+}
+# 五档 → 基础状态（neutral 不映射，状态机不输出方向性状态）
+TIER_TO_STATE = {"冰点": "S0", "修复": "S1", "发酵": "S2", "加速": "S3", "极热": "S4"}
+# 主导状态属于这些时，decision_policy/上游按 risk_off 处理
+STATE_RISK_OFF = {"S0", "S6"}
+# 新主导状态相对上一状态的概率优势不足此值则不切换（滞后，防单 K 翻转）
+SWITCH_MARGIN = 0.15
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    try:
+        return float(value) if value not in (None, "", "-") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def classify_market_state(
+    temperature: Mapping[str, Any],
+    *,
+    breadth: Optional[Mapping[str, Any]] = None,
+    crowding_score: Optional[float] = None,
+    fragility_score: Optional[float] = None,
+    sector_rotation: Optional[Mapping[str, Any]] = None,
+    previous_state: Optional[str] = None,
+) -> Dict[str, Any]:
+    """五档温度 + 拥挤/脆弱/轮动/广度证据 → S0-S6 概率分布与主导状态。"""
+    tier = str(temperature.get("tier") or "")
+    base = TIER_TO_STATE.get(tier)
+    if base is None:
+        return {
+            "schema": "market_state_machine_v1",
+            "available": False,
+            "market_state_prob": {},
+            "dominant_state": None,
+            "previous_state": previous_state,
+            "switched": False,
+            "notes": ["温度数据缺失或 neutral，状态机不输出方向性状态"],
+        }
+
+    order = list(MARKET_STATES)
+    base_idx = order.index(base)
+    scores = {state: {0: 1.0, 1: 0.35, 2: 0.1}.get(abs(idx - base_idx), 0.0)
+              for idx, state in enumerate(order)}
+
+    if temperature.get("retreat_signal"):
+        scores["S6"] += 0.8
+    if fragility_score is not None:
+        scores["S6"] += 0.5 * float(fragility_score)
+    if crowding_score is not None:
+        scores["S4"] += 0.5 * float(crowding_score)
+
+    rotation = dict(sector_rotation or {})
+    weakening = _coerce_float(rotation.get("weakening_ratio"))
+    emerging = _coerce_float(rotation.get("emerging_ratio"))
+    if weakening is not None and emerging is not None and weakening >= 0.34 and emerging > 0:
+        scores["S5"] += 0.6
+
+    b = dict(breadth or {})
+    limitdown = _coerce_float(b.get("limitdown_count")) or 0.0
+    limitup = _coerce_float(b.get("limitup_count")) or 0.0
+    if limitdown >= max(5.0, limitup):
+        scores["S0"] += 0.4
+        scores["S6"] += 0.3
+
+    total = sum(scores.values())
+    prob = {state: round(score / total, 4) for state, score in scores.items()} if total > 0 else {}
+    raw_dominant = max(prob, key=prob.get) if prob else None
+
+    dominant = raw_dominant
+    switched = raw_dominant != previous_state
+    if previous_state in prob and raw_dominant != previous_state:
+        if prob[raw_dominant] - prob.get(previous_state, 0.0) < SWITCH_MARGIN:
+            dominant = previous_state  # 滞后：优势不足不切换
+            switched = False
+
+    return {
+        "schema": "market_state_machine_v1",
+        "available": True,
+        "market_state_prob": prob,
+        "dominant_state": dominant,
+        "dominant_label": STATE_LABELS.get(dominant),
+        "dominant_action": STATE_ACTION.get(dominant),
+        "raw_dominant_state": raw_dominant,
+        "previous_state": previous_state,
+        "switched": switched,
+        "confidence": prob.get(dominant) if prob else None,
+        "risk_off": dominant in STATE_RISK_OFF,
+        "notes": [],
+    }
+
+
 if __name__ == "__main__":
     import json
     print(json.dumps(read_temperature(), ensure_ascii=False, indent=2))
