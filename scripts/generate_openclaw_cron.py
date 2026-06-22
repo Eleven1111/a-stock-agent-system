@@ -128,11 +128,16 @@ def build_openclaw_commands(
             parts.extend(["--command-env", f"A_STOCK_STATE_HOME={state_home}"])
         if state_id:
             parts.extend(["--command-env", f"A_STOCK_STATE_ID={state_id}"])
-        parts.append(
-            "--no-deliver"
-            if job.get("deliver") in {"local", "silent"}
-            else "--announce"
-        )
+        deliver_flag = job.get("deliver") in {"local", "silent"}
+        if deliver_flag:
+            parts.append("--no-deliver")
+        else:
+            parts.extend([
+                "--announce",
+                "--channel", "discord",
+                "--to", "user:1068705928590917722",
+                "--account", "default",
+            ])
         commands.append(" ".join(shlex.quote(value) for value in parts))
     return commands
 
