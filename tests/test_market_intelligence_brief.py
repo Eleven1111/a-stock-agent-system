@@ -88,3 +88,19 @@ def test_main_prints_bounded_brief(monkeypatch, capsys):
 
     assert brief.main() == 0
     assert "早盘情报简报" in capsys.readouterr().out
+
+
+def test_main_reports_missing_or_stale_stage_instead_of_printing_nothing(
+    monkeypatch,
+    capsys,
+):
+    monkeypatch.setattr(brief, "load_stage", lambda stage, asof: {})
+    monkeypatch.setattr(
+        "sys.argv",
+        ["market_intelligence_brief.py", "--stage", "auction", "--asof", "2026-06-23"],
+    )
+
+    assert brief.main() == 0
+    output = capsys.readouterr().out
+    assert "集合竞价简报未生成" in output
+    assert "上游快照缺失或过期" in output

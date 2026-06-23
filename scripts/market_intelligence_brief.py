@@ -24,6 +24,12 @@ STAGE_PATHS = {
     "open": ("daban-stock-picker", "open_confirmation_latest.json"),
 }
 
+STAGE_LABELS = {
+    "preopen": "早盘情报简报",
+    "auction": "集合竞价简报",
+    "open": "开盘摘要",
+}
+
 
 def _label(item: Mapping[str, Any]) -> str:
     return f"{item.get('name') or item.get('code')}({item.get('code')})"
@@ -126,6 +132,11 @@ def main() -> int:
     result = load_stage(args.stage, asof=args.asof)
     if result:
         print(format_brief(args.stage, result, max_chars=args.max_chars))
+    else:
+        print(
+            f"⚠️ {STAGE_LABELS[args.stage]}未生成 | {args.asof} | "
+            "上游快照缺失或过期，请检查对应采集任务。"
+        )
     return 0
 
 

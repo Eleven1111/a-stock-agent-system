@@ -319,6 +319,29 @@ def target_output(job: Mapping[str, Any], artifact: Mapping[str, Any]) -> str:
     if job.get("silent_when_no_signal") and not artifact.get("has_signal"):
         return "NO_REPLY\n"
     stdout = str(artifact.get("stdout") or "")
+    max_chars = max(200, int(job.get("max_output_chars") or 4000))
+    if len(stdout) > max_chars:
+        raw_summary = artifact.get("summary")
+        summary = raw_summary if isinstance(raw_summary, Mapping) else {}
+        compact_summary = {
+            key: value
+            for key, value in summary.items()
+            if key == "status" or key.endswith("_count")
+        }
+        message = summary.get("message")
+        if message:
+            compact_summary["message"] = str(message)[:120]
+        stdout = json.dumps(
+            {
+                "schema": "openclaw_target_output_truncated_v1",
+                "job_id": job.get("id"),
+                "status": artifact.get("status"),
+                "summary": compact_summary,
+                "message": f"原始输出{len(stdout)}字符，已按推送预算压缩",
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )[:max_chars]
     return stdout + ("\n" if stdout and not stdout.endswith("\n") else "")
 
 

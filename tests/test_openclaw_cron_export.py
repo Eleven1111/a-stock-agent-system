@@ -5,9 +5,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
+import pytest
+
+from scripts import generate_openclaw_cron as cron_export
 from scripts.generate_openclaw_cron import build_openclaw_commands, dependency_timeout_budget
 
 
@@ -54,6 +58,178 @@ def test_export_uses_openclaw_command_payload_without_model_prompt(tmp_path):
     assert "--no-deliver" in command
     assert "--timeout-seconds 120" in command
     assert '"--runtime", "openclaw"' in command
+
+
+def test_origin_delivery_maps_to_explicit_announce_route(tmp_path):
+    job = _job("target", 30)
+    job["deliver"] = "origin"
+
+    command = build_openclaw_commands(
+        {"jobs": [job]},
+        repo_dir=str(tmp_path),
+        python="/venv/bin/python",
+    )[0]
+    parts = shlex.split(command)
+
+    assert "--announce" in parts
+    assert "--no-deliver" not in parts
+    assert parts[parts.index("--channel") + 1] == "discord"
+    assert parts[parts.index("--to") + 1] == "user:1068705928590917722"
+    assert parts[parts.index("--account") + 1] == "default"
+    assert parts[parts.index("--tz") + 1] == "Asia/Shanghai"
+
+
+def test_export_uses_configured_openclaw_binary(tmp_path):
+    command = build_openclaw_commands(
+        {"jobs": [_job("target", 30)]},
+        repo_dir=str(tmp_path),
+        python="/venv/bin/python",
+        openclaw="/opt/openclaw/bin/openclaw",
+    )[0]
+
+    assert shlex.split(command)[0] == "/opt/openclaw/bin/openclaw"
+
+
+def test_export_rejects_unknown_delivery_policy(tmp_path):
+    job = _job("target", 30)
+    job["deliver"] = "orgin"
+
+    with pytest.raises(ValueError, match="unknown deliver policy"):
+        build_openclaw_commands(
+            {"jobs": [job]},
+            repo_dir=str(tmp_path),
+            python="/venv/bin/python",
+        )
+
+
+def test_reconcile_edits_existing_named_job_instead_of_creating_duplicate(tmp_path):
+    job = _job("target", 30)
+    job["deliver"] = "origin"
+
+    command = build_openclaw_commands(
+        {"jobs": [job]},
+        repo_dir=str(tmp_path),
+        python="/venv/bin/python",
+        installed_jobs=[{"id": "cron-123", "name": "A-stock: target"}],
+    )[0]
+    parts = shlex.split(command)
+
+    assert parts[:4] == ["openclaw", "cron", "edit", "cron-123"]
+    assert "create" not in parts
+    assert parts[parts.index("--cron") + 1] == "0 9 * * 1-5"
+    assert "--announce" in parts
+
+
+def test_reconcile_rejects_duplicate_installed_names(tmp_path):
+    job = _job("target", 30)
+
+    with pytest.raises(ValueError, match="duplicate installed OpenClaw jobs"):
+        build_openclaw_commands(
+            {"jobs": [job]},
+            repo_dir=str(tmp_path),
+            python="/venv/bin/python",
+            installed_jobs=[
+                {"id": "cron-1", "name": "A-stock: target"},
+                {"id": "cron-2", "name": "A-stock: target"},
+            ],
+        )
+
+
+def test_reconcile_loads_installed_jobs_from_openclaw_json(monkeypatch):
+    completed = subprocess.CompletedProcess(
+        ["openclaw", "cron", "list", "--json"],
+        0,
+        stdout=json.dumps({"jobs": [{"id": "cron-123", "name": "A-stock: target"}]}),
+        stderr="",
+    )
+    monkeypatch.setattr(cron_export.subprocess, "run", lambda *args, **kwargs: completed)
+
+    assert cron_export.load_installed_openclaw_jobs("openclaw") == [
+        {"id": "cron-123", "name": "A-stock: target"}
+    ]
+
+
+def test_reconcile_surfaces_openclaw_list_failure(monkeypatch):
+    completed = subprocess.CompletedProcess(
+        ["openclaw", "cron", "list", "--json"],
+        1,
+        stdout="",
+        stderr="gateway unavailable",
+    )
+    monkeypatch.setattr(cron_export.subprocess, "run", lambda *args, **kwargs: completed)
+
+    with pytest.raises(RuntimeError, match="gateway unavailable"):
+        cron_export.load_installed_openclaw_jobs("openclaw")
+
+
+@pytest.mark.parametrize("payload", ["not-json", '{"jobs":"invalid"}'])
+def test_reconcile_rejects_invalid_openclaw_list_payload(monkeypatch, payload):
+    completed = subprocess.CompletedProcess(
+        ["openclaw", "cron", "list", "--json"],
+        0,
+        stdout=payload,
+        stderr="",
+    )
+    monkeypatch.setattr(cron_export.subprocess, "run", lambda *args, **kwargs: completed)
+
+    with pytest.raises(RuntimeError, match="invalid JSON|jobs array"):
+        cron_export.load_installed_openclaw_jobs("openclaw")
+
+
+def test_apply_executes_generated_argv_without_shell(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        cron_export.subprocess,
+        "run",
+        lambda argv, check: calls.append((argv, check)),
+    )
+
+    cron_export.apply_openclaw_commands([
+        "openclaw cron edit cron-123 --announce --channel discord",
+    ])
+
+    assert calls == [
+        (["openclaw", "cron", "edit", "cron-123", "--announce", "--channel", "discord"], True)
+    ]
+
+
+def test_cli_reconcile_apply_edits_installed_job(tmp_path, monkeypatch):
+    job = _job("target", 30)
+    job["deliver"] = "origin"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    applied = []
+    monkeypatch.setattr(
+        cron_export,
+        "load_installed_openclaw_jobs",
+        lambda binary: [{"id": "cron-123", "name": "A-stock: target"}],
+    )
+    monkeypatch.setattr(
+        cron_export,
+        "apply_openclaw_commands",
+        lambda commands: applied.extend(commands),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate_openclaw_cron.py",
+            "--manifest",
+            str(manifest),
+            "--repo-dir",
+            str(tmp_path),
+            "--python",
+            "/venv/bin/python",
+            "--state-home",
+            "/state",
+            "--reconcile",
+            "--apply",
+        ],
+    )
+
+    assert cron_export.main() == 0
+    assert len(applied) == 1
+    assert shlex.split(applied[0])[:4] == ["openclaw", "cron", "edit", "cron-123"]
 
 
 def test_repo_manifest_exports_every_enabled_job_as_command_cron():

@@ -246,6 +246,14 @@ python scripts/state_doctor.py --runtime openclaw --recover
 python scripts/generate_openclaw_cron.py \
   --state-home "$A_STOCK_STATE_HOME" \
   --state-id "$A_STOCK_STATE_ID"
+
+# Recommended: reconcile against OpenClaw's active store. Existing named jobs
+# are edited and only missing jobs are created. Omit --apply for a dry preview.
+python scripts/generate_openclaw_cron.py \
+  --state-home "$A_STOCK_STATE_HOME" \
+  --state-id "$A_STOCK_STATE_ID" \
+  --env-file "$A_STOCK_ENV_FILE" \
+  --reconcile --apply
 python scripts/cron_budget_report.py
 
 # Emergency fallback when Hermes Gateway cron is unhealthy:

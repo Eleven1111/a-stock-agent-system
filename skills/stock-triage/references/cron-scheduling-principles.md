@@ -81,10 +81,14 @@ OpenClaw 部署必须使用 command cron，不创建 model-backed isolated agent
 ```bash
 python scripts/generate_openclaw_cron.py \
   --state-home "$A_STOCK_STATE_HOME" \
-  --state-id "$A_STOCK_STATE_ID"
+  --state-id "$A_STOCK_STATE_ID" \
+  --env-file "$A_STOCK_ENV_FILE" \
+  --reconcile --apply
 ```
 
-生成结果使用 `openclaw cron create --command-argv` 直接启动 DAG，因此没有模型冷启动、
+对账模式读取 `openclaw cron list --json`：同名 `A-stock:` 任务使用
+`openclaw cron edit` 更新 delivery、时区、命令和环境，缺失任务才使用 `cron create`，
+避免旧 `no-deliver` 配置和重复任务残留。命令任务直接启动 DAG，因此没有模型冷启动、
 prompt 多步决策或对话上下文污染。外层 timeout 按必需依赖闭包、重试次数和缓冲自动计算。
 
 ## API 依赖设计
