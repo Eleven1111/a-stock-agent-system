@@ -40,6 +40,7 @@ DEFAULT_FRESHNESS_SLA_MINUTES = int(_NEWS_CONFIG.get("freshness_sla_minutes", 18
 INTRADAY_LIMIT = int(_NEWS_CONFIG.get("intraday_limit", DEFAULT_LIMIT))
 INTRADAY_FRESHNESS_SLA_MINUTES = int(_NEWS_CONFIG.get("intraday_freshness_sla_minutes", 10))
 INTRADAY_CANDIDATE_LIMIT = int(_NEWS_CONFIG.get("intraday_candidate_limit", 20))
+SCHEDULED_STOCK_LIMIT = int(_NEWS_CONFIG.get("scheduled_stock_limit", 20))
 
 
 def build_queries(base_queries: List[str] | None = None, *, mode: str = "scheduled") -> List[str]:
@@ -50,7 +51,12 @@ def build_queries(base_queries: List[str] | None = None, *, mode: str = "schedul
             label = str(target.get("name") or code)
             if code:
                 queries.append(f"{label} {code} 异动公告 澄清 风险提示 监管问询 减持 停牌")
-    for item in active_entries():
+    entries = active_entries()
+    if mode == "scheduled":
+        # Only query top-N stocks in scheduled mode to stay within API budget
+        stock_entries = [e for e in entries if e.get("kind") == "stock"]
+        entries = stock_entries[:SCHEDULED_STOCK_LIMIT] + [e for e in entries if e.get("kind") != "stock"]
+    for item in entries:
         kind = item.get("kind")
         key = str(item.get("key") or "")
         label = str(item.get("label") or key)
