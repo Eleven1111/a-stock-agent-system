@@ -159,15 +159,15 @@ def test_all_eastmoney_business_callers_use_the_unified_adapter():
         assert '["curl"' not in source
 
 
-def test_four_dim_serpapi_preserves_raw_news_shape(monkeypatch):
+def test_four_dim_serper_preserves_raw_news_shape(monkeypatch):
     module = _load(
         "four_dim_http_migration",
         "skills/stock-triage/scripts/four_dim_scorer.py",
     )
-    monkeypatch.setenv("SERPAPI_API_KEY", "secret")
+    monkeypatch.setattr(module, "_next_serper_key", lambda: "secret")
     monkeypatch.setattr(
         module,
-        "_fetch_serpapi_news",
+        "_fetch_serper_news",
         lambda query, api_key, limit: HttpResult(
             [{
                 "title": "重大订单",
@@ -181,10 +181,10 @@ def test_four_dim_serpapi_preserves_raw_news_shape(monkeypatch):
         ),
     )
 
-    assert module.fetch_serpapi_news("测试", 1) == [{
+    assert module.fetch_serper_news("测试", 1) == [{
         "title": "重大订单",
         "snippet": "摘要",
-        "source": {"name": "测试源"},
+        "source": "测试源",
         "date": "1 day ago",
         "link": "https://example.test/news",
     }]
@@ -231,10 +231,10 @@ def test_institution_news_preserves_shape_and_empty_fallback(monkeypatch):
         "institution_news_http_migration",
         "skills/stock-triage/scripts/institution_tracker.py",
     )
-    monkeypatch.setenv("SERPAPI_API_KEY", "secret")
+    monkeypatch.setattr(module, "_next_serper_key", lambda: "secret")
     monkeypatch.setattr(
         module,
-        "_fetch_serpapi_news",
+        "_fetch_serper_news",
         lambda query, api_key, limit: HttpResult(
             [{
                 "title": "评级上调",
@@ -245,7 +245,7 @@ def test_institution_news_preserves_shape_and_empty_fallback(monkeypatch):
             1,
         ),
     )
-    assert module.fetch_serpapi_inst_news("600011", "华能国际") == [{
+    assert module.fetch_serper_inst_news("600011", "华能国际") == [{
         "title": "评级上调",
         "source": "测试券商",
         "date": "2 hours ago",
@@ -253,10 +253,10 @@ def test_institution_news_preserves_shape_and_empty_fallback(monkeypatch):
 
     monkeypatch.setattr(
         module,
-        "_fetch_serpapi_news",
-        lambda *args, **kwargs: (_ for _ in ()).throw(_timeout("serpapi")),
+        "_fetch_serper_news",
+        lambda *args, **kwargs: (_ for _ in ()).throw(_timeout("serper")),
     )
-    assert module.fetch_serpapi_inst_news("600011", "华能国际") == []
+    assert module.fetch_serper_inst_news("600011", "华能国际") == []
 
 
 def test_hot_money_fallback_preserves_dataframe_and_empty_fallback(monkeypatch):
@@ -323,15 +323,15 @@ def test_data_cache_uses_shared_client_and_preserves_failure_semantics(monkeypat
         module.fetch_realtime(["600011"])
 
 
-def test_news_serpapi_adapter_preserves_response_contract(monkeypatch):
+def test_news_serper_adapter_preserves_response_contract(monkeypatch):
     module = _load(
         "stock_news_http_migration",
         "skills/stock-analyst/scripts/news.py",
     )
-    monkeypatch.setattr(module, "_get_next_key", lambda: "secret")
+    monkeypatch.setattr(module, "_next_serper_key", lambda: "secret")
     monkeypatch.setattr(
         module,
-        "_fetch_serpapi_news",
+        "_fetch_serper_news",
         lambda query, api_key, limit: HttpResult(
             [{
                 "title": "新闻标题",
@@ -345,12 +345,12 @@ def test_news_serpapi_adapter_preserves_response_contract(monkeypatch):
         ),
     )
 
-    response = module._serpapi_request({"engine": "google_news", "q": "A股", "num": 1})
+    response = module._serper_request({"q": "A股", "num": 1})
 
-    assert response == {"news_results": [{
+    assert response == [{
         "title": "新闻标题",
         "snippet": "摘要",
-        "source": {"name": "来源"},
+        "source": "来源",
         "date": "1 hour ago",
         "link": "https://example.test",
-    }]}
+    }]

@@ -60,7 +60,7 @@ def test_score_stock_applies_market_overlay(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     klines = [{"close": 10.0, "high": 10.2, "low": 9.8, "volume": 1000} for _ in range(60)]
     monkeypatch.setattr(fds, "fetch_tencent_kline", lambda *a, **k: klines)
-    monkeypatch.setattr(fds, "fetch_serpapi_news", lambda *a, **k: None)
+    monkeypatch.setattr(fds, "fetch_serper_news", lambda *a, **k: None)
 
     risk_off = {"alerts": [{"level": "🔴 高", "sectors": ["全市场"], "msg": "VIX 35"}],
                 "sector_impact": {"AI算力": -3, "半导体": -3, "全市场": -3},

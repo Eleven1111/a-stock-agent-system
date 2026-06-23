@@ -76,7 +76,7 @@ def _normalize_stock_code(value: Any) -> str:
 
 
 def scan_fresh_catalysts() -> List[Dict[str, Any]]:
-    """从 SerpAPI 抓取最近新闻并分级。"""
+    """从 Serper.dev 抓取最近新闻并分级。"""
     api_key = _next_serper_key()
     if not api_key:
         return []

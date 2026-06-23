@@ -24,7 +24,6 @@ except ImportError:
     from http_client import DataSourceError, ErrorType, HttpClient, HttpResult, build_request
 
 __all__ = [
-    "fetch_serpapi_news",
     "fetch_serper_news",
     "fetch_tencent_quote",
     "fetch_tencent_quotes",
@@ -73,64 +72,6 @@ def fetch_tencent_quote(
     return quote
 
 
-def fetch_serpapi_news(
-    query: str,
-    api_key: str,
-    limit: int,
-    *,
-    client: Optional[HttpClient] = None,
-) -> HttpResult[List[Dict[str, Any]]]:
-    params = urllib.parse.urlencode({
-        "engine": "google_news",
-        "q": query,
-        "hl": "zh-cn",
-        "gl": "cn",
-        "api_key": api_key,
-    })
-    request = build_request(
-        f"https://serpapi.com/search.json?{params}",
-        headers={"User-Agent": "Hermes A-Stock Agent"},
-    )
-    response = (client or provider_client("serpapi")).request_json(request)
-    if not isinstance(response.data, dict):
-        raise DataSourceError(
-            "serpapi",
-            "expected a JSON object",
-            error_type=ErrorType.INVALID_RESPONSE,
-            attempts=response.attempts,
-            timestamp=response.fetched_at,
-        )
-    items = response.data.get("news_results") or []
-    if not isinstance(items, list):
-        raise DataSourceError(
-            "serpapi",
-            "news_results must be a list",
-            error_type=ErrorType.INVALID_RESPONSE,
-            attempts=response.attempts,
-            timestamp=response.fetched_at,
-        )
-    events = []
-    for item in items[:limit]:
-        if not isinstance(item, dict):
-            continue
-        title = item.get("title") or ""
-        snippet = item.get("snippet") or ""
-        if not title and not snippet:
-            continue
-        source = item.get("source")
-        events.append({
-            "query": query,
-            "title": title,
-            "snippet": snippet,
-            "source": source.get("name") if isinstance(source, dict) else source,
-            "date": item.get("date"),
-            "link": item.get("link"),
-            "provider": "serpapi",
-            "fetched_at": response.fetched_at,
-        })
-    return HttpResult(events, response.fetched_at, response.attempts)
-
-
 # ─── serper.dev multi-key rotation ───
 
 _SERPER_KEY_INDEX = 0
@@ -173,7 +114,7 @@ def fetch_serper_news(
         raise DataSourceError(
             "serper",
             "SERPER_API_KEY not configured",
-            error_type=ErrorType.MISSING_KEY,
+            error_type=ErrorType.UNKNOWN,
             attempts=0,
             timestamp="",
         )

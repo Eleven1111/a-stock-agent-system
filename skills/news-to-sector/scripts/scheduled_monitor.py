@@ -3,8 +3,8 @@
 Scheduled news monitor with macro baselines and dynamic runtime subscriptions.
 
 This replaces Gateway-side prompt/template injection for cron. It fetches a
-bounded SerpAPI news result set, then records concise candidate events for
-stock-triage. If SerpAPI is unavailable, it fails closed without directional
+bounded Serper.dev news result set, then records concise candidate events for
+stock-triage. If Serper.dev is unavailable, it fails closed without directional
 advice.
 """
 
@@ -268,7 +268,7 @@ def run_monitor(
         except Exception as exc:
             errors.append({
                 "query": query,
-                "source": "serpapi",
+                "source": "serper",
                 "error_type": "unexpected",
                 "error": str(exc),
                 "timestamp": current.isoformat(timespec="seconds"),

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Short market-pulse digest for OpenClaw/Hermes cron.
 
-This replaces prompt-heavy market-pulse cron jobs with one bounded SerpAPI
+This replaces prompt-heavy market-pulse cron jobs with one bounded Serper.dev
 query and deterministic text compression. No model call, no multi-page fetch.
 """
 

@@ -13,7 +13,6 @@ from config_registry import config_path
 DEFAULTS: Dict[str, Any] = {
     "providers": {
         "tencent": {"timeout_seconds": 10, "max_attempts": 2},
-        "serpapi": {"timeout_seconds": 15, "max_attempts": 2},
         "serper": {"timeout_seconds": 10, "max_attempts": 2},
         "sina": {"timeout_seconds": 10, "max_attempts": 2},
         "usgs": {"timeout_seconds": 10, "max_attempts": 2},
@@ -85,7 +84,6 @@ DEFAULTS: Dict[str, Any] = {
         "switches": {
             "yfinance": True,
             "sina": True,
-            "serpapi": True,
             "serper": True,
         },
         "us_indices": {

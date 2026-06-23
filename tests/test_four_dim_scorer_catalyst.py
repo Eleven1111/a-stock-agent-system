@@ -8,14 +8,14 @@ import four_dim_scorer as fds
 
 
 def test_catalyst_source_unavailable(monkeypatch):
-    monkeypatch.setattr(fds, "fetch_serpapi_news", lambda q, num=5: None)
+    monkeypatch.setattr(fds, "fetch_serper_news", lambda q, num=5: None)
     c = fds.score_catalyst("600001", "测试")
     assert c["available"] is False
     assert c["news_count"] == 0
 
 
 def test_catalyst_available_but_no_news_is_neutral(monkeypatch):
-    monkeypatch.setattr(fds, "fetch_serpapi_news", lambda q, num=5: [])
+    monkeypatch.setattr(fds, "fetch_serper_news", lambda q, num=5: [])
     c = fds.score_catalyst("600001", "测试")
     assert c["available"] is True
     assert c["news_count"] == 0
@@ -24,7 +24,7 @@ def test_catalyst_available_but_no_news_is_neutral(monkeypatch):
 
 def test_catalyst_available_with_bullish_news(monkeypatch):
     monkeypatch.setattr(
-        fds, "fetch_serpapi_news",
+        fds, "fetch_serper_news",
         lambda q, num=5: [{"title": "公司中标重大订单", "snippet": "", "source": {}, "date": ""}],
     )
     c = fds.score_catalyst("600001", "测试")
@@ -46,7 +46,7 @@ def test_clarification_language_blocks_embedded_bullish_keywords():
     assert any("澄清" in signal for signal in out["signals"])
 
 
-def test_fetch_serpapi_news_no_key_returns_none(monkeypatch):
+def test_fetch_serper_news_no_key_returns_none(monkeypatch):
     """无 API key 应返回 None（数据源不可用），而非 []（可用但无新闻）。"""
-    monkeypatch.delenv("SERPAPI_API_KEY", raising=False)
-    assert fds.fetch_serpapi_news("任意查询") is None
+    monkeypatch.setattr(fds, "_next_serper_key", lambda: None)
+    assert fds.fetch_serper_news("任意查询") is None

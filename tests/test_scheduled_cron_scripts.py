@@ -34,9 +34,9 @@ def test_batch_four_dim_targets_parse_pool_and_custom(tmp_path, monkeypatch):
     ]
 
 
-def test_scheduled_news_monitor_fails_closed_without_serpapi(monkeypatch):
-    monkeypatch.delenv("SERPAPI_API_KEY", raising=False)
-    monkeypatch.delenv("SERPAPI_KEYS", raising=False)
+def test_scheduled_news_monitor_fails_closed_without_serper(monkeypatch):
+    monkeypatch.delenv("SERPER_API_KEYS", raising=False)
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
     monitor = load_module("scheduled_news_monitor_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
 
     result = monitor.run_monitor(["半导体 A股"], limit=1)
@@ -107,7 +107,7 @@ def test_scheduled_news_monitor_keeps_abnormal_volatility_as_warning_only():
 def test_scheduled_news_monitor_parses_event_time_and_latency(monkeypatch):
     monitor = load_module("scheduled_news_monitor_freshness_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
     now = datetime(2026, 6, 17, 10, 0)
-    monkeypatch.setattr(monitor, "_serpapi_key", lambda: "test-key")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: "test-key")
     monkeypatch.setattr(
         monitor,
         "fetch_news",
@@ -138,7 +138,7 @@ def test_scheduled_news_monitor_parses_event_time_and_latency(monkeypatch):
 
 def test_scheduled_news_monitor_fails_closed_on_stale_news(monkeypatch):
     monitor = load_module("scheduled_news_monitor_stale_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
-    monkeypatch.setattr(monitor, "_serpapi_key", lambda: "test-key")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: "test-key")
     monkeypatch.setattr(
         monitor,
         "fetch_news",

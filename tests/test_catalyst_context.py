@@ -24,13 +24,13 @@ def test_catalyst_context_round_trip_by_stock(tmp_path, monkeypatch):
     assert [event["title"] for event in events] == ["公司中标大额订单"]
 
 
-def test_score_catalyst_uses_cached_context_when_serpapi_unavailable(tmp_path, monkeypatch):
+def test_score_catalyst_uses_cached_context_when_serper_unavailable(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     ctx.update_catalyst_context(
         [{"stock_code": "600001", "title": "公司中标大额订单", "date": "1 day ago"}],
         generated_at=datetime.now(),
     )
-    monkeypatch.setattr(fds, "fetch_serpapi_news", lambda *args, **kwargs: None)
+    monkeypatch.setattr(fds, "fetch_serper_news", lambda *args, **kwargs: None)
 
     result = fds.score_catalyst("600001", "测试股")
 

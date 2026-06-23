@@ -6,7 +6,7 @@
 
 数据源（统一共享 HTTP 层，cron-safe）：
 - 腾讯 qt.gtimg.cn — 实时行情 + 历史K线
-- SerpAPI — 新闻催化
+- Serper.dev — 新闻催化
 - stock-analyst 技术指标模块 — numpy 计算
 
 Usage:
@@ -394,7 +394,7 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     新闻时间衰减（≤3天全额，>30天两折），更贴合打板/高成长对催化时效的要求。
     """
     cached_news = read_catalyst_events(code)
-    raw_news = fetch_serpapi_news(
+    raw_news = fetch_serper_news(
         f"{name} {code} 公告 澄清 风险提示 政策 业绩",
         num=5,
     )

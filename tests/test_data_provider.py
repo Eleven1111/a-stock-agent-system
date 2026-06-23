@@ -1,10 +1,10 @@
-"""Tencent and SerpAPI provider adapters share the generic HTTP client."""
+"""Tencent and Serper provider adapters share the generic HTTP client."""
 
 from datetime import datetime, timezone
 
 import data_provider
 from a_stock_http import _TENCENT_FIELDS
-from data_provider import fetch_serpapi_news, fetch_tencent_quote, fetch_tencent_quotes
+from data_provider import fetch_serper_news, fetch_tencent_quote, fetch_tencent_quotes
 from http_client import HttpClient, HttpResult
 
 
@@ -71,24 +71,24 @@ def test_data_provider_delegates_tencent_transport_to_canonical_adapter(monkeypa
     assert fetch_tencent_quotes(["002156"]) is expected
 
 
-def test_serpapi_news_has_provider_timestamp_and_limit():
+def test_serper_news_has_provider_timestamp_and_limit():
     payload = (
-        '{"news_results":['
-        '{"title":"新闻一","snippet":"摘要一","source":{"name":"来源一"},"link":"https://a"},'
-        '{"title":"新闻二","snippet":"摘要二","source":"来源二","link":"https://b"}'
+        '{"news":['
+        '{"title":"新闻一","snippet":"摘要一","source":"来源一","link":"https://a","date":"1h ago"},'
+        '{"title":"新闻二","snippet":"摘要二","source":"来源二","link":"https://b","date":"2h ago"}'
         "]}"
     ).encode()
     client = HttpClient(
-        "serpapi",
+        "serper",
         timeout=3,
         max_attempts=2,
         opener=lambda request, timeout: FakeResponse(payload),
         clock=lambda: FIXED_TIME,
     )
 
-    result = fetch_serpapi_news("半导体 A股", "secret", 1, client=client)
+    result = fetch_serper_news("半导体 A股", "secret", 1, client=client)
 
     assert len(result.data) == 1
     assert result.data[0]["source"] == "来源一"
-    assert result.data[0]["provider"] == "serpapi"
+    assert result.data[0]["provider"] == "serper"
     assert result.data[0]["fetched_at"] == "2026-06-12T05:45:00+00:00"

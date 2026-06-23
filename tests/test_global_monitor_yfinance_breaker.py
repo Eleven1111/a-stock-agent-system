@@ -69,7 +69,7 @@ def test_collect_all_data_marks_insufficient_when_yfinance_is_disabled(monkeypat
     monitor.USE_SINA = False
 
     monkeypatch.setattr(monitor, "fetch_natural_disasters", lambda: [])
-    monkeypatch.setattr(monitor, "fetch_serpapi_news", lambda *args, **kwargs: [])
+    monkeypatch.setattr(monitor, "fetch_serper_news", lambda *args, **kwargs: [])
     monkeypatch.setattr(monitor, "fetch_geopolitical_news", lambda: [])
 
     data = monitor.collect_all_data()
@@ -99,7 +99,7 @@ def test_http_sources_use_provider_clients_and_preserve_decoding(monkeypatch):
 
         def request_json(self, request, **kwargs):
             calls.append((self.source, "json", request, kwargs))
-            if self.source == "serpapi":
+            if self.source == "serper":
                 return HttpResult(
                     {"news_results": [{"title": "Fed update", "source": {"name": "Wire"}}]},
                     "2026-06-12T06:00:00+00:00",
@@ -111,10 +111,10 @@ def test_http_sources_use_provider_clients_and_preserve_decoding(monkeypatch):
     monkeypatch.setenv("SERPAPI_API_KEY", "secret")
 
     assert monitor.fetch_sina_us_indices()["^DJI"]["price"] == 42000.0
-    assert monitor.fetch_serpapi_news(num=1)[0]["title"] == "Fed update"
+    assert monitor.fetch_serper_news(num=1)[0]["title"] == "Fed update"
     assert monitor.fetch_natural_disasters()[0]["type"] == "洪水"
 
-    assert [call[0] for call in calls] == ["sina", "serpapi", "usgs", "gdacs"]
+    assert [call[0] for call in calls] == ["sina", "serper", "usgs", "gdacs"]
     assert calls[0][3] == {
         "encoding": "gbk",
         "headers": {
@@ -152,7 +152,7 @@ def test_sina_indices_keep_analysis_available_when_yfinance_fails(monkeypatch):
         },
     )
     monkeypatch.setattr(monitor, "fetch_natural_disasters", lambda: [])
-    monkeypatch.setattr(monitor, "fetch_serpapi_news", lambda *args, **kwargs: [])
+    monkeypatch.setattr(monitor, "fetch_serper_news", lambda *args, **kwargs: [])
     monkeypatch.setattr(monitor, "fetch_geopolitical_news", lambda: [])
 
     data = monitor.collect_all_data()

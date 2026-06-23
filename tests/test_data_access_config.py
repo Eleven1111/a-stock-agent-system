@@ -39,7 +39,7 @@ def test_partial_config_deep_merges_without_losing_defaults(tmp_path):
     loaded = config.load_config(path)
 
     assert loaded["providers"]["tencent"] == {"timeout_seconds": 4, "max_attempts": 2}
-    assert loaded["providers"]["serpapi"]["timeout_seconds"] == 15
+    assert loaded["providers"]["serper"]["timeout_seconds"] == 10
     assert loaded["risk"]["stop_loss_pct"] == -6.5
     assert loaded["risk"]["portfolio_size"] == 100000
     assert loaded["news_monitor"]["queries"] == ["自定义查询"]
@@ -53,7 +53,7 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
         json.dumps({
             "providers": {
                 "tencent": {"timeout_seconds": -1, "max_attempts": 99},
-                "serpapi": "bad",
+                "serper": "bad",
                 "eastmoney": {
                     "circuit_failure_threshold": 0,
                     "coordination_backend": "memory",
@@ -74,7 +74,7 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
     loaded = config.load_config(path)
 
     assert loaded["providers"]["tencent"] == {"timeout_seconds": 10, "max_attempts": 2}
-    assert loaded["providers"]["serpapi"] == {"timeout_seconds": 15, "max_attempts": 2}
+    assert loaded["providers"]["serper"] == {"timeout_seconds": 10, "max_attempts": 2}
     assert loaded["providers"]["eastmoney"]["circuit_failure_threshold"] == 3
     assert loaded["providers"]["eastmoney"]["coordination_backend"] == "shared_file"
     assert loaded["risk"]["stop_loss_pct"] == -8.0
@@ -125,7 +125,7 @@ def test_global_market_settings_are_sanitized_and_deep_copied(tmp_path):
     path.write_text(
         json.dumps({
             "global_market": {
-                "switches": {"serpapi": False},
+                "switches": {"serper": False},
                 "thresholds": {
                     "vix_extreme": 31,
                     "key_stock_move_notable": -1,
@@ -140,7 +140,7 @@ def test_global_market_settings_are_sanitized_and_deep_copied(tmp_path):
 
     settings = config.global_market_settings(path)
 
-    assert settings["switches"]["serpapi"] is False
+    assert settings["switches"]["serper"] is False
     assert settings["switches"]["yfinance"] is True
     assert settings["thresholds"]["vix_extreme"] == 31
     assert settings["thresholds"]["key_stock_move_notable"] == 5.0

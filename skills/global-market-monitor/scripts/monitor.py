@@ -9,7 +9,7 @@ Usage:
   python3 monitor.py                  # 输出 JSON 到 stdout
   python3 monitor.py --json           # 同默认
   python3 monitor.py --summary        # 人类可读摘要
-  python3 monitor.py --news           # 额外抓取新闻（需 SerpAPI）
+  python3 monitor.py --news           # 额外抓取新闻（需 Serper.dev）
   python3 monitor.py --all            # 全部数据 + 新闻
 
 Cron-safe: 使用共享 http_client / yfinance（requests），不依赖 shell 命令。
@@ -35,7 +35,6 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 MARKET_CONFIG = global_market_settings()
 USE_YFINANCE = MARKET_CONFIG["switches"]["yfinance"]
 USE_SINA = MARKET_CONFIG["switches"]["sina"]
-USE_SERPAPI = False  # legacy flag, overridden by --all
 USE_SERPER = MARKET_CONFIG["switches"].get("serper", True)
 US_INDICES = MARKET_CONFIG["us_indices"]
 US_SECTOR_ETFS = MARKET_CONFIG["us_sector_etfs"]
@@ -265,7 +264,7 @@ def fetch_geopolitical_news() -> List[Dict]:
     ]
     all_news = []
     for q in queries:
-        news = fetch_serpapi_news(q, num=2)
+        news = fetch_serper_news(q, num=2)
         all_news.extend(news)
     return all_news
 
@@ -876,23 +875,23 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
                 }
 
     # 10. 新闻（默认启用）
-    if USE_SERPAPI:
+    if USE_SERPER:
         try:
-            result["news"] = fetch_serpapi_news()
+            result["news"] = fetch_serper_news()
             result["geopolitical_news"] = fetch_geopolitical_news()
             news_ok = bool(result["news"]) and not any(
                 isinstance(item, dict) and "error" in item for item in result["news"]
             )
             if news_ok:
-                source_health["serpapi"] = {"status": "ok"}
+                source_health["serper"] = {"status": "ok"}
             elif not _next_serper_key():
-                source_health["serpapi"] = {"status": "failed", "error": "SERPER_API_KEY not set"}
+                source_health["serper"] = {"status": "failed", "error": "SERPER_API_KEY not set"}
             else:
-                source_health["serpapi"] = {"status": "failed", "error": "no news results"}
+                source_health["serper"] = {"status": "failed", "error": "no news results"}
         except Exception as exc:
-            source_health["serpapi"] = {"status": "failed", "error": str(exc)}
+            source_health["serper"] = {"status": "failed", "error": str(exc)}
     else:
-        source_health["serpapi"] = {"status": "disabled"}
+        source_health["serper"] = {"status": "disabled"}
 
     # 11. 自然灾害（免费API，始终启用）
     try:
@@ -1072,7 +1071,7 @@ if __name__ == "__main__":
     include_news = args.news or args.all
 
     if args.all:
-        USE_SERPAPI = True
+        USE_SERPER = True
 
     data = collect_all_data(include_news=include_news)
 

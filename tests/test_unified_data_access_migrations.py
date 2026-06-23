@@ -67,13 +67,13 @@ def test_intraday_adapter_preserves_market_fields(monkeypatch):
 
 def test_scheduled_monitor_serializes_typed_provider_errors(monkeypatch):
     monitor = _load_scheduled_monitor()
-    monkeypatch.setattr(monitor, "_serpapi_key", lambda: "secret")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: "secret")
     monkeypatch.setattr(
         monitor,
         "fetch_news",
         lambda query, api_key, limit: (_ for _ in ()).throw(
             DataSourceError(
-                "serpapi",
+                "serper",
                 "slow",
                 error_type=ErrorType.TIMEOUT,
                 attempts=2,
@@ -87,7 +87,7 @@ def test_scheduled_monitor_serializes_typed_provider_errors(monkeypatch):
     assert result["status"] == "no_signal"
     assert result["errors"] == [{
         "query": "半导体 A股",
-        "source": "serpapi",
+        "source": "serper",
         "error_type": "timeout",
         "error": "slow",
         "attempts": 2,

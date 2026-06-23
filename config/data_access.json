@@ -4,10 +4,6 @@
       "timeout_seconds": 10,
       "max_attempts": 2
     },
-    "serpapi": {
-      "timeout_seconds": 15,
-      "max_attempts": 2
-    },
     "sina": {
       "timeout_seconds": 10,
       "max_attempts": 2
@@ -96,7 +92,6 @@
     "switches": {
       "yfinance": true,
       "sina": true,
-      "serpapi": true
     },
     "us_indices": {
       "^GSPC": {"name": "标普500", "sina_code": "gb_$spx", "weight": "major"},

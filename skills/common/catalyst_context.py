@@ -2,7 +2,7 @@
 
 Scheduled monitors can write already-fetched news and announcement events here.
 The four-dimension scorer then consumes the cache so catalyst analysis is not
-limited to a single live SerpAPI lookup.
+limited to a single live Serper.dev lookup.
 """
 
 from __future__ import annotations
