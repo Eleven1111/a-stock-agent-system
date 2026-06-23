@@ -103,11 +103,23 @@ def output_has_signal(parsed: Any, stdout: str) -> bool:
     signal_keys = ("alerts", "signals", "events", "factors", "candidates", "confirmations")
     if any(isinstance(parsed.get(key), list) and parsed.get(key) for key in signal_keys):
         return True
+    status = str(parsed.get("status") or "").lower()
+    operational_statuses = {
+        "blocked",
+        "degraded",
+        "error",
+        "failed",
+        "insufficient_data",
+        "stale_data",
+        "timeout",
+    }
+    if status in operational_statuses:
+        return True
     for key in ("alerts", "signals", "events", "factors", "candidates"):
         value = parsed.get(key)
         if isinstance(value, list) and not value:
             return False
-    if parsed.get("status") in {"no_signal", "no_events", "empty"}:
+    if status in {"no_signal", "no_events", "empty"}:
         return False
     return True
 

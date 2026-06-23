@@ -232,6 +232,14 @@ python scripts/state_doctor.py --runtime openclaw --recover
 python scripts/generate_openclaw_cron.py \
   --state-home "$A_STOCK_STATE_HOME" \
   --state-id "$A_STOCK_STATE_ID"
+
+# 推荐：读取 OpenClaw 当前任务并按名称对账；已有任务 edit，新任务 create。
+# 去掉 --apply 可先审阅将要执行的命令。
+python scripts/generate_openclaw_cron.py \
+  --state-home "$A_STOCK_STATE_HOME" \
+  --state-id "$A_STOCK_STATE_ID" \
+  --env-file "$A_STOCK_ENV_FILE" \
+  --reconcile --apply
 python scripts/cron_budget_report.py
 
 # Hermes Gateway cron 不稳定时的应急兜底：

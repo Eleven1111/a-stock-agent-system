@@ -5,6 +5,8 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 from scripts import hermes_job_runner as job_runner
 from scripts import run_agent_dag
 from state_store import read_json
@@ -53,6 +55,57 @@ def test_dag_target_output_respects_delivery_and_silent_contract():
         {"deliver": "local", "silent_when_no_signal": False},
         {**artifact, "stdout": "large local payload", "has_signal": True},
     ) == "NO_REPLY\n"
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["insufficient_data", "stale_data", "degraded", "failed", "blocked", "timeout"],
+)
+def test_operational_failures_are_not_suppressed_as_no_signal(status):
+    parsed = {"status": status, "signals": [], "message": "provider unavailable"}
+
+    assert output_has_signal(parsed, json.dumps(parsed)) is True
+
+
+def test_true_no_signal_remains_silent():
+    parsed = {"status": "no_signal", "signals": []}
+
+    assert output_has_signal(parsed, json.dumps(parsed)) is False
+
+
+def test_dag_target_output_emits_operational_failure_for_origin_delivery():
+    stdout = '{"status":"insufficient_data","signals":[],"message":"provider unavailable"}'
+
+    assert run_agent_dag.target_output(
+        {"deliver": "origin", "silent_when_no_signal": True},
+        {"stdout": stdout, "has_signal": True},
+    ) == stdout + "\n"
+
+
+def test_dag_target_output_compacts_payload_before_openclaw_output_limit():
+    output = run_agent_dag.target_output(
+        {
+            "id": "news-monitor",
+            "deliver": "origin",
+            "silent_when_no_signal": False,
+            "max_output_chars": 300,
+        },
+        {
+            "status": "ok",
+            "stdout": "x" * 5_000,
+            "has_signal": True,
+            "summary": {
+                "status": "stale_data",
+                "events_count": 37,
+                "signals_count": 0,
+            },
+        },
+    )
+
+    assert len(output) <= 301
+    assert "openclaw_target_output_truncated_v1" in output
+    assert "news-monitor" in output
+    assert "stale_data" in output
 
 
 
