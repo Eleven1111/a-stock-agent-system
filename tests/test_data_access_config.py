@@ -41,7 +41,7 @@ def test_partial_config_deep_merges_without_losing_defaults(tmp_path):
     assert loaded["providers"]["tencent"] == {"timeout_seconds": 4, "max_attempts": 2}
     assert loaded["providers"]["serper"]["timeout_seconds"] == 10
     assert loaded["risk"]["stop_loss_pct"] == -6.5
-    assert loaded["risk"]["portfolio_size"] == 100000
+    assert "portfolio_size" not in loaded["risk"]
     assert loaded["news_monitor"]["queries"] == ["自定义查询"]
     assert loaded["news_monitor"]["default_limit"] == 3
     assert loaded["social_attention"]["candidate_bonus_max"] == 3.0
@@ -78,7 +78,7 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
     assert loaded["providers"]["eastmoney"]["circuit_failure_threshold"] == 3
     assert loaded["providers"]["eastmoney"]["coordination_backend"] == "shared_file"
     assert loaded["risk"]["stop_loss_pct"] == -8.0
-    assert loaded["risk"]["portfolio_size"] == 100000
+    assert "portfolio_size" not in loaded["risk"]
     assert loaded["intraday_monitor"]["surge_pct"] == 5.0
     assert loaded["news_monitor"]["default_limit"] == 3
     assert loaded["news_monitor"]["queries"] == config.DEFAULTS["news_monitor"]["queries"]
@@ -103,7 +103,7 @@ def test_invalid_top_level_sections_fall_back_without_crashing(tmp_path):
     loaded = config.load_config(path)
 
     assert loaded["providers"]["tencent"]["timeout_seconds"] == 10
-    assert loaded["risk"]["portfolio_size"] == 100000
+    assert "portfolio_size" not in loaded["risk"]
     assert loaded["intraday_monitor"]["surge_pct"] == 5.0
     assert loaded["news_monitor"]["default_limit"] == 3
     assert loaded["global_market"]["switches"]["yfinance"] is True

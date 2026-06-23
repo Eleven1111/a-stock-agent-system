@@ -108,13 +108,22 @@ def test_http_sources_use_provider_clients_and_preserve_decoding(monkeypatch):
             return HttpResult({"features": []}, "2026-06-12T06:00:00+00:00", 1)
 
     monkeypatch.setattr(monitor, "provider_client", lambda source: FakeClient(source))
-    monkeypatch.setenv("SERPAPI_API_KEY", "secret")
+    monkeypatch.setattr(monitor, "_next_serper_key", lambda: "secret")
+    monkeypatch.setattr(
+        monitor,
+        "_fetch_serper_news",
+        lambda query, api_key, num: HttpResult(
+            [{"title": "Fed update", "source": "Wire"}],
+            "2026-06-12T06:00:00+00:00",
+            1,
+        ),
+    )
 
     assert monitor.fetch_sina_us_indices()["^DJI"]["price"] == 42000.0
     assert monitor.fetch_serper_news(num=1)[0]["title"] == "Fed update"
     assert monitor.fetch_natural_disasters()[0]["type"] == "洪水"
 
-    assert [call[0] for call in calls] == ["sina", "serper", "usgs", "gdacs"]
+    assert [call[0] for call in calls] == ["sina", "usgs", "gdacs"]
     assert calls[0][3] == {
         "encoding": "gbk",
         "headers": {
@@ -122,9 +131,8 @@ def test_http_sources_use_provider_clients_and_preserve_decoding(monkeypatch):
             "User-Agent": "Mozilla/5.0",
         },
     }
-    assert calls[1][3] == {"headers": {"User-Agent": "Mozilla/5.0"}}
-    assert calls[2][3] == {"headers": {"User-Agent": "GlobalMarketMonitor/1.0"}}
-    assert calls[3][3] == {
+    assert calls[1][3] == {"headers": {"User-Agent": "GlobalMarketMonitor/1.0"}}
+    assert calls[2][3] == {
         "encoding": "utf-8",
         "headers": {"User-Agent": "GlobalMarketMonitor/1.0"},
     }

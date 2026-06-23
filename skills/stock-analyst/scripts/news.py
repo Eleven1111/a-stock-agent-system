@@ -11,58 +11,38 @@ from typing import Optional, List, Dict
 _COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
 if _COMMON_DIR not in sys.path:
     sys.path.insert(0, os.path.abspath(_COMMON_DIR))
-from paths import env_file
+from a_stock_http import load_hermes_env
 from data_provider import fetch_serper_news as _fetch_serper_news, _next_serper_key
 from http_client import DataSourceError
 
-# 自动加载 NO_PROXY，绕过 Clash 代理的 DNS 劫持
-if not os.environ.get("NO_PROXY"):
-    try:
-        with open(env_file()) as f:
-            for line in f:
-                if line.startswith("NO_PROXY="):
-                    os.environ["NO_PROXY"] = line.split("=", 1)[1].strip().strip("'").strip('"')
-                    break
-    except Exception:
-        pass
+load_hermes_env()
 
 
-def _serper_request(params: dict) -> Optional[Dict]:
+def _serper_request(params: dict) -> Optional[List[Dict]]:
     """通用 serper.dev 请求（多 key 轮换）"""
     api_key = _next_serper_key()
     if not api_key:
-        return {"error": "SERPER_API_KEY 未配置"}
+        return None
     try:
         limit = int(params.get("num", 10))
         result = _fetch_serper_news(str(params.get("q", "")), api_key, limit)
-        return {
-            "news_results": [
-                {
-                    "title": item.get("title", ""),
-                    "snippet": item.get("snippet", ""),
-                    "source": {"name": item.get("source", "")},
-                    "date": item.get("date", ""),
-                    "link": item.get("link"),
-                }
-                for item in result.data
-            ]
-        }
+        return [dict(item) for item in result.data]
     except (DataSourceError, AttributeError, TypeError, ValueError) as e:
-        return {"error": str(e)}
+        return None
 
 
 def search_stock_news(code: str = "", name: str = "", max_results=8) -> List[Dict]:
     """搜索个股新闻"""
     query = f"{name} {code} A股 2026" if name else f"{code} A股"
     data = _serper_request({"q": query, "num": max_results})
-    if not data or "error" in data:
-        return [{"title": f"新闻获取失败: {data.get('error', '未知错误')}", "source": "", "date": "", "url": ""}]
-    news = data.get("news_results", [])
+    if not data:
+        return [{"title": "新闻获取失败: 数据源不可用", "source": "", "date": "", "url": ""}]
+    news = data
     results = []
     for n in news[:max_results]:
         results.append({
             "title": n.get("title", ""),
-            "source": n.get("source", {}).get("name", ""),
+            "source": n.get("source", ""),
             "date": n.get("date", ""),
             "url": n.get("link", n.get("url", "")),
             "snippet": n.get("snippet", ""),
@@ -74,14 +54,14 @@ def search_sector_news(sector: str, max_results=6) -> List[Dict]:
     """搜索板块新闻"""
     query = f"{sector}板块 A股"
     data = _serper_request({"q": query, "num": max_results})
-    if not data or "error" in data:
+    if not data:
         return []
-    news = data.get("news_results", [])
+    news = data
     results = []
     for n in news[:max_results]:
         results.append({
             "title": n.get("title", ""),
-            "source": n.get("source", {}).get("name", ""),
+            "source": n.get("source", ""),
             "date": n.get("date", ""),
             "url": n.get("link", n.get("url", "")),
             "snippet": n.get("snippet", ""),
@@ -92,14 +72,14 @@ def search_sector_news(sector: str, max_results=6) -> List[Dict]:
 def search_market_news(max_results=10) -> List[Dict]:
     """搜索A股大盘新闻"""
     data = _serper_request({"q": "A股 行情 热点 2026", "num": max_results})
-    if not data or "error" in data:
+    if not data:
         return []
-    news = data.get("news_results", [])
+    news = data
     results = []
     for n in news[:max_results]:
         results.append({
             "title": n.get("title", ""),
-            "source": n.get("source", {}).get("name", ""),
+            "source": n.get("source", ""),
             "date": n.get("date", ""),
             "url": n.get("link", n.get("url", "")),
             "snippet": n.get("snippet", ""),
@@ -186,6 +166,17 @@ def format_news_with_fundflow(news_list: List[Dict], title: str = "最新新闻"
         if n.get('snippet'):
             lines.append(f"   {n['snippet'][:120]}")
     return "\n".join(lines)
+
+
+def get_trends(keyword: str) -> Optional[Dict]:
+    """Retain the CLI contract after the Serper migration.
+
+    Serper's news endpoint does not expose Google Trends history. Returning
+    ``None`` keeps this optional display command fail-closed instead of
+    fabricating search-interest data or breaking the analyst CLI at import.
+    """
+    _ = keyword
+    return None
 
 
 def format_news(news_list: List[Dict], title: str = "最新新闻") -> str:

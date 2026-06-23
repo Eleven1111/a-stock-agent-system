@@ -4,6 +4,10 @@
       "timeout_seconds": 10,
       "max_attempts": 2
     },
+    "serper": {
+      "timeout_seconds": 10,
+      "max_attempts": 2
+    },
     "sina": {
       "timeout_seconds": 10,
       "max_attempts": 2
@@ -46,8 +50,7 @@
     "take_profit_pct": 20.0,
     "trailing_stop_pct": 5.0,
     "max_single_position_pct": 25,
-    "max_sector_exposure_pct": 40,
-    "portfolio_size": 100000
+    "max_sector_exposure_pct": 40
   },
   "storage": {
     "snapshot_input_retention_days": 30,
@@ -92,6 +95,7 @@
     "switches": {
       "yfinance": true,
       "sina": true,
+      "serper": true
     },
     "us_indices": {
       "^GSPC": {"name": "标普500", "sina_code": "gb_$spx", "weight": "major"},

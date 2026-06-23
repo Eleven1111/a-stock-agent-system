@@ -153,7 +153,7 @@ def test_dag_skip_keeps_latest_trading_date_batch(tmp_path):
     assert result["batch_id"] == "a-share-20260618"
 
 
-def test_dag_does_not_hide_state_block_behind_calendar_skip(tmp_path):
+def test_dag_uses_openclaw_state_fallback_before_calendar_skip(tmp_path):
     job = _job()
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
@@ -166,8 +166,8 @@ def test_dag_does_not_hide_state_block_behind_calendar_skip(tmp_path):
         env={"HOME": str(tmp_path)},
     )
 
-    assert result["status"] == "blocked"
-    assert result["runs"][0]["status"] == "blocked_state"
+    assert result["status"] == "skipped_non_trading_day"
+    assert result["runs"][0]["status"] == "skipped_non_trading_day"
 
 
 def test_runner_dry_run_has_no_state_side_effects_on_closed_day(tmp_path):

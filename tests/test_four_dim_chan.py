@@ -54,6 +54,17 @@ def test_chan_stale_signal_ignored():
     assert notes == []
 
 
+def test_score_technical_missing_klines_keeps_output_schema(monkeypatch):
+    quote = {"price": 10.0, "change_pct": 1.0}
+
+    result = fds.score_technical("002156", "通富微电", quote=quote, klines=[])
+
+    assert result["score"] == 5
+    assert result["price"] == 10.0
+    assert result["ma5"] is None
+    assert result["atr14"] is None
+
+
 def test_score_technical_gates_chan_signal(monkeypatch, tmp_path, verified_gate_factory):
     if fds._chan is None:
         pytest.skip("chan_structure unavailable")

@@ -73,7 +73,11 @@ def test_open_confirmation_policy_includes_research_evidence(monkeypatch):
         "quality_report": {"status": "passed"},
     }
 
-    result = oc._apply_policy(item, asof="2026-06-12")
+    result = oc._apply_policy(
+        item,
+        asof="2026-06-12",
+        portfolio={"cash": 20000, "positions": []},
+    )
 
     assert result["research_evidence"]["chanlun"]["status"] == "live_allowed"
 
@@ -106,7 +110,11 @@ def test_hot_money_policy_uses_research_strategy_not_reseal_proxy(monkeypatch):
         "selection_context": {"window": "09:25"},
     }
 
-    result = oc._apply_policy(item, asof="2026-06-12")
+    result = oc._apply_policy(
+        item,
+        asof="2026-06-12",
+        portfolio={"cash": 20000, "positions": []},
+    )
 
     assert result["strategy_id"] == "daban:mainline_leader_confirm"
     assert result["decision"] == "watch"
@@ -380,6 +388,10 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
+        {"cash": 20000, "positions": [], "cash_reconciled": True},
+    )
     monkeypatch.setattr(
         oc.strategy_registry,
         "live_record",

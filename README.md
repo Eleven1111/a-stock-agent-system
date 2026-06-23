@@ -121,6 +121,10 @@ OpenClaw fails closed when `A_STOCK_STATE_HOME` is not explicit or when a pinned
 `A_STOCK_STATE_ID` does not match. Critical account JSON keeps bounded,
 versioned snapshots outside the live state root; cache files are excluded.
 
+When provider credentials live in a separate env file, generate OpenClaw jobs
+with `--env-file /secure/a-stock.env`. Only the path is stored in the cron
+command; credentials remain outside the repository and scheduler arguments.
+
 See [A-share trading and monitoring lifecycle](docs/trading-lifecycle.md) for
 T+1 enforcement, recommendation QC, and dynamic subscription behavior.
 
@@ -258,7 +262,7 @@ The scheduled workflow no longer scans a fixed symbol list:
 1. **15:02 hot-money context** — cache the current limit-up ladder, sector clusters, and ladder date. Consumers reject missing, future, or stale context instead of silently applying it.
 2. **15:07 close discovery** — official SSE/SZSE listings + Tencent full-market quotes, deterministic liquidity/tradeability filters, then qfq K-line enrichment. The same immutable input derives market breadth, top-two mainline sectors, and within-sector leaders. Missing timing/sector evidence closes only the limit-up lane; the trend lane remains available.
 3. **08:45 pre-open bootstrap** — reuse the valid D0 pool. Only a cold start or expired pool triggers a full scan; this path never settles prior candidates with incomplete pre-open prices.
-4. **09:15–09:25 auction** — collect Tencent five-level order-book snapshots for that pool and rank an auction shortlist of 20. Limit-up and trend lanes remain separate; one-price limit-up, missing-data, non-mainline, and non-leader candidates are rejected explicitly.
+4. **09:15–09:25 auction** — collect minute-level Tencent five-level snapshots for the 500-name deep pool through 09:23, then take one lightweight full-eligible-universe snapshot at 09:24. Pool outsiders are descriptive research intelligence only; executable candidates still pass the configured shortlist and all strategy/risk gates.
 5. **09:35 confirmation** — current quotes and tradeability reduce the shortlist to at most five policy-gated observations. Reports expose market timing, sector rank, leader rank, research/live status, and T+1 constraints.
 6. **09:50 / 13:15 checkpoints** — bounded Tencent refreshes validate opening support and afternoon reflow for the five observations. They update research state only and never place trades or suggest a same-day exit.
 
@@ -268,9 +272,11 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 |------------|-----|-----------|
 | 08:15 | Global pre-market scan | Workdays |
 | 08:45 | Candidate-pool cold-start guard | Workdays |
+| 08:50 | Pre-open intelligence brief | Workdays |
 | 09:15–09:24 | Auction snapshots | Every minute, workdays |
-| 09:25 | Auction finalize + candidate context | Workdays |
+| 09:26 / 09:27 | Auction finalize / intelligence brief | Workdays |
 | 09:35 | Open confirmation | Workdays |
+| 09:36 | Open intelligence brief | Workdays |
 | 09:50 | Mainline-leader support checkpoint | Workdays |
 | 13:15 | Mainline-leader afternoon reflow checkpoint | Workdays |
 | 09:30–11:30, 13:00–15:00 | Intraday alerts | Every 5 min (session-guarded) |

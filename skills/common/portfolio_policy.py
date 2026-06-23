@@ -19,6 +19,20 @@ def _position_value(position: Mapping[str, Any]) -> float:
         return 0.0
 
 
+def portfolio_value(portfolio: Mapping[str, Any]) -> float:
+    """Return current runtime account value; static config is never consulted."""
+    positions = [
+        position
+        for position in (portfolio.get("positions") or [])
+        if isinstance(position, Mapping)
+    ]
+    try:
+        cash = max(0.0, float(portfolio.get("cash") or 0))
+    except (TypeError, ValueError):
+        cash = 0.0
+    return round(cash + sum(_position_value(position) for position in positions), 2)
+
+
 def evaluate_new_position(
     portfolio: Mapping[str, Any],
     *,
@@ -34,11 +48,7 @@ def evaluate_new_position(
         if isinstance(position, Mapping)
     ]
     values = [(position, _position_value(position)) for position in positions]
-    total_assets = max(
-        0.0,
-        float(portfolio.get("cash") or 0)
-        + sum(value for _position, value in values),
-    )
+    total_assets = portfolio_value(portfolio)
     if total_assets <= 0:
         return {
             "schema": "portfolio_policy_v1",

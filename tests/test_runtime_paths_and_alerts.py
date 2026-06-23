@@ -53,10 +53,10 @@ def test_runtime_scripts_honor_hermes_home_for_paths(tmp_path, monkeypatch):
 
 def test_runtime_scripts_honor_env_file_under_hermes_home(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("SERPAPI_KEYS", raising=False)
+    monkeypatch.delenv("SERPER_API_KEYS", raising=False)
     monkeypatch.delenv("NO_PROXY", raising=False)
     (tmp_path / ".env").write_text(
-        "SERPAPI_KEYS=key1,key2\nNO_PROXY=.eastmoney.com\n",
+        "SERPER_API_KEYS=key1,key2\nNO_PROXY=.eastmoney.com\n",
         encoding="utf-8",
     )
 
@@ -69,7 +69,8 @@ def test_runtime_scripts_honor_env_file_under_hermes_home(tmp_path, monkeypatch)
         "skills/stock-triage/scripts/capital_flow_monitor.py",
     )
 
-    assert news.SERPAPI_KEYS == ["key1", "key2"]
+    assert os.environ["SERPER_API_KEYS"] == "key1,key2"
+    assert news._next_serper_key() in {"key1", "key2"}
     assert os.environ["NO_PROXY"] == ".eastmoney.com"
 
 

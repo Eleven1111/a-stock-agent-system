@@ -15,6 +15,35 @@ def load_module(name: str, relpath: str):
     return module
 
 
+def test_realtime_catalyst_missing_key_is_insufficient_data_not_no_new(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setenv("A_STOCK_ENV_FILE", str(env_file))
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
+    monkeypatch.delenv("SERPER_API_KEYS", raising=False)
+    trigger = load_module("realtime_catalyst_missing_key_test", "scripts/realtime_catalyst_trigger.py")
+
+    result = trigger.run_trigger(force=True)
+
+    assert result["status"] == "insufficient_data"
+    assert result["scanned"] == 0
+
+
+def test_realtime_catalyst_all_query_failures_are_insufficient_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("SERPER_API_KEY", "test-key")
+    trigger = load_module("realtime_catalyst_all_fail_test", "scripts/realtime_catalyst_trigger.py")
+    monkeypatch.setattr(
+        trigger,
+        "fetch_serper_news",
+        lambda *args, **kwargs: (_ for _ in ()).throw(trigger.DataSourceError("serper", "down")),
+    )
+
+    result = trigger.run_trigger(force=True)
+
+    assert result["status"] == "insufficient_data"
+    assert len(result["errors"]) == 3
+
+
 def test_realtime_catalyst_trigger_reads_candidate_pool_dict_and_writes_matched_context(
     tmp_path,
     monkeypatch,

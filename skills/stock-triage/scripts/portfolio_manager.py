@@ -47,11 +47,16 @@ TAKE_PROFIT_PCT = float(_RISK_CONFIG["take_profit_pct"])
 TRAILING_STOP = float(_RISK_CONFIG["trailing_stop_pct"])
 MAX_SINGLE_POSITION = float(_RISK_CONFIG["max_single_position_pct"])
 MAX_SECTOR_EXPOSURE = float(_RISK_CONFIG["max_sector_exposure_pct"])
-PORTFOLIO_SIZE = float(_RISK_CONFIG["portfolio_size"])
 
 
 def _default_portfolio() -> Dict:
-    return {"cash": PORTFOLIO_SIZE, "positions": [], "total_cost": 0, "cash_reconciled": True}
+    return {
+        "cash": 0.0,
+        "positions": [],
+        "total_cost": 0,
+        "cash_reconciled": True,
+        "account_state": "unconfigured",
+    }
 
 
 def _normalize(pf: Optional[Dict]) -> Dict:
@@ -64,7 +69,7 @@ def _normalize(pf: Optional[Dict]) -> Dict:
     pf = dict(pf) if isinstance(pf, dict) else {}
     pf.setdefault("positions", [])
     pf.setdefault("total_cost", 0)
-    pf.setdefault("cash", PORTFOLIO_SIZE)
+    pf.setdefault("cash", 0.0)
     for pos in pf["positions"]:
         if not isinstance(pos.get("lots"), list) or not pos["lots"]:
             known_dates = [
@@ -219,6 +224,42 @@ def withdraw(amount: float) -> Dict:
         record_cash_flow("withdraw", amount, f"取出 {amount:,.0f}")
         return {"ok": True, "action": "withdraw", "amount": round(amount, 2), "cash": outcome["cash"]}
     return {"error": outcome["error"]}
+
+
+def reconcile_cash(amount: float, *, source: str, asof: str | None = None) -> Dict:
+    """Replace runtime cash with a verified balance and append an audit flow."""
+    if amount < 0:
+        return {"error": f"现金余额不能为负: {amount}"}
+    if not str(source or "").strip():
+        return {"error": "余额来源不能为空"}
+    previous = {"cash": 0.0}
+
+    def _mut(pf):
+        pf = _normalize(pf)
+        previous["cash"] = float(pf.get("cash") or 0)
+        pf["cash"] = round(float(amount), 2)
+        pf["cash_source"] = str(source).strip()
+        pf["cash_asof"] = asof or date.today().isoformat()
+        pf["cash_reconciled"] = True
+        pf["account_state"] = "verified"
+        return pf
+
+    portfolio = mutate_json(PORTFOLIO_FILE, _mut, default=_default_portfolio())
+    delta = round(portfolio["cash"] - previous["cash"], 2)
+    record_cash_flow(
+        "reconcile_cash",
+        delta,
+        f"余额校准为 {portfolio['cash']:,.2f}，来源={portfolio['cash_source']}，时点={portfolio['cash_asof']}",
+    )
+    return {
+        "ok": True,
+        "action": "reconcile_cash",
+        "cash": portfolio["cash"],
+        "previous_cash": round(previous["cash"], 2),
+        "delta": delta,
+        "source": portfolio["cash_source"],
+        "asof": portfolio["cash_asof"],
+    }
 
 
 # ======================== 交易操作 ========================
@@ -650,11 +691,23 @@ if __name__ == "__main__":
     p.add_argument("--close", nargs=2, metavar=("CODE", "PRICE"), help="清仓")
     p.add_argument("--deposit", type=float, metavar="AMOUNT", help="存入资金")
     p.add_argument("--withdraw", type=float, metavar="AMOUNT", help="取出资金")
+    p.add_argument("--reconcile-cash", type=float, metavar="AMOUNT", help="用已核验账户余额校准现金")
+    p.add_argument("--cash-source", default="user_confirmed", help="余额来源标识")
+    p.add_argument("--cash-asof", help="余额核验日期 YYYY-MM-DD")
     p.add_argument("--check", action="store_true", help="风控检查")
     p.add_argument("--history", action="store_true", help="查看交易历史")
     p.add_argument("--balance", action="store_true", help="资金快照")
     p.add_argument("--json", action="store_true", help="JSON输出")
     args = p.parse_args()
+
+    if args.reconcile_cash is not None:
+        result = reconcile_cash(
+            args.reconcile_cash,
+            source=args.cash_source,
+            asof=args.cash_asof,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        sys.exit(0 if result.get("ok") else 1)
 
     if args.deposit is not None:
         result = deposit(args.deposit)
@@ -700,7 +753,10 @@ if __name__ == "__main__":
 
     elif args.balance:
         pf = ensure_portfolio()
-        print(format_balance(pf))
+        if args.json:
+            print(json.dumps({"schema": "portfolio_balance_v1", **pf}, ensure_ascii=False, indent=2))
+        else:
+            print(format_balance(pf))
 
     elif args.check:
         pf, result = refresh_prices()

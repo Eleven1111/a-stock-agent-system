@@ -34,15 +34,65 @@ def test_batch_four_dim_targets_parse_pool_and_custom(tmp_path, monkeypatch):
     ]
 
 
-def test_scheduled_news_monitor_fails_closed_without_serper(monkeypatch):
+def test_scheduled_news_monitor_fails_closed_without_serper(tmp_path, monkeypatch):
+    env_file = tmp_path / "empty.env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setenv("A_STOCK_ENV_FILE", str(env_file))
     monkeypatch.delenv("SERPER_API_KEYS", raising=False)
     monkeypatch.delenv("SERPER_API_KEY", raising=False)
     monitor = load_module("scheduled_news_monitor_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "fetch_fallback_news", lambda limit: [])
 
     result = monitor.run_monitor(["半导体 A股"], limit=1)
 
     assert result["status"] == "insufficient_data"
     assert result["signals"] == []
+
+
+def test_scheduled_news_monitor_all_provider_errors_are_not_no_signal(monkeypatch):
+    monitor = load_module("scheduled_news_monitor_all_fail_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: "test-key")
+    monkeypatch.setattr(
+        monitor,
+        "fetch_news",
+        lambda *args, **kwargs: (_ for _ in ()).throw(monitor.DataSourceError("serper", "down")),
+    )
+    monkeypatch.setattr(
+        monitor,
+        "fetch_fallback_news",
+        lambda limit: (_ for _ in ()).throw(monitor.DataSourceError("public_news", "down")),
+    )
+
+    result = monitor.run_monitor(["半导体 A股"], limit=1)
+
+    assert result["status"] == "insufficient_data"
+    assert result["signals"] == []
+    assert len(result["errors"]) == 2
+
+
+def test_scheduled_news_monitor_uses_public_fallback_as_descriptive_only(monkeypatch):
+    monitor = load_module("scheduled_news_monitor_fallback_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: None)
+    monkeypatch.setattr(
+        monitor,
+        "fetch_fallback_news",
+        lambda limit: [{
+            "title": "政策支持先进制造",
+            "snippet": "",
+            "source": "新浪财经",
+            "provider": "sina",
+            "date": "刚刚",
+            "link": "https://example.com/fallback",
+        }],
+    )
+
+    result = monitor.run_monitor(["A股 政策"], limit=1, now=datetime(2026, 6, 23, 10, 0))
+
+    assert result["status"] == "degraded"
+    assert result["event_count"] == 1
+    assert result["signals"] == []
+    assert result["events"][0]["provider"] == "sina"
+
 
 
 def test_scheduled_news_monitor_adds_active_registry_queries(monkeypatch):

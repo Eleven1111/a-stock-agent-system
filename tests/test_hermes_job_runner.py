@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 from scripts import hermes_job_runner as job_runner
+from scripts import run_agent_dag
 from state_store import read_json
 from runtime_context import (
     evaluate_dependencies,
@@ -18,14 +19,41 @@ from runtime_context import (
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
-def test_openclaw_runtime_env_does_not_fabricate_repo_local_state(monkeypatch):
+def test_openclaw_runtime_env_preserves_default_state_fallback(tmp_path, monkeypatch):
+    env_file = tmp_path / "empty.env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setenv("A_STOCK_ENV_FILE", str(env_file))
     monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.delenv("A_STOCK_STATE_ID", raising=False)
 
     run_env = job_runner.build_runtime_env("openclaw")
 
-    assert "A_STOCK_STATE_HOME" not in run_env
-    assert "A_STOCK_STATE_ID" not in run_env
+    assert run_env["A_STOCK_STATE_HOME"] == job_runner.ROOT
+    assert run_env["A_STOCK_STATE_ID"] == "default"
+
+
+def test_runtime_env_loads_explicit_env_file_for_isolated_jobs(tmp_path, monkeypatch):
+    env_file = tmp_path / "a-stock.env"
+    env_file.write_text("SERPER_API_KEY=from-file\n", encoding="utf-8")
+    monkeypatch.setenv("A_STOCK_ENV_FILE", str(env_file))
+    monkeypatch.delenv("SERPER_API_KEY", raising=False)
+
+    run_env = job_runner.build_runtime_env("openclaw")
+
+    assert run_env["SERPER_API_KEY"] == "from-file"
+
+
+def test_dag_target_output_respects_delivery_and_silent_contract():
+    artifact = {"stdout": '{"status":"no_signal","signals":[]}', "has_signal": False}
+
+    assert run_agent_dag.target_output(
+        {"deliver": "origin", "silent_when_no_signal": True}, artifact
+    ) == "NO_REPLY\n"
+    assert run_agent_dag.target_output(
+        {"deliver": "local", "silent_when_no_signal": False},
+        {**artifact, "stdout": "large local payload", "has_signal": True},
+    ) == "NO_REPLY\n"
+
 
 
 def test_dry_run_replaces_bare_python_with_current_interpreter(

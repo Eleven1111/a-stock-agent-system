@@ -245,9 +245,13 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "social-attention-close",
         "candidate-preopen",
         "candidate-discovery",
-        "auction-snapshot",
-        "auction-finalize",
+            "auction-snapshot",
+            "auction-market-snapshot",
+            "auction-finalize",
             "open-confirmation",
+            "preopen-intelligence-brief",
+            "auction-intelligence-brief",
+            "open-intelligence-brief",
             "hot-money-morning-checkpoint",
             "hot-money-afternoon-checkpoint",
             "closing-triage",
@@ -318,6 +322,20 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "auction-snapshot",
     ]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
+    assert jobs["candidate-preopen"]["deliver"] == "local"
+    assert jobs["auction-finalize"]["deliver"] == "local"
+    assert jobs["open-confirmation"]["deliver"] == "local"
+    assert jobs["auction-market-snapshot"]["schedule"] == "24 9 * * 1-5"
+    assert "--full-universe" in jobs["auction-market-snapshot"]["run"]["command"]
+    for job_id, schedule, stage in (
+        ("preopen-intelligence-brief", "50 8 * * 1-5", "preopen"),
+        ("auction-intelligence-brief", "27 9 * * 1-5", "auction"),
+        ("open-intelligence-brief", "36 9 * * 1-5", "open"),
+    ):
+        assert jobs[job_id]["schedule"] == schedule
+        assert jobs[job_id]["deliver"] == "origin"
+        assert jobs[job_id]["context_from"] == []
+        assert jobs[job_id]["run"]["command"].endswith(f"--stage {stage}")
     assert jobs["hot-money-morning-checkpoint"]["context_from"] == ["open-confirmation"]
     assert jobs["hot-money-morning-checkpoint"]["schedule"] == "50 9 * * 1-5"
     assert jobs["hot-money-afternoon-checkpoint"]["context_from"] == ["open-confirmation"]

@@ -21,11 +21,15 @@ import os
 import subprocess
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from urllib.parse import quote
 
 # ========== 配置 ==========
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from data_provider import provider_client
+from a_stock_http import load_hermes_env
+from data_provider import (
+    _next_serper_key,
+    fetch_serper_news as _fetch_serper_news,
+    provider_client,
+)
 from data_access_config import global_market_settings
 from paths import cache_dir as _cache_dir
 
@@ -233,13 +237,11 @@ def fetch_sina_us_indices() -> Dict[str, Dict]:
 
 def fetch_serper_news(query: str = "global market breaking news financial", num: int = 5) -> List[Dict]:
     """通过 serper.dev 抓取重大新闻"""
-    from data_provider import fetch_serper_news as _fetch_serper
-    from data_provider import _next_serper_key
     api_key = _next_serper_key()
     if not api_key:
         return [{"error": "SERPER_API_KEY not set"}]
     try:
-        result = _fetch_serper(query, api_key, num)
+        result = _fetch_serper_news(query, api_key, num)
         return [
             {
                 "title": item.get("title"),
@@ -660,6 +662,7 @@ def generate_summary(alerts: List[Dict], sector_impact: Dict[str, float]) -> str
 
 def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
     """采集全部数据"""
+    load_hermes_env()
     global _YFINANCE_DISABLED_REASON
     result = {
         "timestamp": datetime.now().isoformat(),

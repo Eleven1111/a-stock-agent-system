@@ -170,6 +170,34 @@
       "external_note": "08:45 复用有效的 D0 收盘候选池；仅冷启动或池过期时扫描，且不在盘前价格结算历史候选"
     },
     {
+      "id": "preopen-intelligence-brief",
+      "name": "早盘情报简报",
+      "schedule": "50 8 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py preopen-intelligence-brief --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "text",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 2400,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/preopen-intelligence-brief/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/market_intelligence_brief.py --stage preopen",
+        "cwd": ".",
+        "timeout_seconds": 15
+      },
+      "external_note": "08:50 只读候选池快照，分别推送打板/趋势TOP10与全市场竞价扫描覆盖"
+    },
+    {
       "id": "social-attention-midday",
       "name": "社会关注度午间快照",
       "schedule": "37 11 * * 1-5",
@@ -305,12 +333,12 @@
         "cwd": ".",
         "timeout_seconds": 420
       },
-      "external_note": "15:07 全市场扫描并生成约200只双策略观察池；社会关注度仅作可选弱证据"
+      "external_note": "15:07 全市场扫描并生成约500只双策略深度观察池；社会关注度仅作可选弱证据"
     },
     {
       "id": "auction-snapshot",
       "name": "集合竞价快照采集",
-      "schedule": "15-24 9 * * 1-5",
+      "schedule": "15-23 9 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py auction-snapshot --emit-target",
       "cwd": ".",
@@ -341,7 +369,44 @@
         "cwd": ".",
         "timeout_seconds": 30
       },
-      "external_note": "09:15-09:24 每分钟采集一次腾讯五档快照；仅写入 artifact 和竞价状态"
+      "external_note": "09:15-09:23 对深度观察池每分钟采集腾讯五档快照；仅写入 artifact 和竞价状态"
+    },
+    {
+      "id": "auction-market-snapshot",
+      "name": "全市场集合竞价异动快照",
+      "schedule": "24 9 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py auction-market-snapshot --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 800,
+      "context_from": [
+        "candidate-preopen"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 90,
+        "optional_jobs": []
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/auction_*.json",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/auction-market-snapshot/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/daban-stock-picker/scripts/auction_collector.py --snapshot --full-universe --json",
+        "cwd": ".",
+        "timeout_seconds": 120
+      },
+      "external_note": "09:24 对全部合格股票做一次轻量竞价扫描；池外结果仅进入研究情报，不进入执行排名"
     },
     {
       "id": "auction-finalize",
@@ -356,10 +421,11 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "origin",
+      "deliver": "local",
       "max_output_chars": 4500,
       "context_from": [
-        "auction-snapshot"
+        "auction-snapshot",
+        "auction-market-snapshot"
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
@@ -376,11 +442,39 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/daban-stock-picker/scripts/auction_collector.py --finalize --shortlist-limit 20 --json",
+        "command": "python skills/daban-stock-picker/scripts/auction_collector.py --finalize --json",
         "cwd": ".",
         "timeout_seconds": 30
       },
       "external_note": "09:26 收口竞价因子，输出条件买入/关注计划和公告质检，并把重点标的加入动态监控"
+    },
+    {
+      "id": "auction-intelligence-brief",
+      "name": "集合竞价情报简报",
+      "schedule": "27 9 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py auction-intelligence-brief --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "text",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 2000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/auction-intelligence-brief/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/market_intelligence_brief.py --stage auction",
+        "cwd": ".",
+        "timeout_seconds": 15
+      },
+      "external_note": "09:27 推送全市场竞价涨跌TOP5、打板高分票及其是否进入执行短名单"
     },
     {
       "id": "open-confirmation",
@@ -395,7 +489,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "origin",
+      "deliver": "local",
       "max_output_chars": 5000,
       "context_from": [
         "auction-finalize"
@@ -417,11 +511,39 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/daban-stock-picker/scripts/open_confirmation.py --limit 5 --json",
+        "command": "python skills/daban-stock-picker/scripts/open_confirmation.py --json",
         "cwd": ".",
         "timeout_seconds": 45
       },
       "external_note": "09:35 输出买入区间/追价线/止损/目标/T+1约束和公告质检；不自动下单"
+    },
+    {
+      "id": "open-intelligence-brief",
+      "name": "开盘情报摘要",
+      "schedule": "36 9 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py open-intelligence-brief --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "text",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 2400,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/open-intelligence-brief/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/market_intelligence_brief.py --stage open",
+        "cwd": ".",
+        "timeout_seconds": 15
+      },
+      "external_note": "09:36 推送门禁后信号及被过滤高分票的明确原因；研究情报不绕过执行门禁"
     },
     {
       "id": "hot-money-morning-checkpoint",

@@ -33,6 +33,8 @@ def test_preopen_bootstrap_reuses_only_ready_recent_nonfuture_pool():
     ready = {
         "status": "ready",
         "asof": "2026-06-19",
+        "eligible_count": 1,
+        "auction_scan_codes": ["sh600001"],
         "candidates": [{"code": "600001"}],
     }
 
@@ -41,6 +43,8 @@ def test_preopen_bootstrap_reuses_only_ready_recent_nonfuture_pool():
     assert discovery.reusable_pool({**ready, "asof": "2026-06-23"}, "2026-06-22") is False
     assert discovery.reusable_pool({**ready, "status": "insufficient_data"}, "2026-06-22") is False
     assert discovery.reusable_pool({**ready, "candidates": []}, "2026-06-22") is False
+    legacy = {key: value for key, value in ready.items() if key != "auction_scan_codes"}
+    assert discovery.reusable_pool(legacy, "2026-06-22") is False
 
 
 def test_run_discovery_persists_pool_and_lifecycle(tmp_path, monkeypatch):
@@ -82,6 +86,8 @@ def test_run_discovery_persists_pool_and_lifecycle(tmp_path, monkeypatch):
     lifecycle = read_json(discovery.candidate_lifecycle.lifecycle_file("2026-06-10"), {})
     assert latest["asof"] == "2026-06-10"
     assert len(latest["candidates"]) == 6
+    assert latest["auction_scan_count"] == 12
+    assert len(latest["auction_scan_codes"]) == 12
     assert lifecycle["metadata"]["scanned_count"] == 12
     assert len(lifecycle["records"]) == 12
     assert sum(record["current_stage"] == "watch_pool" for record in lifecycle["records"]) == 6

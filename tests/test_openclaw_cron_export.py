@@ -83,6 +83,18 @@ def test_export_can_pin_shared_state_identity(tmp_path):
     assert "A_STOCK_STATE_ID=cluster-1" in command
 
 
+def test_export_can_pin_env_file_without_embedding_secrets(tmp_path):
+    command = build_openclaw_commands(
+        {"jobs": [_job("target", 30)]},
+        repo_dir=str(tmp_path),
+        python="/venv/bin/python",
+        env_file="/secure/a-stock.env",
+    )[0]
+
+    assert "A_STOCK_ENV_FILE=/secure/a-stock.env" in command
+    assert "SERPER_API_KEY" not in command
+
+
 def test_export_defaults_to_explicit_environment_state_identity(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", "/shared/from-env")
     monkeypatch.setenv("A_STOCK_STATE_ID", "cluster-env")

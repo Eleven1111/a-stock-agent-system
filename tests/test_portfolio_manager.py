@@ -19,6 +19,29 @@ def _wire(tmp_path, monkeypatch, initial=None):
         pm.save_portfolio(initial)
 
 
+def test_missing_portfolio_initializes_fail_closed_without_fake_capital(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+
+    portfolio = pm.ensure_portfolio()
+
+    assert portfolio["cash"] == 0
+    assert portfolio["account_state"] == "unconfigured"
+
+
+def test_reconcile_cash_records_verified_runtime_balance(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, initial={
+        "cash": 100000, "positions": [], "total_cost": 0, "cash_reconciled": True,
+    })
+
+    result = pm.reconcile_cash(20000, source="user_confirmed", asof="2026-06-23")
+
+    assert result["ok"] is True
+    assert pm.load_portfolio()["cash"] == 20000
+    assert pm.load_portfolio()["cash_source"] == "user_confirmed"
+    assert pm.load_portfolio()["cash_asof"] == "2026-06-23"
+    assert pm.load_cashflow()[-1]["action"] == "reconcile_cash"
+
+
 # ========== CRITICAL A：老文件一次性现金对账 ==========
 
 def test_legacy_cash_reconciled_once(tmp_path, monkeypatch):

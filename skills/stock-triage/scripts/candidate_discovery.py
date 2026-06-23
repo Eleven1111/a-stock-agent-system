@@ -32,6 +32,7 @@ sys.path.insert(0, COMMON)
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
+import stage_intelligence  # noqa: E402
 import monitor_registry  # noqa: E402
 from config_registry import config_path  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
@@ -75,6 +76,9 @@ def reusable_pool(
     max_age_days: int = MAX_BOOTSTRAP_POOL_AGE_DAYS,
 ) -> bool:
     if pool.get("status") != "ready" or not pool.get("candidates"):
+        return False
+    scan_codes = pool.get("auction_scan_codes")
+    if not isinstance(scan_codes, list) or len(scan_codes) < int(pool.get("eligible_count") or 1):
         return False
     try:
         age = (
@@ -619,6 +623,12 @@ def run_discovery(
         "market_temperature": temperature,
         "hot_money_selection": selection_state,
         "input_snapshot": compact_ref(input_snapshot),
+        "auction_scan_codes": [
+            candidate_pipeline.market_code(item.get("code"))
+            for item in evaluated
+            if item.get("code")
+        ],
+        "auction_scan_count": len(evaluated),
     })
     _persist_pool(asof, result)
     atomic_write_json(hot_money_selection_file(), selection_state)
@@ -748,7 +758,7 @@ def format_report(result: Mapping[str, Any]) -> str:
 def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
     selection = result.get("hot_money_selection") or {}
     timing = selection.get("market_timing") or {}
-    return {
+    report = {
         "schema": result.get("schema"),
         "asof": result.get("asof"),
         "status": result.get("status"),
@@ -798,6 +808,8 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
             for item in result.get("candidates", [])[:5]
         ],
     }
+    report["intelligence"] = stage_intelligence.preopen_digest(result)
+    return report
 
 
 def main() -> None:

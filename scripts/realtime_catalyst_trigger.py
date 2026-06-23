@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'skills', 'common'))
 from a_share_rules import add_trading_days  # noqa: E402
+from a_stock_http import load_hermes_env  # noqa: E402
 from catalyst_context import update_catalyst_context  # noqa: E402
 from data_provider import fetch_serper_news  # noqa: E402
 from data_provider import _next_serper_key  # noqa: E402
@@ -47,6 +48,13 @@ T2_KEYWORDS = [
 
 CANDIDATE_POOL = data_file("stock-triage", "candidate_pool_latest.json")
 TRIGGER_CACHE = os.path.join(cache_dir("stock-triage"), "catalyst_trigger_cache.json")
+
+
+class CatalystScan(list):
+    def __init__(self, events=(), *, status="ready", errors=None):
+        super().__init__(events)
+        self.status = status
+        self.errors = list(errors or [])
 
 
 def in_trading_session(now: Optional[datetime] = None) -> bool:
@@ -77,9 +85,14 @@ def _normalize_stock_code(value: Any) -> str:
 
 def scan_fresh_catalysts() -> List[Dict[str, Any]]:
     """从 Serper.dev 抓取最近新闻并分级。"""
+    load_hermes_env()
     api_key = _next_serper_key()
     if not api_key:
-        return []
+        return CatalystScan(status="insufficient_data", errors=[{
+            "source": "serper",
+            "error_type": "missing_credential",
+            "error": "SERPER_API_KEY/SERPER_API_KEYS missing",
+        }])
     queries = [
         "A股 政策 重大 最新",
         "A股 涨停 板块 异动",
@@ -87,9 +100,12 @@ def scan_fresh_catalysts() -> List[Dict[str, Any]]:
     ]
     seen_links = set()
     results = []
+    errors = []
+    successful_queries = 0
     for query in queries:
         try:
             items = fetch_serper_news(query, api_key, 5)
+            successful_queries += 1
             for item in items.data if hasattr(items, "data") else []:
                 link = item.get("link", "")
                 if link in seen_links:
@@ -108,9 +124,11 @@ def scan_fresh_catalysts() -> List[Dict[str, Any]]:
                         "tier": tier,
                         "scanned_at": datetime.now().isoformat(),
                     })
-        except (DataSourceError, AttributeError, TypeError):
+        except (DataSourceError, AttributeError, TypeError) as exc:
+            errors.append({"query": query, "source": "serper", "error": str(exc)})
             continue
-    return results
+    status = "ready" if successful_queries else "insufficient_data"
+    return CatalystScan(results, status=status, errors=errors)
 
 
 def match_candidate_pool(catalysts: List[Dict]) -> Dict[str, List[Dict]]:
@@ -160,7 +178,18 @@ def run_trigger(force: bool = False) -> Dict[str, Any]:
     if cache.get("_date") != today:
         cache = {"_date": today, "processed_links": []}
 
-    catalysts = scan_fresh_catalysts()
+    scan = scan_fresh_catalysts()
+    catalysts = list(scan)
+    scan_status = getattr(scan, "status", "ready")
+    scan_errors = list(getattr(scan, "errors", []))
+    if scan_status == "insufficient_data":
+        return {
+            "status": "insufficient_data",
+            "timestamp": now.isoformat(),
+            "scanned": 0,
+            "new": 0,
+            "errors": scan_errors,
+        }
     processed = set(cache.get("processed_links", []))
     new_catalysts = [c for c in catalysts if c.get("link") not in processed]
 

@@ -27,9 +27,16 @@ from a_share_rules import add_trading_days  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
+import stage_intelligence  # noqa: E402
 from market_temperature import temperature_from_context  # noqa: E402
 import monitor_registry  # noqa: E402
 from paths import data_file  # noqa: E402
+from config_registry import load_registered  # noqa: E402
+
+
+DEFAULT_OPEN_LIMIT = int(
+    load_registered("candidate_selection")["pipeline"]["open_confirmation_limit"]
+)
 from recommendation_quality import (  # noqa: E402
     build_execution_plan,
     build_quality_report,
@@ -137,7 +144,7 @@ def _apply_policy(
         if key in prior_chanlun:
             evidence["chanlun"][key] = prior_chanlun[key]
     portfolio_risk = evaluate_candidate(
-        portfolio or {"cash": 100000, "positions": []},
+        portfolio or {},
         result,
         float((result.get("execution_plan") or {}).get("position_pct") or 0),
     )
@@ -241,11 +248,9 @@ def load_shortlist(asof: str) -> Dict[str, Any]:
     return shortlist
 
 
-def rank_confirmations(
+def score_confirmations(
     shortlist: Sequence[Mapping[str, Any]],
     confirmations: Sequence[Mapping[str, Any]],
-    limit: int = 5,
-    temperature: Mapping[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     prior = {
         candidate_pipeline.naked_code(item.get("code")): dict(item)
@@ -297,6 +302,16 @@ def rank_confirmations(
                 float(item.get("open_daban_score") or 0.0) - leader_score,
                 2,
             )
+    return eligible
+
+
+def rank_confirmations(
+    shortlist: Sequence[Mapping[str, Any]],
+    confirmations: Sequence[Mapping[str, Any]],
+    limit: int = DEFAULT_OPEN_LIMIT,
+    temperature: Mapping[str, Any] | None = None,
+) -> List[Dict[str, Any]]:
+    eligible = score_confirmations(shortlist, confirmations)
 
     temperature_active = bool(
         temperature
@@ -424,7 +439,11 @@ def _fetch_snapshots(codes: Sequence[str]) -> Dict[str, Dict[str, Any]]:
     return quotes
 
 
-def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str, Any]:
+def build_confirmation(
+    codes: List[str],
+    asof: str,
+    limit: int = DEFAULT_OPEN_LIMIT,
+) -> Dict[str, Any]:
     shortlist_result = load_shortlist(asof)
     factors = list(shortlist_result.get("shortlist", []))
     if codes:
@@ -490,14 +509,25 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
         limit=limit,
         temperature=temperature,
     )
+    scored_by_code = {
+        candidate_pipeline.naked_code(item.get("code")): item
+        for item in score_confirmations(factors, confirmations)
+    }
+    prior_by_code = {
+        candidate_pipeline.naked_code(item.get("code")): dict(item)
+        for item in factors
+    }
+    evaluated_confirmations = []
+    for confirmation in confirmations:
+        code = candidate_pipeline.naked_code(confirmation.get("code"))
+        evaluated_confirmations.append(
+            dict(scored_by_code.get(code) or {**prior_by_code.get(code, {}), **confirmation})
+        )
     announcement_map = scan_many(
         candidate_pipeline.naked_code(item.get("code"))
         for item in signals
     )
-    portfolio = read_json(
-        data_file("stock-triage", "portfolio.json"),
-        {"cash": 100000, "positions": []},
-    )
+    portfolio = read_json(data_file("stock-triage", "portfolio.json"), {})
     regime = market_regime(read_market_context())
     signals = [
         _apply_policy(_enrich_decision(
@@ -613,6 +643,7 @@ def build_confirmation(codes: List[str], asof: str, limit: int = 5) -> Dict[str,
         "market_regime": regime,
         "input_snapshot": compact_ref(input_snapshot),
         "confirmations": confirmations,
+        "evaluated_confirmations": evaluated_confirmations,
         "signals": signals,
         "signal_count": len(signals),
     }
@@ -687,7 +718,7 @@ def format_report(result: Dict[str, Any]) -> str:
 
 
 def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
-    return {
+    report = {
         "schema": result.get("schema"),
         "status": result.get("status"),
         "asof": result.get("asof"),
@@ -723,13 +754,20 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
             for item in result.get("signals") or []
         ],
     }
+    report["intelligence"] = stage_intelligence.open_digest(result)
+    return report
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="A股09:35开盘确认")
     parser.add_argument("--codes", help="逗号分隔，带市场前缀，如 sh600519,sz000001")
     parser.add_argument("--asof", default=date.today().isoformat())
-    parser.add_argument("--limit", type=int, default=5, help="开盘确认最终保留数量")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_OPEN_LIMIT,
+        help="开盘确认最终保留数量（默认读取 candidate_selection 配置）",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
