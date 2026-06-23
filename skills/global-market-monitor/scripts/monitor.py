@@ -35,6 +35,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 MARKET_CONFIG = global_market_settings()
 USE_YFINANCE = MARKET_CONFIG["switches"]["yfinance"]
 USE_SINA = MARKET_CONFIG["switches"]["sina"]
+USE_SERPAPI = False  # legacy flag, overridden by --all
 USE_SERPER = MARKET_CONFIG["switches"].get("serper", True)
 US_INDICES = MARKET_CONFIG["us_indices"]
 US_SECTOR_ETFS = MARKET_CONFIG["us_sector_etfs"]
