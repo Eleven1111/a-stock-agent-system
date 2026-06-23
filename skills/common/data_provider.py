@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-import urllib.parse
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:
@@ -25,6 +25,7 @@ except ImportError:
 
 __all__ = [
     "fetch_serper_news",
+    "fetch_public_finance_news",
     "fetch_tencent_quote",
     "fetch_tencent_quotes",
     "provider_client",
@@ -178,3 +179,78 @@ def fetch_serper_news(
     raise last_error or DataSourceError(
         "serper", "all keys exhausted", error_type=ErrorType.MISSING_KEY, attempts=len(keys), timestamp="",
     )
+def fetch_public_finance_news(limit: int = 10) -> HttpResult[List[Dict[str, Any]]]:
+    """Fetch bounded public finance headlines from Sina and Eastmoney.
+
+    This is a descriptive fallback when queryable Serper.dev is unavailable. It
+    deliberately does not pretend that broad headlines answer a stock query.
+    """
+    events: List[Dict[str, Any]] = []
+    errors: List[str] = []
+    attempts = 0
+    fetched_at = datetime.now(timezone.utc).isoformat()
+
+    try:
+        request = build_request(
+            "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&num=30&page=1",
+            headers={"User-Agent": "Hermes A-Stock Agent"},
+        )
+        response = provider_client("sina").request_json(request)
+        attempts += response.attempts
+        fetched_at = response.fetched_at
+        items = ((response.data or {}).get("result") or {}).get("data") or []
+        for item in items:
+            if not isinstance(item, dict) or not item.get("title"):
+                continue
+            published = item.get("ctime")
+            if str(published or "").isdigit():
+                published = datetime.fromtimestamp(int(published)).isoformat(timespec="seconds")
+            events.append({
+                "title": item.get("title"),
+                "snippet": item.get("intro") or "",
+                "source": "新浪财经",
+                "date": published,
+                "link": item.get("url"),
+                "provider": "sina",
+                "fetched_at": response.fetched_at,
+            })
+    except DataSourceError as exc:
+        errors.append(str(exc))
+
+    try:
+        request = build_request(
+            "https://push2ex.eastmoney.com/getNews?type=1&page=1&pageSize=30",
+            headers={"User-Agent": "Hermes A-Stock Agent"},
+        )
+        response = provider_client("eastmoney").request_json(request)
+        attempts += response.attempts
+        fetched_at = response.fetched_at
+        items = ((response.data or {}).get("data") or {}).get("list") or []
+        for item in items:
+            if not isinstance(item, dict) or not item.get("title"):
+                continue
+            events.append({
+                "title": item.get("title"),
+                "snippet": item.get("digest") or item.get("summary") or "",
+                "source": "东方财富",
+                "date": item.get("date") or item.get("showTime"),
+                "link": item.get("url") or item.get("shareUrl"),
+                "provider": "eastmoney",
+                "fetched_at": response.fetched_at,
+            })
+    except DataSourceError as exc:
+        errors.append(str(exc))
+
+    seen: set[str] = set()
+    deduped: List[Dict[str, Any]] = []
+    for event in events:
+        identity = str(event.get("link") or event.get("title") or "")
+        if not identity or identity in seen:
+            continue
+        seen.add(identity)
+        deduped.append(event)
+        if len(deduped) >= max(1, int(limit)):
+            break
+    if not deduped and errors:
+        raise DataSourceError("public_news", "; ".join(errors))
+    return HttpResult(deduped, fetched_at, max(1, attempts))

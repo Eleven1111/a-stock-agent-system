@@ -28,7 +28,7 @@ from a_share_rules import t1_constraint
 from recommendation_quality import build_quality_report, merge_market_intelligence
 from decision_policy import evaluate_decision
 from market_context import market_regime, read_market_context
-from portfolio_policy import evaluate_candidate
+from portfolio_policy import evaluate_candidate, portfolio_value
 from research_evidence import build_research_evidence, strategy_attributions
 import signal_ledger
 import strategy_registry
@@ -294,7 +294,7 @@ def record_recommendation(
     grade: Optional[str] = None,
     confidence: Optional[str] = None,
     strategy_id: Optional[str] = None,
-    total_asset: float = 100000.0,
+    total_asset: Optional[float] = None,
     announcements: Optional[List[Dict[str, Any]]] = None,
     source_id: Optional[str] = None,
     asof: Optional[str] = None,
@@ -319,12 +319,22 @@ def record_recommendation(
         if t1_block:
             return t1_block
 
+    portfolio = read_json(PORTFOLIO_FILE, {})
+    account_value = (
+        float(total_asset)
+        if total_asset is not None
+        else portfolio_value(portfolio)
+    )
     sizing = position_guidance(
         strategy_id,
         entry_price,
         target_price,
         stop_price,
-        total_asset,
+        account_value,
+    )
+    sizing["account_value"] = round(account_value, 2)
+    sizing["capital_source"] = (
+        "explicit_override" if total_asset is not None else "portfolio.json"
     )
     quality = build_quality_report(
         {
@@ -356,7 +366,7 @@ def record_recommendation(
         evidence.get("market_intelligence"),
     )
     risk = portfolio_risk or evaluate_candidate(
-        read_json(PORTFOLIO_FILE, {"cash": total_asset, "positions": []}),
+        portfolio,
         {"code": code},
         float(sizing.get("recommended_position_pct") or 0),
     )
@@ -591,7 +601,12 @@ if __name__ == "__main__":
     parser.add_argument("--grade")
     parser.add_argument("--confidence")
     parser.add_argument("--strategy-id")
-    parser.add_argument("--total-asset", type=float, default=100000.0)
+    parser.add_argument(
+        "--total-asset",
+        type=float,
+        default=None,
+        help="仅研究覆盖；默认从共享 portfolio.json 动态计算账户总资产",
+    )
     parser.add_argument("--list", action="store_true", help="列出推荐记录")
     parser.add_argument("--code", help="按代码过滤")
     parser.add_argument("--outcome", help="按结果过滤")

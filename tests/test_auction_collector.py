@@ -118,6 +118,42 @@ def test_load_watch_pool_rejects_stale_state(tmp_path, monkeypatch):
         raise AssertionError("stale pool should fail closed")
 
 
+def test_auction_scan_codes_prefer_full_eligible_universe():
+    pool = {
+        "candidates": [{"code": "600001"}],
+        "auction_scan_codes": ["sh600001", "sz000811", "sh600003"],
+    }
+
+    assert ac.auction_scan_codes(pool, full_universe=False) == ["sh600001"]
+    assert ac.auction_scan_codes(pool, full_universe=True) == [
+        "sh600001", "sz000811", "sh600003",
+    ]
+
+
+def test_full_universe_single_snapshot_keeps_pool_outsider_for_research(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        ac,
+        "take_snapshot",
+        lambda codes: {
+            code: {
+                "t": "09:24:50",
+                "name": code,
+                "price": 11.0,
+                "prev_close": 10.0,
+                "bids": [],
+                "asks": [],
+            }
+            for code in codes
+        },
+    )
+
+    state = ac.append_snapshot(["sh600001", "sz000811"], "2026-06-23")
+
+    assert set(state["series"]) == {"sh600001", "sz000811"}
+
+
+
 def test_append_snapshot_consumes_immutable_input_snapshot(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(
@@ -146,6 +182,10 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
     monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    atomic_write_json(
+        str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
+        {"cash": 20000, "positions": [], "cash_reconciled": True},
+    )
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"
     candidates = [
@@ -200,6 +240,10 @@ def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch)
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     monkeypatch.setattr(ac.strategy_registry, "live_record", lambda _strategy_id: None)
+    atomic_write_json(
+        str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
+        {"cash": 20000, "positions": [], "cash_reconciled": True},
+    )
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"
     candidate = {

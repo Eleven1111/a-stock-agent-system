@@ -39,7 +39,6 @@ DEFAULTS: Dict[str, Any] = {
         "trailing_stop_pct": 5.0,
         "max_single_position_pct": 25,
         "max_sector_exposure_pct": 40,
-        "portfolio_size": 100000,
     },
     "storage": {
         "snapshot_input_retention_days": 30,
@@ -279,6 +278,8 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
             )
 
     risk = result["risk"]
+    # Legacy static capital is unsafe: runtime portfolio.json is authoritative.
+    risk.pop("portfolio_size", None)
     for key, default in DEFAULTS["risk"].items():
         positive = key != "stop_loss_pct"
         risk[key] = _number(risk.get(key), default, positive=positive)

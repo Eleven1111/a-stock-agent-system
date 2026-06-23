@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 
 from a_stock_http import load_hermes_env  # noqa: E402
 from data_access_config import news_monitor_settings  # noqa: E402
-from data_provider import fetch_serper_news  # noqa: E402
+from data_provider import fetch_public_finance_news, fetch_serper_news  # noqa: E402
 from data_provider import _next_serper_key as _serper_key  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from monitor_registry import active_entries  # noqa: E402
@@ -66,6 +66,10 @@ def build_queries(base_queries: List[str] | None = None, *, mode: str = "schedul
 
 def fetch_news(query: str, api_key: str, limit: int) -> List[Dict[str, Any]]:
     return fetch_serper_news(query, api_key, limit).data
+
+
+def fetch_fallback_news(limit: int) -> List[Dict[str, Any]]:
+    return fetch_public_finance_news(limit).data
 
 
 def stock_code_from_query(query: str) -> str | None:
@@ -236,43 +240,59 @@ def run_monitor(
             "freshness": evaluate_freshness([], sla_minutes=sla),
         }
 
+    load_hermes_env()
     api_key = _serper_key()
-    if not api_key:
-        return {
-            "schema": "scheduled_news_monitor_v1",
-            "generated_at": current.isoformat(timespec="seconds"),
-            "status": "insufficient_data",
-            "mode": mode,
-            "message": "SERPER_API_KEY missing; no directional news judgement",
-            "events": [],
-            "signals": [],
-            "freshness": evaluate_freshness([], sla_minutes=sla),
-        }
-
     events: List[Dict[str, Any]] = []
     errors = []
-    for query in queries:
+    serper_events = 0
+    if api_key:
+        for query in queries:
+            try:
+                stock_code = stock_code_from_query(query)
+                fetched = fetch_news(query, api_key, limit)
+                serper_events += len(fetched)
+                for event in fetched:
+                    events.append(
+                        enrich_event_timing(
+                            event,
+                            query=query,
+                            stock_code=stock_code,
+                            now=current,
+                        )
+                    )
+            except DataSourceError as exc:
+                errors.append({"query": query, **exc.to_dict()})
+            except Exception as exc:
+                errors.append({
+                    "query": query,
+                    "source": "serper",
+                    "error_type": "unexpected",
+                    "error": str(exc),
+                    "timestamp": current.isoformat(timespec="seconds"),
+                })
+    else:
+        errors.append({
+            "source": "serper",
+            "error_type": "missing_credential",
+            "error": "SERPER_API_KEY/SERPER_API_KEYS missing",
+        })
+
+    fallback_events = 0
+    if not events:
         try:
-            stock_code = stock_code_from_query(query)
-            for event in fetch_news(query, api_key, limit):
+            fetched = fetch_fallback_news(max(8, limit * max(1, len(queries))))
+            fallback_events = len(fetched)
+            for event in fetched:
                 events.append(
                     enrich_event_timing(
                         event,
-                        query=query,
-                        stock_code=stock_code,
+                        query="public_finance_fallback",
+                        stock_code=None,
                         now=current,
                     )
                 )
         except DataSourceError as exc:
-            errors.append({"query": query, **exc.to_dict()})
-        except Exception as exc:
-            errors.append({
-                "query": query,
-                "source": "serper",
-                "error_type": "unexpected",
-                "error": str(exc),
-                "timestamp": current.isoformat(timespec="seconds"),
-            })
+            errors.append({"query": "public_finance_fallback", **exc.to_dict()})
 
     seen = set()
     deduped = []
@@ -293,9 +313,16 @@ def run_monitor(
         if isinstance(latency, int):
             event["freshness_class"] = "fresh" if latency <= sla else "stale"
     update_catalyst_context(deduped)
-    directional_ready = freshness["status"] == "fresh"
-    status = "ready" if deduped else "no_signal"
-    if deduped and not directional_ready:
+    directional_ready = freshness["status"] == "fresh" and serper_events > 0
+    if deduped and fallback_events > 0 and serper_events == 0:
+        status = "degraded"
+    elif deduped:
+        status = "ready"
+    elif errors:
+        status = "insufficient_data"
+    else:
+        status = "no_signal"
+    if deduped and freshness["status"] == "stale":
         status = "stale_data"
 
     return {
@@ -310,15 +337,20 @@ def run_monitor(
         "risk_event_count": len(risk_events),
         "signals": deduped if directional_ready else [],
         "signal_count": len(deduped) if directional_ready else 0,
+        "provider_status": {
+            "serper_event_count": serper_events,
+            "fallback_event_count": fallback_events,
+        },
         "freshness": freshness,
         "errors": errors,
     }
 
 
 def format_report(result: Dict[str, Any]) -> str:
-    if result["status"] != "ready":
+    if result["status"] not in {"ready", "degraded"}:
         return ""
-    lines = [f"## 资讯监控 | {result['event_count']}条"]
+    label = "（免费源降级，只作描述）" if result["status"] == "degraded" else ""
+    lines = [f"## 资讯监控{label} | {result['event_count']}条"]
     for event in result["events"][:8]:
         prefix = "⚠️ " if (event.get("risk_classification") or {}).get("is_risk") else ""
         lines.append(f"- {prefix}{event['title']} | {event.get('source') or 'unknown'}")

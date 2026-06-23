@@ -312,6 +312,16 @@ def execute_dag(
     }
 
 
+def target_output(job: Mapping[str, Any], artifact: Mapping[str, Any]) -> str:
+    """Return bounded target output without bypassing delivery/no-signal policy."""
+    if job.get("deliver") in {"local", "silent"}:
+        return "NO_REPLY\n"
+    if job.get("silent_when_no_signal") and not artifact.get("has_signal"):
+        return "NO_REPLY\n"
+    stdout = str(artifact.get("stdout") or "")
+    return stdout + ("\n" if stdout and not stdout.endswith("\n") else "")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("targets", nargs="+")
@@ -345,10 +355,12 @@ def main() -> None:
             batch_id=result["batch_id"],
             env=os.environ,
         )
-        stdout = str((artifact or {}).get("stdout") or "")
-        sys.stdout.write(stdout)
-        if stdout and not stdout.endswith("\n"):
-            sys.stdout.write("\n")
+        manifest = _load_manifest(args.manifest)
+        job = next(
+            (item for item in manifest.get("jobs", []) if item.get("id") == args.targets[0]),
+            {},
+        )
+        sys.stdout.write(target_output(job, artifact or {}))
     else:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     raise SystemExit(

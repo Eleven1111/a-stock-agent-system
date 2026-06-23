@@ -9,11 +9,16 @@ Usage:
 """
 
 import json
-import sys
-import os
 import re
-import urllib.request
+import os
+import sys
 from datetime import datetime
+
+COMMON = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+if COMMON not in sys.path:
+    sys.path.insert(0, COMMON)
+
+from data_provider import provider_client
 
 SINA_HEADERS = {
     "User-Agent": "Mozilla/5.0",
@@ -40,9 +45,12 @@ STOCK_GROUPS = {
 def fetch_raw_sina(codes: str) -> list[str]:
     """拉原始行情"""
     url = f"https://hq.sinajs.cn/list={codes}"
-    req = urllib.request.Request(url, headers=SINA_HEADERS)
-    resp = urllib.request.urlopen(req, timeout=10)
-    return resp.read().decode("gbk").strip().split("\n")
+    result = provider_client("sina").request_text(
+        url,
+        encoding="gbk",
+        headers=SINA_HEADERS,
+    )
+    return result.data.strip().split("\n")
 
 
 def fetch_indices() -> dict:

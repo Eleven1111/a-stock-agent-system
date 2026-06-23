@@ -33,6 +33,7 @@ from a_share_rules import add_trading_days  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
+import stage_intelligence  # noqa: E402
 import monitor_registry  # noqa: E402
 from recommendation_quality import build_execution_plan, build_quality_report  # noqa: E402
 from decision_policy import evaluate_decision  # noqa: E402
@@ -45,10 +46,14 @@ from tradeability import limit_pct, round_limit  # noqa: E402
 from state_store import atomic_write_json, mutate_json, read_json  # noqa: E402
 from signal_context import read_signal_context  # noqa: E402
 from paths import data_file  # noqa: E402
+from config_registry import load_registered  # noqa: E402
 
 AUCTION_OPEN_FREEZE = "09:20"  # 9:20 后委托不可撤单，9:20→9:25 委买净增 = 无撤单窗口真实意图
 QUOTE_BATCH_SIZE = 80
 MAX_POOL_AGE_DAYS = 4
+DEFAULT_SHORTLIST_LIMIT = int(
+    load_registered("candidate_selection")["pipeline"]["auction_shortlist_limit"]
+)
 
 
 def _sum_vol(levels: List[Tuple[Optional[float], Optional[float]]]) -> float:
@@ -169,6 +174,22 @@ def watch_pool_codes(pool: Mapping[str, Any]) -> List[str]:
     ]
 
 
+def auction_scan_codes(
+    pool: Mapping[str, Any],
+    *,
+    full_universe: bool,
+) -> List[str]:
+    """Return deep-pool codes or the full eligible one-shot scan universe."""
+    source = pool.get("auction_scan_codes") if full_universe else None
+    if not source:
+        return watch_pool_codes(pool)
+    return list(dict.fromkeys(
+        candidate_pipeline.market_code(code)
+        for code in source
+        if code
+    ))
+
+
 def append_snapshot(codes: List[str], asof: str) -> Dict[str, Any]:
     """事务式把一次快照追加到当日状态文件（单锁 read-modify-write）。"""
     raw_quotes = take_snapshot(codes)
@@ -212,7 +233,7 @@ def _persist_shortlist(result: Mapping[str, Any], asof: str) -> None:
     atomic_write_json(_shortlist_latest_path(), dict(result))
 
 
-def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
+def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[str, Any]:
     state = read_json(_state_path(asof), default={"series": {}})
     result = _build_result(state.get("series", {}), asof)
     pool = load_watch_pool(asof)
@@ -237,10 +258,7 @@ def finalize(asof: str, shortlist_limit: int = 20) -> Dict[str, Any]:
         for item in top_candidates
     )
     decisions = []
-    portfolio = read_json(
-        data_file("stock-triage", "portfolio.json"),
-        {"cash": 100000, "positions": []},
-    )
+    portfolio = read_json(data_file("stock-triage", "portfolio.json"), {})
     regime = market_regime(read_market_context())
     monitor_expiry = add_trading_days(asof, 2)
     batch_id = os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}"
@@ -432,7 +450,7 @@ def example_result() -> Dict[str, Any]:
 
 def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
     decisions = list(result.get("preopen_decisions") or [])
-    return {
+    report = {
         "schema": result.get("schema"),
         "status": result.get("status", "ready"),
         "asof": result.get("asof"),
@@ -464,6 +482,8 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
             for item in decisions[:5]
         ],
     }
+    report["intelligence"] = stage_intelligence.auction_digest(result)
+    return report
 
 
 def main() -> None:
@@ -471,10 +491,20 @@ def main() -> None:
     parser.add_argument("--codes", help="逗号分隔，带市场前缀，如 sh600519,sz000001")
     parser.add_argument("--asof", default=date.today().isoformat())
     parser.add_argument("--snapshot", action="store_true", help="抓一次快照并落盘（cron 多次调用）")
+    parser.add_argument(
+        "--full-universe",
+        action="store_true",
+        help="仅本次快照覆盖候选发现的全部合格股票；用于09:24轻量异动扫描",
+    )
     parser.add_argument("--finalize", action="store_true", help="读当日快照算因子")
     parser.add_argument("--once", action="store_true", help="单次抓取+计算，不落盘（调试）")
     parser.add_argument("--example", action="store_true", help="合成数据演示，不触网")
-    parser.add_argument("--shortlist-limit", type=int, default=20, help="竞价收口保留数量")
+    parser.add_argument(
+        "--shortlist-limit",
+        type=int,
+        default=DEFAULT_SHORTLIST_LIMIT,
+        help="竞价收口保留数量（默认读取 candidate_selection 配置）",
+    )
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
 
@@ -494,7 +524,10 @@ def main() -> None:
     elif args.snapshot:
         if not codes:
             try:
-                codes = watch_pool_codes(load_watch_pool(args.asof))
+                codes = auction_scan_codes(
+                    load_watch_pool(args.asof),
+                    full_universe=args.full_universe,
+                )
             except DataSourceError as e:
                 print(json.dumps({"status": "insufficient_data", "error": str(e)}, ensure_ascii=False))
                 sys.exit(1)

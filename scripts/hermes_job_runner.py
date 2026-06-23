@@ -37,6 +37,7 @@ from run_lease import claim  # noqa: E402
 from agent_state import agent_state_path  # noqa: E402
 from state_integrity import ensure_state_identity  # noqa: E402
 from trading_day_gate import evaluate_job_trading_day  # noqa: E402
+from a_stock_http import load_hermes_env  # noqa: E402
 
 
 def _load_manifest(path: str) -> Dict[str, Any]:
@@ -84,7 +85,7 @@ def build_runtime_env(runtime: str) -> Dict[str, str]:
     absent we fall back to the repository root so that state_identity checks
     pass instead of blocking every job.
     """
-    env = os.environ.copy()
+    env = load_hermes_env()
     if not env.get("A_STOCK_STATE_HOME"):
         env["A_STOCK_STATE_HOME"] = ROOT
     if not env.get("A_STOCK_STATE_ID"):

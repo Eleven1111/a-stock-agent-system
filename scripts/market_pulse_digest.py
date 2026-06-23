@@ -62,6 +62,7 @@ def run_pulse(
     max_chars: int = 200,
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    load_hermes_env()
     current = now or datetime.now()
     selected = PROFILES.get(profile)
     if selected is None:

@@ -16,6 +16,12 @@ COMMON = os.path.join(ROOT, "skills", "common")
 sys.path.insert(0, COMMON)
 
 from a_share_rules import previous_trading_day  # noqa: E402
+from a_stock_http import load_hermes_env  # noqa: E402
+from data_provider import (  # noqa: E402
+    _next_serper_key,
+    fetch_public_finance_news,
+    fetch_serper_news,
+)
 from eastmoney_intelligence import eastmoney_json  # noqa: E402
 from market_adapters import (  # noqa: E402
     fetch_a_share_spot,
@@ -37,6 +43,14 @@ def _eastmoney_flow_probe():
         required_path=("data", "klines"),
         required_type=list,
     )
+
+
+def _serper_news_probe():
+    load_hermes_env()
+    key = _next_serper_key()
+    if not key:
+        raise RuntimeError("SERPER_API_KEY/SERPER_API_KEYS missing")
+    return fetch_serper_news("A股 最新", key, 1).data
 
 
 PROBES: dict[str, dict[str, Any]] = {
@@ -64,6 +78,16 @@ PROBES: dict[str, dict[str, Any]] = {
         "provider": "akshare_push2",
         "required": False,
         "call": fetch_a_share_spot,
+    },
+    "serper_news": {
+        "provider": "serper",
+        "required": False,
+        "call": _serper_news_probe,
+    },
+    "public_finance_news": {
+        "provider": "sina+eastmoney",
+        "required": False,
+        "call": lambda: fetch_public_finance_news(2).data,
     },
 }
 

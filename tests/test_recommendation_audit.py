@@ -10,6 +10,10 @@ def _wire(tmp_path, monkeypatch, history=None):
     monkeypatch.setattr(ra, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(ra, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(ra, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        ra.PORTFOLIO_FILE,
+        {"cash": 100000, "positions": [], "cash_reconciled": True},
+    )
     monkeypatch.setattr(
         ra.strategy_registry,
         "live_record",
@@ -83,6 +87,20 @@ def test_record_recommendation_writes_audit_file(tmp_path, monkeypatch):
         "signal.opened",
         "trade.proposed",
     ]
+
+
+def test_recommendation_amount_uses_runtime_portfolio_value(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    atomic_write_json(
+        ra.PORTFOLIO_FILE,
+        {"cash": 12000, "positions": [{"code": "600001", "shares": 800, "current_price": 10}]},
+    )
+
+    result = ra.record_recommendation(**_passed_buy())
+
+    sizing = result["record"]["position_sizing"]
+    assert sizing["account_value"] == 20000
+    assert sizing["recommended_amount"] == 400
 
 
 def test_record_recommendation_preserves_selection_context_in_ledger(tmp_path, monkeypatch):

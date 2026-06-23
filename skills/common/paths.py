@@ -41,7 +41,10 @@ def backup_home() -> str:
 
 def env_file() -> str:
     """.env 文件路径。"""
-    return os.path.join(hermes_install_home(), ".env")
+    return (
+        os.environ.get("A_STOCK_ENV_FILE")
+        or os.path.join(hermes_install_home(), ".env")
+    )
 
 
 def hermes_python() -> str:

@@ -81,15 +81,28 @@ def test_scheduled_monitor_serializes_typed_provider_errors(monkeypatch):
             )
         ),
     )
+    monkeypatch.setattr(
+        monitor,
+        "fetch_fallback_news",
+        lambda limit: (_ for _ in ()).throw(
+            DataSourceError(
+                "public_news",
+                "down",
+                error_type=ErrorType.NETWORK,
+                attempts=1,
+                timestamp="2026-06-12T05:45:00+00:00",
+            )
+        ),
+    )
 
     result = monitor.run_monitor(["半导体 A股"], limit=1)
 
-    assert result["status"] == "no_signal"
-    assert result["errors"] == [{
+    assert result["status"] == "insufficient_data"
+    assert result["errors"][0] == {
         "query": "半导体 A股",
         "source": "serper",
         "error_type": "timeout",
         "error": "slow",
         "attempts": 2,
         "timestamp": "2026-06-12T05:45:00+00:00",
-    }]
+    }

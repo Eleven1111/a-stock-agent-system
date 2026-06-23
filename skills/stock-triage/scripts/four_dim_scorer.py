@@ -103,16 +103,7 @@ def fetch_serper_news(query: str, num: int = 5) -> Optional[List[Dict]]:
         return None
     try:
         result = _fetch_serper_news(query, api_key, num)
-        return [
-            {
-                "title": item.get("title", ""),
-                "snippet": item.get("snippet", ""),
-                "source": {"name": item.get("source", "")},
-                "date": item.get("date", ""),
-                "link": item.get("link"),
-            }
-            for item in result.data
-        ]
+        return [dict(item) for item in result.data]
     except (DataSourceError, AttributeError, TypeError):
         return None
 
@@ -174,7 +165,20 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
         klines = fetch_tencent_kline(code, market, 60)
 
     if not klines:
-        return {"score": 5, "detail": "K线数据不足", "signals": []}
+        return {
+            "score": 5,
+            "ma5": None,
+            "ma20": None,
+            "ma60": None,
+            "rsi6": None,
+            "rsi14": None,
+            "atr14": None,
+            "volume_ratio": None,
+            "chip_concentration": None,
+            "price": rt.get("price"),
+            "change_pct": rt.get("change_pct"),
+            "detail": "K线数据不足",
+        }
 
     closes = [k["close"] for k in klines]
     highs = [k["high"] for k in klines]

@@ -100,6 +100,20 @@ described as "confirmation then buy". With `top_n > 1`, the rank-shift proxy is 
 shifted basket rather than one runner-up stock. These limitations are emitted in
 `counterfactual_contracts`.
 
+Runtime capital is read from the shared `portfolio.json`, not from repository
+configuration. Missing account state has zero available capital and fails
+closed. Reconcile a verified cash balance with an auditable source and as-of
+date before using amount-based guidance:
+
+```bash
+python skills/stock-triage/scripts/portfolio_manager.py \
+  --reconcile-cash 20000 --cash-source user_confirmed \
+  --cash-asof 2026-06-23 --json
+```
+
+This updates runtime state only; account balances must never be committed to
+the repository.
+
 ## Run
 
 ```bash

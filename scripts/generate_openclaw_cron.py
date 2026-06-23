@@ -79,9 +79,11 @@ def build_openclaw_commands(
     grace_seconds: int = 60,
     state_home: str | None = None,
     state_id: str | None = None,
+    env_file: str | None = None,
 ) -> list[str]:
     state_home = state_home or os.environ.get("A_STOCK_STATE_HOME")
     state_id = state_id or os.environ.get("A_STOCK_STATE_ID")
+    env_file = env_file or os.environ.get("A_STOCK_ENV_FILE")
     jobs = {
         str(job["id"]): job
         for job in manifest.get("jobs", [])
@@ -128,6 +130,8 @@ def build_openclaw_commands(
             parts.extend(["--command-env", f"A_STOCK_STATE_HOME={state_home}"])
         if state_id:
             parts.extend(["--command-env", f"A_STOCK_STATE_ID={state_id}"])
+        if env_file:
+            parts.extend(["--command-env", f"A_STOCK_ENV_FILE={env_file}"])
         deliver_flag = job.get("deliver") in {"local", "silent"}
         if deliver_flag:
             parts.append("--no-deliver")
@@ -153,6 +157,7 @@ def main() -> int:
     parser.add_argument("--grace-seconds", type=int, default=60)
     parser.add_argument("--state-home", default=os.environ.get("A_STOCK_STATE_HOME"))
     parser.add_argument("--state-id", default=os.environ.get("A_STOCK_STATE_ID"))
+    parser.add_argument("--env-file", default=os.environ.get("A_STOCK_ENV_FILE"))
     args = parser.parse_args()
     if not args.state_home:
         parser.error("--state-home or A_STOCK_STATE_HOME is required for OpenClaw jobs")
@@ -165,6 +170,7 @@ def main() -> int:
         grace_seconds=args.grace_seconds,
         state_home=args.state_home,
         state_id=args.state_id,
+        env_file=args.env_file,
     ):
         print(command)
     return 0
