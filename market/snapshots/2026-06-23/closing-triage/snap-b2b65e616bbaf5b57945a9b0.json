@@ -1,0 +1,56 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-b2b65e616bbaf5b57945a9b0",
+  "dataset": "closing-triage",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "closing-triage",
+  "producer_version": "78d8946e7716f5384cf5faaadd8d260717b698f7",
+  "captured_at": "2026-06-23T15:35:00+08:00",
+  "payload_schema": "hermes_context_digest_v1",
+  "payload_hash": "f4a85ab34c7b99f8e6d96f6c3cea0e76221dc16530d6cc4f822f1b3dbea9ed3e",
+  "source_versions": {},
+  "payload": {
+    "schema": "hermes_context_digest_v1",
+    "kind": "closing-triage",
+    "generated_at": "2026-06-23T15:35:00",
+    "status": "ready",
+    "missing_context": [],
+    "context_count": 3,
+    "highlights": [
+      {
+        "job_id": "four-dim-scorer",
+        "run_id": "four-dim-scorer-20260623-151800-8274",
+        "status": "ok",
+        "finished_at": "2026-06-23T15:18:02+08:00",
+        "summary": {
+          "schema": "four_dim_batch_v1",
+          "status": "ready",
+          "signals_count": 0
+        },
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/four-dim-scorer/four-dim-scorer-20260623-151800-8274.json"
+      },
+      {
+        "job_id": "portfolio-check",
+        "run_id": "portfolio-check-20260623-152547-8388",
+        "status": "ok",
+        "finished_at": "2026-06-23T15:25:48+08:00",
+        "summary": {},
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/portfolio-check/portfolio-check-20260623-152547-8388.json"
+      },
+      {
+        "job_id": "capital-flow",
+        "run_id": "capital-flow-20260623-143000-7468",
+        "status": "ok",
+        "finished_at": "2026-06-23T14:30:26+08:00",
+        "summary": {
+          "schema": "capital_flow_v2",
+          "status": "insufficient_data",
+          "alerts_count": 26
+        },
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/capital-flow/capital-flow-20260623-143000-7468.json"
+      }
+    ]
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/closing-triage/snap-b2b65e616bbaf5b57945a9b0.json"
+}

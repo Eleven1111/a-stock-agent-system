@@ -1,0 +1,86 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "auction-finalize",
+  "run_id": "auction-finalize-20260623-092600-1603",
+  "batch_id": "a-share-20260623",
+  "trading_date": "2026-06-23",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-23T09:26:00+08:00",
+  "finished_at": "2026-06-23T09:26:02+08:00",
+  "duration_seconds": 2.234,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/daban-stock-picker/scripts/auction_collector.py --finalize --shortlist-limit 20 --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "schema": "auction_finalize_v2",
+    "status": "ready"
+  },
+  "context_from": [
+    {
+      "job_id": "auction-snapshot",
+      "run_id": "auction-snapshot-20260623-092400-1553",
+      "batch_id": "a-share-20260623",
+      "trading_date": "2026-06-23",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/auction-snapshot/auction-snapshot-20260623-092400-1553.json",
+      "status": "ok",
+      "finished_at": "2026-06-23T09:24:01+08:00",
+      "summary": {},
+      "age_minutes": 1.983,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-23",
+    "batch_id": "a-share-20260623",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 15,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "auction-snapshot",
+        "run_id": "auction-snapshot-20260623-092400-1553",
+        "batch_id": "a-share-20260623",
+        "trading_date": "2026-06-23",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/auction-snapshot/auction-snapshot-20260623-092400-1553.json",
+        "status": "ok",
+        "finished_at": "2026-06-23T09:24:01+08:00",
+        "summary": {},
+        "age_minutes": 1.983,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-23",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-e4b0a53bd48534b83658a237",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/auction-finalize/snap-e4b0a53bd48534b83658a237.json",
+    "payload_hash": "d88e0a9b03cc7e41d438584b87607b37b3a0cf541982ea73bba9d1c249829b08",
+    "source_versions": {}
+  },
+  "stdout": "{\"schema\": \"auction_finalize_v2\", \"status\": \"ready\", \"asof\": \"2026-06-23\", \"generated_at\": \"2026-06-23T09:26:00\", \"source_asof\": \"2026-06-22\", \"research_only\": true, \"input_count\": 200, \"shortlist_count\": 20, \"decision_count\": 5, \"top_candidates\": [{\"code\": \"sh600160\", \"name\": \"巨化股份\", \"sector\": \"化学制品\", \"sector_rank\": null, \"leader_rank\": null, \"auction_rank\": 1, \"auction_sector_rank\": 1, \"auction_score\": 88.67, \"strategy_id\": \"trend_pullback\", \"hot_money_qualified\": null, \"decision\": \"watch\", \"quality_status\": \"passed\", \"policy_reasons\": [\"strategy_unverified\"], \"selection_context\": {\"window\": \"09:25\", \"status\": null, \"tier\": null, \"daban_ready\": false, \"crowding_score\": null, \"fragility_score\": null, \"dominant_state\": null, \"sector\": \"化学制品\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"qualified\": false, \"snapshot_id\": null}}, {\"code\": \"sh600584\", \"name\": \"XD长电科\", \"sector\": \"半导体\", \"sector_rank\": null, \"leader_rank\": null, \"auction_rank\": 2, \"auction_sector_rank\": 1, \"auction_score\": 88.56, \"strategy_id\": \"trend_pullback\", \"hot_money_qualified\": null, \"decision\": \"watch\", \"quality_status\": \"conditional\", \"policy_reasons\": [], \"selection_context\": {\"window\": \"09:25\", \"status\": null, \"tier\": null, \"daban_ready\": false, \"crowding_score\": null, \"fragility_score\": null, \"dominant_state\": null, \"sector\": \"半导体\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"qualified\": false, \"snapshot_id\": null}}, {\"code\": \"sh600176\", \"name\": \"中国巨石\", \"sector\": null, \"sector_rank\": null, \"leader_rank\": null, \"auction_rank\": 3, \"auction_sector_rank\": null, \"auction_score\": 88.23, \"strategy_id\": \"trend_pullback\", \"hot_money_qualified\": null, \"decision\": \"watch\", \"quality_status\": \"passed\", \"policy_reasons\": [\"strategy_unverified\"], \"selection_context\": {\"window\": \"09:25\", \"status\": null, \"tier\": null, \"daban_ready\": false, \"crowding_score\": null, \"fragility_score\": null, \"dominant_state\": null, \"sector\": null, \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"qualified\": false, \"snapshot_id\": null}}, {\"code\": \"sz002842\", \"name\": \"翔鹭钨业\", \"sector\": \"C 制造业\", \"sector_rank\": null, \"leader_rank\": null, \"auction_rank\": 4, \"auction_sector_rank\": 1, \"auction_score\": 88.22, \"strategy_id\": \"trend_pullback\", \"hot_money_qualified\": null, \"decision\": \"watch\", \"quality_status\": \"conditional\", \"policy_reasons\": [], \"selection_context\": {\"window\": \"09:25\", \"status\": null, \"tier\": null, \"daban_ready\": false, \"crowding_score\": null, \"fragility_score\": null, \"dominant_state\": null, \"sector\": \"C 制造业\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"qualified\": false, \"snapshot_id\": null}}, {\"code\": \"sh600522\", \"name\": \"中天科技\", \"sector\": null, \"sector_rank\": null, \"leader_rank\": null, \"auction_rank\": 5, \"auction_sector_rank\": null, \"auction_score\": 87.94, \"strategy_id\": \"trend_pullback\", \"hot_money_qualified\": null, \"decision\": \"watch\", \"quality_status\": \"passed\", \"policy_reasons\": [\"strategy_unverified\"], \"selection_context\": {\"window\": \"09:25\", \"status\": null, \"tier\": null, \"daban_ready\": false, \"crowding_score\": null, \"fragility_score\": null, \"dominant_state\": null, \"sector\": null, \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"qualified\": false, \"snapshot_id\": null}}]}\n",
+  "stderr": "",
+  "stdout_preview": "{\"schema\": \"auction_finalize_v2\", \"status\": \"ready\", \"asof\": \"2026-06-23\", \"generated_at\": \"2026-06-23T09:26:00\", \"source_asof\": \"2026-06-22\", \"research_only\": true, \"input_count\": 200, \"shortlist_count\": 20, \"decision_count\": 5, \"top_candidates\": [{\"code\": \"sh600160\", \"name\": \"巨化股份\", \"sector\": \"化学制品\", \"sector_rank\": null, \"leader_rank\": null, \"auction_rank\": 1, \"auction_sector_rank\": 1, \"auction_score\": 88.67, \"strategy_id\": \"trend_pullback\", \"hot_money_qualified\": null, \"decision\": \"watch\", \"quality_status\": \"passed\", \"policy_reasons\": [\"strategy_unverified\"], \"selection_context\": {\"window\": \"09:25\", \"status\": null, \"tier\": null, \"daban_ready\": false, \"crowding_score\": null, \"fragility_score\": null, \"dominant_state\": null, \"sector\": \"化学制品\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"qualified\": false, \"snapshot_id\": null}}, {\"code\": \"sh600584\", \"name\": \"XD长电科\", \"sector\": \"半导体\", \"sector_rank\": null, \"leader_rank\": null, \"auction_rank\": 2, \"auction_sector_rank\": 1, \"auction_score\": 88.56, \"strategy_id\": \"trend_pullback\", \"hot_money_qualified\": null, \"decision\": \"watch\", \"quality_status\": \"conditional\", \"policy_reasons\": [], \"selection_cont\n...[truncated 2177 chars]",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/auction-finalize/auction-finalize-20260623-092600-1603.json"
+}

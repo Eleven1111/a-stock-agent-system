@@ -1,0 +1,49 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "open-intelligence-brief",
+  "run_id": "open-intelligence-brief-20260624-093600-26780",
+  "batch_id": "a-share-20260624",
+  "trading_date": "2026-06-24",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-24T09:36:00+08:00",
+  "finished_at": "2026-06-24T09:36:00+08:00",
+  "duration_seconds": 0.085,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python scripts/market_intelligence_brief.py --stage open",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "text_preview": "## 开盘摘要 | 2026-06-24\n市场概况：温度=冰点｜状态=risk_on\n### 门禁后信号\n- 扬杰科技(sz300373)：watch｜开盘分85.86\n- 四方科技(sh603339)：watch｜开盘分84.74\n- 三孚股份(sh603938)：watch｜开盘分84.48\n- 龙磁科技(sz300835)：watch｜开盘分84.46\n- 海科新源(sz301292)：watch｜开盘分74.92\n### 被过滤高分票（研究情报）\n- 黄河旋风(sh600172)：打板99.6｜开盘确认不足\n- 东方锆业(sz002167)：打板99.34｜符合趋势策略3%-10%中度\n...[truncated 113 chars]"
+  },
+  "context_from": [],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-24",
+    "batch_id": "a-share-20260624",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": null,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": []
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-24",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": null,
+  "stdout": "## 开盘摘要 | 2026-06-24\n市场概况：温度=冰点｜状态=risk_on\n### 门禁后信号\n- 扬杰科技(sz300373)：watch｜开盘分85.86\n- 四方科技(sh603339)：watch｜开盘分84.74\n- 三孚股份(sh603938)：watch｜开盘分84.48\n- 龙磁科技(sz300835)：watch｜开盘分84.46\n- 海科新源(sz301292)：watch｜开盘分74.92\n### 被过滤高分票（研究情报）\n- 黄河旋风(sh600172)：打板99.6｜开盘确认不足\n- 东方锆业(sz002167)：打板99.34｜符合趋势策略3%-10%中度上涨观察窗口\n- 长江证券(sz000783)：打板94.14｜竞价强但开盘未形成明确可执行信号\n- 新大洲A(sz000571)：打板93.09｜开盘确认不足\n- 顺景科技(sh603007)：打板93.06｜开盘确认不足\n",
+  "stderr": "",
+  "stdout_preview": "## 开盘摘要 | 2026-06-24\n市场概况：温度=冰点｜状态=risk_on\n### 门禁后信号\n- 扬杰科技(sz300373)：watch｜开盘分85.86\n- 四方科技(sh603339)：watch｜开盘分84.74\n- 三孚股份(sh603938)：watch｜开盘分84.48\n- 龙磁科技(sz300835)：watch｜开盘分84.46\n- 海科新源(sz301292)：watch｜开盘分74.92\n### 被过滤高分票（研究情报）\n- 黄河旋风(sh600172)：打板99.6｜开盘确认不足\n- 东方锆业(sz002167)：打板99.34｜符合趋势策略3%-10%中度上涨观察窗口\n- 长江证券(sz000783)：打板94.14｜竞价强但开盘未形成明确可执行信号\n- 新大洲A(sz000571)：打板93.09｜开盘确认不足\n- 顺景科技(sh603007)：打板93.06｜开盘确认不足\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/open-intelligence-brief/open-intelligence-brief-20260624-093600-26780.json"
+}

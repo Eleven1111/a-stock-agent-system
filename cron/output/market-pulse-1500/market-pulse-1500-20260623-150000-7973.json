@@ -1,0 +1,59 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "market-pulse-1500",
+  "run_id": "market-pulse-1500-20260623-150000-7973",
+  "batch_id": "a-share-20260623",
+  "trading_date": "2026-06-23",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-23T15:00:00+08:00",
+  "finished_at": "2026-06-23T15:00:00+08:00",
+  "duration_seconds": 0.192,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python scripts/market_pulse_digest.py --profile close --json --max-chars 200",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": false,
+  "summary": {
+    "schema": "market_pulse_digest_v1",
+    "status": "insufficient_data",
+    "message": "SERPER_API_KEY missing; no market pulse judgement",
+    "signals_count": 0,
+    "events_count": 0
+  },
+  "context_from": [],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-23",
+    "batch_id": "a-share-20260623",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": null,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": []
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-23",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-254bbb7fd6f63b135e3b7758",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/market-pulse-1500/snap-254bbb7fd6f63b135e3b7758.json",
+    "payload_hash": "cecece9eebc3c051fcb3b3c002310bafa4c7f36bf2fcb8d6ad4c03ed5eab78a8",
+    "source_versions": {}
+  },
+  "stdout": "{\n  \"schema\": \"market_pulse_digest_v1\",\n  \"status\": \"insufficient_data\",\n  \"profile\": \"close\",\n  \"generated_at\": \"2026-06-23T15:00:00\",\n  \"message\": \"SERPER_API_KEY missing; no market pulse judgement\",\n  \"events\": [],\n  \"signals\": []\n}\n",
+  "stderr": "",
+  "stdout_preview": "{\n  \"schema\": \"market_pulse_digest_v1\",\n  \"status\": \"insufficient_data\",\n  \"profile\": \"close\",\n  \"generated_at\": \"2026-06-23T15:00:00\",\n  \"message\": \"SERPER_API_KEY missing; no market pulse judgement\",\n  \"events\": [],\n  \"signals\": []\n}\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/market-pulse-1500/market-pulse-1500-20260623-150000-7973.json"
+}

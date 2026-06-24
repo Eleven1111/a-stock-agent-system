@@ -1,0 +1,1194 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-c2ec0d77e5d29e1ec31a0a5a",
+  "dataset": "stock-intelligence",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "stock-intelligence-refresh",
+  "producer_version": "v2",
+  "captured_at": "2026-06-23T07:44:51+00:00",
+  "payload_schema": "stock_intelligence_v2",
+  "payload_hash": "5f2635b617357ee5abc1d2b4f09587fb68a01f7a66c0172a5b0ef3e8372231c4",
+  "source_versions": {
+    "eastmoney": "eastmoney-intelligence-v2"
+  },
+  "payload": {
+    "schema": "stock_intelligence_v2",
+    "code": "600498",
+    "name": "烽火通信",
+    "asof": "2026-06-23",
+    "fetched_at": "2026-06-23T07:44:43+00:00",
+    "lockups": {
+      "history": [
+        {
+          "date": "2028-08-21",
+          "type": "定向增发机构配售股份",
+          "shares": 86546026.0,
+          "ratio_pct": 6.806
+        },
+        {
+          "date": "2025-11-21",
+          "type": "股权激励限售股份",
+          "shares": 17251566.0,
+          "ratio_pct": 1.4352
+        },
+        {
+          "date": "2024-11-19",
+          "type": "股权激励限售股份",
+          "shares": 17260452.0,
+          "ratio_pct": 1.4796
+        },
+        {
+          "date": "2023-11-17",
+          "type": "股权激励限售股份",
+          "shares": 17772678.0,
+          "ratio_pct": 1.5464
+        },
+        {
+          "date": "2020-11-18",
+          "type": "股权激励限售股份",
+          "shares": 17780554.0,
+          "ratio_pct": 1.5714
+        },
+        {
+          "date": "2020-09-28",
+          "type": "定向增发机构配售股份",
+          "shares": 6797435.0,
+          "ratio_pct": 0.6103
+        },
+        {
+          "date": "2019-05-08",
+          "type": "定向增发机构配售股份",
+          "shares": 4564607.0,
+          "ratio_pct": 0.4124
+        },
+        {
+          "date": "2018-11-26",
+          "type": "股权激励限售股份",
+          "shares": 9021192.0,
+          "ratio_pct": 0.8183
+        },
+        {
+          "date": "2018-09-26",
+          "type": "定向增发机构配售股份",
+          "shares": 61176914.0,
+          "ratio_pct": 5.5953
+        },
+        {
+          "date": "2018-04-20",
+          "type": "定向增发机构配售股份",
+          "shares": 13693820.0,
+          "ratio_pct": 1.3267
+        },
+        {
+          "date": "2017-11-27",
+          "type": "股权激励限售股份",
+          "shares": 9073633.0,
+          "ratio_pct": 0.8909
+        },
+        {
+          "date": "2017-04-14",
+          "type": "定向增发机构配售股份",
+          "shares": 13693820.0,
+          "ratio_pct": 1.3567
+        },
+        {
+          "date": "2016-11-25",
+          "type": "股权激励限售股份",
+          "shares": 8698564.0,
+          "ratio_pct": 0.874
+        },
+        {
+          "date": "2016-07-04",
+          "type": "定向增发机构配售股份",
+          "shares": 6142857.0,
+          "ratio_pct": 0.6227
+        },
+        {
+          "date": "2016-06-06",
+          "type": "定向增发机构配售股份",
+          "shares": 13693820.0,
+          "ratio_pct": 1.3968
+        }
+      ],
+      "upcoming": []
+    },
+    "margin_trading": [
+      {
+        "date": "2026-06-22",
+        "financing_balance": 3816262421.0,
+        "financing_buy": 1231383585.0,
+        "financing_repay": 1113999888.0,
+        "securities_balance": 35270044.8,
+        "securities_sell_volume": 17800.0,
+        "securities_repay_volume": 23500.0,
+        "margin_balance": 3851532465.8
+      },
+      {
+        "date": "2026-06-18",
+        "financing_balance": 3698985059.0,
+        "financing_buy": 989005193.0,
+        "financing_repay": 979709254.0,
+        "securities_balance": 32602075.55,
+        "securities_sell_volume": 39400.0,
+        "securities_repay_volume": 17700.0,
+        "margin_balance": 3731587134.55
+      },
+      {
+        "date": "2026-06-17",
+        "financing_balance": 3689689120.0,
+        "financing_buy": 1238138936.0,
+        "financing_repay": 1308657167.0,
+        "securities_balance": 31531199.4,
+        "securities_sell_volume": 19100.0,
+        "securities_repay_volume": 48300.0,
+        "margin_balance": 3721220319.4
+      },
+      {
+        "date": "2026-06-16",
+        "financing_balance": 3760207352.0,
+        "financing_buy": 1429375635.0,
+        "financing_repay": 1159963736.0,
+        "securities_balance": 32589970.0,
+        "securities_sell_volume": 27800.0,
+        "securities_repay_volume": 44100.0,
+        "margin_balance": 3792797322.0
+      },
+      {
+        "date": "2026-06-15",
+        "financing_balance": 3490795452.0,
+        "financing_buy": 1257844456.0,
+        "financing_repay": 1230460075.0,
+        "securities_balance": 30978300.15,
+        "securities_sell_volume": 33500.0,
+        "securities_repay_volume": 50300.0,
+        "margin_balance": 3521773752.15
+      },
+      {
+        "date": "2026-06-12",
+        "financing_balance": 3463411068.0,
+        "financing_buy": 1844395475.0,
+        "financing_repay": 1630199640.0,
+        "securities_balance": 29892370.65,
+        "securities_sell_volume": 28200.0,
+        "securities_repay_volume": 33100.0,
+        "margin_balance": 3493303438.65
+      },
+      {
+        "date": "2026-06-11",
+        "financing_balance": 3249215233.0,
+        "financing_buy": 1646782349.0,
+        "financing_repay": 1321371502.0,
+        "securities_balance": 29177920.95,
+        "securities_sell_volume": 40900.0,
+        "securities_repay_volume": 13400.0,
+        "margin_balance": 3278393153.95
+      },
+      {
+        "date": "2026-06-10",
+        "financing_balance": 2923804387.0,
+        "financing_buy": 669586884.0,
+        "financing_repay": 771216114.0,
+        "securities_balance": 25115408.5,
+        "securities_sell_volume": 33800.0,
+        "securities_repay_volume": 44195.0,
+        "margin_balance": 2948919795.5
+      },
+      {
+        "date": "2026-06-09",
+        "financing_balance": 3025433615.0,
+        "financing_buy": 920233453.0,
+        "financing_repay": 1032399830.0,
+        "securities_balance": 27147505.0,
+        "securities_sell_volume": 100600.0,
+        "securities_repay_volume": 8000.0,
+        "margin_balance": 3052581120.0
+      },
+      {
+        "date": "2026-06-08",
+        "financing_balance": 3136684232.0,
+        "financing_buy": 981631261.0,
+        "financing_repay": 969892830.0,
+        "securities_balance": 20094150.0,
+        "securities_sell_volume": 8800.0,
+        "securities_repay_volume": 152900.0,
+        "margin_balance": 3156778382.0
+      },
+      {
+        "date": "2026-06-05",
+        "financing_balance": 3124945801.0,
+        "financing_buy": 1562256109.0,
+        "financing_repay": 1081634365.0,
+        "securities_balance": 28962944.0,
+        "securities_sell_volume": 31800.0,
+        "securities_repay_volume": 7700.0,
+        "margin_balance": 3153908745.0
+      },
+      {
+        "date": "2026-06-04",
+        "financing_balance": 2644324056.0,
+        "financing_buy": 561848467.0,
+        "financing_repay": 572577862.0,
+        "securities_balance": 25778925.0,
+        "securities_sell_volume": 4200.0,
+        "securities_repay_volume": 23000.0,
+        "margin_balance": 2670102981.0
+      },
+      {
+        "date": "2026-06-03",
+        "financing_balance": 2655053451.0,
+        "financing_buy": 622576560.0,
+        "financing_repay": 599623404.0,
+        "securities_balance": 26400150.0,
+        "securities_sell_volume": 25300.0,
+        "securities_repay_volume": 10800.0,
+        "margin_balance": 2681453601.0
+      },
+      {
+        "date": "2026-06-02",
+        "financing_balance": 2632100295.0,
+        "financing_buy": 518597088.0,
+        "financing_repay": 374443497.0,
+        "securities_balance": 24403500.0,
+        "securities_sell_volume": 76800.0,
+        "securities_repay_volume": 21400.0,
+        "margin_balance": 2656503795.0
+      },
+      {
+        "date": "2026-06-01",
+        "financing_balance": 2487946704.0,
+        "financing_buy": 310832482.0,
+        "financing_repay": 290464239.0,
+        "securities_balance": 20807880.0,
+        "securities_sell_volume": 190700.0,
+        "securities_repay_volume": 68900.0,
+        "margin_balance": 2508754584.0
+      },
+      {
+        "date": "2026-05-29",
+        "financing_balance": 2467578462.0,
+        "financing_buy": 444251448.0,
+        "financing_repay": 453037758.0,
+        "securities_balance": 16386862.0,
+        "securities_sell_volume": 144600.0,
+        "securities_repay_volume": 5500.0,
+        "margin_balance": 2483965324.0
+      },
+      {
+        "date": "2026-05-28",
+        "financing_balance": 2489259782.0,
+        "financing_buy": 318494668.0,
+        "financing_repay": 321669994.0,
+        "securities_balance": 8967525.0,
+        "securities_sell_volume": 10800.0,
+        "securities_repay_volume": 130501.0,
+        "margin_balance": 2498227307.0
+      },
+      {
+        "date": "2026-05-27",
+        "financing_balance": 2492435108.0,
+        "financing_buy": 298150696.0,
+        "financing_repay": 371546052.0,
+        "securities_balance": 14894150.25,
+        "securities_sell_volume": 57400.0,
+        "securities_repay_volume": 151699.0,
+        "margin_balance": 2507329258.25
+      },
+      {
+        "date": "2026-05-26",
+        "financing_balance": 2565830465.0,
+        "financing_buy": 302911153.0,
+        "financing_repay": 422892117.0,
+        "securities_balance": 20316400.0,
+        "securities_sell_volume": 17900.0,
+        "securities_repay_volume": 6800.0,
+        "margin_balance": 2586146865.0
+      },
+      {
+        "date": "2026-05-25",
+        "financing_balance": 2685811428.0,
+        "financing_buy": 378086278.0,
+        "financing_repay": 514132568.0,
+        "securities_balance": 20847632.0,
+        "securities_sell_volume": 11300.0,
+        "securities_repay_volume": 90900.0,
+        "margin_balance": 2706659060.0
+      },
+      {
+        "date": "2026-05-22",
+        "financing_balance": 2821857717.0,
+        "financing_buy": 428770279.0,
+        "financing_repay": 397744689.0,
+        "securities_balance": 25324880.0,
+        "securities_sell_volume": 26200.0,
+        "securities_repay_volume": 8000.0,
+        "margin_balance": 2847182597.0
+      },
+      {
+        "date": "2026-05-21",
+        "financing_balance": 2790832127.0,
+        "financing_buy": 576668236.0,
+        "financing_repay": 671371971.0,
+        "securities_balance": 23831640.0,
+        "securities_sell_volume": 45500.0,
+        "securities_repay_volume": 69000.0,
+        "margin_balance": 2814663767.0
+      },
+      {
+        "date": "2026-05-20",
+        "financing_balance": 2885535863.0,
+        "financing_buy": 771517761.0,
+        "financing_repay": 688197607.0,
+        "securities_balance": 27163960.0,
+        "securities_sell_volume": 220700.0,
+        "securities_repay_volume": 23700.0,
+        "margin_balance": 2912699823.0
+      },
+      {
+        "date": "2026-05-19",
+        "financing_balance": 2802215708.0,
+        "financing_buy": 486310078.0,
+        "financing_repay": 503955258.0,
+        "securities_balance": 15143175.0,
+        "securities_sell_volume": 2100.0,
+        "securities_repay_volume": 58000.0,
+        "margin_balance": 2817358883.0
+      },
+      {
+        "date": "2026-05-18",
+        "financing_balance": 2819860888.0,
+        "financing_buy": 537174883.0,
+        "financing_repay": 507885778.0,
+        "securities_balance": 18165378.0,
+        "securities_sell_volume": 64500.0,
+        "securities_repay_volume": 95900.0,
+        "margin_balance": 2838026266.0
+      },
+      {
+        "date": "2026-05-15",
+        "financing_balance": 2790571783.0,
+        "financing_buy": 660389716.0,
+        "financing_repay": 830923148.0,
+        "securities_balance": 19262092.0,
+        "securities_sell_volume": 14900.0,
+        "securities_repay_volume": 89500.0,
+        "margin_balance": 2809833875.0
+      },
+      {
+        "date": "2026-05-14",
+        "financing_balance": 2961105215.0,
+        "financing_buy": 849769077.0,
+        "financing_repay": 764167262.0,
+        "securities_balance": 25407598.0,
+        "securities_sell_volume": 44900.0,
+        "securities_repay_volume": 12900.0,
+        "margin_balance": 2986512813.0
+      },
+      {
+        "date": "2026-05-13",
+        "financing_balance": 2875503400.0,
+        "financing_buy": 856406659.0,
+        "financing_repay": 618847062.0,
+        "securities_balance": 24169868.0,
+        "securities_sell_volume": 39600.0,
+        "securities_repay_volume": 72900.0,
+        "margin_balance": 2899673268.0
+      },
+      {
+        "date": "2026-05-12",
+        "financing_balance": 2637943802.0,
+        "financing_buy": 777718404.0,
+        "financing_repay": 762990010.0,
+        "securities_balance": 25415607.0,
+        "securities_sell_volume": 9300.0,
+        "securities_repay_volume": 14100.0,
+        "margin_balance": 2663359409.0
+      },
+      {
+        "date": "2026-05-11",
+        "financing_balance": 2623215408.0,
+        "financing_buy": 1177886287.0,
+        "financing_repay": 974046021.0,
+        "securities_balance": 25524655.0,
+        "securities_sell_volume": 124300.0,
+        "securities_repay_volume": 30300.0,
+        "margin_balance": 2648740063.0
+      }
+    ],
+    "holder_changes": [
+      {
+        "date": "2026-03-31",
+        "holder_count": 196846.0,
+        "holder_change": 67177.0,
+        "holder_change_pct": 51.806522761801,
+        "average_free_shares": 0.0
+      }
+    ],
+    "dragon_tiger": {
+      "records": [],
+      "seats": {
+        "buy": [],
+        "sell": []
+      },
+      "institution": {
+        "buy_amount_wan": 0.0,
+        "sell_amount_wan": 0.0,
+        "net_amount_wan": 0.0
+      }
+    },
+    "block_trades": [
+      {
+        "date": "2026-03-10",
+        "price": 57.2,
+        "close": 57.2,
+        "premium_pct": 0.0,
+        "volume": 48000.0,
+        "amount": 2745600.0,
+        "buyer": "西部证券股份有限公司武汉友谊大道证券营业部",
+        "seller": "国泰海通证券股份有限公司武汉徐东大街证券营业部"
+      },
+      {
+        "date": "2026-03-10",
+        "price": 57.2,
+        "close": 57.2,
+        "premium_pct": 0.0,
+        "volume": 227000.0,
+        "amount": 12984400.0,
+        "buyer": "长江证券股份有限公司武汉胜利街证券营业部",
+        "seller": "国泰海通证券股份有限公司武汉徐东大街证券营业部"
+      },
+      {
+        "date": "2026-03-02",
+        "price": 56.71,
+        "close": 56.71,
+        "premium_pct": 0.0,
+        "volume": 405500.0,
+        "amount": 22995900.0,
+        "buyer": "长江证券股份有限公司武汉胜利街证券营业部",
+        "seller": "国泰海通证券股份有限公司武汉徐东大街证券营业部"
+      },
+      {
+        "date": "2026-02-27",
+        "price": 51.55,
+        "close": 51.55,
+        "premium_pct": 0.0,
+        "volume": 180000.0,
+        "amount": 9279000.0,
+        "buyer": "华泰证券股份有限公司总部",
+        "seller": "中信证券股份有限公司上海分公司"
+      },
+      {
+        "date": "2026-02-10",
+        "price": 40.0,
+        "close": 43.86,
+        "premium_pct": -8.8,
+        "volume": 270000.0,
+        "amount": 10800000.0,
+        "buyer": "国泰海通证券股份有限公司南京广州路证券营业部",
+        "seller": "平安证券股份有限公司江苏分公司"
+      },
+      {
+        "date": "2026-01-23",
+        "price": 41.82,
+        "close": 41.82,
+        "premium_pct": 0.0,
+        "volume": 48000.0,
+        "amount": 2007400.0,
+        "buyer": "中信证券股份有限公司上海浦东新区东方路证券营业部",
+        "seller": "华安证券股份有限公司常德洞庭大道证券营业部"
+      },
+      {
+        "date": "2026-01-05",
+        "price": 35.29,
+        "close": 35.29,
+        "premium_pct": 0.0,
+        "volume": 250000.0,
+        "amount": 8822500.0,
+        "buyer": "华金证券股份有限公司湖北分公司",
+        "seller": "国泰海通证券股份有限公司武汉徐东大街证券营业部"
+      },
+      {
+        "date": "2026-01-05",
+        "price": 35.29,
+        "close": 35.29,
+        "premium_pct": 0.0,
+        "volume": 60000.0,
+        "amount": 2117400.0,
+        "buyer": "国海证券股份有限公司山东分公司",
+        "seller": "华安证券股份有限公司常德洞庭大道证券营业部"
+      },
+      {
+        "date": "2025-12-31",
+        "price": 32.08,
+        "close": 32.08,
+        "premium_pct": 0.0,
+        "volume": 63000.0,
+        "amount": 2021000.0,
+        "buyer": "中信证券股份有限公司上海浦东新区东方路证券营业部",
+        "seller": "华安证券股份有限公司广东分公司"
+      },
+      {
+        "date": "2019-09-05",
+        "price": 24.87,
+        "close": 28.23,
+        "premium_pct": -11.9,
+        "volume": 1920000.0,
+        "amount": 47750400.0,
+        "buyer": "国信证券股份有限公司南通跃龙路证券营业部",
+        "seller": "国信证券股份有限公司南通跃龙路证券营业部"
+      },
+      {
+        "date": "2019-09-04",
+        "price": 25.02,
+        "close": 27.63,
+        "premium_pct": -9.45,
+        "volume": 2200000.0,
+        "amount": 55044000.0,
+        "buyer": "国信证券股份有限公司南通跃龙路证券营业部",
+        "seller": "国信证券股份有限公司南通跃龙路证券营业部"
+      },
+      {
+        "date": "2019-09-03",
+        "price": 24.53,
+        "close": 27.8,
+        "premium_pct": -11.76,
+        "volume": 2200000.0,
+        "amount": 53966000.0,
+        "buyer": "国信证券股份有限公司南通跃龙路证券营业部",
+        "seller": "国信证券股份有限公司南通跃龙路证券营业部"
+      },
+      {
+        "date": "2019-09-02",
+        "price": 24.22,
+        "close": 27.26,
+        "premium_pct": -11.15,
+        "volume": 2200000.0,
+        "amount": 53284000.0,
+        "buyer": "国信证券股份有限公司南通跃龙路证券营业部",
+        "seller": "国信证券股份有限公司南通跃龙路证券营业部"
+      },
+      {
+        "date": "2019-07-12",
+        "price": 26.63,
+        "close": 26.63,
+        "premium_pct": 0.0,
+        "volume": 130000.0,
+        "amount": 3461900.0,
+        "buyer": "中信建投证券股份有限公司总公司交易部",
+        "seller": "中信建投证券股份有限公司北京富丰路证券营业部"
+      },
+      {
+        "date": "2019-07-02",
+        "price": 28.4,
+        "close": 28.4,
+        "premium_pct": 0.0,
+        "volume": 110000.0,
+        "amount": 3124000.0,
+        "buyer": "中信建投证券股份有限公司总公司交易部",
+        "seller": "中信建投证券股份有限公司上海市徐家汇路证券营业部"
+      },
+      {
+        "date": "2019-06-26",
+        "price": 27.8,
+        "close": 27.8,
+        "premium_pct": 0.0,
+        "volume": 75000.0,
+        "amount": 2085000.0,
+        "buyer": "中信建投证券股份有限公司北京中关村东路证券营业部",
+        "seller": "中信建投证券股份有限公司总公司交易部"
+      },
+      {
+        "date": "2019-06-11",
+        "price": 28.9,
+        "close": 28.9,
+        "premium_pct": 0.0,
+        "volume": 80000.0,
+        "amount": 2312000.0,
+        "buyer": "中信建投证券股份有限公司上海控江路证券营业部",
+        "seller": "中信建投证券股份有限公司总公司交易部"
+      },
+      {
+        "date": "2019-05-23",
+        "price": 26.47,
+        "close": 26.47,
+        "premium_pct": 0.0,
+        "volume": 110000.0,
+        "amount": 2911700.0,
+        "buyer": "中信建投证券股份有限公司上海市徐家汇路证券营业部",
+        "seller": "中信建投证券股份有限公司总公司交易部"
+      },
+      {
+        "date": "2019-05-22",
+        "price": 27.29,
+        "close": 27.29,
+        "premium_pct": 0.0,
+        "volume": 130000.0,
+        "amount": 3547700.0,
+        "buyer": "中信建投证券股份有限公司北京富丰路证券营业部",
+        "seller": "中信建投证券股份有限公司总公司交易部"
+      },
+      {
+        "date": "2018-06-26",
+        "price": 20.57,
+        "close": 23.47,
+        "premium_pct": -12.36,
+        "volume": 4500000.0,
+        "amount": 92565000.0,
+        "buyer": "国信证券股份有限公司南通跃龙路证券营业部",
+        "seller": "国信证券股份有限公司南京洪武路证券营业部"
+      }
+    ],
+    "reports": [
+      {
+        "date": "2026-05-20",
+        "title": "公司事件点评报告：经营性现金流好转，聚焦重点客户及重点领域",
+        "institution": "华鑫证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP202605201822472773",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP202605201822472773_1.pdf",
+        "eps_current_year": 0.84,
+        "eps_next_year": 0.96,
+        "eps_year_after_next": 1.09
+      },
+      {
+        "date": "2021-04-20",
+        "title": "2020年报点评：业绩有所下滑，降本增效取得初步成效",
+        "institution": "东吴证券",
+        "rating": "增持",
+        "industry": "通信设备",
+        "info_code": "AP202104201486569920",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP202104201486569920_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2020-05-07",
+        "title": "疫情导致Q1亏损，全年需求向好",
+        "institution": "华金证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP202005071379373813",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP202005071379373813_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2020-05-05",
+        "title": "5G承载规模招标开启，业绩增长有望逐季恢复",
+        "institution": "东吴证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP202005021379201744",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP202005021379201744_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2020-04-22",
+        "title": "公司首次覆盖报告：5G建设如“火”如荼，光通信龙头“烽”赋未来",
+        "institution": "开源证券",
+        "rating": "增持",
+        "industry": "通信设备",
+        "info_code": "AP202004221378392911",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP202004221378392911_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2020-03-12",
+        "title": "5G SA网络带来增量，烽火通信迎来拐点",
+        "institution": "太平洋",
+        "rating": "增持",
+        "industry": "通信设备",
+        "info_code": "AP202003121376175060",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP202003121376175060_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-10-31",
+        "title": "2019年第三季度报告点评：承载网设备尚未放量，公司业绩承压",
+        "institution": "东莞证券",
+        "rating": "增持",
+        "industry": "通信设备",
+        "info_code": "AP201910311370087686",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201910311370087686_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-10-30",
+        "title": "烽火通信：三季度业绩承压，毛利明显改善，5G建设释放业绩发展新动能",
+        "institution": "东吴证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201910301370013316",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201910301370013316_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-08-29",
+        "title": "营业收入持续上升，研发支出稳中有增，业绩稳健发展",
+        "institution": "东吴证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201908291345313851",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201908291345313851_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-06-28",
+        "title": "19年一季度业绩稳步增长，光通信行业龙头积极备战5G",
+        "institution": "群益证券",
+        "rating": "增持",
+        "industry": "通信设备",
+        "info_code": "AP201906281336781357",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201906281336781357_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-05-15",
+        "title": "公司2018年年报点评：稳步推进ICT转型，前瞻布局5G领域",
+        "institution": "中航证券",
+        "rating": "持有",
+        "industry": "通信设备",
+        "info_code": "AP201905151330174548",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201905151330174548_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-05-05",
+        "title": "一季度业绩符合预期，高研发投入完善5G布局",
+        "institution": "中银国际",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201905051326590845",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201905051326590845_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-04-30",
+        "title": "烽火通信：一季度业绩稳健向好，研发加码蓄力5G之战",
+        "institution": "东吴证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201904301324903181",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201904301324903181_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-04-29",
+        "title": "业绩保持稳定增长，5G时代有望长期获益",
+        "institution": "中银国际",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201904291323950348",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201904291323950348_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-04-28",
+        "title": "烽火通信：业绩向好，研发加码，业内领先优势继续保持",
+        "institution": "东吴证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201904281323699843",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201904281323699843_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2019-03-12",
+        "title": "2018年业绩快报点评：收入稳定增长，2019年迎业绩拐点",
+        "institution": "民生证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201903121305113794",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201903121305113794_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-11-01",
+        "title": "可转债预案显示信心，蓄力布局5G及网信安全",
+        "institution": "东吴证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201811011229082876",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201811011229082876_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-10-29",
+        "title": "立足光通信迎接5G，深入信息化打开成长空间",
+        "institution": "广证恒生证券研究所",
+        "rating": "增持",
+        "industry": "通信设备",
+        "info_code": "AP201812021257456271",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201812021257456271_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-10-26",
+        "title": "低调务实，5G时代再进阶",
+        "institution": "东吴证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201810251222015993",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201810251222015993_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-10-23",
+        "title": "2018年三季报点评：业绩符合预期，期待5G助力公司持续向好",
+        "institution": "西南证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201810231219071093",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201810231219071093_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-10-22",
+        "title": "三季报盈利情况改善，强化研发有望5G突破",
+        "institution": "中银国际",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201810221218203394",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201810221218203394_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-10-22",
+        "title": "2018年三季报点评：业绩稳定增长，5G测试进度领先",
+        "institution": "民生证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201810221218176142",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201810221218176142_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-10-22",
+        "title": "三季度业绩稳定增长，全年业绩积极向好",
+        "institution": "华金证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201810221218065449",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201810221218065449_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-10-22",
+        "title": "三季度业绩稳健发展，5G布局态势领先",
+        "institution": "东吴证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201810211217975537",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201810211217975537_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-09-03",
+        "title": "光通信核心设备商，5G打开成长空间",
+        "institution": "民生证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201809031186830893",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201809031186830893_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-08-26",
+        "title": "2018年中报点评：营收稳定增长，股权激励彰显长期发展信心",
+        "institution": "民生证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201808261183023980",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201808261183023980_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-08-21",
+        "title": "业绩平稳增长，下半年营运商资本开支有望加快落地",
+        "institution": "群益证券",
+        "rating": "",
+        "industry": "通信设备",
+        "info_code": "AP201808211181176116",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201808211181176116_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-08-20",
+        "title": "半年报营收增长稳健，5G承载建设有望受益",
+        "institution": "中银国际",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201808201180708590",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201808201180708590_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-08-20",
+        "title": "营收保持增长稳健，期待5G红利释放",
+        "institution": "华金证券",
+        "rating": "买入",
+        "industry": "通信设备",
+        "info_code": "AP201808201180695025",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201808201180695025_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      },
+      {
+        "date": "2018-08-20",
+        "title": "中报点评：中报业绩稳健增长，长期看好5G承载先行",
+        "institution": "广证恒生证券研究所",
+        "rating": "增持",
+        "industry": "通信设备",
+        "info_code": "AP201808201180673655",
+        "pdf_url": "https://pdf.dfcfw.com/pdf/H3_AP201808201180673655_1.pdf",
+        "eps_current_year": 0.0,
+        "eps_next_year": 0.0,
+        "eps_year_after_next": 0.0
+      }
+    ],
+    "dataset_status": {
+      "lockups": {
+        "provider": "eastmoney",
+        "status": "ok",
+        "required": true,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": "2028-08-21",
+        "max_query_age_days": 4,
+        "max_record_age_days": null,
+        "error": null
+      },
+      "margin_trading": {
+        "provider": "eastmoney",
+        "status": "ok",
+        "required": true,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": "2026-06-22",
+        "max_query_age_days": 4,
+        "max_record_age_days": 7,
+        "error": null
+      },
+      "holder_changes": {
+        "provider": "eastmoney",
+        "status": "ok",
+        "required": true,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": "2026-03-31",
+        "max_query_age_days": 4,
+        "max_record_age_days": 180,
+        "error": null
+      },
+      "dragon_tiger": {
+        "provider": "eastmoney",
+        "status": "empty",
+        "required": false,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": null,
+        "max_query_age_days": 4,
+        "max_record_age_days": 45,
+        "error": null
+      },
+      "block_trades": {
+        "provider": "eastmoney",
+        "status": "ok",
+        "required": false,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": "2026-03-10",
+        "max_query_age_days": 4,
+        "max_record_age_days": 45,
+        "error": null
+      },
+      "reports": {
+        "provider": "eastmoney",
+        "status": "ok",
+        "required": false,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": "2026-05-20",
+        "max_query_age_days": 7,
+        "max_record_age_days": 365,
+        "error": null
+      }
+    },
+    "data_quality": {
+      "status": "partial",
+      "missing_datasets": [],
+      "stale_datasets": [
+        "block_trades"
+      ],
+      "missing_required_datasets": [],
+      "stale_required_datasets": [],
+      "directional_ready": true,
+      "errors": []
+    },
+    "source": {
+      "provider": "eastmoney",
+      "adapter_version": "eastmoney-intelligence-v2",
+      "upstream_reference": "simonlin1212/a-stock-data@9379ab9",
+      "fetched_at": "2026-06-23T07:44:51+00:00",
+      "health": {
+        "schema": "provider_health_v2",
+        "provider": "eastmoney",
+        "state": "open",
+        "open_circuits": [
+          "json:push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
+        ],
+        "circuits": {
+          "json:push2his.eastmoney.com/api/qt/stock/fflow/daykline/get": {
+            "state": "open",
+            "consecutive_failures": 4,
+            "open_until_epoch": 1782196503.236948,
+            "last_failure_at": "2026-06-23T06:30:03+00:00",
+            "last_error": {
+              "source": "eastmoney",
+              "error_type": "network",
+              "error": "Remote end closed connection without response",
+              "attempts": 1,
+              "timestamp": "2026-06-23T06:30:03+00:00"
+            },
+            "probe_started_at": "2026-06-23T06:30:00+00:00",
+            "last_success_at": "2026-06-23T02:30:16+00:00"
+          },
+          "json:push2his.eastmoney.com/api/qt/kamt.kline/get": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T06:30:00+00:00"
+          },
+          "datacenter:RPT_LIFT_STAGE": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:44:45+00:00",
+            "last_failure_at": "2026-06-22T07:48:01+00:00",
+            "last_error": {
+              "source": "eastmoney",
+              "error_type": "timeout",
+              "error": "coordination lock timeout: rate_limit",
+              "attempts": 1,
+              "timestamp": "2026-06-22T07:48:01+00:00"
+            }
+          },
+          "datacenter:RPTA_WEB_RZRQ_GGMX": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:44:46+00:00"
+          },
+          "datacenter:RPT_HOLDERNUMLATEST": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:44:47+00:00"
+          },
+          "datacenter:RPT_DAILYBILLBOARD_DETAILSNEW": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:44:49+00:00"
+          },
+          "datacenter:RPT_BILLBOARD_DAILYDETAILSBUY": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:44:39+00:00"
+          },
+          "datacenter:RPT_BILLBOARD_DAILYDETAILSSELL": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:44:40+00:00"
+          },
+          "datacenter:RPT_DATA_BLOCKTRADE": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:44:50+00:00"
+          },
+          "reports": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:44:51+00:00"
+          }
+        },
+        "coordination_backend": "shared_file",
+        "coordination_root": "/Users/eleven/meta-11/a-stock-agent-system/skills/stock-triage/cache/provider_coordination/eastmoney"
+      }
+    },
+    "risk_summary": {
+      "hard_risks": [],
+      "warnings": [
+        "stale_dataset:block_trades",
+        "thin_consensus_sample"
+      ],
+      "positives": [],
+      "details": {
+        "lockup_30d_max_ratio_pct": 0.0,
+        "financing_balance_change_pct": 10.19,
+        "recent_holder_change_pct": [
+          51.806522761801
+        ],
+        "institution_lhb_net_wan": 0.0,
+        "recent_block_trade_premium_pct": [],
+        "report_count_180d": 1,
+        "consensus_institution_count": 1,
+        "consensus_next_eps": 0.96,
+        "consensus_sample_size": 1
+      }
+    }
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/stock-intelligence/snap-c2ec0d77e5d29e1ec31a0a5a.json"
+}

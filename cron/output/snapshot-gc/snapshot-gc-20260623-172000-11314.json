@@ -1,0 +1,56 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "snapshot-gc",
+  "run_id": "snapshot-gc-20260623-172000-11314",
+  "batch_id": "a-share-20260623",
+  "trading_date": "2026-06-23",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "local",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-23T17:20:00+08:00",
+  "finished_at": "2026-06-23T17:20:06+08:00",
+  "duration_seconds": 6.182,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python scripts/snapshot_gc.py --apply --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "schema": "a_stock_storage_gc_v1",
+    "status": "ok"
+  },
+  "context_from": [],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-23",
+    "batch_id": "a-share-20260623",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": null,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": []
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-23",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-7d5467372d467b5837dfcc30",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/snapshot-gc/snap-7d5467372d467b5837dfcc30.json",
+    "payload_hash": "cae0c3faf33d60fcd745333cb3638994e2043a7aec7a2a03237fa794ef76990d",
+    "source_versions": {}
+  },
+  "stdout": "{\n  \"schema\": \"a_stock_storage_gc_v1\",\n  \"status\": \"ok\",\n  \"mode\": \"apply\",\n  \"state_home\": \"/Users/eleven/meta-11/a-stock-agent-system\",\n  \"policy\": {\n    \"snapshot_input_retention_days\": 30,\n    \"snapshot_output_retention_days\": 90,\n    \"cron_artifact_retention_days\": 30,\n    \"reference_protection_days\": 30,\n    \"snapshot_min_keep_per_dataset\": 3,\n    \"snapshot_max_total_mb\": 4096.0,\n    \"gc_max_delete_files\": 10000\n  },\n  \"scanned\": {\n    \"snapshots\": 401,\n    \"cron_artifacts\": 0,\n    \"reference_files\": 460,\n    \"invalid_snapshots\": 0\n  },\n  \"deleted\": {\n    \"expired_snapshots\": 0,\n    \"size_cap_snapshots\": 0,\n    \"cron_artifacts\": 0\n  },\n  \"protected\": {\n    \"referenced_snapshots\": 326,\n    \"minimum_per_dataset\": 3\n  },\n  \"reclaimed_bytes\": 0,\n  \"remaining_snapshot_bytes\": 33805854,\n  \"snapshot_capacity_bytes\": 4294967296,\n  \"capacity_satisfied\": true,\n  \"delete_limit_reached\": false,\n  \"invalid_snapshot_paths\": [],\n  \"retained_lock_files\": 401,\n  \"retained_lock_reason\": \"state_store lock files are never unlinked to avoid split-lock races\"\n}\n",
+  "stderr": "",
+  "stdout_preview": "{\n  \"schema\": \"a_stock_storage_gc_v1\",\n  \"status\": \"ok\",\n  \"mode\": \"apply\",\n  \"state_home\": \"/Users/eleven/meta-11/a-stock-agent-system\",\n  \"policy\": {\n    \"snapshot_input_retention_days\": 30,\n    \"snapshot_output_retention_days\": 90,\n    \"cron_artifact_retention_days\": 30,\n    \"reference_protection_days\": 30,\n    \"snapshot_min_keep_per_dataset\": 3,\n    \"snapshot_max_total_mb\": 4096.0,\n    \"gc_max_delete_files\": 10000\n  },\n  \"scanned\": {\n    \"snapshots\": 401,\n    \"cron_artifacts\": 0,\n    \"reference_files\": 460,\n    \"invalid_snapshots\": 0\n  },\n  \"deleted\": {\n    \"expired_snapshots\": 0,\n    \"size_cap_snapshots\": 0,\n    \"cron_artifacts\": 0\n  },\n  \"protected\": {\n    \"referenced_snapshots\": 326,\n    \"minimum_per_dataset\": 3\n  },\n  \"reclaimed_bytes\": 0,\n  \"remaining_snapshot_bytes\": 33805854,\n  \"snapshot_capacity_bytes\": 4294967296,\n  \"capacity_satisfied\": true,\n  \"delete_limit_reached\": false,\n  \"invalid_snapshot_paths\": [],\n  \"retained_lock_files\": 401,\n  \"retained_lock_reason\": \"state_store lock files are never unlinked to avoid split-lock races\"\n}\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/snapshot-gc/snapshot-gc-20260623-172000-11314.json"
+}

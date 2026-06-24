@@ -1,0 +1,6536 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-3b06492221294308128ae16c",
+  "dataset": "social-attention",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "social-attention",
+  "producer_version": "social-attention-collector-v1",
+  "captured_at": "2026-06-23T03:37:01+00:00",
+  "payload_schema": "social_attention_snapshot_v1",
+  "payload_hash": "626ae2cc1728b9e9ca33eeacb04003b88a8d05cc09f8e1f20870514a74af17d8",
+  "source_versions": {
+    "eastmoney_attention": "eastmoney-attention-v1",
+    "xueqiu_attention": "xueqiu-attention-v1"
+  },
+  "payload": {
+    "schema": "social_attention_snapshot_v1",
+    "status": "ready",
+    "trading_date": "2026-06-23",
+    "captured_at": "2026-06-23T03:37:01+00:00",
+    "source_health": {
+      "eastmoney": {
+        "status": "ok",
+        "record_count": 181,
+        "checked_at": "2026-06-23T03:37:00+00:00"
+      },
+      "xueqiu": {
+        "status": "ok",
+        "record_count": 399,
+        "checked_at": "2026-06-23T03:37:01+00:00"
+      },
+      "baidu": {
+        "status": "disabled"
+      }
+    },
+    "available_sources": [
+      "eastmoney",
+      "xueqiu"
+    ],
+    "source_versions": {
+      "eastmoney_attention": "eastmoney-attention-v1",
+      "xueqiu_attention": "xueqiu-attention-v1"
+    },
+    "stock_count": 200,
+    "theme_count": 22,
+    "stocks": {
+      "000725": {
+        "code": "000725",
+        "name": "京东方A",
+        "sector": "C 制造业",
+        "attention_score": 98.12,
+        "attention_velocity": -5.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "high",
+        "source_disagreement": 2.25,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.73,
+        "provider_scores": {
+          "eastmoney": 97.0,
+          "xueqiu": 99.25
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000725",
+            "name": null,
+            "rank": 4,
+            "rank_change": -1.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ000725",
+            "name": "京东方A",
+            "rank": 4,
+            "metric_value": 4171.0,
+            "price_change_pct": -1.73
+          },
+          "xueqiu_follow": {
+            "code": "SZ000725",
+            "name": "京东方A",
+            "rank": 1,
+            "metric_value": 14751.0,
+            "price_change_pct": -1.73
+          }
+        }
+      },
+      "300059": {
+        "code": "300059",
+        "name": "东方财富",
+        "sector": "J 金融业",
+        "attention_score": 93.38,
+        "attention_velocity": 0.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "high",
+        "source_disagreement": 13.25,
+        "source_disagreement_high": false,
+        "price_change_pct": 1.24,
+        "provider_scores": {
+          "eastmoney": 100.0,
+          "xueqiu": 86.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ300059",
+            "name": null,
+            "rank": 1,
+            "rank_change": 0.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ300059",
+            "name": "东方财富",
+            "rank": 44,
+            "metric_value": 1062.0,
+            "price_change_pct": 1.24
+          },
+          "xueqiu_follow": {
+            "code": "SZ300059",
+            "name": "东方财富",
+            "rank": 11,
+            "metric_value": 7822.0,
+            "price_change_pct": 1.24
+          }
+        }
+      },
+      "600206": {
+        "code": "600206",
+        "name": "有研新材",
+        "sector": null,
+        "attention_score": 91.5,
+        "attention_velocity": -5.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "high",
+        "source_disagreement": 3.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 4.08,
+        "provider_scores": {
+          "eastmoney": 93.0,
+          "xueqiu": 90.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600206",
+            "name": null,
+            "rank": 8,
+            "rank_change": -1.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600206",
+            "name": "有研新材",
+            "rank": 21,
+            "metric_value": 7326.0,
+            "price_change_pct": 4.08
+          }
+        }
+      },
+      "600584": {
+        "code": "600584",
+        "name": "XD长电科",
+        "sector": "半导体",
+        "attention_score": 89.75,
+        "attention_velocity": -5.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "high",
+        "source_disagreement": 16.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -3.87,
+        "provider_scores": {
+          "eastmoney": 98.0,
+          "xueqiu": 81.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600584",
+            "name": null,
+            "rank": 3,
+            "rank_change": -1.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600584",
+            "name": "XD长电科",
+            "rank": 54,
+            "metric_value": 967.0,
+            "price_change_pct": -3.87
+          },
+          "xueqiu_follow": {
+            "code": "SH600584",
+            "name": "XD长电科",
+            "rank": 22,
+            "metric_value": 7241.0,
+            "price_change_pct": -3.87
+          }
+        }
+      },
+      "603986": {
+        "code": "603986",
+        "name": "兆易创新",
+        "sector": null,
+        "attention_score": 84.88,
+        "attention_velocity": -85.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 23.75,
+        "source_disagreement_high": false,
+        "price_change_pct": -3.62,
+        "provider_scores": {
+          "eastmoney": 73.0,
+          "xueqiu": 96.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH603986",
+            "name": null,
+            "rank": 28,
+            "rank_change": -17.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH603986",
+            "name": "兆易创新",
+            "rank": 5,
+            "metric_value": 3708.0,
+            "price_change_pct": -3.62
+          },
+          "xueqiu_follow": {
+            "code": "SH603986",
+            "name": "兆易创新",
+            "rank": 10,
+            "metric_value": 7886.0,
+            "price_change_pct": -3.62
+          }
+        }
+      },
+      "000657": {
+        "code": "000657",
+        "name": "中钨高新",
+        "sector": "C 制造业",
+        "attention_score": 83.25,
+        "attention_velocity": -40.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 7.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.15,
+        "provider_scores": {
+          "eastmoney": 87.0,
+          "xueqiu": 79.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000657",
+            "name": null,
+            "rank": 14,
+            "rank_change": -8.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ000657",
+            "name": "中钨高新",
+            "rank": 41,
+            "metric_value": 1108.0,
+            "price_change_pct": -2.15
+          },
+          "xueqiu_follow": {
+            "code": "SZ000657",
+            "name": "中钨高新",
+            "rank": 43,
+            "metric_value": 6147.0,
+            "price_change_pct": -2.15
+          }
+        }
+      },
+      "600703": {
+        "code": "600703",
+        "name": "三安光电",
+        "sector": "光学光电",
+        "attention_score": 81.38,
+        "attention_velocity": -10.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 27.25,
+        "source_disagreement_high": false,
+        "price_change_pct": 2.95,
+        "provider_scores": {
+          "eastmoney": 95.0,
+          "xueqiu": 67.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600703",
+            "name": null,
+            "rank": 6,
+            "rank_change": -2.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600703",
+            "name": "三安光电",
+            "rank": 73,
+            "metric_value": 734.0,
+            "price_change_pct": 2.95
+          },
+          "xueqiu_follow": {
+            "code": "SH600703",
+            "name": "三安光电",
+            "rank": 58,
+            "metric_value": 5574.0,
+            "price_change_pct": 2.95
+          }
+        }
+      },
+      "002428": {
+        "code": "002428",
+        "name": "云南锗业",
+        "sector": "C 制造业",
+        "attention_score": 81.25,
+        "attention_velocity": 15.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 29.5,
+        "source_disagreement_high": false,
+        "price_change_pct": 1.12,
+        "provider_scores": {
+          "eastmoney": 96.0,
+          "xueqiu": 66.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002428",
+            "name": null,
+            "rank": 5,
+            "rank_change": 3.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002428",
+            "name": "云南锗业",
+            "rank": 74,
+            "metric_value": 711.0,
+            "price_change_pct": 1.12
+          },
+          "xueqiu_follow": {
+            "code": "SZ002428",
+            "name": "云南锗业",
+            "rank": 62,
+            "metric_value": 5409.0,
+            "price_change_pct": 1.12
+          }
+        }
+      },
+      "600487": {
+        "code": "600487",
+        "name": "亨通光电",
+        "sector": null,
+        "attention_score": 81.25,
+        "attention_velocity": -20.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 7.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.63,
+        "provider_scores": {
+          "eastmoney": 85.0,
+          "xueqiu": 77.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600487",
+            "name": null,
+            "rank": 16,
+            "rank_change": -4.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600487",
+            "name": "亨通光电",
+            "rank": 33,
+            "metric_value": 1214.0,
+            "price_change_pct": -0.63
+          },
+          "xueqiu_follow": {
+            "code": "SH600487",
+            "name": "亨通光电",
+            "rank": 59,
+            "metric_value": 5546.0,
+            "price_change_pct": -0.63
+          }
+        }
+      },
+      "600172": {
+        "code": "600172",
+        "name": "黄河旋风",
+        "sector": null,
+        "attention_score": 81.0,
+        "attention_velocity": 15.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 36.0,
+        "source_disagreement_high": true,
+        "price_change_pct": 9.99,
+        "provider_scores": {
+          "eastmoney": 99.0,
+          "xueqiu": 63.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600172",
+            "name": null,
+            "rank": 2,
+            "rank_change": 3.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600172",
+            "name": "黄河旋风",
+            "rank": 75,
+            "metric_value": 4462.0,
+            "price_change_pct": 9.99
+          }
+        }
+      },
+      "002297": {
+        "code": "002297",
+        "name": "博云新材",
+        "sector": "C 制造业",
+        "attention_score": 78.0,
+        "attention_velocity": 75.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 8.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 1.96,
+        "provider_scores": {
+          "eastmoney": 82.0,
+          "xueqiu": 74.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002297",
+            "name": null,
+            "rank": 19,
+            "rank_change": 15.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002297",
+            "name": "博云新材",
+            "rank": 45,
+            "metric_value": 1051.0,
+            "price_change_pct": 1.96
+          },
+          "xueqiu_follow": {
+            "code": "SZ002297",
+            "name": "博云新材",
+            "rank": 61,
+            "metric_value": 5500.0,
+            "price_change_pct": 1.96
+          }
+        }
+      },
+      "600522": {
+        "code": "600522",
+        "name": "中天科技",
+        "sector": null,
+        "attention_score": 76.62,
+        "attention_velocity": 50.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 30.75,
+        "source_disagreement_high": false,
+        "price_change_pct": 5.0,
+        "provider_scores": {
+          "eastmoney": 92.0,
+          "xueqiu": 61.25
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600522",
+            "name": null,
+            "rank": 9,
+            "rank_change": 10.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600522",
+            "name": "中天科技",
+            "rank": 77,
+            "metric_value": 706.0,
+            "price_change_pct": 5.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600522",
+            "name": "中天科技",
+            "rank": 80,
+            "metric_value": 4246.0,
+            "price_change_pct": 5.0
+          }
+        }
+      },
+      "600667": {
+        "code": "600667",
+        "name": "太极实业",
+        "sector": null,
+        "attention_score": 74.75,
+        "attention_velocity": -45.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 16.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -4.3,
+        "provider_scores": {
+          "eastmoney": 83.0,
+          "xueqiu": 66.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600667",
+            "name": null,
+            "rank": 18,
+            "rank_change": -9.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600667",
+            "name": "太极实业",
+            "rank": 76,
+            "metric_value": 709.0,
+            "price_change_pct": -4.3
+          },
+          "xueqiu_follow": {
+            "code": "SH600667",
+            "name": "太极实业",
+            "rank": 60,
+            "metric_value": 5543.0,
+            "price_change_pct": -4.3
+          }
+        }
+      },
+      "600176": {
+        "code": "600176",
+        "name": "中国巨石",
+        "sector": null,
+        "attention_score": 74.25,
+        "attention_velocity": 55.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "medium",
+        "source_disagreement": 11.5,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.84,
+        "provider_scores": {
+          "eastmoney": 80.0,
+          "xueqiu": 68.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600176",
+            "name": null,
+            "rank": 21,
+            "rank_change": 11.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600176",
+            "name": "中国巨石",
+            "rank": 64,
+            "metric_value": 5379.0,
+            "price_change_pct": 0.84
+          }
+        }
+      },
+      "601869": {
+        "code": "601869",
+        "name": "长飞光纤",
+        "sector": "通信设备",
+        "attention_score": 68.88,
+        "attention_velocity": 60.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 42.25,
+        "source_disagreement_high": true,
+        "price_change_pct": 9.5,
+        "provider_scores": {
+          "eastmoney": 90.0,
+          "xueqiu": 47.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH601869",
+            "name": null,
+            "rank": 11,
+            "rank_change": 12.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH601869",
+            "name": "长飞光纤",
+            "rank": 99,
+            "metric_value": 565.0,
+            "price_change_pct": 9.5
+          },
+          "xueqiu_follow": {
+            "code": "SH601869",
+            "name": "长飞光纤",
+            "rank": 112,
+            "metric_value": 2750.0,
+            "price_change_pct": 9.5
+          }
+        }
+      },
+      "600353": {
+        "code": "600353",
+        "name": "旭光电子",
+        "sector": null,
+        "attention_score": 66.62,
+        "attention_velocity": 65.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 14.75,
+        "source_disagreement_high": false,
+        "price_change_pct": 5.76,
+        "provider_scores": {
+          "eastmoney": 74.0,
+          "xueqiu": 59.25
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600353",
+            "name": null,
+            "rank": 27,
+            "rank_change": 13.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600353",
+            "name": "旭光电子",
+            "rank": 92,
+            "metric_value": 594.0,
+            "price_change_pct": 5.76
+          },
+          "xueqiu_follow": {
+            "code": "SH600353",
+            "name": "旭光电子",
+            "rank": 73,
+            "metric_value": 4744.0,
+            "price_change_pct": 5.76
+          }
+        }
+      },
+      "300285": {
+        "code": "300285",
+        "name": "国瓷材料",
+        "sector": "C 制造业",
+        "attention_score": 66.12,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 58.25,
+        "source_disagreement_high": true,
+        "price_change_pct": -6.89,
+        "provider_scores": {
+          "eastmoney": 37.0,
+          "xueqiu": 95.25
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ300285",
+            "name": null,
+            "rank": 64,
+            "rank_change": -22.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ300285",
+            "name": "国瓷材料",
+            "rank": 18,
+            "metric_value": 1741.0,
+            "price_change_pct": -6.89
+          },
+          "xueqiu_follow": {
+            "code": "SZ300285",
+            "name": "国瓷材料",
+            "rank": 3,
+            "metric_value": 10332.0,
+            "price_change_pct": -6.89
+          }
+        }
+      },
+      "002407": {
+        "code": "002407",
+        "name": "多氟多",
+        "sector": "C 制造业",
+        "attention_score": 65.88,
+        "attention_velocity": -25.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 40.25,
+        "source_disagreement_high": true,
+        "price_change_pct": 1.62,
+        "provider_scores": {
+          "eastmoney": 86.0,
+          "xueqiu": 45.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002407",
+            "name": null,
+            "rank": 15,
+            "rank_change": -5.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002407",
+            "name": "多氟多",
+            "rank": 97,
+            "metric_value": 577.0,
+            "price_change_pct": 1.62
+          },
+          "xueqiu_follow": {
+            "code": "SZ002407",
+            "name": "多氟多",
+            "rank": 122,
+            "metric_value": 2602.0,
+            "price_change_pct": 1.62
+          }
+        }
+      },
+      "600392": {
+        "code": "600392",
+        "name": "盛和资源",
+        "sector": null,
+        "attention_score": 64.88,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 29.75,
+        "source_disagreement_high": false,
+        "price_change_pct": -6.58,
+        "provider_scores": {
+          "eastmoney": 50.0,
+          "xueqiu": 79.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600392",
+            "name": null,
+            "rank": 51,
+            "rank_change": -24.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600392",
+            "name": "盛和资源",
+            "rank": 71,
+            "metric_value": 743.0,
+            "price_change_pct": -6.58
+          },
+          "xueqiu_follow": {
+            "code": "SH600392",
+            "name": "盛和资源",
+            "rank": 12,
+            "metric_value": 7794.0,
+            "price_change_pct": -6.58
+          }
+        }
+      },
+      "600549": {
+        "code": "600549",
+        "name": "厦门钨业",
+        "sector": "小金属",
+        "attention_score": 64.0,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 8.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -7.61,
+        "provider_scores": {
+          "eastmoney": 60.0,
+          "xueqiu": 68.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600549",
+            "name": null,
+            "rank": 41,
+            "rank_change": -26.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600549",
+            "name": "厦门钨业",
+            "rank": 64,
+            "metric_value": 790.0,
+            "price_change_pct": -7.61
+          },
+          "xueqiu_follow": {
+            "code": "SH600549",
+            "name": "厦门钨业",
+            "rank": 66,
+            "metric_value": 5111.0,
+            "price_change_pct": -7.61
+          }
+        }
+      },
+      "002167": {
+        "code": "002167",
+        "name": "东方锆业",
+        "sector": "C 制造业",
+        "attention_score": 63.75,
+        "attention_velocity": 5.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 50.5,
+        "source_disagreement_high": true,
+        "price_change_pct": 9.98,
+        "provider_scores": {
+          "eastmoney": 89.0,
+          "xueqiu": 38.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002167",
+            "name": null,
+            "rank": 12,
+            "rank_change": 1.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002167",
+            "name": "东方锆业",
+            "rank": 170,
+            "metric_value": 337.0,
+            "price_change_pct": 9.98
+          },
+          "xueqiu_follow": {
+            "code": "SZ002167",
+            "name": "东方锆业",
+            "rank": 78,
+            "metric_value": 4350.0,
+            "price_change_pct": 9.98
+          }
+        }
+      },
+      "600110": {
+        "code": "600110",
+        "name": "诺德股份",
+        "sector": null,
+        "attention_score": 63.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 10.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -9.97,
+        "provider_scores": {
+          "eastmoney": 58.0,
+          "xueqiu": 68.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600110",
+            "name": null,
+            "rank": 43,
+            "rank_change": 33.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600110",
+            "name": "诺德股份",
+            "rank": 65,
+            "metric_value": 5322.0,
+            "price_change_pct": -9.97
+          }
+        }
+      },
+      "000636": {
+        "code": "000636",
+        "name": "风华高科",
+        "sector": "C 制造业",
+        "attention_score": 62.88,
+        "attention_velocity": 40.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 31.75,
+        "source_disagreement_high": false,
+        "price_change_pct": -5.17,
+        "provider_scores": {
+          "eastmoney": 47.0,
+          "xueqiu": 78.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000636",
+            "name": null,
+            "rank": 54,
+            "rank_change": 8.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ000636",
+            "name": "风华高科",
+            "rank": 31,
+            "metric_value": 1268.0,
+            "price_change_pct": -5.17
+          },
+          "xueqiu_follow": {
+            "code": "SZ000636",
+            "name": "风华高科",
+            "rank": 56,
+            "metric_value": 5703.0,
+            "price_change_pct": -5.17
+          }
+        }
+      },
+      "300179": {
+        "code": "300179",
+        "name": "四方达",
+        "sector": "C 制造业",
+        "attention_score": 61.5,
+        "attention_velocity": -85.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 5.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 2.99,
+        "provider_scores": {
+          "eastmoney": 64.0,
+          "xueqiu": 59.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ300179",
+            "name": null,
+            "rank": 37,
+            "rank_change": -17.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ300179",
+            "name": "四方达",
+            "rank": 87,
+            "metric_value": 650.0,
+            "price_change_pct": 2.99
+          },
+          "xueqiu_follow": {
+            "code": "SZ300179",
+            "name": "四方达",
+            "rank": 79,
+            "metric_value": 4300.0,
+            "price_change_pct": 2.99
+          }
+        }
+      },
+      "000960": {
+        "code": "000960",
+        "name": "锡业股份",
+        "sector": "C 制造业",
+        "attention_score": 60.75,
+        "attention_velocity": -45.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 20.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -3.83,
+        "provider_scores": {
+          "eastmoney": 71.0,
+          "xueqiu": 50.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000960",
+            "name": null,
+            "rank": 30,
+            "rank_change": -9.0
+          },
+          "xueqiu_follow": {
+            "code": "SZ000960",
+            "name": "锡业股份",
+            "rank": 100,
+            "metric_value": 3275.0,
+            "price_change_pct": -3.83
+          }
+        }
+      },
+      "601138": {
+        "code": "601138",
+        "name": "工业富联",
+        "sector": null,
+        "attention_score": 59.25,
+        "attention_velocity": -30.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 26.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -4.26,
+        "provider_scores": {
+          "eastmoney": 46.0,
+          "xueqiu": 72.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH601138",
+            "name": null,
+            "rank": 55,
+            "rank_change": -6.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH601138",
+            "name": "工业富联",
+            "rank": 29,
+            "metric_value": 1308.0,
+            "price_change_pct": -4.26
+          },
+          "xueqiu_follow": {
+            "code": "SH601138",
+            "name": "工业富联",
+            "rank": 83,
+            "metric_value": 4039.0,
+            "price_change_pct": -4.26
+          }
+        }
+      },
+      "002185": {
+        "code": "002185",
+        "name": "华天科技",
+        "sector": "C 制造业",
+        "attention_score": 59.0,
+        "attention_velocity": 5.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 26.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.79,
+        "provider_scores": {
+          "eastmoney": 72.0,
+          "xueqiu": 46.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002185",
+            "name": null,
+            "rank": 29,
+            "rank_change": 1.0
+          },
+          "xueqiu_follow": {
+            "code": "SZ002185",
+            "name": "华天科技",
+            "rank": 109,
+            "metric_value": 2907.0,
+            "price_change_pct": -2.79
+          }
+        }
+      },
+      "300308": {
+        "code": "300308",
+        "name": "中际旭创",
+        "sector": "C 制造业",
+        "attention_score": 58.5,
+        "attention_velocity": -5.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 75.0,
+        "source_disagreement_high": true,
+        "price_change_pct": -3.99,
+        "provider_scores": {
+          "eastmoney": 21.0,
+          "xueqiu": 96.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ300308",
+            "name": null,
+            "rank": 80,
+            "rank_change": -1.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ300308",
+            "name": "中际旭创",
+            "rank": 2,
+            "metric_value": 5627.0,
+            "price_change_pct": -3.99
+          },
+          "xueqiu_follow": {
+            "code": "SZ300308",
+            "name": "中际旭创",
+            "rank": 16,
+            "metric_value": 7619.0,
+            "price_change_pct": -3.99
+          }
+        }
+      },
+      "002384": {
+        "code": "002384",
+        "name": "东山精密",
+        "sector": "C 制造业",
+        "attention_score": 58.38,
+        "attention_velocity": 50.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 66.75,
+        "source_disagreement_high": true,
+        "price_change_pct": -4.45,
+        "provider_scores": {
+          "eastmoney": 25.0,
+          "xueqiu": 91.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002384",
+            "name": null,
+            "rank": 76,
+            "rank_change": 10.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002384",
+            "name": "东山精密",
+            "rank": 10,
+            "metric_value": 2425.0,
+            "price_change_pct": -4.45
+          },
+          "xueqiu_follow": {
+            "code": "SZ002384",
+            "name": "东山精密",
+            "rank": 25,
+            "metric_value": 7135.0,
+            "price_change_pct": -4.45
+          }
+        }
+      },
+      "600460": {
+        "code": "600460",
+        "name": "士兰微",
+        "sector": null,
+        "attention_score": 57.62,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 8.75,
+        "source_disagreement_high": false,
+        "price_change_pct": 4.98,
+        "provider_scores": {
+          "eastmoney": 62.0,
+          "xueqiu": 53.25
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600460",
+            "name": null,
+            "rank": 39,
+            "rank_change": 38.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600460",
+            "name": "士兰微",
+            "rank": 120,
+            "metric_value": 463.0,
+            "price_change_pct": 4.98
+          },
+          "xueqiu_follow": {
+            "code": "SH600460",
+            "name": "士兰微",
+            "rank": 69,
+            "metric_value": 4962.0,
+            "price_change_pct": 4.98
+          }
+        }
+      },
+      "600030": {
+        "code": "600030",
+        "name": "中信证券",
+        "sector": null,
+        "attention_score": 56.5,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 49.0,
+        "source_disagreement_high": true,
+        "price_change_pct": -0.14,
+        "provider_scores": {
+          "eastmoney": 32.0,
+          "xueqiu": 81.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600030",
+            "name": null,
+            "rank": 69,
+            "rank_change": -32.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600030",
+            "name": "中信证券",
+            "rank": 39,
+            "metric_value": 1122.0,
+            "price_change_pct": -0.14
+          }
+        }
+      },
+      "600160": {
+        "code": "600160",
+        "name": "巨化股份",
+        "sector": "化学制品",
+        "attention_score": 52.75,
+        "attention_velocity": -65.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 0.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.69,
+        "provider_scores": {
+          "eastmoney": 53.0,
+          "xueqiu": 52.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600160",
+            "name": null,
+            "rank": 48,
+            "rank_change": -13.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600160",
+            "name": "巨化股份",
+            "rank": 96,
+            "metric_value": 3371.0,
+            "price_change_pct": -1.69
+          }
+        }
+      },
+      "600183": {
+        "code": "600183",
+        "name": "生益科技",
+        "sector": null,
+        "attention_score": 52.75,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 57.5,
+        "source_disagreement_high": true,
+        "price_change_pct": -7.86,
+        "provider_scores": {
+          "eastmoney": 24.0,
+          "xueqiu": 81.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600183",
+            "name": null,
+            "rank": 77,
+            "rank_change": 27.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600183",
+            "name": "生益科技",
+            "rank": 38,
+            "metric_value": 6382.0,
+            "price_change_pct": -7.86
+          }
+        }
+      },
+      "002837": {
+        "code": "002837",
+        "name": "英维克",
+        "sector": "C 制造业",
+        "attention_score": 52.25,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 83.5,
+        "source_disagreement_high": true,
+        "price_change_pct": 5.2,
+        "provider_scores": {
+          "eastmoney": 94.0,
+          "xueqiu": 10.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002837",
+            "name": null,
+            "rank": 7,
+            "rank_change": 136.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002837",
+            "name": "英维克",
+            "rank": 182,
+            "metric_value": 311.0,
+            "price_change_pct": 5.2
+          },
+          "xueqiu_follow": {
+            "code": "SZ002837",
+            "name": "英维克",
+            "rank": 178,
+            "metric_value": 1849.0,
+            "price_change_pct": 5.2
+          }
+        }
+      },
+      "601991": {
+        "code": "601991",
+        "name": "大唐发电",
+        "sector": null,
+        "attention_score": 51.75,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 52.5,
+        "source_disagreement_high": true,
+        "price_change_pct": 0.36,
+        "provider_scores": {
+          "eastmoney": 78.0,
+          "xueqiu": 25.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH601991",
+            "name": null,
+            "rank": 23,
+            "rank_change": 21.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH601991",
+            "name": "大唐发电",
+            "rank": 104,
+            "metric_value": 534.0,
+            "price_change_pct": 0.36
+          },
+          "xueqiu_follow": {
+            "code": "SH601991",
+            "name": "大唐发电",
+            "rank": 196,
+            "metric_value": 1695.0,
+            "price_change_pct": 0.36
+          }
+        }
+      },
+      "301217": {
+        "code": "301217",
+        "name": "铜冠铜箔",
+        "sector": "C 制造业",
+        "attention_score": 50.5,
+        "attention_velocity": 65.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 55.0,
+        "source_disagreement_high": true,
+        "price_change_pct": -9.62,
+        "provider_scores": {
+          "eastmoney": 23.0,
+          "xueqiu": 78.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ301217",
+            "name": null,
+            "rank": 78,
+            "rank_change": 13.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ301217",
+            "name": "铜冠铜箔",
+            "rank": 22,
+            "metric_value": 1471.0,
+            "price_change_pct": -9.62
+          },
+          "xueqiu_follow": {
+            "code": "SZ301217",
+            "name": "铜冠铜箔",
+            "rank": 68,
+            "metric_value": 4980.0,
+            "price_change_pct": -9.62
+          }
+        }
+      },
+      "600707": {
+        "code": "600707",
+        "name": "彩虹股份",
+        "sector": null,
+        "attention_score": 49.75,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 38.5,
+        "source_disagreement_high": true,
+        "price_change_pct": 8.15,
+        "provider_scores": {
+          "eastmoney": 69.0,
+          "xueqiu": 30.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600707",
+            "name": null,
+            "rank": 32,
+            "rank_change": 142.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600707",
+            "name": "彩虹股份",
+            "rank": 140,
+            "metric_value": 2316.0,
+            "price_change_pct": 8.15
+          }
+        }
+      },
+      "600552": {
+        "code": "600552",
+        "name": "凯盛科技",
+        "sector": null,
+        "attention_score": 48.5,
+        "attention_velocity": -25.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 7.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 1.29,
+        "provider_scores": {
+          "eastmoney": 45.0,
+          "xueqiu": 52.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600552",
+            "name": null,
+            "rank": 56,
+            "rank_change": -5.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600552",
+            "name": "凯盛科技",
+            "rank": 97,
+            "metric_value": 3364.0,
+            "price_change_pct": 1.29
+          }
+        }
+      },
+      "601958": {
+        "code": "601958",
+        "name": "金钼股份",
+        "sector": "小金属",
+        "attention_score": 48.25,
+        "attention_velocity": -85.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 43.5,
+        "source_disagreement_high": true,
+        "price_change_pct": -6.17,
+        "provider_scores": {
+          "eastmoney": 70.0,
+          "xueqiu": 26.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH601958",
+            "name": null,
+            "rank": 31,
+            "rank_change": -17.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH601958",
+            "name": "金钼股份",
+            "rank": 185,
+            "metric_value": 308.0,
+            "price_change_pct": -6.17
+          },
+          "xueqiu_follow": {
+            "code": "SH601958",
+            "name": "金钼股份",
+            "rank": 111,
+            "metric_value": 2848.0,
+            "price_change_pct": -6.17
+          }
+        }
+      },
+      "603993": {
+        "code": "603993",
+        "name": "洛阳钼业",
+        "sector": null,
+        "attention_score": 47.5,
+        "attention_velocity": -85.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 39.0,
+        "source_disagreement_high": true,
+        "price_change_pct": -8.55,
+        "provider_scores": {
+          "eastmoney": 67.0,
+          "xueqiu": 28.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH603993",
+            "name": null,
+            "rank": 34,
+            "rank_change": -17.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH603993",
+            "name": "洛阳钼业",
+            "rank": 157,
+            "metric_value": 360.0,
+            "price_change_pct": -8.55
+          },
+          "xueqiu_follow": {
+            "code": "SH603993",
+            "name": "洛阳钼业",
+            "rank": 133,
+            "metric_value": 2390.0,
+            "price_change_pct": -8.55
+          }
+        }
+      },
+      "600378": {
+        "code": "600378",
+        "name": "昊华科技",
+        "sector": null,
+        "attention_score": 46.12,
+        "attention_velocity": -15.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 62.25,
+        "source_disagreement_high": true,
+        "price_change_pct": -3.06,
+        "provider_scores": {
+          "eastmoney": 15.0,
+          "xueqiu": 77.25
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600378",
+            "name": null,
+            "rank": 86,
+            "rank_change": -3.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600378",
+            "name": "昊华科技",
+            "rank": 36,
+            "metric_value": 1158.0,
+            "price_change_pct": -3.06
+          },
+          "xueqiu_follow": {
+            "code": "SH600378",
+            "name": "昊华科技",
+            "rank": 57,
+            "metric_value": 5577.0,
+            "price_change_pct": -3.06
+          }
+        }
+      },
+      "600498": {
+        "code": "600498",
+        "name": "烽火通信",
+        "sector": null,
+        "attention_score": 46.0,
+        "attention_velocity": 35.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 16.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 2.47,
+        "provider_scores": {
+          "eastmoney": 54.0,
+          "xueqiu": 38.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600498",
+            "name": null,
+            "rank": 47,
+            "rank_change": 7.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600498",
+            "name": "烽火通信",
+            "rank": 140,
+            "metric_value": 405.0,
+            "price_change_pct": 2.47
+          },
+          "xueqiu_follow": {
+            "code": "SH600498",
+            "name": "烽火通信",
+            "rank": 110,
+            "metric_value": 2883.0,
+            "price_change_pct": 2.47
+          }
+        }
+      },
+      "600961": {
+        "code": "600961",
+        "name": "株冶集团",
+        "sector": null,
+        "attention_score": 46.0,
+        "attention_velocity": 50.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 34.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 6.12,
+        "provider_scores": {
+          "eastmoney": 63.0,
+          "xueqiu": 29.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600961",
+            "name": null,
+            "rank": 38,
+            "rank_change": 10.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600961",
+            "name": "株冶集团",
+            "rank": 143,
+            "metric_value": 2283.0,
+            "price_change_pct": 6.12
+          }
+        }
+      },
+      "600367": {
+        "code": "600367",
+        "name": "红星发展",
+        "sector": "化学原料",
+        "attention_score": 45.38,
+        "attention_velocity": -20.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 6.75,
+        "source_disagreement_high": false,
+        "price_change_pct": -10.0,
+        "provider_scores": {
+          "eastmoney": 42.0,
+          "xueqiu": 48.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600367",
+            "name": null,
+            "rank": 59,
+            "rank_change": -4.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH600367",
+            "name": "红星发展",
+            "rank": 91,
+            "metric_value": 594.0,
+            "price_change_pct": -10.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600367",
+            "name": "红星发展",
+            "rank": 116,
+            "metric_value": 2707.0,
+            "price_change_pct": -10.0
+          }
+        }
+      },
+      "603629": {
+        "code": "603629",
+        "name": "利通电子",
+        "sector": "消费电子",
+        "attention_score": 45.0,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 4.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 6.0,
+        "provider_scores": {
+          "eastmoney": 43.0,
+          "xueqiu": 47.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH603629",
+            "name": null,
+            "rank": 58,
+            "rank_change": -20.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH603629",
+            "name": "利通电子",
+            "rank": 89,
+            "metric_value": 610.0,
+            "price_change_pct": 6.0
+          },
+          "xueqiu_follow": {
+            "code": "SH603629",
+            "name": "利通电子",
+            "rank": 125,
+            "metric_value": 2559.0,
+            "price_change_pct": 6.0
+          }
+        }
+      },
+      "300604": {
+        "code": "300604",
+        "name": "长川科技",
+        "sector": "C 制造业",
+        "attention_score": 44.38,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 47.25,
+        "source_disagreement_high": true,
+        "price_change_pct": 3.17,
+        "provider_scores": {
+          "eastmoney": 68.0,
+          "xueqiu": 20.75
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ300604",
+            "name": null,
+            "rank": 33,
+            "rank_change": 32.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ300604",
+            "name": "长川科技",
+            "rank": 168,
+            "metric_value": 343.0,
+            "price_change_pct": 3.17
+          },
+          "xueqiu_follow": {
+            "code": "SZ300604",
+            "name": "长川科技",
+            "rank": 151,
+            "metric_value": 2154.0,
+            "price_change_pct": 3.17
+          }
+        }
+      },
+      "600497": {
+        "code": "600497",
+        "name": "驰宏锌锗",
+        "sector": "工业金属",
+        "attention_score": 44.0,
+        "attention_velocity": -30.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 70.0,
+        "source_disagreement_high": true,
+        "price_change_pct": -0.44,
+        "provider_scores": {
+          "eastmoney": 79.0,
+          "xueqiu": 9.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600497",
+            "name": null,
+            "rank": 22,
+            "rank_change": -6.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600497",
+            "name": "驰宏锌锗",
+            "rank": 183,
+            "metric_value": 1799.0,
+            "price_change_pct": -0.44
+          }
+        }
+      },
+      "000021": {
+        "code": "000021",
+        "name": "深科技",
+        "sector": "C 制造业",
+        "attention_score": 41.75,
+        "attention_velocity": -20.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 11.5,
+        "source_disagreement_high": false,
+        "price_change_pct": 2.04,
+        "provider_scores": {
+          "eastmoney": 36.0,
+          "xueqiu": 47.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000021",
+            "name": null,
+            "rank": 65,
+            "rank_change": -4.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ000021",
+            "name": "深科技",
+            "rank": 114,
+            "metric_value": 490.0,
+            "price_change_pct": 2.04
+          },
+          "xueqiu_follow": {
+            "code": "SZ000021",
+            "name": "深科技",
+            "rank": 98,
+            "metric_value": 3315.0,
+            "price_change_pct": 2.04
+          }
+        }
+      },
+      "002008": {
+        "code": "002008",
+        "name": "大族激光",
+        "sector": "C 制造业",
+        "attention_score": 41.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 20.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 7.62,
+        "provider_scores": {
+          "eastmoney": 51.0,
+          "xueqiu": 31.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002008",
+            "name": null,
+            "rank": 50,
+            "rank_change": 219.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002008",
+            "name": "大族激光",
+            "rank": 150,
+            "metric_value": 383.0,
+            "price_change_pct": 7.62
+          },
+          "xueqiu_follow": {
+            "code": "SZ002008",
+            "name": "大族激光",
+            "rank": 128,
+            "metric_value": 2470.0,
+            "price_change_pct": 7.62
+          }
+        }
+      },
+      "301071": {
+        "code": "301071",
+        "name": "力量钻石",
+        "sector": "C 制造业",
+        "attention_score": 40.5,
+        "attention_velocity": -70.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 41.0,
+        "source_disagreement_high": true,
+        "price_change_pct": 8.79,
+        "provider_scores": {
+          "eastmoney": 61.0,
+          "xueqiu": 20.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ301071",
+            "name": null,
+            "rank": 40,
+            "rank_change": -14.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ301071",
+            "name": "力量钻石",
+            "rank": 181,
+            "metric_value": 311.0,
+            "price_change_pct": 8.79
+          },
+          "xueqiu_follow": {
+            "code": "SZ301071",
+            "name": "力量钻石",
+            "rank": 141,
+            "metric_value": 2312.0,
+            "price_change_pct": 8.79
+          }
+        }
+      },
+      "603773": {
+        "code": "603773",
+        "name": "沃格光电",
+        "sector": null,
+        "attention_score": 40.5,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 63.0,
+        "source_disagreement_high": true,
+        "price_change_pct": -2.21,
+        "provider_scores": {
+          "eastmoney": 9.0,
+          "xueqiu": 72.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH603773",
+            "name": null,
+            "rank": 92,
+            "rank_change": 33.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH603773",
+            "name": "沃格光电",
+            "rank": 42,
+            "metric_value": 1108.0,
+            "price_change_pct": -2.21
+          },
+          "xueqiu_follow": {
+            "code": "SH603773",
+            "name": "沃格光电",
+            "rank": 72,
+            "metric_value": 4788.0,
+            "price_change_pct": -2.21
+          }
+        }
+      },
+      "600397": {
+        "code": "600397",
+        "name": "江钨装备",
+        "sector": null,
+        "attention_score": 40.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 70.0,
+        "source_disagreement_high": true,
+        "price_change_pct": 9.99,
+        "provider_scores": {
+          "eastmoney": 75.0,
+          "xueqiu": 5.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600397",
+            "name": null,
+            "rank": 26,
+            "rank_change": 54.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600397",
+            "name": "江钨装备",
+            "rank": 191,
+            "metric_value": 1741.0,
+            "price_change_pct": 9.99
+          }
+        }
+      },
+      "300475": {
+        "code": "300475",
+        "name": "香农芯创",
+        "sector": "F 批发零售",
+        "attention_score": 39.62,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 63.25,
+        "source_disagreement_high": true,
+        "price_change_pct": 1.35,
+        "provider_scores": {
+          "eastmoney": 8.0,
+          "xueqiu": 71.25
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ300475",
+            "name": null,
+            "rank": 93,
+            "rank_change": -24.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ300475",
+            "name": "香农芯创",
+            "rank": 46,
+            "metric_value": 1049.0,
+            "price_change_pct": 1.35
+          },
+          "xueqiu_follow": {
+            "code": "SZ300475",
+            "name": "香农芯创",
+            "rank": 71,
+            "metric_value": 4808.0,
+            "price_change_pct": 1.35
+          }
+        }
+      },
+      "000776": {
+        "code": "000776",
+        "name": "广发证券",
+        "sector": "J 金融业",
+        "attention_score": 37.5,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 43.0,
+        "source_disagreement_high": true,
+        "price_change_pct": 2.82,
+        "provider_scores": {
+          "eastmoney": 59.0,
+          "xueqiu": 16.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000776",
+            "name": null,
+            "rank": 42,
+            "rank_change": -24.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ000776",
+            "name": "广发证券",
+            "rank": 169,
+            "metric_value": 343.0,
+            "price_change_pct": 2.82
+          }
+        }
+      },
+      "002156": {
+        "code": "002156",
+        "name": "通富微电",
+        "sector": "C 制造业",
+        "attention_score": 36.75,
+        "attention_velocity": -55.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 5.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.77,
+        "provider_scores": {
+          "eastmoney": 34.0,
+          "xueqiu": 39.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002156",
+            "name": null,
+            "rank": 67,
+            "rank_change": -11.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002156",
+            "name": "通富微电",
+            "rank": 153,
+            "metric_value": 375.0,
+            "price_change_pct": -1.77
+          },
+          "xueqiu_follow": {
+            "code": "SZ002156",
+            "name": "通富微电",
+            "rank": 91,
+            "metric_value": 3631.0,
+            "price_change_pct": -1.77
+          }
+        }
+      },
+      "002409": {
+        "code": "002409",
+        "name": "雅克科技",
+        "sector": "C 制造业",
+        "attention_score": 35.0,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 30.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.47,
+        "provider_scores": {
+          "eastmoney": 20.0,
+          "xueqiu": 50.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002409",
+            "name": null,
+            "rank": 81,
+            "rank_change": -52.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002409",
+            "name": "雅克科技",
+            "rank": 121,
+            "metric_value": 462.0,
+            "price_change_pct": -2.47
+          },
+          "xueqiu_follow": {
+            "code": "SZ002409",
+            "name": "雅克科技",
+            "rank": 81,
+            "metric_value": 4226.0,
+            "price_change_pct": -2.47
+          }
+        }
+      },
+      "601179": {
+        "code": "601179",
+        "name": "中国西电",
+        "sector": "电网设备",
+        "attention_score": 35.0,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.61,
+        "provider_scores": {
+          "eastmoney": 35.0,
+          "xueqiu": 35.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH601179",
+            "name": null,
+            "rank": 66,
+            "rank_change": -41.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH601179",
+            "name": "中国西电",
+            "rank": 133,
+            "metric_value": 418.0,
+            "price_change_pct": -1.61
+          },
+          "xueqiu_follow": {
+            "code": "SH601179",
+            "name": "中国西电",
+            "rank": 129,
+            "metric_value": 2468.0,
+            "price_change_pct": -1.61
+          }
+        }
+      },
+      "000630": {
+        "code": "000630",
+        "name": "铜陵有色",
+        "sector": "C 制造业",
+        "attention_score": 34.75,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 26.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -9.84,
+        "provider_scores": {
+          "eastmoney": 48.0,
+          "xueqiu": 21.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000630",
+            "name": null,
+            "rank": 53,
+            "rank_change": 36.0
+          },
+          "xueqiu_follow": {
+            "code": "SZ000630",
+            "name": "铜陵有色",
+            "rank": 158,
+            "metric_value": 2112.0,
+            "price_change_pct": -9.84
+          }
+        }
+      },
+      "300346": {
+        "code": "300346",
+        "name": "南大光电",
+        "sector": "C 制造业",
+        "attention_score": 32.5,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 13.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 2.19,
+        "provider_scores": {
+          "eastmoney": 39.0,
+          "xueqiu": 26.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ300346",
+            "name": null,
+            "rank": 62,
+            "rank_change": 31.0
+          },
+          "xueqiu_follow": {
+            "code": "SZ300346",
+            "name": "南大光电",
+            "rank": 149,
+            "metric_value": 2175.0,
+            "price_change_pct": 2.19
+          }
+        }
+      },
+      "600105": {
+        "code": "600105",
+        "name": "永鼎股份",
+        "sector": null,
+        "attention_score": 30.25,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 15.5,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.66,
+        "provider_scores": {
+          "eastmoney": 38.0,
+          "xueqiu": 22.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600105",
+            "name": null,
+            "rank": 63,
+            "rank_change": 53.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600105",
+            "name": "永鼎股份",
+            "rank": 156,
+            "metric_value": 2126.0,
+            "price_change_pct": 0.66
+          }
+        }
+      },
+      "002475": {
+        "code": "002475",
+        "name": "立讯精密",
+        "sector": "C 制造业",
+        "attention_score": 29.75,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 0.5,
+        "source_disagreement_high": false,
+        "price_change_pct": 3.51,
+        "provider_scores": {
+          "eastmoney": 30.0,
+          "xueqiu": 29.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002475",
+            "name": null,
+            "rank": 71,
+            "rank_change": 150.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002475",
+            "name": "立讯精密",
+            "rank": 142,
+            "metric_value": 401.0,
+            "price_change_pct": 3.51
+          }
+        }
+      },
+      "603002": {
+        "code": "603002",
+        "name": "宏昌电子",
+        "sector": "电子化学",
+        "attention_score": 27.25,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 26.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -9.33,
+        "provider_scores": {
+          "eastmoney": 14.0,
+          "xueqiu": 40.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH603002",
+            "name": null,
+            "rank": 87,
+            "rank_change": -56.0
+          },
+          "xueqiu_follow": {
+            "code": "SH603002",
+            "name": "宏昌电子",
+            "rank": 120,
+            "metric_value": 2665.0,
+            "price_change_pct": -9.33
+          }
+        }
+      },
+      "300433": {
+        "code": "300433",
+        "name": "蓝思科技",
+        "sector": "C 制造业",
+        "attention_score": 27.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 44.0,
+        "source_disagreement_high": true,
+        "price_change_pct": 0.5,
+        "provider_scores": {
+          "eastmoney": 5.0,
+          "xueqiu": 49.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ300433",
+            "name": null,
+            "rank": 96,
+            "rank_change": 37.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ300433",
+            "name": "蓝思科技",
+            "rank": 102,
+            "metric_value": 541.0,
+            "price_change_pct": 0.5
+          },
+          "xueqiu_follow": {
+            "code": "SZ300433",
+            "name": "蓝思科技",
+            "rank": 104,
+            "metric_value": 3028.0,
+            "price_change_pct": 0.5
+          }
+        }
+      },
+      "605589": {
+        "code": "605589",
+        "name": "圣泉集团",
+        "sector": null,
+        "attention_score": 26.12,
+        "attention_velocity": 60.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 38.25,
+        "source_disagreement_high": true,
+        "price_change_pct": -10.0,
+        "provider_scores": {
+          "eastmoney": 7.0,
+          "xueqiu": 45.25
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH605589",
+            "name": null,
+            "rank": 94,
+            "rank_change": 12.0
+          },
+          "xueqiu_discussion": {
+            "code": "SH605589",
+            "name": "圣泉集团",
+            "rank": 136,
+            "metric_value": 407.0,
+            "price_change_pct": -10.0
+          },
+          "xueqiu_follow": {
+            "code": "SH605589",
+            "name": "圣泉集团",
+            "rank": 85,
+            "metric_value": 3810.0,
+            "price_change_pct": -10.0
+          }
+        }
+      },
+      "603663": {
+        "code": "603663",
+        "name": "三祥新材",
+        "sector": null,
+        "attention_score": 22.75,
+        "attention_velocity": -25.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 41.5,
+        "source_disagreement_high": true,
+        "price_change_pct": 5.43,
+        "provider_scores": {
+          "eastmoney": 2.0,
+          "xueqiu": 43.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH603663",
+            "name": null,
+            "rank": 99,
+            "rank_change": -5.0
+          },
+          "xueqiu_follow": {
+            "code": "SH603663",
+            "name": "三祥新材",
+            "rank": 114,
+            "metric_value": 2723.0,
+            "price_change_pct": 5.43
+          }
+        }
+      },
+      "002491": {
+        "code": "002491",
+        "name": "通鼎互联",
+        "sector": "C 制造业",
+        "attention_score": 20.0,
+        "attention_velocity": 15.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 12.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.53,
+        "provider_scores": {
+          "eastmoney": 26.0,
+          "xueqiu": 14.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002491",
+            "name": null,
+            "rank": 75,
+            "rank_change": 3.0
+          },
+          "xueqiu_discussion": {
+            "code": "SZ002491",
+            "name": "通鼎互联",
+            "rank": 193,
+            "metric_value": 300.0,
+            "price_change_pct": 0.53
+          },
+          "xueqiu_follow": {
+            "code": "SZ002491",
+            "name": "通鼎互联",
+            "rank": 153,
+            "metric_value": 2143.0,
+            "price_change_pct": 0.53
+          }
+        }
+      },
+      "002747": {
+        "code": "002747",
+        "name": "埃斯顿",
+        "sector": "C 制造业",
+        "attention_score": 20.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 14.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 3.36,
+        "provider_scores": {
+          "eastmoney": 27.0,
+          "xueqiu": 13.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002747",
+            "name": null,
+            "rank": 74,
+            "rank_change": 56.0
+          },
+          "xueqiu_follow": {
+            "code": "SZ002747",
+            "name": "埃斯顿",
+            "rank": 175,
+            "metric_value": 1873.0,
+            "price_change_pct": 3.36
+          }
+        }
+      },
+      "002171": {
+        "code": "002171",
+        "name": "楚江新材",
+        "sector": "C 制造业",
+        "attention_score": 18.5,
+        "attention_velocity": -5.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 1.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -7.55,
+        "provider_scores": {
+          "eastmoney": 18.0,
+          "xueqiu": 19.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002171",
+            "name": null,
+            "rank": 83,
+            "rank_change": -1.0
+          },
+          "xueqiu_follow": {
+            "code": "SZ002171",
+            "name": "楚江新材",
+            "rank": 163,
+            "metric_value": 1991.0,
+            "price_change_pct": -7.55
+          }
+        }
+      },
+      "600141": {
+        "code": "600141",
+        "name": "兴发集团",
+        "sector": "农化制品",
+        "attention_score": 15.75,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 25.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -4.34,
+        "provider_scores": {
+          "eastmoney": 3.0,
+          "xueqiu": 28.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600141",
+            "name": null,
+            "rank": 98,
+            "rank_change": -35.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600141",
+            "name": "兴发集团",
+            "rank": 144,
+            "metric_value": 2266.0,
+            "price_change_pct": -4.34
+          }
+        }
+      },
+      "600186": {
+        "code": "600186",
+        "name": "莲花控股",
+        "sector": null,
+        "attention_score": 13.25,
+        "attention_velocity": 100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 0.5,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.35,
+        "provider_scores": {
+          "eastmoney": 13.0,
+          "xueqiu": 13.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600186",
+            "name": null,
+            "rank": 88,
+            "rank_change": 103.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600186",
+            "name": "莲花控股",
+            "rank": 174,
+            "metric_value": 1875.0,
+            "price_change_pct": 0.35
+          }
+        }
+      },
+      "002579": {
+        "code": "002579",
+        "name": "中京电子",
+        "sector": "C 制造业",
+        "attention_score": 10.25,
+        "attention_velocity": -75.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 11.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -5.25,
+        "provider_scores": {
+          "eastmoney": 16.0,
+          "xueqiu": 4.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002579",
+            "name": null,
+            "rank": 85,
+            "rank_change": -15.0
+          },
+          "xueqiu_follow": {
+            "code": "SZ002579",
+            "name": "中京电子",
+            "rank": 192,
+            "metric_value": 1729.0,
+            "price_change_pct": -5.25
+          }
+        }
+      },
+      "600111": {
+        "code": "600111",
+        "name": "北方稀土",
+        "sector": null,
+        "attention_score": 7.25,
+        "attention_velocity": -100.0,
+        "cross_source_count": 2,
+        "eligible_for_boost": true,
+        "crowding_risk": "low",
+        "source_disagreement": 7.5,
+        "source_disagreement_high": false,
+        "price_change_pct": -5.95,
+        "provider_scores": {
+          "eastmoney": 11.0,
+          "xueqiu": 3.5
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH600111",
+            "name": null,
+            "rank": 90,
+            "rank_change": -23.0
+          },
+          "xueqiu_follow": {
+            "code": "SH600111",
+            "name": "北方稀土",
+            "rank": 194,
+            "metric_value": 1717.0,
+            "price_change_pct": -5.95
+          }
+        }
+      },
+      "600519": {
+        "code": "600519",
+        "name": "贵州茅台",
+        "sector": null,
+        "attention_score": 99.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.03,
+        "provider_scores": {
+          "xueqiu": 99.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600519",
+            "name": "贵州茅台",
+            "rank": 1,
+            "metric_value": 10010.0,
+            "price_change_pct": -1.03
+          },
+          "xueqiu_follow": {
+            "code": "SH600519",
+            "name": "贵州茅台",
+            "rank": 5,
+            "metric_value": 8613.0,
+            "price_change_pct": -1.03
+          }
+        }
+      },
+      "002594": {
+        "code": "002594",
+        "name": "比亚迪",
+        "sector": "C 制造业",
+        "attention_score": 98.25,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.88,
+        "provider_scores": {
+          "xueqiu": 98.25
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002594",
+            "name": "比亚迪",
+            "rank": 3,
+            "metric_value": 4832.0,
+            "price_change_pct": -1.88
+          },
+          "xueqiu_follow": {
+            "code": "SZ002594",
+            "name": "比亚迪",
+            "rank": 6,
+            "metric_value": 8562.0,
+            "price_change_pct": -1.88
+          }
+        }
+      },
+      "301211": {
+        "code": "301211",
+        "name": "亨迪药业",
+        "sector": "C 制造业",
+        "attention_score": 98.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 98.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ301211",
+            "name": null,
+            "rank": 3,
+            "rank_change": 4406.0,
+            "current_rank": 235
+          }
+        }
+      },
+      "601318": {
+        "code": "601318",
+        "name": "中国平安",
+        "sector": null,
+        "attention_score": 97.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.85,
+        "provider_scores": {
+          "xueqiu": 97.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601318",
+            "name": "中国平安",
+            "rank": 7,
+            "metric_value": 3512.0,
+            "price_change_pct": -1.85
+          },
+          "xueqiu_follow": {
+            "code": "SH601318",
+            "name": "中国平安",
+            "rank": 4,
+            "metric_value": 9872.0,
+            "price_change_pct": -1.85
+          }
+        }
+      },
+      "000651": {
+        "code": "000651",
+        "name": "格力电器",
+        "sector": "C 制造业",
+        "attention_score": 95.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.22,
+        "provider_scores": {
+          "xueqiu": 95.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ000651",
+            "name": "格力电器",
+            "rank": 11,
+            "metric_value": 2239.0,
+            "price_change_pct": 0.22
+          },
+          "xueqiu_follow": {
+            "code": "SZ000651",
+            "name": "格力电器",
+            "rank": 8,
+            "metric_value": 7991.0,
+            "price_change_pct": 0.22
+          }
+        }
+      },
+      "300167": {
+        "code": "300167",
+        "name": "ST迪威迅",
+        "sector": "I 信息技术",
+        "attention_score": 95.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 95.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ300167",
+            "name": null,
+            "rank": 6,
+            "rank_change": 3902.0,
+            "current_rank": 958
+          }
+        }
+      },
+      "000858": {
+        "code": "000858",
+        "name": "五粮液",
+        "sector": "C 制造业",
+        "attention_score": 94.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.23,
+        "provider_scores": {
+          "xueqiu": 94.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ000858",
+            "name": "五粮液",
+            "rank": 6,
+            "metric_value": 3651.0,
+            "price_change_pct": -1.23
+          },
+          "xueqiu_follow": {
+            "code": "SZ000858",
+            "name": "五粮液",
+            "rank": 17,
+            "metric_value": 7480.0,
+            "price_change_pct": -1.23
+          }
+        }
+      },
+      "600887": {
+        "code": "600887",
+        "name": "伊利股份",
+        "sector": null,
+        "attention_score": 94.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.41,
+        "provider_scores": {
+          "xueqiu": 94.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600887",
+            "name": "伊利股份",
+            "rank": 15,
+            "metric_value": 1994.0,
+            "price_change_pct": -0.41
+          },
+          "xueqiu_follow": {
+            "code": "SH600887",
+            "name": "伊利股份",
+            "rank": 9,
+            "metric_value": 7954.0,
+            "price_change_pct": -0.41
+          }
+        }
+      },
+      "000004": {
+        "code": "000004",
+        "name": "*ST国华",
+        "sector": "I 信息技术",
+        "attention_score": 94.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 94.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ000004",
+            "name": null,
+            "rank": 7,
+            "rank_change": 3883.0,
+            "current_rank": 851
+          }
+        }
+      },
+      "300750": {
+        "code": "300750",
+        "name": "宁德时代",
+        "sector": "C 制造业",
+        "attention_score": 93.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.81,
+        "provider_scores": {
+          "xueqiu": 93.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300750",
+            "name": "宁德时代",
+            "rank": 14,
+            "metric_value": 2028.0,
+            "price_change_pct": -1.81
+          },
+          "xueqiu_follow": {
+            "code": "SZ300750",
+            "name": "宁德时代",
+            "rank": 14,
+            "metric_value": 7740.0,
+            "price_change_pct": -1.81
+          }
+        }
+      },
+      "300149": {
+        "code": "300149",
+        "name": "睿智医药",
+        "sector": "M 科研服务",
+        "attention_score": 93.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 93.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ300149",
+            "name": null,
+            "rank": 8,
+            "rank_change": 3752.0,
+            "current_rank": 147
+          }
+        }
+      },
+      "601127": {
+        "code": "601127",
+        "name": "赛力斯",
+        "sector": null,
+        "attention_score": 92.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.3,
+        "provider_scores": {
+          "xueqiu": 92.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601127",
+            "name": "赛力斯",
+            "rank": 16,
+            "metric_value": 1887.0,
+            "price_change_pct": -2.3
+          }
+        }
+      },
+      "300319": {
+        "code": "300319",
+        "name": "麦捷科技",
+        "sector": "C 制造业",
+        "attention_score": 92.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.54,
+        "provider_scores": {
+          "xueqiu": 92.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300319",
+            "name": "麦捷科技",
+            "rank": 32,
+            "metric_value": 1245.0,
+            "price_change_pct": 0.54
+          },
+          "xueqiu_follow": {
+            "code": "SZ300319",
+            "name": "麦捷科技",
+            "rank": 2,
+            "metric_value": 10848.0,
+            "price_change_pct": 0.54
+          }
+        }
+      },
+      "002648": {
+        "code": "002648",
+        "name": "卫星化学",
+        "sector": "C 制造业",
+        "attention_score": 91.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 91.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002648",
+            "name": null,
+            "rank": 10,
+            "rank_change": 77.0
+          }
+        }
+      },
+      "300485": {
+        "code": "300485",
+        "name": "赛升药业",
+        "sector": "C 制造业",
+        "attention_score": 91.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 91.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ300485",
+            "name": null,
+            "rank": 10,
+            "rank_change": 3650.0,
+            "current_rank": 633
+          }
+        }
+      },
+      "600036": {
+        "code": "600036",
+        "name": "招商银行",
+        "sector": null,
+        "attention_score": 91.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.35,
+        "provider_scores": {
+          "xueqiu": 91.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600036",
+            "name": "招商银行",
+            "rank": 23,
+            "metric_value": 1408.0,
+            "price_change_pct": 0.35
+          },
+          "xueqiu_follow": {
+            "code": "SH600036",
+            "name": "招商银行",
+            "rank": 15,
+            "metric_value": 7705.0,
+            "price_change_pct": 0.35
+          }
+        }
+      },
+      "603259": {
+        "code": "603259",
+        "name": "药明康德",
+        "sector": null,
+        "attention_score": 90.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.85,
+        "provider_scores": {
+          "xueqiu": 90.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH603259",
+            "name": "药明康德",
+            "rank": 20,
+            "metric_value": 1497.0,
+            "price_change_pct": 0.85
+          },
+          "xueqiu_follow": {
+            "code": "SH603259",
+            "name": "药明康德",
+            "rank": 19,
+            "metric_value": 7427.0,
+            "price_change_pct": 0.85
+          }
+        }
+      },
+      "601919": {
+        "code": "601919",
+        "name": "中远海控",
+        "sector": null,
+        "attention_score": 90.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.28,
+        "provider_scores": {
+          "xueqiu": 90.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601919",
+            "name": "中远海控",
+            "rank": 27,
+            "metric_value": 1386.0,
+            "price_change_pct": -0.28
+          },
+          "xueqiu_follow": {
+            "code": "SH601919",
+            "name": "中远海控",
+            "rank": 13,
+            "metric_value": 7762.0,
+            "price_change_pct": -0.28
+          }
+        }
+      },
+      "000333": {
+        "code": "000333",
+        "name": "美的集团",
+        "sector": "C 制造业",
+        "attention_score": 90.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.0,
+        "provider_scores": {
+          "xueqiu": 90.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ000333",
+            "name": "美的集团",
+            "rank": 19,
+            "metric_value": 1592.0,
+            "price_change_pct": 0.0
+          },
+          "xueqiu_follow": {
+            "code": "SZ000333",
+            "name": "美的集团",
+            "rank": 23,
+            "metric_value": 7159.0,
+            "price_change_pct": 0.0
+          }
+        }
+      },
+      "301399": {
+        "code": "301399",
+        "name": "英特科技",
+        "sector": "C 制造业",
+        "attention_score": 90.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 90.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ301399",
+            "name": null,
+            "rank": 11,
+            "rank_change": 3552.0,
+            "current_rank": 578
+          }
+        }
+      },
+      "002921": {
+        "code": "002921",
+        "name": "联诚精密",
+        "sector": "C 制造业",
+        "attention_score": 88.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 88.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ002921",
+            "name": null,
+            "rank": 13,
+            "rank_change": 3512.0,
+            "current_rank": 540
+          }
+        }
+      },
+      "300085": {
+        "code": "300085",
+        "name": "银之杰",
+        "sector": "I 信息技术",
+        "attention_score": 88.0,
+        "attention_velocity": 75.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 88.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ300085",
+            "name": null,
+            "rank": 13,
+            "rank_change": 15.0
+          }
+        }
+      },
+      "000001": {
+        "code": "000001",
+        "name": "平安银行",
+        "sector": "J 金融业",
+        "attention_score": 87.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 1.31,
+        "provider_scores": {
+          "xueqiu": 87.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ000001",
+            "name": "平安银行",
+            "rank": 27,
+            "metric_value": 7063.0,
+            "price_change_pct": 1.31
+          }
+        }
+      },
+      "002460": {
+        "code": "002460",
+        "name": "赣锋锂业",
+        "sector": "C 制造业",
+        "attention_score": 87.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -4.11,
+        "provider_scores": {
+          "xueqiu": 87.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002460",
+            "name": "赣锋锂业",
+            "rank": 30,
+            "metric_value": 1291.0,
+            "price_change_pct": -4.11
+          },
+          "xueqiu_follow": {
+            "code": "SZ002460",
+            "name": "赣锋锂业",
+            "rank": 24,
+            "metric_value": 7157.0,
+            "price_change_pct": -4.11
+          }
+        }
+      },
+      "603630": {
+        "code": "603630",
+        "name": "拉芳家化",
+        "sector": null,
+        "attention_score": 87.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 87.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SH603630",
+            "name": null,
+            "rank": 14,
+            "rank_change": 3476.0,
+            "current_rank": 1241
+          }
+        }
+      },
+      "300434": {
+        "code": "300434",
+        "name": "金石亚药",
+        "sector": "C 制造业",
+        "attention_score": 86.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 86.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ300434",
+            "name": null,
+            "rank": 15,
+            "rank_change": 3455.0,
+            "current_rank": 748
+          }
+        }
+      },
+      "600309": {
+        "code": "600309",
+        "name": "万华化学",
+        "sector": null,
+        "attention_score": 86.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.4,
+        "provider_scores": {
+          "xueqiu": 86.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SH600309",
+            "name": "万华化学",
+            "rank": 29,
+            "metric_value": 6924.0,
+            "price_change_pct": -0.4
+          }
+        }
+      },
+      "002687": {
+        "code": "002687",
+        "name": "乔治白",
+        "sector": "C 制造业",
+        "attention_score": 85.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 85.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ002687",
+            "name": null,
+            "rank": 16,
+            "rank_change": 3429.0,
+            "current_rank": 1539
+          }
+        }
+      },
+      "600436": {
+        "code": "600436",
+        "name": "片仔癀",
+        "sector": null,
+        "attention_score": 84.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.85,
+        "provider_scores": {
+          "xueqiu": 84.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600436",
+            "name": "片仔癀",
+            "rank": 28,
+            "metric_value": 1338.0,
+            "price_change_pct": -0.85
+          },
+          "xueqiu_follow": {
+            "code": "SH600436",
+            "name": "片仔癀",
+            "rank": 36,
+            "metric_value": 6475.0,
+            "price_change_pct": -0.85
+          }
+        }
+      },
+      "600900": {
+        "code": "600900",
+        "name": "长江电力",
+        "sector": null,
+        "attention_score": 84.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.52,
+        "provider_scores": {
+          "xueqiu": 84.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600900",
+            "name": "长江电力",
+            "rank": 57,
+            "metric_value": 899.0,
+            "price_change_pct": 0.52
+          },
+          "xueqiu_follow": {
+            "code": "SH600900",
+            "name": "长江电力",
+            "rank": 7,
+            "metric_value": 8537.0,
+            "price_change_pct": 0.52
+          }
+        }
+      },
+      "000042": {
+        "code": "000042",
+        "name": "中洲控股",
+        "sector": "K 房地产",
+        "attention_score": 84.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 84.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ000042",
+            "name": null,
+            "rank": 17,
+            "rank_change": 3385.0,
+            "current_rank": 1172
+          }
+        }
+      },
+      "000783": {
+        "code": "000783",
+        "name": "长江证券",
+        "sector": "J 金融业",
+        "attention_score": 84.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 84.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000783",
+            "name": null,
+            "rank": 17,
+            "rank_change": 30.0
+          }
+        }
+      },
+      "000568": {
+        "code": "000568",
+        "name": "泸州老窖",
+        "sector": "C 制造业",
+        "attention_score": 83.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.99,
+        "provider_scores": {
+          "xueqiu": 83.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ000568",
+            "name": "泸州老窖",
+            "rank": 34,
+            "metric_value": 1176.0,
+            "price_change_pct": -1.99
+          },
+          "xueqiu_follow": {
+            "code": "SZ000568",
+            "name": "泸州老窖",
+            "rank": 33,
+            "metric_value": 6584.0,
+            "price_change_pct": -1.99
+          }
+        }
+      },
+      "002027": {
+        "code": "002027",
+        "name": "分众传媒",
+        "sector": "L 商务服务",
+        "attention_score": 83.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.98,
+        "provider_scores": {
+          "xueqiu": 83.5
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ002027",
+            "name": "分众传媒",
+            "rank": 34,
+            "metric_value": 6523.0,
+            "price_change_pct": -1.98
+          }
+        }
+      },
+      "600026": {
+        "code": "600026",
+        "name": "中远海能",
+        "sector": null,
+        "attention_score": 83.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 3.52,
+        "provider_scores": {
+          "xueqiu": 83.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600026",
+            "name": "中远海能",
+            "rank": 35,
+            "metric_value": 1162.0,
+            "price_change_pct": 3.52
+          }
+        }
+      },
+      "605369": {
+        "code": "605369",
+        "name": "XD拱东医",
+        "sector": null,
+        "attention_score": 83.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 83.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SH605369",
+            "name": null,
+            "rank": 18,
+            "rank_change": 3368.0,
+            "current_rank": 1628
+          }
+        }
+      },
+      "002352": {
+        "code": "002352",
+        "name": "顺丰控股",
+        "sector": "G 运输仓储",
+        "attention_score": 82.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.6,
+        "provider_scores": {
+          "xueqiu": 82.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002352",
+            "name": "顺丰控股",
+            "rank": 37,
+            "metric_value": 1126.0,
+            "price_change_pct": -0.6
+          }
+        }
+      },
+      "300086": {
+        "code": "300086",
+        "name": "康芝药业",
+        "sector": "C 制造业",
+        "attention_score": 82.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 82.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ300086",
+            "name": null,
+            "rank": 19,
+            "rank_change": 3335.0,
+            "current_rank": 538
+          }
+        }
+      },
+      "000070": {
+        "code": "000070",
+        "name": "特发信息",
+        "sector": "C 制造业",
+        "attention_score": 81.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 81.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000070",
+            "name": null,
+            "rank": 20,
+            "rank_change": 51.0
+          }
+        }
+      },
+      "000895": {
+        "code": "000895",
+        "name": "双汇发展",
+        "sector": "C 制造业",
+        "attention_score": 80.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.7,
+        "provider_scores": {
+          "xueqiu": 80.5
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ000895",
+            "name": "双汇发展",
+            "rank": 40,
+            "metric_value": 6367.0,
+            "price_change_pct": 0.7
+          }
+        }
+      },
+      "603288": {
+        "code": "603288",
+        "name": "海天味业",
+        "sector": null,
+        "attention_score": 80.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 3.66,
+        "provider_scores": {
+          "xueqiu": 80.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SH603288",
+            "name": "海天味业",
+            "rank": 41,
+            "metric_value": 6261.0,
+            "price_change_pct": 3.66
+          }
+        }
+      },
+      "688146": {
+        "code": "688146",
+        "name": "中船特气",
+        "sector": null,
+        "attention_score": 78.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.0,
+        "provider_scores": {
+          "xueqiu": 78.5
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SH688146",
+            "name": "中船特气",
+            "rank": 44,
+            "metric_value": 6064.0,
+            "price_change_pct": 0.0
+          }
+        }
+      },
+      "002714": {
+        "code": "002714",
+        "name": "牧原股份",
+        "sector": "A 农林牧渔",
+        "attention_score": 78.25,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.0,
+        "provider_scores": {
+          "xueqiu": 78.25
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002714",
+            "name": "牧原股份",
+            "rank": 58,
+            "metric_value": 856.0,
+            "price_change_pct": 0.0
+          },
+          "xueqiu_follow": {
+            "code": "SZ002714",
+            "name": "牧原股份",
+            "rank": 31,
+            "metric_value": 6741.0,
+            "price_change_pct": 0.0
+          }
+        }
+      },
+      "000661": {
+        "code": "000661",
+        "name": "长春高新",
+        "sector": "C 制造业",
+        "attention_score": 78.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 1.83,
+        "provider_scores": {
+          "xueqiu": 78.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ000661",
+            "name": "长春高新",
+            "rank": 45,
+            "metric_value": 6054.0,
+            "price_change_pct": 1.83
+          }
+        }
+      },
+      "300461": {
+        "code": "300461",
+        "name": "田中精机",
+        "sector": "C 制造业",
+        "attention_score": 78.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 78.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ300461",
+            "name": null,
+            "rank": 23,
+            "rank_change": 3133.0,
+            "current_rank": 725
+          }
+        }
+      },
+      "000751": {
+        "code": "000751",
+        "name": "锌业股份",
+        "sector": "C 制造业",
+        "attention_score": 77.0,
+        "attention_velocity": 60.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 77.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000751",
+            "name": null,
+            "rank": 24,
+            "rank_change": 12.0
+          }
+        }
+      },
+      "002602": {
+        "code": "002602",
+        "name": "世纪华通",
+        "sector": "I 信息技术",
+        "attention_score": 77.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.93,
+        "provider_scores": {
+          "xueqiu": 77.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002602",
+            "name": "世纪华通",
+            "rank": 47,
+            "metric_value": 1045.0,
+            "price_change_pct": -1.93
+          }
+        }
+      },
+      "002900": {
+        "code": "002900",
+        "name": "哈三联",
+        "sector": "C 制造业",
+        "attention_score": 77.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 77.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ002900",
+            "name": null,
+            "rank": 24,
+            "rank_change": 3103.0,
+            "current_rank": 1809
+          }
+        }
+      },
+      "300146": {
+        "code": "300146",
+        "name": "汤臣倍健",
+        "sector": "C 制造业",
+        "attention_score": 77.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.19,
+        "provider_scores": {
+          "xueqiu": 77.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ300146",
+            "name": "汤臣倍健",
+            "rank": 47,
+            "metric_value": 6025.0,
+            "price_change_pct": 0.19
+          }
+        }
+      },
+      "600276": {
+        "code": "600276",
+        "name": "恒瑞医药",
+        "sector": null,
+        "attention_score": 77.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 1.13,
+        "provider_scores": {
+          "xueqiu": 77.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600276",
+            "name": "恒瑞医药",
+            "rank": 68,
+            "metric_value": 756.0,
+            "price_change_pct": 1.13
+          },
+          "xueqiu_follow": {
+            "code": "SH600276",
+            "name": "恒瑞医药",
+            "rank": 26,
+            "metric_value": 7084.0,
+            "price_change_pct": 1.13
+          }
+        }
+      },
+      "300015": {
+        "code": "300015",
+        "name": "爱尔眼科",
+        "sector": "Q 卫生",
+        "attention_score": 76.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 1.18,
+        "provider_scores": {
+          "xueqiu": 76.5
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ300015",
+            "name": "爱尔眼科",
+            "rank": 48,
+            "metric_value": 5987.0,
+            "price_change_pct": 1.18
+          }
+        }
+      },
+      "000002": {
+        "code": "000002",
+        "name": "万科A",
+        "sector": "K 房地产",
+        "attention_score": 76.25,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.64,
+        "provider_scores": {
+          "xueqiu": 76.25
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ000002",
+            "name": "万科A",
+            "rank": 55,
+            "metric_value": 937.0,
+            "price_change_pct": 0.64
+          },
+          "xueqiu_follow": {
+            "code": "SZ000002",
+            "name": "万科A",
+            "rank": 42,
+            "metric_value": 6160.0,
+            "price_change_pct": 0.64
+          }
+        }
+      },
+      "601066": {
+        "code": "601066",
+        "name": "中信建投",
+        "sector": null,
+        "attention_score": 76.0,
+        "attention_velocity": -5.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 76.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH601066",
+            "name": null,
+            "rank": 25,
+            "rank_change": -1.0
+          }
+        }
+      },
+      "601633": {
+        "code": "601633",
+        "name": "长城汽车",
+        "sector": null,
+        "attention_score": 76.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.82,
+        "provider_scores": {
+          "xueqiu": 76.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SH601633",
+            "name": "长城汽车",
+            "rank": 49,
+            "metric_value": 5979.0,
+            "price_change_pct": -1.82
+          }
+        }
+      },
+      "600585": {
+        "code": "600585",
+        "name": "海螺水泥",
+        "sector": null,
+        "attention_score": 75.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.18,
+        "provider_scores": {
+          "xueqiu": 75.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600585",
+            "name": "海螺水泥",
+            "rank": 69,
+            "metric_value": 755.0,
+            "price_change_pct": -1.18
+          },
+          "xueqiu_follow": {
+            "code": "SH600585",
+            "name": "海螺水泥",
+            "rank": 30,
+            "metric_value": 6830.0,
+            "price_change_pct": -1.18
+          }
+        }
+      },
+      "002271": {
+        "code": "002271",
+        "name": "东方雨虹",
+        "sector": "C 制造业",
+        "attention_score": 75.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.96,
+        "provider_scores": {
+          "xueqiu": 75.5
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ002271",
+            "name": "东方雨虹",
+            "rank": 50,
+            "metric_value": 5951.0,
+            "price_change_pct": -0.96
+          }
+        }
+      },
+      "300476": {
+        "code": "300476",
+        "name": "胜宏科技",
+        "sector": "C 制造业",
+        "attention_score": 75.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -6.08,
+        "provider_scores": {
+          "xueqiu": 75.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300476",
+            "name": "胜宏科技",
+            "rank": 12,
+            "metric_value": 2233.0,
+            "price_change_pct": -6.08
+          },
+          "xueqiu_follow": {
+            "code": "SZ300476",
+            "name": "胜宏科技",
+            "rank": 88,
+            "metric_value": 3729.0,
+            "price_change_pct": -6.08
+          }
+        }
+      },
+      "601857": {
+        "code": "601857",
+        "name": "中国石油",
+        "sector": null,
+        "attention_score": 75.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.93,
+        "provider_scores": {
+          "xueqiu": 75.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601857",
+            "name": "中国石油",
+            "rank": 50,
+            "metric_value": 1014.0,
+            "price_change_pct": -0.93
+          }
+        }
+      },
+      "000933": {
+        "code": "000933",
+        "name": "神火股份",
+        "sector": "C 制造业",
+        "attention_score": 75.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -5.3,
+        "provider_scores": {
+          "xueqiu": 75.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ000933",
+            "name": "神火股份",
+            "rank": 51,
+            "metric_value": 1012.0,
+            "price_change_pct": -5.3
+          }
+        }
+      },
+      "002853": {
+        "code": "002853",
+        "name": "皮阿诺",
+        "sector": "C 制造业",
+        "attention_score": 75.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 75.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ002853",
+            "name": null,
+            "rank": 26,
+            "rank_change": 2993.0,
+            "current_rank": 2005
+          }
+        }
+      },
+      "300014": {
+        "code": "300014",
+        "name": "亿纬锂能",
+        "sector": "C 制造业",
+        "attention_score": 75.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.53,
+        "provider_scores": {
+          "xueqiu": 75.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300014",
+            "name": "亿纬锂能",
+            "rank": 25,
+            "metric_value": 1401.0,
+            "price_change_pct": -2.53
+          },
+          "xueqiu_follow": {
+            "code": "SZ300014",
+            "name": "亿纬锂能",
+            "rank": 77,
+            "metric_value": 4377.0,
+            "price_change_pct": -2.53
+          }
+        }
+      },
+      "300142": {
+        "code": "300142",
+        "name": "沃森生物",
+        "sector": "C 制造业",
+        "attention_score": 75.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 2.26,
+        "provider_scores": {
+          "xueqiu": 75.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ300142",
+            "name": "沃森生物",
+            "rank": 51,
+            "metric_value": 5922.0,
+            "price_change_pct": 2.26
+          }
+        }
+      },
+      "002466": {
+        "code": "002466",
+        "name": "天齐锂业",
+        "sector": "C 制造业",
+        "attention_score": 74.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -4.03,
+        "provider_scores": {
+          "xueqiu": 74.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002466",
+            "name": "天齐锂业",
+            "rank": 52,
+            "metric_value": 998.0,
+            "price_change_pct": -4.03
+          }
+        }
+      },
+      "300274": {
+        "code": "300274",
+        "name": "阳光电源",
+        "sector": "C 制造业",
+        "attention_score": 74.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -5.05,
+        "provider_scores": {
+          "xueqiu": 74.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300274",
+            "name": "阳光电源",
+            "rank": 84,
+            "metric_value": 665.0,
+            "price_change_pct": -5.05
+          },
+          "xueqiu_follow": {
+            "code": "SZ300274",
+            "name": "阳光电源",
+            "rank": 20,
+            "metric_value": 7387.0,
+            "price_change_pct": -5.05
+          }
+        }
+      },
+      "600763": {
+        "code": "600763",
+        "name": "通策医疗",
+        "sector": null,
+        "attention_score": 74.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.71,
+        "provider_scores": {
+          "xueqiu": 74.5
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SH600763",
+            "name": "通策医疗",
+            "rank": 52,
+            "metric_value": 5922.0,
+            "price_change_pct": 0.71
+          }
+        }
+      },
+      "001225": {
+        "code": "001225",
+        "name": "和泰机电",
+        "sector": "C 制造业",
+        "attention_score": 74.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 74.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ001225",
+            "name": null,
+            "rank": 27,
+            "rank_change": 2979.0,
+            "current_rank": 1378
+          }
+        }
+      },
+      "002415": {
+        "code": "002415",
+        "name": "海康威视",
+        "sector": "C 制造业",
+        "attention_score": 74.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.47,
+        "provider_scores": {
+          "xueqiu": 74.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002415",
+            "name": "海康威视",
+            "rank": 78,
+            "metric_value": 705.0,
+            "price_change_pct": -2.47
+          },
+          "xueqiu_follow": {
+            "code": "SZ002415",
+            "name": "海康威视",
+            "rank": 28,
+            "metric_value": 6994.0,
+            "price_change_pct": -2.47
+          }
+        }
+      },
+      "600009": {
+        "code": "600009",
+        "name": "上海机场",
+        "sector": null,
+        "attention_score": 74.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.86,
+        "provider_scores": {
+          "xueqiu": 74.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SH600009",
+            "name": "上海机场",
+            "rank": 53,
+            "metric_value": 5877.0,
+            "price_change_pct": -0.86
+          }
+        }
+      },
+      "600702": {
+        "code": "600702",
+        "name": "舍得酒业",
+        "sector": null,
+        "attention_score": 73.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.48,
+        "provider_scores": {
+          "xueqiu": 73.5
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SH600702",
+            "name": "舍得酒业",
+            "rank": 54,
+            "metric_value": 5826.0,
+            "price_change_pct": -0.48
+          }
+        }
+      },
+      "300961": {
+        "code": "300961",
+        "name": "深水海纳",
+        "sector": "N 公共环保",
+        "attention_score": 73.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 73.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ300961",
+            "name": null,
+            "rank": 28,
+            "rank_change": 2955.0,
+            "current_rank": 1265
+          }
+        }
+      },
+      "601155": {
+        "code": "601155",
+        "name": "新城控股",
+        "sector": null,
+        "attention_score": 73.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.55,
+        "provider_scores": {
+          "xueqiu": 73.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SH601155",
+            "name": "新城控股",
+            "rank": 55,
+            "metric_value": 5735.0,
+            "price_change_pct": -0.55
+          }
+        }
+      },
+      "002851": {
+        "code": "002851",
+        "name": "麦格米特",
+        "sector": "C 制造业",
+        "attention_score": 72.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -7.22,
+        "provider_scores": {
+          "xueqiu": 72.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002851",
+            "name": "麦格米特",
+            "rank": 26,
+            "metric_value": 1394.0,
+            "price_change_pct": -7.22
+          },
+          "xueqiu_follow": {
+            "code": "SZ002851",
+            "name": "麦格米特",
+            "rank": 86,
+            "metric_value": 3797.0,
+            "price_change_pct": -7.22
+          }
+        }
+      },
+      "300760": {
+        "code": "300760",
+        "name": "迈瑞医疗",
+        "sector": "C 制造业",
+        "attention_score": 72.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.7,
+        "provider_scores": {
+          "xueqiu": 72.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300760",
+            "name": "迈瑞医疗",
+            "rank": 80,
+            "metric_value": 699.0,
+            "price_change_pct": -0.7
+          },
+          "xueqiu_follow": {
+            "code": "SZ300760",
+            "name": "迈瑞医疗",
+            "rank": 32,
+            "metric_value": 6622.0,
+            "price_change_pct": -0.7
+          }
+        }
+      },
+      "688662": {
+        "code": "688662",
+        "name": "富信科技",
+        "sector": null,
+        "attention_score": 72.25,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.87,
+        "provider_scores": {
+          "xueqiu": 72.25
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH688662",
+            "name": "富信科技",
+            "rank": 43,
+            "metric_value": 1092.0,
+            "price_change_pct": -0.87
+          },
+          "xueqiu_follow": {
+            "code": "SH688662",
+            "name": "富信科技",
+            "rank": 70,
+            "metric_value": 4872.0,
+            "price_change_pct": -0.87
+          }
+        }
+      },
+      "688105": {
+        "code": "688105",
+        "name": "诺唯赞",
+        "sector": null,
+        "attention_score": 72.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 72.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SH688105",
+            "name": null,
+            "rank": 29,
+            "rank_change": 2914.0,
+            "current_rank": 992
+          }
+        }
+      },
+      "300136": {
+        "code": "300136",
+        "name": "信维通信",
+        "sector": "C 制造业",
+        "attention_score": 71.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.58,
+        "provider_scores": {
+          "xueqiu": 71.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300136",
+            "name": "信维通信",
+            "rank": 8,
+            "metric_value": 2748.0,
+            "price_change_pct": -2.58
+          },
+          "xueqiu_follow": {
+            "code": "SZ300136",
+            "name": "信维通信",
+            "rank": 107,
+            "metric_value": 2958.0,
+            "price_change_pct": -2.58
+          }
+        }
+      },
+      "002370": {
+        "code": "002370",
+        "name": "亚太药业",
+        "sector": "C 制造业",
+        "attention_score": 71.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 71.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ002370",
+            "name": null,
+            "rank": 30,
+            "rank_change": 2899.0,
+            "current_rank": 504
+          }
+        }
+      },
+      "600663": {
+        "code": "600663",
+        "name": "陆家嘴",
+        "sector": null,
+        "attention_score": 70.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.45,
+        "provider_scores": {
+          "xueqiu": 70.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600663",
+            "name": "陆家嘴",
+            "rank": 60,
+            "metric_value": 828.0,
+            "price_change_pct": 0.45
+          }
+        }
+      },
+      "000566": {
+        "code": "000566",
+        "name": "海南海药",
+        "sector": "C 制造业",
+        "attention_score": 70.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 70.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ000566",
+            "name": null,
+            "rank": 31,
+            "rank_change": 2888.0,
+            "current_rank": 194
+          }
+        }
+      },
+      "002624": {
+        "code": "002624",
+        "name": "完美世界",
+        "sector": "I 信息技术",
+        "attention_score": 70.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "medium",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -3.89,
+        "provider_scores": {
+          "xueqiu": 70.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002624",
+            "name": "完美世界",
+            "rank": 61,
+            "metric_value": 823.0,
+            "price_change_pct": -3.89
+          }
+        }
+      },
+      "002625": {
+        "code": "002625",
+        "name": "光启技术",
+        "sector": "C 制造业",
+        "attention_score": 69.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.66,
+        "provider_scores": {
+          "xueqiu": 69.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002625",
+            "name": "光启技术",
+            "rank": 62,
+            "metric_value": 816.0,
+            "price_change_pct": -1.66
+          }
+        }
+      },
+      "688256": {
+        "code": "688256",
+        "name": "寒武纪",
+        "sector": null,
+        "attention_score": 69.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.55,
+        "provider_scores": {
+          "xueqiu": 69.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH688256",
+            "name": "寒武纪",
+            "rank": 9,
+            "metric_value": 2426.0,
+            "price_change_pct": -0.55
+          },
+          "xueqiu_follow": {
+            "code": "SH688256",
+            "name": "寒武纪",
+            "rank": 115,
+            "metric_value": 2722.0,
+            "price_change_pct": -0.55
+          }
+        }
+      },
+      "300502": {
+        "code": "300502",
+        "name": "新易盛",
+        "sector": "C 制造业",
+        "attention_score": 68.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -3.1,
+        "provider_scores": {
+          "xueqiu": 68.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300502",
+            "name": "新易盛",
+            "rank": 24,
+            "metric_value": 1403.0,
+            "price_change_pct": -3.1
+          },
+          "xueqiu_follow": {
+            "code": "SZ300502",
+            "name": "新易盛",
+            "rank": 106,
+            "metric_value": 2992.0,
+            "price_change_pct": -3.1
+          }
+        }
+      },
+      "688653": {
+        "code": "688653",
+        "name": "康希通信",
+        "sector": null,
+        "attention_score": 68.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 68.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SH688653",
+            "name": null,
+            "rank": 33,
+            "rank_change": 2874.0,
+            "current_rank": 1306
+          }
+        }
+      },
+      "601166": {
+        "code": "601166",
+        "name": "兴业银行",
+        "sector": null,
+        "attention_score": 67.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.39,
+        "provider_scores": {
+          "xueqiu": 67.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601166",
+            "name": "兴业银行",
+            "rank": 94,
+            "metric_value": 586.0,
+            "price_change_pct": 0.39
+          },
+          "xueqiu_follow": {
+            "code": "SH601166",
+            "name": "兴业银行",
+            "rank": 37,
+            "metric_value": 6453.0,
+            "price_change_pct": 0.39
+          }
+        }
+      },
+      "600690": {
+        "code": "600690",
+        "name": "海尔智家",
+        "sector": null,
+        "attention_score": 67.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.45,
+        "provider_scores": {
+          "xueqiu": 67.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600690",
+            "name": "海尔智家",
+            "rank": 66,
+            "metric_value": 775.0,
+            "price_change_pct": -0.45
+          }
+        }
+      },
+      "003031": {
+        "code": "003031",
+        "name": "中瓷电子",
+        "sector": "C 制造业",
+        "attention_score": 67.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -1.7,
+        "provider_scores": {
+          "xueqiu": 67.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ003031",
+            "name": "中瓷电子",
+            "rank": 67,
+            "metric_value": 4996.0,
+            "price_change_pct": -1.7
+          }
+        }
+      },
+      "301395": {
+        "code": "301395",
+        "name": "仁信新材",
+        "sector": "C 制造业",
+        "attention_score": 67.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 67.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ301395",
+            "name": null,
+            "rank": 34,
+            "rank_change": 2862.0,
+            "current_rank": 1820
+          }
+        }
+      },
+      "002354": {
+        "code": "002354",
+        "name": "天娱数科",
+        "sector": "I 信息技术",
+        "attention_score": 66.0,
+        "attention_velocity": -10.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 66.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002354",
+            "name": null,
+            "rank": 35,
+            "rank_change": -2.0
+          }
+        }
+      },
+      "688008": {
+        "code": "688008",
+        "name": "澜起科技",
+        "sector": null,
+        "attention_score": 66.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -4.86,
+        "provider_scores": {
+          "xueqiu": 66.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH688008",
+            "name": "澜起科技",
+            "rank": 56,
+            "metric_value": 904.0,
+            "price_change_pct": -4.86
+          },
+          "xueqiu_follow": {
+            "code": "SH688008",
+            "name": "澜起科技",
+            "rank": 82,
+            "metric_value": 4039.0,
+            "price_change_pct": -4.86
+          }
+        }
+      },
+      "002304": {
+        "code": "002304",
+        "name": "洋河股份",
+        "sector": "C 制造业",
+        "attention_score": 65.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.95,
+        "provider_scores": {
+          "xueqiu": 65.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002304",
+            "name": "洋河股份",
+            "rank": 93,
+            "metric_value": 592.0,
+            "price_change_pct": -0.95
+          },
+          "xueqiu_follow": {
+            "code": "SZ002304",
+            "name": "洋河股份",
+            "rank": 46,
+            "metric_value": 6027.0,
+            "price_change_pct": -0.95
+          }
+        }
+      },
+      "601058": {
+        "code": "601058",
+        "name": "赛轮轮胎",
+        "sector": null,
+        "attention_score": 65.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.21,
+        "provider_scores": {
+          "xueqiu": 65.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601058",
+            "name": "赛轮轮胎",
+            "rank": 70,
+            "metric_value": 749.0,
+            "price_change_pct": -2.21
+          }
+        }
+      },
+      "601012": {
+        "code": "601012",
+        "name": "隆基绿能",
+        "sector": null,
+        "attention_score": 65.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.95,
+        "provider_scores": {
+          "xueqiu": 65.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601012",
+            "name": "隆基绿能",
+            "rank": 107,
+            "metric_value": 529.0,
+            "price_change_pct": -2.95
+          },
+          "xueqiu_follow": {
+            "code": "SH601012",
+            "name": "隆基绿能",
+            "rank": 35,
+            "metric_value": 6483.0,
+            "price_change_pct": -2.95
+          }
+        }
+      },
+      "601162": {
+        "code": "601162",
+        "name": "天风证券",
+        "sector": null,
+        "attention_score": 65.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 65.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH601162",
+            "name": null,
+            "rank": 36,
+            "rank_change": 326.0
+          }
+        }
+      },
+      "605118": {
+        "code": "605118",
+        "name": "力鼎光电",
+        "sector": null,
+        "attention_score": 65.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 65.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SH605118",
+            "name": null,
+            "rank": 36,
+            "rank_change": 2828.0,
+            "current_rank": 860
+          }
+        }
+      },
+      "300418": {
+        "code": "300418",
+        "name": "昆仑万维",
+        "sector": "I 信息技术",
+        "attention_score": 64.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -4.16,
+        "provider_scores": {
+          "xueqiu": 64.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300418",
+            "name": "昆仑万维",
+            "rank": 72,
+            "metric_value": 735.0,
+            "price_change_pct": -4.16
+          }
+        }
+      },
+      "301580": {
+        "code": "301580",
+        "name": "爱迪特",
+        "sector": "C 制造业",
+        "attention_score": 64.25,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 10.83,
+        "provider_scores": {
+          "xueqiu": 64.25
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ301580",
+            "name": "爱迪特",
+            "rank": 82,
+            "metric_value": 689.0,
+            "price_change_pct": 10.83
+          },
+          "xueqiu_follow": {
+            "code": "SZ301580",
+            "name": "爱迪特",
+            "rank": 63,
+            "metric_value": 5401.0,
+            "price_change_pct": 10.83
+          }
+        }
+      },
+      "601899": {
+        "code": "601899",
+        "name": "紫金矿业",
+        "sector": null,
+        "attention_score": 64.25,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -7.03,
+        "provider_scores": {
+          "xueqiu": 64.25
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601899",
+            "name": "紫金矿业",
+            "rank": 21,
+            "metric_value": 1480.0,
+            "price_change_pct": -7.03
+          },
+          "xueqiu_follow": {
+            "code": "SH601899",
+            "name": "紫金矿业",
+            "rank": 124,
+            "metric_value": 2576.0,
+            "price_change_pct": -7.03
+          }
+        }
+      },
+      "301633": {
+        "code": "301633",
+        "name": "港迪技术",
+        "sector": "I 信息技术",
+        "attention_score": 64.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 64.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ301633",
+            "name": null,
+            "rank": 37,
+            "rank_change": 2819.0,
+            "current_rank": 2379
+          }
+        }
+      },
+      "603738": {
+        "code": "603738",
+        "name": "泰晶科技",
+        "sector": null,
+        "attention_score": 63.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 3.89,
+        "provider_scores": {
+          "xueqiu": 63.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH603738",
+            "name": "泰晶科技",
+            "rank": 59,
+            "metric_value": 850.0,
+            "price_change_pct": 3.89
+          },
+          "xueqiu_follow": {
+            "code": "SH603738",
+            "name": "泰晶科技",
+            "rank": 89,
+            "metric_value": 3698.0,
+            "price_change_pct": 3.89
+          }
+        }
+      },
+      "002728": {
+        "code": "002728",
+        "name": "特一药业",
+        "sector": "C 制造业",
+        "attention_score": 63.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 63.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ002728",
+            "name": null,
+            "rank": 38,
+            "rank_change": 2803.0,
+            "current_rank": 326
+          }
+        }
+      },
+      "603350": {
+        "code": "603350",
+        "name": "安乃达",
+        "sector": null,
+        "attention_score": 62.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 62.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SH603350",
+            "name": null,
+            "rank": 39,
+            "rank_change": 2785.0,
+            "current_rank": 1269
+          }
+        }
+      },
+      "002463": {
+        "code": "002463",
+        "name": "沪电股份",
+        "sector": "C 制造业",
+        "attention_score": 61.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -3.21,
+        "provider_scores": {
+          "xueqiu": 61.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002463",
+            "name": "沪电股份",
+            "rank": 79,
+            "metric_value": 704.0,
+            "price_change_pct": -3.21
+          },
+          "xueqiu_follow": {
+            "code": "SZ002463",
+            "name": "沪电股份",
+            "rank": 76,
+            "metric_value": 4445.0,
+            "price_change_pct": -3.21
+          }
+        }
+      },
+      "688525": {
+        "code": "688525",
+        "name": "佰维存储",
+        "sector": null,
+        "attention_score": 61.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.04,
+        "provider_scores": {
+          "xueqiu": 61.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH688525",
+            "name": "佰维存储",
+            "rank": 48,
+            "metric_value": 1039.0,
+            "price_change_pct": -0.04
+          },
+          "xueqiu_follow": {
+            "code": "SH688525",
+            "name": "佰维存储",
+            "rank": 108,
+            "metric_value": 2928.0,
+            "price_change_pct": -0.04
+          }
+        }
+      },
+      "603863": {
+        "code": "603863",
+        "name": "松炀资源",
+        "sector": null,
+        "attention_score": 61.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 61.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SH603863",
+            "name": null,
+            "rank": 40,
+            "rank_change": 2757.0,
+            "current_rank": 1372
+          }
+        }
+      },
+      "601888": {
+        "code": "601888",
+        "name": "中国中免",
+        "sector": null,
+        "attention_score": 60.25,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.86,
+        "provider_scores": {
+          "xueqiu": 60.25
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601888",
+            "name": "中国中免",
+            "rank": 122,
+            "metric_value": 462.0,
+            "price_change_pct": -0.86
+          },
+          "xueqiu_follow": {
+            "code": "SH601888",
+            "name": "中国中免",
+            "rank": 39,
+            "metric_value": 6381.0,
+            "price_change_pct": -0.86
+          }
+        }
+      },
+      "002636": {
+        "code": "002636",
+        "name": "金安国纪",
+        "sector": "C 制造业",
+        "attention_score": 60.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -7.66,
+        "provider_scores": {
+          "xueqiu": 60.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002636",
+            "name": "金安国纪",
+            "rank": 67,
+            "metric_value": 761.0,
+            "price_change_pct": -7.66
+          },
+          "xueqiu_follow": {
+            "code": "SZ002636",
+            "name": "金安国纪",
+            "rank": 95,
+            "metric_value": 3434.0,
+            "price_change_pct": -7.66
+          }
+        }
+      },
+      "301509": {
+        "code": "301509",
+        "name": "金凯生科",
+        "sector": "C 制造业",
+        "attention_score": 60.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 60.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ301509",
+            "name": null,
+            "rank": 41,
+            "rank_change": 2746.0,
+            "current_rank": 1563
+          }
+        }
+      },
+      "002453": {
+        "code": "002453",
+        "name": "华软科技",
+        "sector": "C 制造业",
+        "attention_score": 59.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 59.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ002453",
+            "name": null,
+            "rank": 42,
+            "rank_change": 2734.0,
+            "current_rank": 617
+          }
+        }
+      },
+      "301308": {
+        "code": "301308",
+        "name": "江波龙",
+        "sector": "C 制造业",
+        "attention_score": 58.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 0.95,
+        "provider_scores": {
+          "xueqiu": 58.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ301308",
+            "name": "江波龙",
+            "rank": 49,
+            "metric_value": 1017.0,
+            "price_change_pct": 0.95
+          },
+          "xueqiu_follow": {
+            "code": "SZ301308",
+            "name": "江波龙",
+            "rank": 119,
+            "metric_value": 2673.0,
+            "price_change_pct": 0.95
+          }
+        }
+      },
+      "002864": {
+        "code": "002864",
+        "name": "盘龙药业",
+        "sector": "C 制造业",
+        "attention_score": 58.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 58.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ002864",
+            "name": null,
+            "rank": 43,
+            "rank_change": 2723.0,
+            "current_rank": 1325
+          }
+        }
+      },
+      "001309": {
+        "code": "001309",
+        "name": "德明利",
+        "sector": "C 制造业",
+        "attention_score": 57.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 5.55,
+        "provider_scores": {
+          "xueqiu": 57.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ001309",
+            "name": "德明利",
+            "rank": 38,
+            "metric_value": 1124.0,
+            "price_change_pct": 5.55
+          },
+          "xueqiu_follow": {
+            "code": "SZ001309",
+            "name": "德明利",
+            "rank": 134,
+            "metric_value": 2378.0,
+            "price_change_pct": 5.55
+          }
+        }
+      },
+      "002240": {
+        "code": "002240",
+        "name": "盛新锂能",
+        "sector": "C 制造业",
+        "attention_score": 57.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -7.68,
+        "provider_scores": {
+          "xueqiu": 57.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002240",
+            "name": "盛新锂能",
+            "rank": 86,
+            "metric_value": 652.0,
+            "price_change_pct": -7.68
+          }
+        }
+      },
+      "000962": {
+        "code": "000962",
+        "name": "东方钽业",
+        "sector": "C 制造业",
+        "attention_score": 57.0,
+        "attention_velocity": 70.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 57.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ000962",
+            "name": null,
+            "rank": 44,
+            "rank_change": 14.0
+          }
+        }
+      },
+      "301397": {
+        "code": "301397",
+        "name": "溯联股份",
+        "sector": "C 制造业",
+        "attention_score": 57.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 57.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ301397",
+            "name": null,
+            "rank": 44,
+            "rank_change": 2692.0,
+            "current_rank": 1618
+          }
+        }
+      },
+      "601208": {
+        "code": "601208",
+        "name": "东材科技",
+        "sector": null,
+        "attention_score": 57.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -9.42,
+        "provider_scores": {
+          "xueqiu": 57.0
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SH601208",
+            "name": "东材科技",
+            "rank": 87,
+            "metric_value": 3747.0,
+            "price_change_pct": -9.42
+          }
+        }
+      },
+      "601088": {
+        "code": "601088",
+        "name": "中国神华",
+        "sector": null,
+        "attention_score": 56.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -0.77,
+        "provider_scores": {
+          "xueqiu": 56.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH601088",
+            "name": "中国神华",
+            "rank": 158,
+            "metric_value": 359.0,
+            "price_change_pct": -0.77
+          },
+          "xueqiu_follow": {
+            "code": "SH601088",
+            "name": "中国神华",
+            "rank": 18,
+            "metric_value": 7473.0,
+            "price_change_pct": -0.77
+          }
+        }
+      },
+      "300111": {
+        "code": "300111",
+        "name": "向日葵",
+        "sector": "C 制造业",
+        "attention_score": 56.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 56.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ300111",
+            "name": null,
+            "rank": 45,
+            "rank_change": 2681.0,
+            "current_rank": 1692
+          }
+        }
+      },
+      "603938": {
+        "code": "603938",
+        "name": "三孚股份",
+        "sector": null,
+        "attention_score": 56.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 56.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SH603938",
+            "name": null,
+            "rank": 45,
+            "rank_change": 51.0
+          }
+        }
+      },
+      "600745": {
+        "code": "600745",
+        "name": "*ST闻泰",
+        "sector": null,
+        "attention_score": 55.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 2.83,
+        "provider_scores": {
+          "xueqiu": 55.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH600745",
+            "name": "*ST闻泰",
+            "rank": 90,
+            "metric_value": 607.0,
+            "price_change_pct": 2.83
+          }
+        }
+      },
+      "300666": {
+        "code": "300666",
+        "name": "江丰电子",
+        "sector": "C 制造业",
+        "attention_score": 55.25,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -4.13,
+        "provider_scores": {
+          "xueqiu": 55.25
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300666",
+            "name": "江丰电子",
+            "rank": 88,
+            "metric_value": 635.0,
+            "price_change_pct": -4.13
+          },
+          "xueqiu_follow": {
+            "code": "SZ300666",
+            "name": "江丰电子",
+            "rank": 93,
+            "metric_value": 3514.0,
+            "price_change_pct": -4.13
+          }
+        }
+      },
+      "002418": {
+        "code": "002418",
+        "name": "康盛股份",
+        "sector": "C 制造业",
+        "attention_score": 55.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 55.0
+        },
+        "source_details": {
+          "eastmoney": {
+            "code": "SZ002418",
+            "name": null,
+            "rank": 46,
+            "rank_change": 102.0
+          }
+        }
+      },
+      "300746": {
+        "code": "300746",
+        "name": "汉嘉数智",
+        "sector": "M 科研服务",
+        "attention_score": 55.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 55.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ300746",
+            "name": null,
+            "rank": 46,
+            "rank_change": 2670.0,
+            "current_rank": 2619
+          }
+        }
+      },
+      "688766": {
+        "code": "688766",
+        "name": "普冉股份",
+        "sector": null,
+        "attention_score": 55.0,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": 3.74,
+        "provider_scores": {
+          "xueqiu": 55.0
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SH688766",
+            "name": "普冉股份",
+            "rank": 65,
+            "metric_value": 786.0,
+            "price_change_pct": 3.74
+          },
+          "xueqiu_follow": {
+            "code": "SH688766",
+            "name": "普冉股份",
+            "rank": 117,
+            "metric_value": 2702.0,
+            "price_change_pct": 3.74
+          }
+        }
+      },
+      "300570": {
+        "code": "300570",
+        "name": "太辰光",
+        "sector": "C 制造业",
+        "attention_score": 54.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -4.97,
+        "provider_scores": {
+          "xueqiu": 54.5
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ300570",
+            "name": "太辰光",
+            "rank": 83,
+            "metric_value": 668.0,
+            "price_change_pct": -4.97
+          },
+          "xueqiu_follow": {
+            "code": "SZ300570",
+            "name": "太辰光",
+            "rank": 101,
+            "metric_value": 3120.0,
+            "price_change_pct": -4.97
+          }
+        }
+      },
+      "000813": {
+        "code": "000813",
+        "name": "德展健康",
+        "sector": "C 制造业",
+        "attention_score": 54.0,
+        "attention_velocity": 100.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": null,
+        "provider_scores": {
+          "eastmoney": 54.0
+        },
+        "source_details": {
+          "eastmoney_rising": {
+            "code": "SZ000813",
+            "name": null,
+            "rank": 47,
+            "rank_change": 2626.0,
+            "current_rank": 528
+          }
+        }
+      },
+      "002281": {
+        "code": "002281",
+        "name": "光迅科技",
+        "sector": "C 制造业",
+        "attention_score": 53.75,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -2.38,
+        "provider_scores": {
+          "xueqiu": 53.75
+        },
+        "source_details": {
+          "xueqiu_discussion": {
+            "code": "SZ002281",
+            "name": "光迅科技",
+            "rank": 95,
+            "metric_value": 582.0,
+            "price_change_pct": -2.38
+          },
+          "xueqiu_follow": {
+            "code": "SZ002281",
+            "name": "光迅科技",
+            "rank": 92,
+            "metric_value": 3556.0,
+            "price_change_pct": -2.38
+          }
+        }
+      },
+      "002741": {
+        "code": "002741",
+        "name": "光华科技",
+        "sector": "C 制造业",
+        "attention_score": 53.5,
+        "attention_velocity": 0.0,
+        "cross_source_count": 1,
+        "eligible_for_boost": false,
+        "crowding_risk": "low",
+        "source_disagreement": 0.0,
+        "source_disagreement_high": false,
+        "price_change_pct": -10.01,
+        "provider_scores": {
+          "xueqiu": 53.5
+        },
+        "source_details": {
+          "xueqiu_follow": {
+            "code": "SZ002741",
+            "name": "光华科技",
+            "rank": 94,
+            "metric_value": 3469.0,
+            "price_change_pct": -10.01
+          }
+        }
+      }
+    },
+    "themes": {
+      "C 制造业": {
+        "stock_count": 91,
+        "confirmed_stock_count": 29,
+        "attention_score": 65.55,
+        "leaders": [
+          {
+            "code": "002594",
+            "name": "比亚迪",
+            "attention_score": 98.25
+          },
+          {
+            "code": "000725",
+            "name": "京东方A",
+            "attention_score": 98.12
+          },
+          {
+            "code": "301211",
+            "name": "亨迪药业",
+            "attention_score": 98.0
+          },
+          {
+            "code": "000651",
+            "name": "格力电器",
+            "attention_score": 95.75
+          },
+          {
+            "code": "000858",
+            "name": "五粮液",
+            "attention_score": 94.75
+          }
+        ]
+      },
+      "J 金融业": {
+        "stock_count": 4,
+        "confirmed_stock_count": 2,
+        "attention_score": 75.47,
+        "leaders": [
+          {
+            "code": "300059",
+            "name": "东方财富",
+            "attention_score": 93.38
+          },
+          {
+            "code": "000001",
+            "name": "平安银行",
+            "attention_score": 87.0
+          },
+          {
+            "code": "000783",
+            "name": "长江证券",
+            "attention_score": 84.0
+          },
+          {
+            "code": "000776",
+            "name": "广发证券",
+            "attention_score": 37.5
+          }
+        ]
+      },
+      "半导体": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 89.75,
+        "leaders": [
+          {
+            "code": "600584",
+            "name": "XD长电科",
+            "attention_score": 89.75
+          }
+        ]
+      },
+      "光学光电": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 81.38,
+        "leaders": [
+          {
+            "code": "600703",
+            "name": "三安光电",
+            "attention_score": 81.38
+          }
+        ]
+      },
+      "通信设备": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 68.88,
+        "leaders": [
+          {
+            "code": "601869",
+            "name": "长飞光纤",
+            "attention_score": 68.88
+          }
+        ]
+      },
+      "小金属": {
+        "stock_count": 2,
+        "confirmed_stock_count": 2,
+        "attention_score": 56.12,
+        "leaders": [
+          {
+            "code": "600549",
+            "name": "厦门钨业",
+            "attention_score": 64.0
+          },
+          {
+            "code": "601958",
+            "name": "金钼股份",
+            "attention_score": 48.25
+          }
+        ]
+      },
+      "化学制品": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 52.75,
+        "leaders": [
+          {
+            "code": "600160",
+            "name": "巨化股份",
+            "attention_score": 52.75
+          }
+        ]
+      },
+      "化学原料": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 45.38,
+        "leaders": [
+          {
+            "code": "600367",
+            "name": "红星发展",
+            "attention_score": 45.38
+          }
+        ]
+      },
+      "消费电子": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 45.0,
+        "leaders": [
+          {
+            "code": "603629",
+            "name": "利通电子",
+            "attention_score": 45.0
+          }
+        ]
+      },
+      "工业金属": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 44.0,
+        "leaders": [
+          {
+            "code": "600497",
+            "name": "驰宏锌锗",
+            "attention_score": 44.0
+          }
+        ]
+      },
+      "F 批发零售": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 39.62,
+        "leaders": [
+          {
+            "code": "300475",
+            "name": "香农芯创",
+            "attention_score": 39.62
+          }
+        ]
+      },
+      "电网设备": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 35.0,
+        "leaders": [
+          {
+            "code": "601179",
+            "name": "中国西电",
+            "attention_score": 35.0
+          }
+        ]
+      },
+      "电子化学": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 27.25,
+        "leaders": [
+          {
+            "code": "603002",
+            "name": "宏昌电子",
+            "attention_score": 27.25
+          }
+        ]
+      },
+      "农化制品": {
+        "stock_count": 1,
+        "confirmed_stock_count": 1,
+        "attention_score": 15.75,
+        "leaders": [
+          {
+            "code": "600141",
+            "name": "兴发集团",
+            "attention_score": 15.75
+          }
+        ]
+      },
+      "I 信息技术": {
+        "stock_count": 8,
+        "confirmed_stock_count": 0,
+        "attention_score": 77.31,
+        "leaders": [
+          {
+            "code": "300167",
+            "name": "ST迪威迅",
+            "attention_score": 95.0
+          },
+          {
+            "code": "000004",
+            "name": "*ST国华",
+            "attention_score": 94.0
+          },
+          {
+            "code": "300085",
+            "name": "银之杰",
+            "attention_score": 88.0
+          },
+          {
+            "code": "002602",
+            "name": "世纪华通",
+            "attention_score": 77.0
+          },
+          {
+            "code": "002624",
+            "name": "完美世界",
+            "attention_score": 70.0
+          }
+        ]
+      },
+      "M 科研服务": {
+        "stock_count": 2,
+        "confirmed_stock_count": 0,
+        "attention_score": 74.0,
+        "leaders": [
+          {
+            "code": "300149",
+            "name": "睿智医药",
+            "attention_score": 93.0
+          },
+          {
+            "code": "300746",
+            "name": "汉嘉数智",
+            "attention_score": 55.0
+          }
+        ]
+      },
+      "K 房地产": {
+        "stock_count": 2,
+        "confirmed_stock_count": 0,
+        "attention_score": 80.12,
+        "leaders": [
+          {
+            "code": "000042",
+            "name": "中洲控股",
+            "attention_score": 84.0
+          },
+          {
+            "code": "000002",
+            "name": "万科A",
+            "attention_score": 76.25
+          }
+        ]
+      },
+      "L 商务服务": {
+        "stock_count": 1,
+        "confirmed_stock_count": 0,
+        "attention_score": 83.5,
+        "leaders": [
+          {
+            "code": "002027",
+            "name": "分众传媒",
+            "attention_score": 83.5
+          }
+        ]
+      },
+      "G 运输仓储": {
+        "stock_count": 1,
+        "confirmed_stock_count": 0,
+        "attention_score": 82.0,
+        "leaders": [
+          {
+            "code": "002352",
+            "name": "顺丰控股",
+            "attention_score": 82.0
+          }
+        ]
+      },
+      "A 农林牧渔": {
+        "stock_count": 1,
+        "confirmed_stock_count": 0,
+        "attention_score": 78.25,
+        "leaders": [
+          {
+            "code": "002714",
+            "name": "牧原股份",
+            "attention_score": 78.25
+          }
+        ]
+      },
+      "Q 卫生": {
+        "stock_count": 1,
+        "confirmed_stock_count": 0,
+        "attention_score": 76.5,
+        "leaders": [
+          {
+            "code": "300015",
+            "name": "爱尔眼科",
+            "attention_score": 76.5
+          }
+        ]
+      },
+      "N 公共环保": {
+        "stock_count": 1,
+        "confirmed_stock_count": 0,
+        "attention_score": 73.0,
+        "leaders": [
+          {
+            "code": "300961",
+            "name": "深水海纳",
+            "attention_score": 73.0
+          }
+        ]
+      }
+    },
+    "policy": {
+      "min_sources_for_boost": 2,
+      "candidate_bonus_max": 3.0,
+      "sentiment_delta_max": 0.8,
+      "single_source_behavior": "display_only"
+    }
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/social-attention/snap-3b06492221294308128ae16c.json"
+}

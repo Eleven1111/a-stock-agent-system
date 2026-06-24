@@ -20,7 +20,7 @@
     "open_confirmation_limit": 5
   },
   "hot_money_selection": {
-    "research_only": true,
+    "research_only": false,
     "min_quote_count": 500,
     "min_sector_coverage": 0.2,
     "mainline_top_n": 2,

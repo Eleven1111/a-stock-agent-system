@@ -1,0 +1,11 @@
+{
+  "schema": "a_stock_run_lease_v1",
+  "job_id": "news-monitor-intraday",
+  "trading_date": "2026-06-24",
+  "batch_id": "a-share-20260624",
+  "run_id": "news-monitor-intraday-20260624-094509-27011",
+  "runtime": "openclaw",
+  "token": "0f544d39b2ea497099fe9311ebb09bff",
+  "acquired_at": "2026-06-24T01:45:09+00:00",
+  "pid": 27011
+}

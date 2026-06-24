@@ -1,0 +1,52 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-7d5467372d467b5837dfcc30",
+  "dataset": "snapshot-gc",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "snapshot-gc",
+  "producer_version": "b897760fc3c762ec032e63fd2d699415ac9f5ce2",
+  "captured_at": "2026-06-23T17:20:06+08:00",
+  "payload_schema": "a_stock_storage_gc_v1",
+  "payload_hash": "cae0c3faf33d60fcd745333cb3638994e2043a7aec7a2a03237fa794ef76990d",
+  "source_versions": {},
+  "payload": {
+    "schema": "a_stock_storage_gc_v1",
+    "status": "ok",
+    "mode": "apply",
+    "state_home": "/Users/eleven/meta-11/a-stock-agent-system",
+    "policy": {
+      "snapshot_input_retention_days": 30,
+      "snapshot_output_retention_days": 90,
+      "cron_artifact_retention_days": 30,
+      "reference_protection_days": 30,
+      "snapshot_min_keep_per_dataset": 3,
+      "snapshot_max_total_mb": 4096.0,
+      "gc_max_delete_files": 10000
+    },
+    "scanned": {
+      "snapshots": 401,
+      "cron_artifacts": 0,
+      "reference_files": 460,
+      "invalid_snapshots": 0
+    },
+    "deleted": {
+      "expired_snapshots": 0,
+      "size_cap_snapshots": 0,
+      "cron_artifacts": 0
+    },
+    "protected": {
+      "referenced_snapshots": 326,
+      "minimum_per_dataset": 3
+    },
+    "reclaimed_bytes": 0,
+    "remaining_snapshot_bytes": 33805854,
+    "snapshot_capacity_bytes": 4294967296,
+    "capacity_satisfied": true,
+    "delete_limit_reached": false,
+    "invalid_snapshot_paths": [],
+    "retained_lock_files": 401,
+    "retained_lock_reason": "state_store lock files are never unlinked to avoid split-lock races"
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/snapshot-gc/snap-7d5467372d467b5837dfcc30.json"
+}

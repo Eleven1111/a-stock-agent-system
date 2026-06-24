@@ -1,0 +1,261 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-be3ba9fb86205d9a0a00d803",
+  "dataset": "serenity-refresh-plan",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "serenity-refresh-plan",
+  "producer_version": "78d8946e7716f5384cf5faaadd8d260717b698f7",
+  "captured_at": "2026-06-23T15:54:03+08:00",
+  "payload_schema": "serenity_refresh_plan_v1",
+  "payload_hash": "a759736c0663255db6ef980d8dd0de1658e52b9951d73aca378de056fcbed2fa",
+  "source_versions": {},
+  "payload": {
+    "schema": "serenity_refresh_plan_v1",
+    "asof": "2026-06-23",
+    "created": 5,
+    "created_requests": [
+      {
+        "id": "serenity-000776-2026-06-23",
+        "code": "000776",
+        "name": "广发证券",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-002068-2026-06-23",
+        "code": "002068",
+        "name": "黑猫股份",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-002491-2026-06-23",
+        "code": "002491",
+        "name": "通鼎互联",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-600176-2026-06-23",
+        "code": "600176",
+        "name": "中国巨石",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-000070-2026-06-23",
+        "code": "000070",
+        "name": "特发信息",
+        "status": "pending",
+        "priority": 80,
+        "sources": [
+          "monitor",
+          "candidate_pool"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      }
+    ],
+    "requests": [
+      {
+        "id": "serenity-002281-2026-06-22",
+        "code": "002281",
+        "name": "光迅科技",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-22",
+        "created_at": "2026-06-22T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-600522-2026-06-22",
+        "code": "600522",
+        "name": "中天科技",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-22",
+        "created_at": "2026-06-22T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-000021-2026-06-22",
+        "code": "000021",
+        "name": "深科技",
+        "status": "pending",
+        "priority": 80,
+        "sources": [
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-22",
+        "created_at": "2026-06-22T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-000048-2026-06-22",
+        "code": "000048",
+        "name": "京基智农",
+        "status": "pending",
+        "priority": 80,
+        "sources": [
+          "monitor",
+          "candidate_pool"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-22",
+        "created_at": "2026-06-22T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-000063-2026-06-22",
+        "code": "000063",
+        "name": "中兴通讯",
+        "status": "pending",
+        "priority": 80,
+        "sources": [
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-22",
+        "created_at": "2026-06-22T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-000776-2026-06-23",
+        "code": "000776",
+        "name": "广发证券",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-002068-2026-06-23",
+        "code": "002068",
+        "name": "黑猫股份",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-002491-2026-06-23",
+        "code": "002491",
+        "name": "通鼎互联",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-600176-2026-06-23",
+        "code": "600176",
+        "name": "中国巨石",
+        "status": "pending",
+        "priority": 90,
+        "sources": [
+          "recommendation",
+          "monitor"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      },
+      {
+        "id": "serenity-000070-2026-06-23",
+        "code": "000070",
+        "name": "特发信息",
+        "status": "pending",
+        "priority": 80,
+        "sources": [
+          "monitor",
+          "candidate_pool"
+        ],
+        "reason": "missing_cache",
+        "refresh_after": null,
+        "requested_asof": "2026-06-23",
+        "created_at": "2026-06-23T15:54:03",
+        "attempts": 0
+      }
+    ]
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/serenity-refresh-plan/snap-be3ba9fb86205d9a0a00d803.json"
+}

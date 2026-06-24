@@ -1,0 +1,91 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "performance-daily",
+  "run_id": "performance-daily-20260622-161000-85086",
+  "batch_id": "a-share-20260622",
+  "trading_date": "2026-06-22",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "local",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-22T16:10:00+08:00",
+  "finished_at": "2026-06-22T16:10:00+08:00",
+  "duration_seconds": 0.168,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/stock-triage/scripts/performance_tracker.py --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "message": "尚无已结算信号（需至少到 T+1）"
+  },
+  "context_from": [
+    {
+      "job_id": "closing-triage",
+      "run_id": "closing-triage-20260622-153500-84535",
+      "batch_id": "a-share-20260622",
+      "trading_date": "2026-06-22",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/closing-triage/closing-triage-20260622-153500-84535.json",
+      "status": "ok",
+      "finished_at": "2026-06-22T15:35:00+08:00",
+      "summary": {
+        "schema": "hermes_context_digest_v1",
+        "status": "ready"
+      },
+      "age_minutes": 35.0,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-22",
+    "batch_id": "a-share-20260622",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 60,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "closing-triage",
+        "run_id": "closing-triage-20260622-153500-84535",
+        "batch_id": "a-share-20260622",
+        "trading_date": "2026-06-22",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/closing-triage/closing-triage-20260622-153500-84535.json",
+        "status": "ok",
+        "finished_at": "2026-06-22T15:35:00+08:00",
+        "summary": {
+          "schema": "hermes_context_digest_v1",
+          "status": "ready"
+        },
+        "age_minutes": 35.0,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-22",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-40747a8de1b79675a1606e41",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/performance-daily/snap-40747a8de1b79675a1606e41.json",
+    "payload_hash": "527a796596516bd56f7d43b11056a38060c13144c88cdfaa6a7d83d53e3217b9",
+    "source_versions": {}
+  },
+  "stdout": "{\n  \"total_signals\": 0,\n  \"closed\": 0,\n  \"pending\": 0,\n  \"legacy_excluded\": 0,\n  \"message\": \"尚无已结算信号（需至少到 T+1）\"\n}\n",
+  "stderr": "",
+  "stdout_preview": "{\n  \"total_signals\": 0,\n  \"closed\": 0,\n  \"pending\": 0,\n  \"legacy_excluded\": 0,\n  \"message\": \"尚无已结算信号（需至少到 T+1）\"\n}\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/performance-daily/performance-daily-20260622-161000-85086.json"
+}

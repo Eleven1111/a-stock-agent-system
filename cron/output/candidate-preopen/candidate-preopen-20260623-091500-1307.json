@@ -1,0 +1,56 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "candidate-preopen",
+  "run_id": "candidate-preopen-20260623-091500-1307",
+  "batch_id": "a-share-20260623",
+  "trading_date": "2026-06-23",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "local",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-23T09:15:00+08:00",
+  "finished_at": "2026-06-23T09:15:00+08:00",
+  "duration_seconds": 0.349,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/stock-triage/scripts/candidate_discovery.py --bootstrap-if-missing --no-settle --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "schema": "candidate_watch_pool_v1",
+    "status": "ready"
+  },
+  "context_from": [],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-23",
+    "batch_id": "a-share-20260623",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 90,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": []
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-23",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-26e5b29b6bcb923ea6263984",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/candidate-preopen/snap-26e5b29b6bcb923ea6263984.json",
+    "payload_hash": "764fc8d1df0d7b2ea0eea0bf0f455d5b7a24db90dbe6a7a918928ee4b529b30e",
+    "source_versions": {}
+  },
+  "stdout": "{\"schema\": \"candidate_watch_pool_v1\", \"asof\": \"2026-06-22\", \"status\": \"ready\", \"bootstrap_status\": \"reused_existing\", \"scanned_count\": 5207, \"eligible_count\": 3634, \"rejected_count\": 1573, \"enriched_count\": 350, \"candidate_count\": 200, \"hot_money_selection\": {\"status\": \"insufficient_data\", \"daban_ready\": false, \"research_only\": true, \"sector_coverage\": null, \"market_timing\": {\"status\": null, \"daban_ready\": false, \"breadth\": null, \"previous_ladder_premium\": null, \"tier\": null}, \"mainline_sectors\": [], \"reasons\": [], \"snapshot_id\": null}, \"rejection_reason_counts\": {\"成交额低于0.8亿元\": 1493, \"股价低于2元\": 71, \"ST/*ST/退市整理股票\": 225, \"停牌或缺少有效成交\": 16, \"上市不足60天\": 10}, \"top_candidates\": [{\"code\": \"000048\", \"name\": \"京基智农\", \"daban_rank\": 1, \"daban_score\": 100.0, \"trend_rank\": 134, \"trend_score\": 88.99, \"strategy_id\": null, \"sector\": \"A 农林牧渔\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"hot_money_qualified\": null}, {\"code\": \"000725\", \"name\": \"京东方Ａ\", \"daban_rank\": 68, \"daban_score\": 87.67, \"trend_rank\": 1, \"trend_score\": 100.0, \"strategy_id\": null, \"sector\": \"C 制造业\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"hot_money_qualified\": null}, {\"code\": \"000519\", \"name\": \"中兵红箭\", \"daban_rank\": 2, \"daban_score\": 100.0, \"trend_rank\": 21, \"trend_score\": 97.34, \"strategy_id\": null, \"sector\": \"C 制造业\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"hot_money_qualified\": null}, {\"code\": \"300308\", \"name\": \"中际旭创\", \"daban_rank\": 1325, \"daban_score\": 0.0, \"trend_rank\": 2, \"trend_score\": 100.0, \"strategy_id\": null, \"sector\": \"C 制造业\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"hot_money_qualified\": null}, {\"code\": \"000657\", \"name\": \"中钨高新\", \"daban_rank\": 3, \"daban_score\": 100.0, \"trend_rank\": 144, \"trend_score\": 87.91, \"strategy_id\": null, \"sector\": \"C 制造业\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"hot_money_qualified\": null}]}\n",
+  "stderr": "",
+  "stdout_preview": "{\"schema\": \"candidate_watch_pool_v1\", \"asof\": \"2026-06-22\", \"status\": \"ready\", \"bootstrap_status\": \"reused_existing\", \"scanned_count\": 5207, \"eligible_count\": 3634, \"rejected_count\": 1573, \"enriched_count\": 350, \"candidate_count\": 200, \"hot_money_selection\": {\"status\": \"insufficient_data\", \"daban_ready\": false, \"research_only\": true, \"sector_coverage\": null, \"market_timing\": {\"status\": null, \"daban_ready\": false, \"breadth\": null, \"previous_ladder_premium\": null, \"tier\": null}, \"mainline_sectors\": [], \"reasons\": [], \"snapshot_id\": null}, \"rejection_reason_counts\": {\"成交额低于0.8亿元\": 1493, \"股价低于2元\": 71, \"ST/*ST/退市整理股票\": 225, \"停牌或缺少有效成交\": 16, \"上市不足60天\": 10}, \"top_candidates\": [{\"code\": \"000048\", \"name\": \"京基智农\", \"daban_rank\": 1, \"daban_score\": 100.0, \"trend_rank\": 134, \"trend_score\": 88.99, \"strategy_id\": null, \"sector\": \"A 农林牧渔\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"hot_money_qualified\": null}, {\"code\": \"000725\", \"name\": \"京东方Ａ\", \"daban_rank\": 68, \"daban_score\": 87.67, \"trend_rank\": 1, \"trend_score\": 100.0, \"strategy_id\": null, \"sector\": \"C 制造业\", \"sector_rank\": null, \"sector_state\": null, \"leader_rank\": null, \"leader_role\": null, \"hot_money_\n...[truncated 828 chars]",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-preopen/candidate-preopen-20260623-091500-1307.json"
+}

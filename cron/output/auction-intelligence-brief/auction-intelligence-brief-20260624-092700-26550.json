@@ -1,0 +1,49 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "auction-intelligence-brief",
+  "run_id": "auction-intelligence-brief-20260624-092700-26550",
+  "batch_id": "a-share-20260624",
+  "trading_date": "2026-06-24",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-24T09:27:00+08:00",
+  "finished_at": "2026-06-24T09:27:00+08:00",
+  "duration_seconds": 0.211,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python scripts/market_intelligence_brief.py --stage auction",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "text_preview": "## 集合竞价简报 | 2026-06-24\n全市场有效竞价因子：3509\n### 竞价涨幅 TOP\n- 海南海药(sz000566)：10.05%｜池外研究情报\n- 孚日股份(sz002083)：10.04%｜池外研究情报\n- 卫星化学(sz002648)：10.01%｜池外研究情报\n- 正和生态(sh605069)：10.0%｜池外研究情报\n- 大元泵业(sh603757)：9.99%｜池外研究情报\n### 竞价跌幅 TOP\n- 实朴检测(sz301228)：-17.44%｜池外研究情报\n- 卡倍亿(sz300863)：-12.76%｜池外研究情报\n- 北大荒(sh600598)：-10.\n...[truncated 223 chars]"
+  },
+  "context_from": [],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-24",
+    "batch_id": "a-share-20260624",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": null,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": []
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-24",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": null,
+  "stdout": "## 集合竞价简报 | 2026-06-24\n全市场有效竞价因子：3509\n### 竞价涨幅 TOP\n- 海南海药(sz000566)：10.05%｜池外研究情报\n- 孚日股份(sz002083)：10.04%｜池外研究情报\n- 卫星化学(sz002648)：10.01%｜池外研究情报\n- 正和生态(sh605069)：10.0%｜池外研究情报\n- 大元泵业(sh603757)：9.99%｜池外研究情报\n### 竞价跌幅 TOP\n- 实朴检测(sz301228)：-17.44%｜池外研究情报\n- 卡倍亿(sz300863)：-12.76%｜池外研究情报\n- 北大荒(sh600598)：-10.02%｜池外研究情报\n- 宝钛股份(sh600456)：-10.01%｜池外研究情报\n- 艾华集团(sh603989)：-10.0%｜池外研究情报\n### 打板评分≥90\n- 黄河旋风(sh600172)：99.6\n- 东方锆业(sz002167)：99.34\n- 三孚股份(sh603938)：95.41\n- 长江证券(sz000783)：94.14\n- 新大洲A(sz000571)：93.09\n- 顺景科技(sh603007)：93.06\n",
+  "stderr": "",
+  "stdout_preview": "## 集合竞价简报 | 2026-06-24\n全市场有效竞价因子：3509\n### 竞价涨幅 TOP\n- 海南海药(sz000566)：10.05%｜池外研究情报\n- 孚日股份(sz002083)：10.04%｜池外研究情报\n- 卫星化学(sz002648)：10.01%｜池外研究情报\n- 正和生态(sh605069)：10.0%｜池外研究情报\n- 大元泵业(sh603757)：9.99%｜池外研究情报\n### 竞价跌幅 TOP\n- 实朴检测(sz301228)：-17.44%｜池外研究情报\n- 卡倍亿(sz300863)：-12.76%｜池外研究情报\n- 北大荒(sh600598)：-10.02%｜池外研究情报\n- 宝钛股份(sh600456)：-10.01%｜池外研究情报\n- 艾华集团(sh603989)：-10.0%｜池外研究情报\n### 打板评分≥90\n- 黄河旋风(sh600172)：99.6\n- 东方锆业(sz002167)：99.34\n- 三孚股份(sh603938)：95.41\n- 长江证券(sz000783)：94.14\n- 新大洲A(sz000571)：93.09\n- 顺景科技(sh603007)：93.06\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/auction-intelligence-brief/auction-intelligence-brief-20260624-092700-26550.json"
+}

@@ -1,0 +1,86 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-aff4c7e6f9a9f6d77f5aac2d",
+  "dataset": "provider-health",
+  "trading_date": "2026-06-24",
+  "batch_id": "a-share-20260624",
+  "producer": "provider-health",
+  "producer_version": "d7262ec2b6ed29a2eb6927367c2ad11eb14413f3",
+  "captured_at": "2026-06-24T08:05:21+08:00",
+  "payload_schema": "a_stock_provider_health_v1",
+  "payload_hash": "3c909a019b527abe18f69241f9f6f6e334f9793dff306b601bc30c00cb9fa051",
+  "source_versions": {
+    "akshare_push2": "external-source-v1",
+    "akshare_push2ex": "external-source-v1",
+    "akshare_ths": "external-source-v1",
+    "eastmoney_push2his": "external-source-v1",
+    "serper": "serper-adapter-v1",
+    "sina+eastmoney": "external-source-v1",
+    "tencent": "tencent-adapter-v2"
+  },
+  "payload": {
+    "schema": "a_stock_provider_health_v1",
+    "status": "degraded",
+    "datasets": {
+      "tencent_quote": {
+        "dataset": "tencent_quote",
+        "provider": "tencent",
+        "required": true,
+        "status": "ok",
+        "row_count": 1,
+        "duration_seconds": 0.136
+      },
+      "eastmoney_fund_flow": {
+        "dataset": "eastmoney_fund_flow",
+        "provider": "eastmoney_push2his",
+        "required": false,
+        "status": "error",
+        "error_type": "DataSourceError",
+        "error": "[eastmoney:network] Remote end closed connection without response",
+        "duration_seconds": 1.362
+      },
+      "akshare_limitup": {
+        "dataset": "akshare_limitup",
+        "provider": "akshare_push2ex",
+        "required": false,
+        "status": "ok",
+        "row_count": 96,
+        "duration_seconds": 3.934
+      },
+      "ths_industry_catalog": {
+        "dataset": "ths_industry_catalog",
+        "provider": "akshare_ths",
+        "required": false,
+        "status": "ok",
+        "row_count": 90,
+        "duration_seconds": 0.38
+      },
+      "akshare_spot_em": {
+        "dataset": "akshare_spot_em",
+        "provider": "akshare_push2",
+        "required": false,
+        "status": "error",
+        "error_type": "DataSourceError",
+        "error": "[akshare_spot:unknown] 全A行情获取失败",
+        "duration_seconds": 5.734
+      },
+      "serper_news": {
+        "dataset": "serper_news",
+        "provider": "serper",
+        "required": false,
+        "status": "ok",
+        "row_count": 1,
+        "duration_seconds": 8.357
+      },
+      "public_finance_news": {
+        "dataset": "public_finance_news",
+        "provider": "sina+eastmoney",
+        "required": false,
+        "status": "ok",
+        "row_count": 2,
+        "duration_seconds": 0.306
+      }
+    }
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-24/provider-health/snap-aff4c7e6f9a9f6d77f5aac2d.json"
+}

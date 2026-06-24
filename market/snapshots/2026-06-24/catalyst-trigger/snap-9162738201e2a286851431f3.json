@@ -1,0 +1,44 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-9162738201e2a286851431f3",
+  "dataset": "catalyst-trigger",
+  "trading_date": "2026-06-24",
+  "batch_id": "a-share-20260624",
+  "producer": "catalyst-trigger",
+  "producer_version": "d7262ec2b6ed29a2eb6927367c2ad11eb14413f3",
+  "captured_at": "2026-06-24T09:35:13+08:00",
+  "payload_schema": null,
+  "payload_hash": "4f7255484d5591a22d97a47f613d5dee5cd0f19be5433f913f608a85424dbba5",
+  "source_versions": {},
+  "payload": {
+    "status": "ok",
+    "timestamp": "2026-06-24T09:35:06.707718",
+    "scanned": 4,
+    "new": 4,
+    "t1_count": 0,
+    "t2_count": 4,
+    "matched_stocks": 2,
+    "new_watch_stocks": 0,
+    "alerts": [
+      {
+        "code": "002457",
+        "name": "青龙管业",
+        "tier": "T2",
+        "events": [
+          "水网建设提速，水利基建上市公司频获大额订单"
+        ],
+        "action": "watch"
+      },
+      {
+        "code": "300059",
+        "name": "东方财富",
+        "tier": "T2",
+        "events": [
+          "手握16亿订单，北向加仓214%，为何业绩暴跌38%，迎来价值重估？"
+        ],
+        "action": "watch"
+      }
+    ]
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-24/catalyst-trigger/snap-9162738201e2a286851431f3.json"
+}

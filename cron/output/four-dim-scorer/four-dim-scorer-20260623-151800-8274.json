@@ -1,0 +1,163 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "four-dim-scorer",
+  "run_id": "four-dim-scorer-20260623-151800-8274",
+  "batch_id": "a-share-20260623",
+  "trading_date": "2026-06-23",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-23T15:18:00+08:00",
+  "finished_at": "2026-06-23T15:18:02+08:00",
+  "duration_seconds": 1.794,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/stock-triage/scripts/batch_four_dim_scorer.py --limit 20 --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": false,
+  "summary": {
+    "schema": "four_dim_batch_v1",
+    "status": "ready",
+    "signals_count": 0
+  },
+  "context_from": [
+    {
+      "job_id": "candidate-discovery",
+      "run_id": "candidate-discovery-20260623-150700-8091",
+      "batch_id": "a-share-20260623",
+      "trading_date": "2026-06-23",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-discovery/candidate-discovery-20260623-150700-8091.json",
+      "status": "ok",
+      "finished_at": "2026-06-23T15:07:36+08:00",
+      "summary": {
+        "schema": "candidate_watch_pool_v1",
+        "status": "ready"
+      },
+      "age_minutes": 10.4,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    },
+    {
+      "job_id": "capital-flow",
+      "run_id": "capital-flow-20260623-143000-7468",
+      "batch_id": "a-share-20260623",
+      "trading_date": "2026-06-23",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/capital-flow/capital-flow-20260623-143000-7468.json",
+      "status": "ok",
+      "finished_at": "2026-06-23T14:30:26+08:00",
+      "summary": {
+        "schema": "capital_flow_v2",
+        "status": "insufficient_data",
+        "alerts_count": 26
+      },
+      "age_minutes": 47.567,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    },
+    {
+      "job_id": "hk-a-linkage",
+      "run_id": "hk-a-linkage-20260623-144500-7725",
+      "batch_id": "a-share-20260623",
+      "trading_date": "2026-06-23",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/hk-a-linkage/hk-a-linkage-20260623-144500-7725.json",
+      "status": "ok",
+      "finished_at": "2026-06-23T14:45:06+08:00",
+      "summary": {
+        "message": "AH溢价TOP5: 招商银行: A=37.42 H=46.9 溢价-12.3% | 海螺水泥: A=17.46 H=17.18 溢价11.7% | 中国平安: A=50.26 H=53.35 溢价3.5% | 紫金矿业: A=27.72 H=29.52 溢价3.2%",
+        "alerts_count": 0
+      },
+      "age_minutes": 32.9,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-23",
+    "batch_id": "a-share-20260623",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 180,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "candidate-discovery",
+        "run_id": "candidate-discovery-20260623-150700-8091",
+        "batch_id": "a-share-20260623",
+        "trading_date": "2026-06-23",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-discovery/candidate-discovery-20260623-150700-8091.json",
+        "status": "ok",
+        "finished_at": "2026-06-23T15:07:36+08:00",
+        "summary": {
+          "schema": "candidate_watch_pool_v1",
+          "status": "ready"
+        },
+        "age_minutes": 10.4,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      },
+      {
+        "job_id": "capital-flow",
+        "run_id": "capital-flow-20260623-143000-7468",
+        "batch_id": "a-share-20260623",
+        "trading_date": "2026-06-23",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/capital-flow/capital-flow-20260623-143000-7468.json",
+        "status": "ok",
+        "finished_at": "2026-06-23T14:30:26+08:00",
+        "summary": {
+          "schema": "capital_flow_v2",
+          "status": "insufficient_data",
+          "alerts_count": 26
+        },
+        "age_minutes": 47.567,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      },
+      {
+        "job_id": "hk-a-linkage",
+        "run_id": "hk-a-linkage-20260623-144500-7725",
+        "batch_id": "a-share-20260623",
+        "trading_date": "2026-06-23",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/hk-a-linkage/hk-a-linkage-20260623-144500-7725.json",
+        "status": "ok",
+        "finished_at": "2026-06-23T14:45:06+08:00",
+        "summary": {
+          "message": "AH溢价TOP5: 招商银行: A=37.42 H=46.9 溢价-12.3% | 海螺水泥: A=17.46 H=17.18 溢价11.7% | 中国平安: A=50.26 H=53.35 溢价3.5% | 紫金矿业: A=27.72 H=29.52 溢价3.2%",
+          "alerts_count": 0
+        },
+        "age_minutes": 32.9,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-23",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-c0e26d0717a4c562a0196e58",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/four-dim-scorer/snap-c0e26d0717a4c562a0196e58.json",
+    "payload_hash": "0753cadcc33bb47b8c0b45ac15f84ad8f3515e72863cd1eefb8a2d68bf9ac198",
+    "source_versions": {}
+  },
+  "stdout": "{\n  \"schema\": \"four_dim_batch_v1\",\n  \"generated_at\": \"2026-06-23T15:18:02\",\n  \"status\": \"ready\",\n  \"target_count\": 20,\n  \"signals\": [],\n  \"signal_count\": 0,\n  \"results\": [\n    {\n      \"code\": \"000070\",\n      \"name\": \"特发信息\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002297\",\n      \"name\": \"博云新材\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"000571\",\n      \"name\": \"新大洲A\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"000783\",\n      \"name\": \"长江证券\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"600172\",\n      \"name\": \"黄河旋风\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002068\",\n      \"name\": \"黑猫股份\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002141\",\n      \"name\": \"贤丰控股\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002167\",\n      \"name\": \"东方锆业\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002549\",\n      \"name\": \"凯美特气\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002584\",\n      \"name\": \"西陇科学\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002830\",\n      \"name\": \"名雕股份\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"600397\",\n      \"name\": \"江钨装备\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"600400\",\n      \"name\": \"红豆股份\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"600470\",\n      \"name\": \"六国化工\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"600707\",\n      \"name\": \"彩虹股份\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"600851\",\n      \"name\": \"海欣股份\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"601869\",\n      \"name\": \"长飞光纤\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"603007\",\n      \"name\": \"顺景科技\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"603318\",\n      \"name\": \"水发燃气\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"603335\",\n      \"name\": \"迪生力\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    }\n  ]\n}\n",
+  "stderr": "🔍 正在分析 特发信息(000070)...\n🔍 正在分析 博云新材(002297)...\n🔍 正在分析 新大洲A(000571)...\n🔍 正在分析 黄河旋风(600172)...\n🔍 正在分析 长江证券(000783)...\n  技术面: 5/10\n  情绪面: 10/10\n  技术面: 5/10\n  技术面: 5/10\n  技术面: 5/10\n  技术面: 5/10\n  情绪面: 10/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 黑猫股份(002068)...\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 贤丰控股(002141)...\n  情绪面: 7.5/10\n  催化面: 4.5/10\n  深度面: 7.0/10\n🔍 正在分析 东方锆业(002167)...\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 凯美特气(002549)...\n  催化面: 5.0/10\n  深度面: 5.0/10\n🔍 正在分析 西陇科学(002584)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 名雕股份(002830)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 3.5/10\n🔍 正在分析 江钨装备(600397)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 3.5/10\n🔍 正在分析 红豆股份(600400)...\n  技术面: 5/10\n  情绪面: 9.8/10\n  技术面: 5/10\n  催化面: 4.5/10\n  情绪面: 9.8/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 六国化工(600470)...\n  深度面: 3.5/10\n🔍 正在分析 彩虹股份(600707)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 5.0/10\n🔍 正在分析 海欣股份(600851)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 长飞光纤(601869)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 顺景科技(603007)...\n  技术面: 5/10\n  技术面: 5/10\n  情绪面: 9.3/10\n  催化面: 4.5/10\n  深度面: 3.5/10\n🔍 正在分析 水发燃气(603318)...\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 迪生力(603335)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 5.0/10\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 5.0/10\n  深度面: 3.5/10\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 5.0/10\n",
+  "stdout_preview": "{\n  \"schema\": \"four_dim_batch_v1\",\n  \"generated_at\": \"2026-06-23T15:18:02\",\n  \"status\": \"ready\",\n  \"target_count\": 20,\n  \"signals\": [],\n  \"signal_count\": 0,\n  \"results\": [\n    {\n      \"code\": \"000070\",\n      \"name\": \"特发信息\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002297\",\n      \"name\": \"博云新材\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"000571\",\n      \"name\": \"新大洲A\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"000783\",\n      \"name\": \"长江证券\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"600172\",\n      \"name\": \"黄河旋风\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002068\",\n      \"name\": \"黑猫股份\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002141\",\n      \"name\": \"贤丰控股\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002167\",\n      \"name\": \"东方锆业\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002549\",\n      \"name\": \"凯美特气\",\n      \"status\": \"failed\",\n      \"error\": \"'ma5'\"\n    },\n    {\n      \"code\": \"002584\",\n      \"name\": \"西陇科学\",\n    \n...[truncated 1136 chars]",
+  "stderr_preview": "🔍 正在分析 特发信息(000070)...\n🔍 正在分析 博云新材(002297)...\n🔍 正在分析 新大洲A(000571)...\n🔍 正在分析 黄河旋风(600172)...\n🔍 正在分析 长江证券(000783)...\n  技术面: 5/10\n  情绪面: 10/10\n  技术面: 5/10\n  技术面: 5/10\n  技术面: 5/10\n  技术面: 5/10\n  情绪面: 10/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 黑猫股份(002068)...\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 贤丰控股(002141)...\n  情绪面: 7.5/10\n  催化面: 4.5/10\n  深度面: 7.0/10\n🔍 正在分析 东方锆业(002167)...\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 凯美特气(002549)...\n  催化面: 5.0/10\n  深度面: 5.0/10\n🔍 正在分析 西陇科学(002584)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 名雕股份(002830)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 3.5/10\n🔍 正在分析 江钨装备(600397)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 3.5/10\n🔍 正在分析 红豆股份(600400)...\n  技术面: 5/10\n  情绪面: 9.8/10\n  技术面: 5/10\n  催化面: 4.5/10\n  情绪面: 9.8/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 六国化工(600470)...\n  深度面: 3.5/10\n🔍 正在分析 彩虹股份(600707)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 5.0/10\n🔍 正在分析 海欣股份(600851)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 长飞光纤(601869)...\n  技术面: 5/10\n  情绪面: 10/10\n  催化面: 4.5/10\n  深度面: 4.0/10\n🔍 正在分析 顺景科技(603007)...\n  技术面: 5/10\n  技术面: 5/10\n  情绪面: 9.3/10\n  催化面: 4.5/10\n  深度面: 3.5/10\n🔍 正在分析 水发燃气(603318)...\n  情绪面\n...[truncated 323 chars]",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/four-dim-scorer/four-dim-scorer-20260623-151800-8274.json"
+}

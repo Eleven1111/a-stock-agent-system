@@ -1,0 +1,196 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "candidate-discovery",
+  "run_id": "candidate-discovery-20260622-150700-83986",
+  "batch_id": "a-share-20260622",
+  "trading_date": "2026-06-22",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "local",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-22T15:07:00+08:00",
+  "finished_at": "2026-06-22T15:07:22+08:00",
+  "duration_seconds": 22.459,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/stock-triage/scripts/candidate_discovery.py --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "schema": "candidate_watch_pool_v1",
+    "status": "ready"
+  },
+  "context_from": [
+    {
+      "job_id": "hot-money-context",
+      "run_id": "hot-money-context-20260622-150241-83871",
+      "batch_id": "a-share-20260622",
+      "trading_date": "2026-06-22",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/hot-money-context/hot-money-context-20260622-150241-83871.json",
+      "status": "ok",
+      "finished_at": "2026-06-22T15:02:45+08:00",
+      "summary": {
+        "status": "ready"
+      },
+      "age_minutes": 4.25,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    },
+    {
+      "job_id": "capital-flow",
+      "run_id": "capital-flow-20260622-143000-83305",
+      "batch_id": "a-share-20260622",
+      "trading_date": "2026-06-22",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/capital-flow/capital-flow-20260622-143000-83305.json",
+      "status": "ok",
+      "finished_at": "2026-06-22T14:30:13+08:00",
+      "summary": {
+        "schema": "capital_flow_v2",
+        "status": "insufficient_data",
+        "alerts_count": 8
+      },
+      "age_minutes": 36.783,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    },
+    {
+      "job_id": "hk-a-linkage",
+      "run_id": "hk-a-linkage-20260622-144500-83566",
+      "batch_id": "a-share-20260622",
+      "trading_date": "2026-06-22",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/hk-a-linkage/hk-a-linkage-20260622-144500-83566.json",
+      "status": "ok",
+      "finished_at": "2026-06-22T14:45:08+08:00",
+      "summary": {
+        "message": "AH溢价TOP5: 招商银行: A=37.61 H=46.8 溢价-11.7% | 海螺水泥: A=17.88 H=17.66 溢价11.3% | 紫金矿业: A=30.46 H=31.92 溢价4.9% | 中国平安: A=51.87 H=55.15 溢价3.4%",
+        "alerts_count": 1
+      },
+      "age_minutes": 21.867,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    },
+    {
+      "job_id": "social-attention-close",
+      "run_id": "social-attention-close-20260622-150400-83914",
+      "batch_id": "a-share-20260622",
+      "trading_date": "2026-06-22",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/social-attention-close/social-attention-close-20260622-150400-83914.json",
+      "status": "ok",
+      "finished_at": "2026-06-22T15:04:01+08:00",
+      "summary": {
+        "schema": "social_attention_collection_v1",
+        "status": "ready"
+      },
+      "age_minutes": 2.983,
+      "required": false,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-22",
+    "batch_id": "a-share-20260622",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 180,
+      "optional_jobs": [
+        "social-attention-close"
+      ],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "hot-money-context",
+        "run_id": "hot-money-context-20260622-150241-83871",
+        "batch_id": "a-share-20260622",
+        "trading_date": "2026-06-22",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/hot-money-context/hot-money-context-20260622-150241-83871.json",
+        "status": "ok",
+        "finished_at": "2026-06-22T15:02:45+08:00",
+        "summary": {
+          "status": "ready"
+        },
+        "age_minutes": 4.25,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      },
+      {
+        "job_id": "capital-flow",
+        "run_id": "capital-flow-20260622-143000-83305",
+        "batch_id": "a-share-20260622",
+        "trading_date": "2026-06-22",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/capital-flow/capital-flow-20260622-143000-83305.json",
+        "status": "ok",
+        "finished_at": "2026-06-22T14:30:13+08:00",
+        "summary": {
+          "schema": "capital_flow_v2",
+          "status": "insufficient_data",
+          "alerts_count": 8
+        },
+        "age_minutes": 36.783,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      },
+      {
+        "job_id": "hk-a-linkage",
+        "run_id": "hk-a-linkage-20260622-144500-83566",
+        "batch_id": "a-share-20260622",
+        "trading_date": "2026-06-22",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/hk-a-linkage/hk-a-linkage-20260622-144500-83566.json",
+        "status": "ok",
+        "finished_at": "2026-06-22T14:45:08+08:00",
+        "summary": {
+          "message": "AH溢价TOP5: 招商银行: A=37.61 H=46.8 溢价-11.7% | 海螺水泥: A=17.88 H=17.66 溢价11.3% | 紫金矿业: A=30.46 H=31.92 溢价4.9% | 中国平安: A=51.87 H=55.15 溢价3.4%",
+          "alerts_count": 1
+        },
+        "age_minutes": 21.867,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      },
+      {
+        "job_id": "social-attention-close",
+        "run_id": "social-attention-close-20260622-150400-83914",
+        "batch_id": "a-share-20260622",
+        "trading_date": "2026-06-22",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/social-attention-close/social-attention-close-20260622-150400-83914.json",
+        "status": "ok",
+        "finished_at": "2026-06-22T15:04:01+08:00",
+        "summary": {
+          "schema": "social_attention_collection_v1",
+          "status": "ready"
+        },
+        "age_minutes": 2.983,
+        "required": false,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-22",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-08c5bbcfb5cd16511cd1a2b7",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/candidate-discovery/snap-08c5bbcfb5cd16511cd1a2b7.json",
+    "payload_hash": "e142a2b73139d5f8aa77a8c45e281ebdb5c8b15360b87d9b1e11f02606a8748b",
+    "source_versions": {}
+  },
+  "stdout": "{\n  \"schema\": \"candidate_watch_pool_v1\",\n  \"asof\": \"2026-06-22\",\n  \"generated_at\": \"2026-06-22T15:07:15\",\n  \"status\": \"ready\",\n  \"bootstrap_status\": null,\n  \"universe_source\": \"SSE+SZSE listings / Tencent quotes\",\n  \"scanned_count\": 5207,\n  \"eligible_count\": 3634,\n  \"rejected_count\": 1573,\n  \"enriched_count\": 350,\n  \"candidate_count\": 200,\n  \"market_temperature\": {\n    \"tier\": \"修复\",\n    \"height\": 5,\n    \"promotion_rate\": null,\n    \"limitup_total\": 134,\n    \"retreat_signal\": null,\n    \"notes\": [\n      \"晋级率缺失（无昨日梯队快照），按高度板保守判定\"\n    ],\n    \"allow_new_daban\": true,\n    \"position_multiplier\": 0.6,\n    \"top_n_limit\": 2,\n    \"advice\": \"小仓试错，优先首板龙一\",\n    \"context_asof\": \"2026-06-22\",\n    \"context_fresh\": true\n  },\n  \"rejection_reason_counts\": {\n    \"成交额低于0.8亿元\": 1493,\n    \"股价低于2元\": 71,\n    \"ST/*ST/退市整理股票\": 225,\n    \"停牌或缺少有效成交\": 16,\n    \"上市不足60天\": 10\n  },\n  \"top_candidates\": [\n    {\n      \"code\": \"000048\",\n      \"name\": \"京基智农\",\n      \"daban_rank\": 1,\n      \"daban_score\": 100.0,\n      \"trend_rank\": 134,\n      \"trend_score\": 88.99,\n      \"selected_by\": {\n        \"daban\": true,\n        \"trend\": false,\n        \"balanced_fill\": false\n      }\n    },\n    {\n      \"code\": \"000725\",\n      \"name\": \"京东方Ａ\",\n      \"daban_rank\": 68,\n      \"daban_score\": 87.67,\n      \"trend_rank\": 1,\n      \"trend_score\": 100.0,\n      \"selected_by\": {\n        \"daban\": true,\n        \"trend\": true,\n        \"balanced_fill\": false\n      }\n    },\n    {\n      \"code\": \"000519\",\n      \"name\": \"中兵红箭\",\n      \"daban_rank\": 2,\n      \"daban_score\": 100.0,\n      \"trend_rank\": 21,\n      \"trend_score\": 97.34,\n      \"selected_by\": {\n        \"daban\": true,\n        \"trend\": true,\n        \"balanced_fill\": false\n      }\n    },\n    {\n      \"code\": \"300308\",\n      \"name\": \"中际旭创\",\n      \"daban_rank\": 1325,\n      \"daban_score\": 0.0,\n      \"trend_rank\": 2,\n      \"trend_score\": 100.0,\n      \"selected_by\": {\n        \"daban\": false,\n        \"trend\": true,\n        \"balanced_fill\": false\n      }\n    },\n    {\n      \"code\": \"000657\",\n      \"name\": \"中钨高新\",\n      \"daban_rank\": 3,\n      \"daban_score\": 100.0,\n      \"trend_rank\": 144,\n      \"trend_score\": 87.91,\n      \"selected_by\": {\n        \"daban\": true,\n        \"trend\": false,\n        \"balanced_fill\": false\n      }\n    }\n  ]\n}\n",
+  "stderr": "",
+  "stdout_preview": "{\n  \"schema\": \"candidate_watch_pool_v1\",\n  \"asof\": \"2026-06-22\",\n  \"generated_at\": \"2026-06-22T15:07:15\",\n  \"status\": \"ready\",\n  \"bootstrap_status\": null,\n  \"universe_source\": \"SSE+SZSE listings / Tencent quotes\",\n  \"scanned_count\": 5207,\n  \"eligible_count\": 3634,\n  \"rejected_count\": 1573,\n  \"enriched_count\": 350,\n  \"candidate_count\": 200,\n  \"market_temperature\": {\n    \"tier\": \"修复\",\n    \"height\": 5,\n    \"promotion_rate\": null,\n    \"limitup_total\": 134,\n    \"retreat_signal\": null,\n    \"notes\": [\n      \"晋级率缺失（无昨日梯队快照），按高度板保守判定\"\n    ],\n    \"allow_new_daban\": true,\n    \"position_multiplier\": 0.6,\n    \"top_n_limit\": 2,\n    \"advice\": \"小仓试错，优先首板龙一\",\n    \"context_asof\": \"2026-06-22\",\n    \"context_fresh\": true\n  },\n  \"rejection_reason_counts\": {\n    \"成交额低于0.8亿元\": 1493,\n    \"股价低于2元\": 71,\n    \"ST/*ST/退市整理股票\": 225,\n    \"停牌或缺少有效成交\": 16,\n    \"上市不足60天\": 10\n  },\n  \"top_candidates\": [\n    {\n      \"code\": \"000048\",\n      \"name\": \"京基智农\",\n      \"daban_rank\": 1,\n      \"daban_score\": 100.0,\n      \"trend_rank\": 134,\n      \"trend_score\": 88.99,\n      \"selected_by\": {\n        \"daban\": true,\n        \"trend\": false,\n        \"balanced_fill\": false\n      }\n    },\n    {\n      \"code\": \"000725\",\n      \"name\": \"京东\n...[truncated 1041 chars]",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-discovery/candidate-discovery-20260622-150700-83986.json"
+}

@@ -1,0 +1,31 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-3f00780ebe7cf1896e6c2ff0",
+  "dataset": "news-monitor-intraday",
+  "trading_date": "2026-06-24",
+  "batch_id": "a-share-20260624",
+  "producer": "news-monitor-intraday",
+  "producer_version": "d7262ec2b6ed29a2eb6927367c2ad11eb14413f3",
+  "captured_at": "2026-06-24T09:17:00+08:00",
+  "payload_schema": "scheduled_news_monitor_v1",
+  "payload_hash": "e109f6f646de41c3d45da89d2ce5331d412732573628099596d727a1296f2783",
+  "source_versions": {},
+  "payload": {
+    "schema": "scheduled_news_monitor_v1",
+    "generated_at": "2026-06-24T09:17:00",
+    "status": "skipped",
+    "mode": "intraday",
+    "message": "outside A-share intraday news freshness window",
+    "events": [],
+    "signals": [],
+    "freshness": {
+      "status": "no_events",
+      "sla_minutes": 10,
+      "parsed_event_count": 0,
+      "unknown_event_count": 0,
+      "newest_latency_minutes": null,
+      "oldest_latency_minutes": null
+    }
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-24/news-monitor-intraday/snap-3f00780ebe7cf1896e6c2ff0.json"
+}

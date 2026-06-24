@@ -110,7 +110,7 @@ results = {}
 for ticker in tickers:
     try:
         if len(tickers) == 1:
-            ticker_frame = frame
+            ticker_frame = frame[tickers[0]]
         elif ticker in frame.columns.get_level_values(0):
             ticker_frame = frame[ticker]
         else:
@@ -134,12 +134,17 @@ for ticker in tickers:
         results[ticker] = {"error": str(exc)}
 print(json.dumps(results))
 '''
+                # yfinance 访问 Yahoo Finance，不需要走中国数据源的 NO_PROXY 绕过
+                yf_env = dict(os.environ)
+                yf_env.pop("NO_PROXY", None)
+                yf_env.pop("no_proxy", None)
                 completed = subprocess.run(
                     [sys.executable, "-c", worker],
                     input=json.dumps(tickers),
                     capture_output=True,
                     text=True,
                     timeout=12,
+                    env=yf_env,
                 )
                 if completed.returncode != 0 or not completed.stdout.strip():
                     raise RuntimeError(completed.stderr.strip() or "yfinance worker returned no data")
@@ -664,6 +669,7 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
     """采集全部数据"""
     load_hermes_env()
     global _YFINANCE_DISABLED_REASON
+    _YFINANCE_DISABLED_REASON = None  # 每次 run 重新尝试，不跨 run 禁用
     result = {
         "timestamp": datetime.now().isoformat(),
         "timezone": "Asia/Shanghai",

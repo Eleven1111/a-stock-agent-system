@@ -1,0 +1,31 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-f2b1c3eca6cfd43e83a7bd97",
+  "dataset": "news-monitor-intraday",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "news-monitor-intraday",
+  "producer_version": "78d8946e7716f5384cf5faaadd8d260717b698f7",
+  "captured_at": "2026-06-23T14:37:00+08:00",
+  "payload_schema": "scheduled_news_monitor_v1",
+  "payload_hash": "8766be7679cc40a1f7d4f9e61e731d1620306e15220c1f5092857e134d0bcc6c",
+  "source_versions": {},
+  "payload": {
+    "schema": "scheduled_news_monitor_v1",
+    "generated_at": "2026-06-23T14:37:00",
+    "status": "insufficient_data",
+    "mode": "intraday",
+    "message": "SERPER_API_KEY missing; no directional news judgement",
+    "events": [],
+    "signals": [],
+    "freshness": {
+      "status": "no_events",
+      "sla_minutes": 10,
+      "parsed_event_count": 0,
+      "unknown_event_count": 0,
+      "newest_latency_minutes": null,
+      "oldest_latency_minutes": null
+    }
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/news-monitor-intraday/snap-f2b1c3eca6cfd43e83a7bd97.json"
+}
