@@ -762,7 +762,7 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/batch_four_dim_scorer.py --limit 20 --json",
+        "command": "python skills/stock-triage/scripts/batch_four_dim_scorer.py --limit 20",
         "cwd": ".",
         "timeout_seconds": 180
       },
@@ -796,7 +796,7 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/portfolio_manager.py --check --json",
+        "command": "python skills/stock-triage/scripts/portfolio_manager.py --check",
         "cwd": ".",
         "timeout_seconds": 45
       },
@@ -832,7 +832,7 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/context_digest.py --kind closing-triage --json",
+        "command": "python skills/stock-triage/scripts/context_digest.py --kind closing-triage",
         "cwd": ".",
         "timeout_seconds": 20
       },
@@ -972,7 +972,7 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python scripts/market_pulse_digest.py --profile midday --json --max-chars 200",
+        "command": "python scripts/market_pulse_digest.py --profile midday --max-chars 200",
         "cwd": ".",
         "timeout_seconds": 120
       },
@@ -1000,7 +1000,7 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python scripts/market_pulse_digest.py --profile close --json --max-chars 200",
+        "command": "python scripts/market_pulse_digest.py --profile close --max-chars 200",
         "cwd": ".",
         "timeout_seconds": 120
       },
@@ -1230,7 +1230,7 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python scripts/realtime_catalyst_trigger.py --json",
+        "command": "python scripts/realtime_catalyst_trigger.py",
         "cwd": ".",
         "timeout_seconds": 60
       },
