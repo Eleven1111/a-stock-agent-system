@@ -103,7 +103,7 @@ def test_dag_target_output_compacts_payload_before_openclaw_output_limit():
     )
 
     assert len(output) <= 301
-    assert "openclaw_target_output_truncated_v1" in output
+    assert "已压缩" in output  # compacted, not the raw 5000-char payload
     assert "news-monitor" in output
     assert "stale_data" in output
 
