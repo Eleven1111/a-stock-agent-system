@@ -1,0 +1,49 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-673ffb3bbd6c1a3d4cf3c6a9",
+  "dataset": "hot-money-afternoon-checkpoint",
+  "trading_date": "2026-06-24",
+  "batch_id": "a-share-20260624",
+  "producer": "hot-money-afternoon-checkpoint",
+  "producer_version": "d4263dc75177e597f8e74a6d843b96e04961de1e",
+  "captured_at": "2026-06-24T13:18:07+08:00",
+  "payload_schema": null,
+  "payload_hash": "bcaeac2f93002611ae051f349f88bb1da00c290a0208d0f161969887d88a6418",
+  "source_versions": {},
+  "payload": {
+    "status": "ready",
+    "profile": "afternoon_reflow",
+    "window": "13:15",
+    "asof": "2026-06-24",
+    "research_only": true,
+    "observation_count": 5,
+    "confirmed_count": 3,
+    "confirmed": [
+      {
+        "code": "sh603339",
+        "name": "四方科技",
+        "sector": null,
+        "sector_rank": 1,
+        "change_pct": 5.15,
+        "research_state": "confirmed"
+      },
+      {
+        "code": "sh603938",
+        "name": "三孚股份",
+        "sector": "化学原料",
+        "sector_rank": 1,
+        "change_pct": 10.0,
+        "research_state": "confirmed"
+      },
+      {
+        "code": "sz300835",
+        "name": "龙磁科技",
+        "sector": "C 制造业",
+        "sector_rank": 2,
+        "change_pct": 3.96,
+        "research_state": "confirmed"
+      }
+    ]
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-24/hot-money-afternoon-checkpoint/snap-673ffb3bbd6c1a3d4cf3c6a9.json"
+}

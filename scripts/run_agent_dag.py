@@ -372,7 +372,15 @@ def main() -> None:
         )
         sys.stdout.write(target_output(job, artifact or {}))
     else:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        # 任务失败时输出人类可读的短消息而不是原始 DAG JSON
+        failed_runs = result.get("runs", [])
+        failed_jobs = [f"{r['job_id']}(code={r['returncode']})" for r in failed_runs if r.get("status") == "failed"]
+        parts = [f"任务失败: {', '.join(failed_jobs)}"] if failed_jobs else [f"DAG运行失败: {result.get('status')}"]
+        artifact = (failed_runs or [{}])[0]
+        if artifact.get("stderr"):
+            err_msg = artifact["stderr"][:200]
+            parts.append(f"错误: {err_msg}")
+        print("\n".join(parts))
     raise SystemExit(
         0 if result["status"] in {"ok", "skipped_non_trading_day"} else 1
     )

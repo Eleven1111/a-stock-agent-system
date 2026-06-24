@@ -1,0 +1,93 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "hot-money-afternoon-checkpoint",
+  "run_id": "hot-money-afternoon-checkpoint-20260624-131806-32827",
+  "batch_id": "a-share-20260624",
+  "trading_date": "2026-06-24",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-24T13:18:06+08:00",
+  "finished_at": "2026-06-24T13:18:07+08:00",
+  "duration_seconds": 1.234,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/daban-stock-picker/scripts/hot_money_checkpoint.py --profile afternoon_reflow --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "status": "ready"
+  },
+  "context_from": [
+    {
+      "job_id": "open-confirmation",
+      "run_id": "open-confirmation-20260624-093506-26754",
+      "batch_id": "a-share-20260624",
+      "trading_date": "2026-06-24",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/open-confirmation/open-confirmation-20260624-093506-26754.json",
+      "status": "ok",
+      "finished_at": "2026-06-24T09:35:09+08:00",
+      "summary": {
+        "schema": "open_confirmation_v3",
+        "status": "ready",
+        "signals_count": 5
+      },
+      "age_minutes": 222.95,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-24",
+    "batch_id": "a-share-20260624",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 300,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "open-confirmation",
+        "run_id": "open-confirmation-20260624-093506-26754",
+        "batch_id": "a-share-20260624",
+        "trading_date": "2026-06-24",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/open-confirmation/open-confirmation-20260624-093506-26754.json",
+        "status": "ok",
+        "finished_at": "2026-06-24T09:35:09+08:00",
+        "summary": {
+          "schema": "open_confirmation_v3",
+          "status": "ready",
+          "signals_count": 5
+        },
+        "age_minutes": 222.95,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-24",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-673ffb3bbd6c1a3d4cf3c6a9",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-24/hot-money-afternoon-checkpoint/snap-673ffb3bbd6c1a3d4cf3c6a9.json",
+    "payload_hash": "bcaeac2f93002611ae051f349f88bb1da00c290a0208d0f161969887d88a6418",
+    "source_versions": {}
+  },
+  "stdout": "{\"status\": \"ready\", \"profile\": \"afternoon_reflow\", \"window\": \"13:15\", \"asof\": \"2026-06-24\", \"research_only\": true, \"observation_count\": 5, \"confirmed_count\": 3, \"confirmed\": [{\"code\": \"sh603339\", \"name\": \"四方科技\", \"sector\": null, \"sector_rank\": 1, \"change_pct\": 5.15, \"research_state\": \"confirmed\"}, {\"code\": \"sh603938\", \"name\": \"三孚股份\", \"sector\": \"化学原料\", \"sector_rank\": 1, \"change_pct\": 10.0, \"research_state\": \"confirmed\"}, {\"code\": \"sz300835\", \"name\": \"龙磁科技\", \"sector\": \"C 制造业\", \"sector_rank\": 2, \"change_pct\": 3.96, \"research_state\": \"confirmed\"}]}\n",
+  "stderr": "",
+  "stdout_preview": "{\"status\": \"ready\", \"profile\": \"afternoon_reflow\", \"window\": \"13:15\", \"asof\": \"2026-06-24\", \"research_only\": true, \"observation_count\": 5, \"confirmed_count\": 3, \"confirmed\": [{\"code\": \"sh603339\", \"name\": \"四方科技\", \"sector\": null, \"sector_rank\": 1, \"change_pct\": 5.15, \"research_state\": \"confirmed\"}, {\"code\": \"sh603938\", \"name\": \"三孚股份\", \"sector\": \"化学原料\", \"sector_rank\": 1, \"change_pct\": 10.0, \"research_state\": \"confirmed\"}, {\"code\": \"sz300835\", \"name\": \"龙磁科技\", \"sector\": \"C 制造业\", \"sector_rank\": 2, \"change_pct\": 3.96, \"research_state\": \"confirmed\"}]}\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/hot-money-afternoon-checkpoint/hot-money-afternoon-checkpoint-20260624-131806-32827.json"
+}

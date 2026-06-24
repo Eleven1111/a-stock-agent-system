@@ -1031,7 +1031,7 @@
       "run": {
         "command": "python skills/news-to-sector/scripts/scheduled_monitor.py --mode intraday --json",
         "cwd": ".",
-        "timeout_seconds": 180
+        "timeout_seconds": 240
       },
       "external_note": "09:25-11:30/13:00-14:55 内部守卫；5分钟轻量抓取动态股票/主题，超过SLA只归档不产生方向信号"
     },

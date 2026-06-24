@@ -1,0 +1,89 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "intraday-alert",
+  "run_id": "intraday-alert-20260624-131000-32699",
+  "batch_id": "a-share-20260624",
+  "trading_date": "2026-06-24",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-24T13:10:00+08:00",
+  "finished_at": "2026-06-24T13:10:01+08:00",
+  "duration_seconds": 1.7,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/stock-triage/scripts/intraday_monitor.py",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "text_preview": "⚡ 盘中异动 | 13:10\n  🔴 三孚股份(603938) 涨停！现价71.63 (+10.0%)\n  🟡 裕同科技 急涨6.0%，现价37.88\n  🟡 新莱应材 急涨7.4%，现价84.7\n"
+  },
+  "context_from": [
+    {
+      "job_id": "open-confirmation",
+      "run_id": "open-confirmation-20260624-093506-26754",
+      "batch_id": "a-share-20260624",
+      "trading_date": "2026-06-24",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/open-confirmation/open-confirmation-20260624-093506-26754.json",
+      "status": "ok",
+      "finished_at": "2026-06-24T09:35:09+08:00",
+      "summary": {
+        "schema": "open_confirmation_v3",
+        "status": "ready",
+        "signals_count": 5
+      },
+      "age_minutes": 214.85,
+      "required": false,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-24",
+    "batch_id": "a-share-20260624",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 480,
+      "optional_jobs": [
+        "open-confirmation"
+      ],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "open-confirmation",
+        "run_id": "open-confirmation-20260624-093506-26754",
+        "batch_id": "a-share-20260624",
+        "trading_date": "2026-06-24",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/open-confirmation/open-confirmation-20260624-093506-26754.json",
+        "status": "ok",
+        "finished_at": "2026-06-24T09:35:09+08:00",
+        "summary": {
+          "schema": "open_confirmation_v3",
+          "status": "ready",
+          "signals_count": 5
+        },
+        "age_minutes": 214.85,
+        "required": false,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-24",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": null,
+  "stdout": "⚡ 盘中异动 | 13:10\n  🔴 三孚股份(603938) 涨停！现价71.63 (+10.0%)\n  🟡 裕同科技 急涨6.0%，现价37.88\n  🟡 新莱应材 急涨7.4%，现价84.7\n",
+  "stderr": "",
+  "stdout_preview": "⚡ 盘中异动 | 13:10\n  🔴 三孚股份(603938) 涨停！现价71.63 (+10.0%)\n  🟡 裕同科技 急涨6.0%，现价37.88\n  🟡 新莱应材 急涨7.4%，现价84.7\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/intraday-alert/intraday-alert-20260624-131000-32699.json"
+}
