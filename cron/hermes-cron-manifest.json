@@ -421,7 +421,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 4500,
       "context_from": [
         "auction-snapshot",
@@ -489,7 +489,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 5000,
       "context_from": [
         "auction-finalize"
@@ -1031,7 +1031,7 @@
       "run": {
         "command": "python skills/news-to-sector/scripts/scheduled_monitor.py --mode intraday --json",
         "cwd": ".",
-        "timeout_seconds": 90
+        "timeout_seconds": 180
       },
       "external_note": "09:25-11:30/13:00-14:55 内部守卫；5分钟轻量抓取动态股票/主题，超过SLA只归档不产生方向信号"
     },

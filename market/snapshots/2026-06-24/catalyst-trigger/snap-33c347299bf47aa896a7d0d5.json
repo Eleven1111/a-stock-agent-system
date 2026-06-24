@@ -1,0 +1,25 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-33c347299bf47aa896a7d0d5",
+  "dataset": "catalyst-trigger",
+  "trading_date": "2026-06-24",
+  "batch_id": "a-share-20260624",
+  "producer": "catalyst-trigger",
+  "producer_version": "678743b7c73d3bc25797afbd4af4b2569aeb3834",
+  "captured_at": "2026-06-24T10:33:05+08:00",
+  "payload_schema": null,
+  "payload_hash": "124cdb4de82876905407562314a1e35326222296c5aef02b9976b6172c5cc368",
+  "source_versions": {},
+  "payload": {
+    "status": "ok",
+    "timestamp": "2026-06-24T10:33:00.441812",
+    "scanned": 4,
+    "new": 1,
+    "t1_count": 0,
+    "t2_count": 1,
+    "matched_stocks": 0,
+    "new_watch_stocks": 0,
+    "alerts": []
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-24/catalyst-trigger/snap-33c347299bf47aa896a7d0d5.json"
+}

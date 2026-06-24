@@ -180,10 +180,30 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
             "detail": "K线数据不足",
         }
 
-    closes = [k["close"] for k in klines]
-    highs = [k["high"] for k in klines]
-    lows = [k["low"] for k in klines]
-    volumes = [k["volume"] for k in klines]
+    closes = [k.get("close") for k in klines if isinstance(k, dict)]
+    closes = [c for c in closes if c is not None]
+    highs = [k.get("high") for k in klines if isinstance(k, dict)]
+    highs = [h for h in highs if h is not None]
+    lows = [k.get("low") for k in klines if isinstance(k, dict)]
+    lows = [lw for lw in lows if lw is not None]
+    volumes = [k.get("volume") for k in klines if isinstance(k, dict)]
+    volumes = [v for v in volumes if v is not None]
+
+    if not closes:
+        return {
+            "score": 5,
+            "ma5": None,
+            "ma20": None,
+            "ma60": None,
+            "rsi6": None,
+            "rsi14": None,
+            "atr14": None,
+            "volume_ratio": None,
+            "chip_concentration": None,
+            "price": rt.get("price"),
+            "change_pct": rt.get("change_pct"),
+            "detail": "K线close数据为空",
+        }
 
     ma5 = calc_ma(closes, 5)
     ma10 = calc_ma(closes, 10)

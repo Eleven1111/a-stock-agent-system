@@ -323,25 +323,12 @@ def target_output(job: Mapping[str, Any], artifact: Mapping[str, Any]) -> str:
     if len(stdout) > max_chars:
         raw_summary = artifact.get("summary")
         summary = raw_summary if isinstance(raw_summary, Mapping) else {}
-        compact_summary = {
-            key: value
-            for key, value in summary.items()
-            if key == "status" or key.endswith("_count")
-        }
-        message = summary.get("message")
-        if message:
-            compact_summary["message"] = str(message)[:120]
-        stdout = json.dumps(
-            {
-                "schema": "openclaw_target_output_truncated_v1",
-                "job_id": job.get("id"),
-                "status": artifact.get("status"),
-                "summary": compact_summary,
-                "message": f"原始输出{len(stdout)}字符，已按推送预算压缩",
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )[:max_chars]
+        parts = [summary.get("message", f"{job.get('id', 'job')} 运行完成")]
+        count_keys = {k: v for k, v in summary.items() if k.endswith("_count") and v is not None}
+        if count_keys:
+            parts.append(" | ".join(f"{k.replace('_count','')}={v}" for k, v in count_keys.items()))
+        parts.append(f"(输出{len(stdout)}字符，已压缩)")
+        stdout = "\n".join(parts)[:max_chars]
     return stdout + ("\n" if stdout and not stdout.endswith("\n") else "")
 
 
