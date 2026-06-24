@@ -289,7 +289,8 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["news-monitor-intraday"]["run"]["command"].endswith("--mode intraday --json")
     assert any("catalyst_context.json" in path for path in jobs["news-monitor"]["allowed_state_writes"])
     assert any("catalyst_context.json" in path for path in jobs["news-monitor-intraday"]["allowed_state_writes"])
-    assert jobs["intraday-alert"]["run"]["command"] == "python skills/stock-triage/scripts/intraday_monitor.py --json"
+    # intraday-alert is an origin-push job: it emits human-readable text, not --json.
+    assert jobs["intraday-alert"]["run"]["command"] == "python skills/stock-triage/scripts/intraday_monitor.py"
     assert jobs["intraday-alert"]["run"]["timeout_seconds"] >= 120
     assert jobs["news-monitor"]["run"]["timeout_seconds"] >= 180
     for job_id, profile in (
@@ -297,7 +298,8 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         ("market-pulse-1500", "close"),
     ):
         command = jobs[job_id]["run"]["command"]
-        assert command == f"python scripts/market_pulse_digest.py --profile {profile} --json --max-chars 200"
+        # market-pulse is an origin-push job: it emits the human-readable summary, not --json.
+        assert command == f"python scripts/market_pulse_digest.py --profile {profile} --max-chars 200"
         assert jobs[job_id]["run"]["timeout_seconds"] == 120
         assert "prompt" not in command
         assert "web_fetch" not in command
@@ -323,8 +325,10 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     ]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
     assert jobs["candidate-preopen"]["deliver"] == "local"
-    assert jobs["auction-finalize"]["deliver"] == "local"
-    assert jobs["open-confirmation"]["deliver"] == "local"
+    # auction-finalize / open-confirmation push their gated conclusions to origin
+    # (deliver=local→origin, intentional per "四合一 cron 修复").
+    assert jobs["auction-finalize"]["deliver"] == "origin"
+    assert jobs["open-confirmation"]["deliver"] == "origin"
     assert jobs["auction-market-snapshot"]["schedule"] == "24 9 * * 1-5"
     assert "--full-universe" in jobs["auction-market-snapshot"]["run"]["command"]
     for job_id, schedule, stage in (

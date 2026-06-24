@@ -324,6 +324,9 @@ def target_output(job: Mapping[str, Any], artifact: Mapping[str, Any]) -> str:
         raw_summary = artifact.get("summary")
         summary = raw_summary if isinstance(raw_summary, Mapping) else {}
         parts = [summary.get("message", f"{job.get('id', 'job')} 运行完成")]
+        status = summary.get("status")
+        if status and status != "ok":
+            parts.append(f"状态={status}")
         count_keys = {k: v for k, v in summary.items() if k.endswith("_count") and v is not None}
         if count_keys:
             parts.append(" | ".join(f"{k.replace('_count','')}={v}" for k, v in count_keys.items()))
