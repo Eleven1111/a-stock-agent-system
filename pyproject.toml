@@ -10,6 +10,7 @@ authors = [{name = "Eleven1111"}]
 dependencies = [
     "yfinance>=0.2.0",
     "akshare>=1.18.0",
+    "adata>=2.9",
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "pyyaml>=6.0",
