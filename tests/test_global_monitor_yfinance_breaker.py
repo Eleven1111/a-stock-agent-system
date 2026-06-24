@@ -65,9 +65,15 @@ def test_yfinance_batch_timeout_trips_process_local_breaker(monkeypatch):
 
 def test_collect_all_data_marks_insufficient_when_yfinance_is_disabled(monkeypatch):
     monitor = load_monitor_module("global_monitor_source_health_test")
-    monitor._YFINANCE_DISABLED_REASON = "yfinance rate limited: test"
     monitor.USE_SINA = False
 
+    # collect_all_data() resets the per-run breaker, so simulate the failure at
+    # the fetch layer rather than pre-setting the module-level disabled reason.
+    monkeypatch.setattr(
+        monitor,
+        "fetch_yfinance_batch",
+        lambda tickers: monitor._yfinance_error_payload(tickers, "yfinance rate limited: test"),
+    )
     monkeypatch.setattr(monitor, "fetch_natural_disasters", lambda: [])
     monkeypatch.setattr(monitor, "fetch_serper_news", lambda *args, **kwargs: [])
     monkeypatch.setattr(monitor, "fetch_geopolitical_news", lambda: [])
@@ -149,7 +155,13 @@ def test_global_monitor_uses_central_market_configuration():
 
 def test_sina_indices_keep_analysis_available_when_yfinance_fails(monkeypatch):
     monitor = load_monitor_module("global_monitor_sina_fallback_test")
-    monitor._YFINANCE_DISABLED_REASON = "yfinance rate limited: test"
+    # collect_all_data() resets the per-run breaker, so simulate the failure at
+    # the fetch layer rather than pre-setting the module-level disabled reason.
+    monkeypatch.setattr(
+        monitor,
+        "fetch_yfinance_batch",
+        lambda tickers: monitor._yfinance_error_payload(tickers, "yfinance rate limited: test"),
+    )
     monkeypatch.setattr(
         monitor,
         "fetch_sina_us_indices",
