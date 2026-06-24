@@ -32,6 +32,7 @@ sys.path.insert(0, COMMON)
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
+import industry_map  # noqa: E402
 import stage_intelligence  # noqa: E402
 import monitor_registry  # noqa: E402
 from config_registry import config_path  # noqa: E402
@@ -485,6 +486,20 @@ def load_signal_context_for_discovery(
         }
 
 
+def load_cached_industry(asof: str) -> Mapping[str, str]:
+    """读取按日缓存的全市场行业映射（消费端只读缓存，不触网）。
+
+    缓存缺失/过期/被禁用 → 返回空映射，注入退化为 no-op，主链无回归。
+    """
+    industry_config = dict(load_config().get("industry_map") or {})
+    if not industry_config.get("enabled", True):
+        return {}
+    return industry_map.load_cached(
+        asof,
+        max_age_days=int(industry_config.get("cache_max_age_days", 5)),
+    )
+
+
 def run_discovery(
     asof: str,
     watch_limit: int | None = None,
@@ -494,6 +509,7 @@ def run_discovery(
     = fetch_universe_quotes,
     kline_fetcher: Callable[[Sequence[Mapping[str, Any]]], Mapping[str, Sequence[Mapping[str, Any]]]]
     = fetch_candidate_klines,
+    industry_provider: Callable[[str], Mapping[str, str]] = load_cached_industry,
     settle_previous: bool = True,
 ) -> Dict[str, Any]:
     config = load_config()
@@ -503,6 +519,9 @@ def run_discovery(
     prefilter_limit = int(prefilter_limit or universe_config["prefilter_limit"])
 
     universe = list(universe_fetcher())
+    industry_by_code = dict(industry_provider(asof) or {})
+    if industry_by_code:
+        universe = industry_map.enrich_records(universe, industry_by_code)
     quote_map = dict(quote_fetcher(universe))
 
     # 游资因子只能消费当日收盘缓存，避免历史梯队污染新的候选排名。

@@ -9,6 +9,11 @@
     "min_sse_count": 2000,
     "min_szse_count": 2500
   },
+  "industry_map": {
+    "enabled": true,
+    "cache_max_age_days": 5,
+    "pace_seconds": 0.8
+  },
   "pipeline": {
     "watch_limit": 500,
     "auction_shortlist_limit": 20,
