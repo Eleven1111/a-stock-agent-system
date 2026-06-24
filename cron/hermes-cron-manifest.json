@@ -653,7 +653,7 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/intraday_monitor.py --json",
+        "command": "python skills/stock-triage/scripts/intraday_monitor.py",
         "cwd": ".",
         "timeout_seconds": 120
       },
