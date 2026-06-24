@@ -20,6 +20,22 @@ def _constituents(board_code):
     return table[board_code]
 
 
+# ── 默认数据源端点 ───────────────────────────────────────────────
+
+def test_default_boards_endpoint_uses_reachable_eastmoney_shard():
+    """守护：行业板块清单端点必须是可用的 17.push2 https 分片。
+
+    PR #41 曾用裸 ``http://push2.eastmoney.com``（不通），与 adata 成分股走的
+    ``https://push2`` 不一致。修复后对齐 akshare ``stock_board_industry_name_em``。
+    """
+    assert im._EAST_INDUSTRY_BOARDS_URL == (
+        "https://17.push2.eastmoney.com/api/qt/clist/get"
+    )
+    assert im._EAST_INDUSTRY_BOARDS_URL.startswith("https://")
+    assert im._EAST_INDUSTRY_BOARDS_PARAMS["fs"] == "m:90 t:2 f:!50"
+    assert im._EAST_INDUSTRY_BOARDS_PARAMS["fields"] == "f12,f14"
+
+
 # ── build_industry_map ───────────────────────────────────────────
 
 def test_build_maps_every_constituent_to_its_board():

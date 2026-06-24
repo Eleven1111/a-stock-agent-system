@@ -30,10 +30,21 @@ from state_store import atomic_write_json, read_json
 SCHEMA = "industry_map_v1"
 SOURCE = "eastmoney_industry_board"
 _UA = "Mozilla/5.0 (Hermes A-Stock Agent)"
-_EAST_INDUSTRY_BOARDS_URL = (
-    "http://push2.eastmoney.com/api/qt/clist/get"
-    "?pn=1&pz=500&po=1&np=1&fields=f12,f14&fid=f3&fs=m:90+t:2"
-)
+# 行业板块清单走东财 17.push2 分片，与 akshare stock_board_industry_name_em 同源。
+# 裸 push2.eastmoney.com 的 clist/get 不稳定/不通，编号分片才是实际服务节点。
+_EAST_INDUSTRY_BOARDS_URL = "https://17.push2.eastmoney.com/api/qt/clist/get"
+_EAST_INDUSTRY_BOARDS_PARAMS = {
+    "pn": "1",
+    "pz": "500",
+    "po": "1",
+    "np": "1",
+    "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+    "fltt": "2",
+    "invt": "2",
+    "fid": "f3",
+    "fs": "m:90 t:2 f:!50",
+    "fields": "f12,f14",
+}
 
 BoardsFetcher = Callable[[], Sequence[Tuple[str, str]]]
 ConstituentsFetcher = Callable[[str], Sequence[str]]
@@ -59,6 +70,7 @@ def _default_boards_fetcher() -> List[Tuple[str, str]]:
         try:
             response = requests.get(
                 _EAST_INDUSTRY_BOARDS_URL,
+                params=_EAST_INDUSTRY_BOARDS_PARAMS,
                 headers={"User-Agent": _UA},
                 timeout=15,
             )
