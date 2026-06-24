@@ -26,6 +26,77 @@ import strategy_registry  # noqa: E402
 
 OUTPUT_FILE = agent_state_path()
 
+# Token-bounded projection. The canonical on-disk state stays full; only the
+# surface a model loads is slimmed. Heavy audit/provenance blocks are dropped
+# here and remain reachable through the full state or signal_ledger.jsonl.
+LITE_REC_FIELDS = (
+    "id",
+    "code",
+    "name",
+    "date",
+    "action",
+    "grade",
+    "confidence",
+    "entry_price",
+    "price_range",
+    "target_price",
+    "stop_price",
+    "horizon",
+    "rationale",
+    "strategy_id",
+    "outcome",
+    "settleable_signal",
+)
+LITE_MONITOR_FIELDS = ("key", "label", "kind", "status", "source_group")
+
+
+def project_recommendation_lite(rec: dict[str, Any]) -> dict[str, Any]:
+    out = {key: rec[key] for key in LITE_REC_FIELDS if key in rec}
+    risks = rec.get("risks")
+    if isinstance(risks, list) and risks:
+        out["top_risks"] = risks[:3]
+    sizing = rec.get("position_sizing")
+    if isinstance(sizing, dict):
+        for src, dst in (
+            ("recommended_position_pct", "position_pct"),
+            ("gating_status", "position_status"),
+        ):
+            if sizing.get(src) is not None:
+                out[dst] = sizing[src]
+    constraints = rec.get("execution_constraints")
+    if isinstance(constraints, dict):
+        for src, dst in (
+            ("earliest_sell_date", "earliest_sell_date"),
+            ("same_day_sell_allowed", "same_day_sell_allowed"),
+        ):
+            if constraints.get(src) is not None:
+                out[dst] = constraints[src]
+    return out
+
+
+def project_monitor_lite(monitor: dict[str, Any]) -> dict[str, Any]:
+    return {key: monitor[key] for key in LITE_MONITOR_FIELDS if key in monitor}
+
+
+def project_state_lite(state: dict[str, Any]) -> dict[str, Any]:
+    """Return a token-bounded view of an agent state for model consumption."""
+    projected = dict(state)
+    recommendations = state.get("recommendations")
+    if isinstance(recommendations, list):
+        projected["recommendations"] = [
+            project_recommendation_lite(rec)
+            for rec in recommendations
+            if isinstance(rec, dict)
+        ]
+    monitors = state.get("monitors")
+    if isinstance(monitors, list):
+        projected["monitors"] = [
+            project_monitor_lite(monitor)
+            for monitor in monitors
+            if isinstance(monitor, dict)
+        ]
+    return projected
+
 
 def build_agent_state(
     *,
@@ -86,10 +157,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output")
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Print the full canonical state instead of the token-bounded view",
+    )
     args = parser.parse_args()
     state = build_agent_state()
     atomic_write_json(args.output or agent_state_path(), state)
-    print(json.dumps(state, ensure_ascii=False, indent=2))
+    emitted = state if args.full else project_state_lite(state)
+    print(json.dumps(emitted, ensure_ascii=False, separators=(",", ":")))
 
 
 if __name__ == "__main__":
