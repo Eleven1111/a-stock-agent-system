@@ -174,7 +174,7 @@ def main() -> None:
 
     result = score_targets(parse_targets(args.targets, limit=args.limit, asof=args.asof))
     if args.json:
-        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), default=str))
     else:
         print(format_report(result))
 

@@ -23,6 +23,21 @@ ARTIFACT_SCHEMA = "hermes_cron_artifact_v2"
 RUN_LEDGER_SCHEMA = "hermes_cron_run_ledger_v2"
 ARTIFACT_TEMPLATE = "{cron_output_dir}/{job_id}/{run_id}.json"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+# Cap the raw stdout copied into each artifact. The full structured payload is
+# preserved in market/snapshots, and summary/has_signal/preview are computed
+# from the untruncated stdout, so bounding this field only removes a redundant
+# multi-hundred-KB blob from the surface a model can load.
+DEFAULT_ARTIFACT_STDOUT_LIMIT = 20000
+
+
+def _artifact_stdout_limit() -> int:
+    raw = os.environ.get("A_STOCK_MAX_ARTIFACT_STDOUT")
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            pass
+    return DEFAULT_ARTIFACT_STDOUT_LIMIT
 
 
 def now_iso() -> str:
@@ -305,6 +320,13 @@ def build_artifact(
     parsed = try_parse_json(stdout)
     has_signal = output_has_signal(parsed, stdout)
     status = status_override or ("timeout" if timed_out else ("ok" if returncode == 0 else "failed"))
+    stdout_limit = _artifact_stdout_limit()
+    if stdout_limit and len(stdout) > stdout_limit:
+        stored_stdout = stdout[:stdout_limit]
+        stdout_truncated_chars = len(stdout) - stdout_limit
+    else:
+        stored_stdout = stdout
+        stdout_truncated_chars = 0
     return {
         "schema": ARTIFACT_SCHEMA,
         "job_id": job["id"],
@@ -328,7 +350,8 @@ def build_artifact(
         "dependency_gate": dependency_gate,
         "calendar_gate": calendar_gate,
         "market_snapshot": snapshot_ref,
-        "stdout": stdout,
+        "stdout": stored_stdout,
+        "stdout_truncated_chars": stdout_truncated_chars,
         "stderr": stderr,
         "stdout_preview": _json_preview(stdout),
         "stderr_preview": _json_preview(stderr),

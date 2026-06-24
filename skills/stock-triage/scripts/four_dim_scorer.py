@@ -1169,7 +1169,7 @@ if __name__ == "__main__":
     if args.timeframe in ("60", "30"):
         result = score_short_term_entry(args.code, args.name)
         if args.json:
-            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+            print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), default=str))
         else:
             print(f"⚡ **{args.name}({args.code}) 短线入场判断**")
             print(f"评分: {result['score']}/10 | 建议: **{result['suggestion']}**")
@@ -1178,6 +1178,6 @@ if __name__ == "__main__":
     else:
         result = score_stock(args.code, args.name)
         if args.json:
-            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+            print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), default=str))
         else:
             print(format_report(result))
