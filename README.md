@@ -11,7 +11,7 @@
 > Smoke badge reflects the latest connected validation. Offline runs may still
 > time out on `global_monitor` or `hk_a_linkage` because they depend on live market data.
 
-A multi-agent research system for China's A-share market. Twelve repository skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management, limit-up candidate gating, and offline strategy validation.
+A multi-agent research system for China's A-share market. Thirteen repository skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management, limit-up candidate gating, policy-intent decoding, and offline strategy validation.
 
 **Not a trading bot.** This system analyzes data and produces graded recommendations. It never places orders.
 
@@ -59,6 +59,7 @@ flowchart LR
 | **daban-stock-picker** | Main-board 10cm limit-up candidate gate: first-board reseal, second-board weak-to-strong, six-question veto, tradeability. Thresholds read from a single source of truth shared with the backtest engine | `config/daban_thresholds.yaml`, structured JSON |
 | **chanlun-backtest** | Offline research gate (IS/OOS wall, costs, controls, statistical tests) **plus** `chan_structure` signal generator: fractals → strokes → pivots → third buy/sell → MACD divergence. Signals earn live weight only after the gate passes | Tencent qfq K-line, local research-state JSON |
 | **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share sector views and stock watch mappings | yfinance, USGS, GDACS |
+| **policy-intent-decoder** | Official policy source hierarchy, real-intent inference, transmission chain, beneficiary/pressure maps for stock-selection support | Official government/media sources |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
 | **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit. The weighted scorecard flows back into the four-dim deep dimension via a freshness-decayed cache | cninfo, pypdf |
 | **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(15%) × catalyst(30%) × deep(25%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals | All above |
@@ -384,6 +385,7 @@ a-stock-agent-system/
 │   ├── daban-stock-picker/     # Main-board 10cm limit-up candidate gate
 │   ├── chanlun-backtest/       # Offline strategy research gate
 │   ├── global-market-monitor/  # Macro → A-share impact
+│   ├── policy-intent-decoder/  # Official policy intent and transmission chain
 │   ├── news-to-sector/         # Supply-chain catalyst mapping
 │   ├── serenity-investment-research/  # Deep fundamental research
 │   ├── a-stock-commands/       # Discord slash commands

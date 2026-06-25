@@ -256,6 +256,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
             "hot-money-afternoon-checkpoint",
             "closing-triage",
             "news-monitor-intraday",
+            "official-policy-watch",
             "market-pulse-1314",
             "market-pulse-1500",
             "stock-intelligence-refresh",
@@ -284,11 +285,21 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["social-attention-midday"]["schedule"] == "37 11 * * 1-5"
     assert jobs["social-attention-close"]["schedule"] == "4 15 * * 1-5"
     assert jobs["news-monitor-intraday"]["schedule"] == (
-        "2,7,12,17,22,27,32,37,42,47,52,57 9-11,13-14 * * 1-5"
+        "2,17,32,47 9-11,13-14 * * 1-5"
     )
     assert jobs["news-monitor-intraday"]["run"]["command"].endswith("--mode intraday --json")
     assert any("catalyst_context.json" in path for path in jobs["news-monitor"]["allowed_state_writes"])
     assert any("catalyst_context.json" in path for path in jobs["news-monitor-intraday"]["allowed_state_writes"])
+    assert jobs["official-policy-watch"]["trading_day_policy"] == "calendar_day"
+    assert jobs["official-policy-watch"]["schedule"] == "3,13,23,33,43,53 8-22 * * *"
+    assert jobs["official-policy-watch"]["run"]["command"] == (
+        "python skills/policy-intent-decoder/scripts/watch_official_policy.py --json"
+    )
+    assert jobs["official-policy-watch"]["silent_when_no_signal"] is True
+    assert any(
+        "policy-intent-decoder/data" in path
+        for path in jobs["official-policy-watch"]["allowed_state_writes"]
+    )
     # intraday-alert is an origin-push job: it emits human-readable text, not --json.
     assert jobs["intraday-alert"]["run"]["command"] == "python skills/stock-triage/scripts/intraday_monitor.py"
     assert jobs["intraday-alert"]["run"]["timeout_seconds"] >= 120
@@ -388,7 +399,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["provider-health"]["deliver"] == "local"
     assert jobs["provider-health"]["run"]["command"] == "python scripts/provider_doctor.py --json"
     assert manifest["default_trading_day_policy"] == "required"
-    for job_id in ("institution-weekly", "event-calendar", "performance-weekly"):
+    for job_id in ("institution-weekly", "event-calendar", "performance-weekly", "official-policy-watch"):
         assert jobs[job_id]["trading_day_policy"] == "calendar_day"
     assert "pulse_engine" not in manifest.get("external_dependencies", {})
     assert "builderpulse" not in manifest.get("external_dependencies", {})

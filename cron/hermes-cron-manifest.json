@@ -951,6 +951,36 @@
       "external_note": "需 Hermes Agent + SerpAPI；固定宏观查询 + 当前股票/板块/主题动态订阅，无触发静默"
     },
     {
+      "id": "official-policy-watch",
+      "name": "官方政策源分钟级监控",
+      "schedule": "3,13,23,33,43,53 8-22 * * *",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "calendar_day",
+      "command": "python scripts/run_agent_dag.py official-policy-watch --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 3000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/policy-intent-decoder/data/",
+        "$A_STOCK_STATE_HOME/cron/output/official-policy-watch/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/policy-intent-decoder/scripts/watch_official_policy.py --json",
+        "cwd": ".",
+        "timeout_seconds": 120
+      },
+      "external_note": "08:00-22:00 每10分钟轮询国务院/部委/交易所/新华社等一手官方源；只在出现未见过的政策信号时推送"
+    },
+    {
       "id": "market-pulse-1314",
       "name": "午后市场脉冲快报",
       "schedule": "14 13 * * 1-5",
@@ -1268,6 +1298,12 @@
       "id": "industry-map-refresh",
       "name": "行业映射缓存刷新",
       "schedule": "30 8 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py industry-map-refresh --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
       "deliver": "local",
       "push": false,
       "emit": false,
@@ -1275,11 +1311,19 @@
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
       "max_output_chars": 4000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/industry_map.json",
+        "$A_STOCK_STATE_HOME/cron/output/industry-map-refresh/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
       "run": {
-        "command": "python skills/common/industry_map.py --refresh",
+        "command": "python skills/common/industry_map.py --refresh --json",
         "cwd": ".",
         "timeout_seconds": 120
-      }
+      },
+      "external_note": "08:30 刷新全市场行业映射缓存；仅写本地缓存，供候选发现阶段读取"
     }
   ],
   "external_dependencies": {

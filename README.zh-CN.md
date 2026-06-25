@@ -8,7 +8,7 @@
 [![CI](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml)
 [![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
 
-A 股多智能体投研系统。12 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池和离线策略验证的完整决策链路。
+A 股多智能体投研系统。13 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池、政策意图解码和离线策略验证的完整决策链路。
 
 **非交易机器人。** 系统只做数据分析和分级建议，不下单、不操盘。
 
@@ -51,6 +51,7 @@ flowchart LR
 | **daban-stock-picker** | 主板10cm打板候选闸门：首板回封、二板弱转强、六问否决、可成交性 | 结构化行情/板块/持仓 JSON |
 | **chanlun-backtest** | 缠论/打板离线研究闸门：IS/OOS、成本、对照组、统计检验 | 本地研究状态 JSON |
 | **global-market-monitor** | 美股/VIX/美债/期货/外汇/自然灾害 → A股板块方向与个股观察映射 | yfinance、USGS、GDACS |
+| **policy-intent-decoder** | 官方政策来源位阶、真实意图、传导链、受益/承压方向和选股辅助维度 | 政府/官媒官方来源 |
 | **news-to-sector** | 实时资讯→18条产业链映射 + 预期差分析 | SerpAPI |
 | **serenity-investment-research** | 深度投研：供应链拆解、财务分析、估值情景、熊市审计 | cninfo、pypdf |
 | **four-dim scorer** | S/A/B/C 加权分级：技术(30%)×情绪(15%)×催化(30%)×深度(25%) | 以上全部 |
@@ -369,6 +370,7 @@ a-stock-agent-system/
 │   ├── daban-stock-picker/     # 主板10cm打板候选闸门
 │   ├── chanlun-backtest/       # 离线策略研究闸门
 │   ├── global-market-monitor/  # 全球宏观→A股影响
+│   ├── policy-intent-decoder/  # 官方政策意图与传导链
 │   ├── news-to-sector/         # 产业链催化映射
 │   ├── serenity-investment-research/  # 深度投研
 │   ├── a-stock-commands/       # Discord快捷指令

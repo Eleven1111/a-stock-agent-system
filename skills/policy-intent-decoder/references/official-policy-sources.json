@@ -1,0 +1,103 @@
+{
+  "schema": "official_policy_source_catalog_v1",
+  "updated_at": "2026-06-25",
+  "source_contract": "Only use primary official sites and official wire/party-state media as policy-intent sources. Market media, broker notes, social media, and search snippets are reaction signals only.",
+  "sources": [
+    {
+      "id": "gov_policy_library",
+      "name": "国务院政策文件库",
+      "url": "https://sousuo.www.gov.cn/zcwjk/policyDocumentLibrary",
+      "source_rank": "S5",
+      "source_type": "central_policy_library",
+      "market_relevance": ["macro", "industry", "capital_market"]
+    },
+    {
+      "id": "gov_policy",
+      "name": "中国政府网政策",
+      "url": "https://www.gov.cn/zhengce/",
+      "source_rank": "S5",
+      "source_type": "central_policy",
+      "market_relevance": ["macro", "industry", "capital_market"]
+    },
+    {
+      "id": "gov_yaowen",
+      "name": "中国政府网要闻",
+      "url": "https://www.gov.cn/yaowen/",
+      "source_rank": "S5",
+      "source_type": "central_news",
+      "market_relevance": ["macro", "industry", "capital_market"]
+    },
+    {
+      "id": "xinhua_politics",
+      "name": "新华社时政",
+      "url": "https://www.news.cn/politics/",
+      "source_rank": "S3",
+      "source_type": "official_wire",
+      "market_relevance": ["macro", "industry"]
+    },
+    {
+      "id": "csrc_news",
+      "name": "中国证监会新闻发布",
+      "url": "https://www.csrc.gov.cn/csrc/c100028/common_list.shtml",
+      "source_rank": "S4",
+      "source_type": "capital_market_regulator",
+      "market_relevance": ["capital_market", "listed_company", "investor_protection"]
+    },
+    {
+      "id": "pbc_news",
+      "name": "中国人民银行沟通交流",
+      "url": "http://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+      "source_rank": "S4",
+      "source_type": "monetary_authority",
+      "market_relevance": ["liquidity", "rates", "capital_market"]
+    },
+    {
+      "id": "ndrc_news",
+      "name": "国家发展改革委新闻发布",
+      "url": "https://www.ndrc.gov.cn/xwdt/xwfb/",
+      "source_rank": "S4",
+      "source_type": "macro_industry_planner",
+      "market_relevance": ["macro", "industry", "pricing", "investment"]
+    },
+    {
+      "id": "mof_news",
+      "name": "财政部财政新闻",
+      "url": "https://www.mof.gov.cn/zhengwuxinxi/caizhengxinwen/",
+      "source_rank": "S4",
+      "source_type": "fiscal_authority",
+      "market_relevance": ["fiscal", "tax", "debt", "state_capital"]
+    },
+    {
+      "id": "miit_news",
+      "name": "工业和信息化部工作动态",
+      "url": "https://www.miit.gov.cn/xwdt/gxdt/",
+      "source_rank": "S4",
+      "source_type": "industry_regulator",
+      "market_relevance": ["manufacturing", "technology", "supply_chain"]
+    },
+    {
+      "id": "nfra_news",
+      "name": "国家金融监督管理总局",
+      "url": "https://www.nfra.gov.cn/cn/view/pages/index/index.html",
+      "source_rank": "S4",
+      "source_type": "financial_regulator",
+      "market_relevance": ["banking", "insurance", "financial_risk"]
+    },
+    {
+      "id": "sse_news",
+      "name": "上海证券交易所新闻",
+      "url": "https://www.sse.com.cn/aboutus/mediacenter/hotandd/",
+      "source_rank": "S2",
+      "source_type": "exchange",
+      "market_relevance": ["trading_rules", "listed_company", "market_operation"]
+    },
+    {
+      "id": "szse_news",
+      "name": "深圳证券交易所新闻",
+      "url": "https://www.szse.cn/aboutus/trends/news/index.html",
+      "source_rank": "S2",
+      "source_type": "exchange",
+      "market_relevance": ["trading_rules", "listed_company", "market_operation"]
+    }
+  ]
+}
