@@ -22,6 +22,9 @@ A multi-agent research system for China's A-share market. Thirteen repository sk
 ```mermaid
 flowchart LR
     S["External data"] --> A["Shared data adapters"]
+    PS["Official policy sources"] --> PW["official-policy-watch"]
+    PW --> PI["policy-intent-decoder"]
+    NS["News and social feeds"] --> NF["news/social monitors"]
     A --> M["Versioned immutable market snapshots"]
     C["A-share calendar"] --> O["Runtime-neutral resumable DAG"]
     O --> HM["Sentiment and limit-up ladder"]
@@ -29,14 +32,20 @@ flowchart LR
     O --> CD["Candidate discovery"]
     O --> AU["Call auction"]
     O --> OC["Open confirmation"]
+    O --> PW
+    O --> NF
     M --> HM
     M --> SA
     M --> CD
     M --> AU
     M --> OC
+    PI --> NTS["news-to-sector impact map"]
+    NF --> NTS
     HM --> P["Unified decision and risk policy"]
     SA --> CD
     SA --> AU
+    NTS --> CD
+    PI --> P
     CD --> P
     AU --> P
     OC --> P
@@ -70,6 +79,55 @@ flowchart LR
 | **institution-tracker** | Research visits, analyst reports, insider trades | Eastmoney |
 | **event-calendar** | Lockup expirations, dividends, policy windows | Eastmoney |
 | **performance-tracker** | Signal accuracy tracking with grade-level breakdown | Tencent |
+
+## Policy Intent in the Architecture
+
+`policy-intent-decoder` sits between the **information ingestion layer** and the
+**stock-selection evidence layer**. It is not a trading strategy and does not
+create runtime targets or holdings. It turns public first-party policy signals
+into structured evidence that can be consumed by `news-to-sector`,
+`stock-triage`, and the catalyst dimension of the four-dimensional scorer.
+
+It answers two operational questions:
+
+1. **Is this a valid first-party policy signal?** The decoder checks source
+   rank, issuing body, document type, cross-agency coordination, and hard policy
+   tools such as fiscal, monetary, regulatory, or industrial measures before
+   treating the item as policy intent.
+2. **How can the signal reach the candidate pool?** The decoder separates policy
+   objective, implementation tool, constraints, beneficiary and pressure chains,
+   transmission lag, and market-reaction evidence so a policy headline is never
+   treated as a stock pick by itself.
+
+Policy evidence only adds selection dimensions. It does not bypass market data,
+liquidity, tradeability, announcement quality, portfolio-risk checks, or the
+research gate. A strategy still cannot affect live ranking before its evidence
+and OOS gate pass.
+
+## Information and Policy Signal Loop
+
+```text
+first-party official sources
+  -> official-policy-watch: poll, fingerprint, freshness gate every 10 minutes
+  -> policy-intent-decoder: emit policy_intent_signal_v1
+  -> news-to-sector: map supply-chain impact, divergence, beneficiaries, pressure
+  -> stock-triage / four-dim scorer: consume as catalyst and context evidence
+  -> unified policy / signal ledger / performance tracker
+  -> realized outcomes feed back into strategy gates and weight calibration
+```
+
+The official source catalog lives at
+[`skills/policy-intent-decoder/references/official-policy-sources.json`](skills/policy-intent-decoder/references/official-policy-sources.json).
+It covers public first-party entry points such as the State Council policy
+library and news pages, Xinhua, CSRC, PBOC, NDRC, MOF, MIIT, NFRA, SSE, and
+SZSE. `official-policy-watch` runs every 10 minutes from 08:00 to 22:00 China
+time on calendar days, not only trading days. Only fresh, unseen items with
+policy-tool or industry-transmission evidence are promoted to decode signals.
+
+When `news-to-sector` receives policy-like news, it treats the policy decoder as
+the source-of-intent check before mapping industry impact. Broker views, social
+posts, price moves, and news rewrites are reaction-layer evidence only; they do
+not replace official sources for intent inference.
 
 ## Quick Start
 
@@ -289,6 +347,7 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 09:50 | Mainline-leader support checkpoint | Workdays |
 | 13:15 | Mainline-leader afternoon reflow checkpoint | Workdays |
 | 09:30–11:30, 13:00–15:00 | Intraday alerts | Every 5 min (session-guarded) |
+| 08:00–22:00 | Official policy watch | Every 10 min, calendar days |
 | 09:25–11:30, 13:00–14:55 | Intraday news sweep | Offset every 5 min; stale data is archived without directional signals |
 | 09:45, 13:45, 14:45 | HK-A linkage | Workdays |
 | 10:30, 14:30 | Capital flow monitor | Workdays |
@@ -363,7 +422,7 @@ a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── config/candidate_selection.json # Dynamic-universe and funnel limits
-├── cron/hermes-cron-manifest.json  # 33 runtime-neutral scheduled jobs
+├── cron/hermes-cron-manifest.json  # 39 runtime-neutral scheduled jobs
 ├── scripts/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
 │   ├── run_agent_dag.py        # Dependency ordering, retry, resume

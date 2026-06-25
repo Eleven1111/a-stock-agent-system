@@ -19,17 +19,26 @@ A 股多智能体投研系统。13 个仓内专业 Skill、四维打分引擎、
 ```mermaid
 flowchart LR
     S["外部数据源"] --> A["统一 Data Adapters"]
+    PS["一手官方政策源"] --> PW["official-policy-watch"]
+    PW --> PI["policy-intent-decoder"]
+    NS["新闻和舆情源"] --> NW["news/social monitors"]
     A --> M["带交易日和来源版本的不可变市场快照"]
     C["A股交易日历"] --> O["跨运行时可恢复 DAG"]
     O --> HM["情绪和涨停梯队"]
     O --> CD["候选发现"]
     O --> AU["集合竞价"]
     O --> OC["开盘确认"]
+    O --> PW
+    O --> NW
     M --> HM
     M --> CD
     M --> AU
     M --> OC
+    PI --> NTS["news-to-sector 产业链影响图"]
+    NW --> NTS
     HM --> P["统一决策与组合风险 Policy"]
+    NTS --> CD
+    PI --> P
     CD --> P
     AU --> P
     OC --> P
@@ -62,6 +71,35 @@ flowchart LR
 | **institution-tracker** | 机构调研、券商研报、大股东增减持 | 东方财富 |
 | **event-calendar** | 限售解禁、分红除权、政策窗口 | 东方财富 |
 | **performance-tracker** | 信号胜率统计、分级表现、反馈闭环 | 腾讯 |
+
+## 政策意图在系统里的位置
+
+`policy-intent-decoder` 位于**资讯入口层和选股证据层之间**，不是新的交易策略，也不是新的持仓来源。它把公开官方政策信号转成结构化证据，供 `news-to-sector`、`stock-triage` 和四维评分里的催化维度引用。
+
+它解决的是两个问题：
+
+1. **政策是不是一手有效信号**：先看来源位阶、发布主体、文件类型、是否多部门协同、是否出现财政/货币/监管/产业等硬工具，而不是先看市场传闻。
+2. **信号怎样传到股票池**：把政策目标、执行工具、约束条件、受益/承压产业链、传导时滞和需要验证的市场反应拆开，避免把“政策表态”直接等同于“可买股票”。
+
+政策信号只增加选股维度，不跳过任何交易闸门。候选仍必须通过行情、流动性、可交易性、公告质检、组合风险和研究门控；未通过 OOS 或证据门控的策略不会因为政策热度进入实盘排序。
+
+## 资讯与政策信号回路
+
+```text
+一手官方源
+  -> official-policy-watch 每10分钟轮询、去重、 freshness gate
+  -> policy-intent-decoder 输出 policy_intent_signal_v1
+  -> news-to-sector 映射产业链、预期差、受益/承压方向
+  -> stock-triage / four-dim scorer 作为催化和上下文证据
+  -> unified policy / signal ledger / performance tracker
+  -> 后续表现反哺策略门控和权重校准
+```
+
+官方政策源由
+[`skills/policy-intent-decoder/references/official-policy-sources.json`](skills/policy-intent-decoder/references/official-policy-sources.json)
+维护，包括国务院政策库、国务院要闻、新华社、证监会、央行、发改委、财政部、工信部、金融监管总局、上交所和深交所等一手公开入口。`official-policy-watch` 在北京时间 08:00-22:00 按日历日每 10 分钟运行一次，不依赖交易日开市；只有新鲜、未见过、且命中政策工具/产业传导特征的条目才提升为待解读信号。
+
+`news-to-sector` 遇到政策类资讯时，先调用政策解码逻辑确认官方意图，再做产业链映射。券商观点、社交媒体、市场涨跌和新闻转载只作为**反应层证据**，不能替代官方来源来判断政策意图。
 
 ## 快速开始
 
@@ -276,6 +314,7 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 | 09:50 | 主线龙头承接确认 | 工作日 |
 | 13:15 | 主线龙头午后回流确认 | 工作日 |
 | 09:00–15:00 | 盘中异动告警 | 每5分钟 |
+| 08:00–22:00 | 官方政策源快扫 | 每10分钟，日历日 |
 | 09:25–11:30, 13:00–14:55 | 盘中资讯快扫 | 错峰每5分钟；超过SLA只归档不推方向信号 |
 | 09:45, 13:45, 14:45 | 港A联动 | 工作日 |
 | 10:30, 14:30 | 资金流向监控 | 工作日 |
@@ -350,7 +389,7 @@ a-stock-agent-system/
 ├── pyproject.toml              # 依赖管理
 ├── config/scoring.yaml         # 评分权重 & 风控参数
 ├── config/candidate_selection.json # 动态股票池与漏斗参数
-├── cron/hermes-cron-manifest.json  # 33个跨运行时隔离任务
+├── cron/hermes-cron-manifest.json  # 39个跨运行时隔离任务
 ├── scripts/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw共用任务入口
 │   ├── run_agent_dag.py        # 依赖排序、重试、断点续跑
