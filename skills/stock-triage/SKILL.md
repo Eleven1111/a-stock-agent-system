@@ -136,6 +136,7 @@ python scripts/validate_cron_manifest.py
 - `stock-analyst`：技术、基本面和全市场筛选。
 - `hot-money-tactics`：涨停梯队、板块赚钱效应和情绪温度。
 - `daban-stock-picker`：竞价、开盘、六问否决和可成交性。
+- `policy-intent-decoder`：官方政策意图、传导链和选股辅助维度。
 - `news-to-sector`：资讯到板块及股票的影响映射。
 - `serenity-investment-research`：深度公司研究。
 - `chanlun-backtest`：离线结构研究与策略准入。
