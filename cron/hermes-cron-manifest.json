@@ -714,7 +714,7 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 180,
+        "max_age_minutes": 300,
         "optional_jobs": [
           "open-confirmation"
         ]
@@ -1374,7 +1374,11 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 10080
+        "max_age_minutes": 10080,
+        "accepted_statuses": [
+          "ok",
+          "skipped_non_trading_day"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -1411,7 +1415,11 @@
       ],
       "dependency_policy": {
         "trading_date": "previous_trading_day",
-        "max_age_minutes": 7200
+        "max_age_minutes": 7200,
+        "accepted_statuses": [
+          "ok",
+          "skipped_non_trading_day"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
