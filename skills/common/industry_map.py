@@ -177,6 +177,7 @@ def enrich_records(
         mapped = industry_by_code.get(_norm_code(item.get("code")))
         if mapped:
             item["industry"] = mapped
+            item["industry_source"] = SOURCE
         enriched.append(item)
     return enriched
 

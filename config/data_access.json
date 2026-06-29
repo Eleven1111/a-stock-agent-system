@@ -89,6 +89,8 @@
     "min_sources_for_boost": 2,
     "candidate_bonus_max": 3.0,
     "sentiment_delta_max": 0.8,
+    "theme_min_confirmed_stocks": 1,
+    "theme_min_attention_score": 60.0,
     "baidu_enabled": false
   },
   "global_market": {

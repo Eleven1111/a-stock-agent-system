@@ -71,6 +71,43 @@ def test_build_snapshot_requires_cross_source_confirmation_for_boost():
     }
 
 
+def test_build_snapshot_filters_broad_industries_from_social_themes():
+    snapshot = sa.build_social_attention_snapshot(
+        _rankings(),
+        trading_date="2026-06-15",
+        captured_at="2026-06-15T07:04:00+00:00",
+        stock_metadata={
+            "002156": {"sector": "C 制造业", "industry": "半导体"},
+            "600519": {"industry": "J 金融业"},
+        },
+    )
+
+    assert snapshot["stocks"]["002156"]["sector"] == "半导体"
+    assert snapshot["stocks"]["002156"]["sector_source"] == "industry"
+    assert snapshot["stocks"]["600519"]["sector"] is None
+    assert "半导体" in snapshot["themes"]
+    assert snapshot["themes"]["半导体"]["confirmed"] is True
+    assert "C 制造业" not in snapshot["themes"]
+    assert "J 金融业" not in snapshot["themes"]
+
+
+def test_theme_attention_evidence_requires_narrow_confirmed_theme():
+    snapshot = sa.build_social_attention_snapshot(
+        _rankings(),
+        trading_date="2026-06-15",
+        stock_metadata={"002156": {"sector": "半导体"}},
+    )
+
+    confirmed = sa.theme_attention_evidence("半导体", {"social_attention": snapshot})
+    broad = sa.theme_attention_evidence("C 制造业", {"social_attention": snapshot})
+
+    assert confirmed["available"] is True
+    assert confirmed["confirmed"] is True
+    assert confirmed["confirmed_stock_count"] == 1
+    assert broad["available"] is False
+    assert broad["confirmed"] is False
+
+
 def test_single_source_is_display_only():
     snapshot = sa.build_social_attention_snapshot(
         {"eastmoney": _rankings()["eastmoney"][:1]},

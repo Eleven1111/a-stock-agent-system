@@ -8,7 +8,9 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from indicators import calc_atr
 from hot_money_selection import apply_leader_identity
+from sector_taxonomy import resolve_sector
 from social_attention import candidate_attention_overlay
+from weak_market_delivery import assess_delivery_quality
 
 
 def naked_code(code: Any) -> str:
@@ -300,14 +302,11 @@ def rank_candidates(
         social_delta = float(social["delta"])
         ladder = ((signal_ctx or {}).get("lianban_ladder") or {}).get(code) or {}
         social_record = social.get("record") or {}
-        sector = str(
-            item.get("sector")
-            or item.get("industry")
-            or ladder.get("sector")
-            or social_record.get("sector")
-            or social_record.get("industry")
-            or ""
-        ).strip()
+        sector, sector_source = resolve_sector(
+            item,
+            ladder=ladder,
+            social=social_record,
+        )
         daban_score = min(100.0, daban_score + hm_bonus + social_delta)
         if not daban_eligible or not item["feature_ready"]:
             daban_score = 0.0
@@ -337,6 +336,9 @@ def rank_candidates(
             "social_attention_notes": social["notes"],
             "social_attention": social["record"],
             "sector": sector or None,
+            "sector_source": sector_source,
+            "industry": item.get("industry"),
+            "industry_source": item.get("industry_source"),
         })
 
     daban_order = sorted(enriched, key=lambda row: (-row["daban_score"], row["code"]))
@@ -369,14 +371,35 @@ def build_watch_pool(
     ranked = apply_leader_identity(ranked, selection_state, signal_ctx)
     selectable = [item for item in ranked if item["feature_ready"]]
     selection_gate_enabled = selection_state is not None
+
+    delivery_by_code: Dict[str, Dict[str, Any]] = {}
+
+    def _delivery(item: Mapping[str, Any], lane: str) -> Dict[str, Any]:
+        quality = assess_delivery_quality(
+            item,
+            lane=lane,
+            stage="D0_close",
+            selection_state=selection_state,
+        )
+        if quality["status"] == "deliverable_watch":
+            delivery_by_code[naked_code(item.get("code"))] = quality
+        return quality
+
     daban_order = sorted(
         (
             item for item in selectable
             if not selection_gate_enabled or item.get("hot_money_qualified")
+            if _delivery(item, "daban")["status"] == "deliverable_watch"
         ),
         key=lambda row: (not row["daban_eligible"], -row["daban_score"], row["code"]),
     )
-    trend_order = sorted(selectable, key=lambda row: (-row["trend_score"], row["code"]))
+    trend_order = sorted(
+        (
+            item for item in selectable
+            if _delivery(item, "trend")["status"] == "deliverable_watch"
+        ),
+        key=lambda row: (-row["trend_score"], row["code"]),
+    )
     daban_quota = watch_limit // 2
     trend_quota = watch_limit - daban_quota
     daban_codes = {
@@ -393,6 +416,9 @@ def build_watch_pool(
             key=lambda row: (-max(row["daban_score"], row["trend_score"]), row["code"]),
         )
         for item in fill_order:
+            lane = "trend" if item["trend_score"] >= item["daban_score"] else "daban"
+            if _delivery(item, lane)["status"] != "deliverable_watch":
+                continue
             selected_codes.add(item["code"])
             if len(selected_codes) >= min(watch_limit, len(ranked)):
                 break
@@ -407,6 +433,15 @@ def build_watch_pool(
             "trend": item["code"] in trend_codes,
             "balanced_fill": item["code"] not in daban_codes and item["code"] not in trend_codes,
         }
+        selected["delivery_quality"] = (
+            delivery_by_code.get(item["code"])
+            or assess_delivery_quality(
+                selected,
+                lane="trend" if selected["selected_by"]["trend"] else "daban",
+                stage="D0_close",
+                selection_state=selection_state,
+            )
+        )
         candidates.append(selected)
     candidates.sort(
         key=lambda row: (
@@ -524,12 +559,20 @@ def rank_auction_shortlist(
         if lane == "daban" and "hot_money_qualified" in item:
             if not item.get("hot_money_qualified"):
                 return False
+        if (
+            assess_delivery_quality(item, lane=lane, stage="09:25")["status"]
+            != "deliverable_watch"
+        ):
+            return False
         selected_by = item.get("selected_by")
         if isinstance(selected_by, Mapping):
             return bool(selected_by.get(lane))
         if lane == "daban":
             return bool(
-                item.get("daban_eligible", is_main_board_10cm(item.get("code"), item.get("name", "")))
+                item.get(
+                    "daban_eligible",
+                    is_main_board_10cm(item.get("code"), item.get("name", "")),
+                )
             )
         return True
 
@@ -550,6 +593,11 @@ def rank_auction_shortlist(
                 selected[code]["auction_selected_by"][lane] = True
                 continue
             chosen = dict(item)
+            chosen["delivery_quality"] = assess_delivery_quality(
+                chosen,
+                lane=lane,
+                stage="09:25",
+            )
             chosen["auction_selected_by"] = {
                 "daban": lane == "daban",
                 "trend": lane == "trend",
@@ -579,7 +627,23 @@ def rank_auction_shortlist(
                 and not selected_by.get("trend")
             ):
                 continue
+            lane = (
+                "trend"
+                if isinstance(selected_by, Mapping) and selected_by.get("trend")
+                else "daban"
+            )
+            delivery_quality = assess_delivery_quality(item, lane=lane, stage="09:25")
+            if delivery_quality["status"] != "deliverable_watch":
+                rejected.append({
+                    **item,
+                    "rejection_reasons": (
+                        delivery_quality["reasons"]
+                        or ["弱市交付门禁未通过"]
+                    ),
+                })
+                continue
             chosen = dict(item)
+            chosen["delivery_quality"] = delivery_quality
             chosen["auction_selected_by"] = {
                 "daban": False,
                 "trend": False,
@@ -598,7 +662,29 @@ def rank_auction_shortlist(
     selected_codes = {naked_code(item["code"]) for item in shortlist}
     for item in rows:
         if naked_code(item["code"]) not in selected_codes:
-            rejected.append({**item, "rejection_reasons": [f"竞价分策略排名未进入前{limit}"]})
+            selected_by = item.get("selected_by")
+            lanes = []
+            if isinstance(selected_by, Mapping):
+                lanes = [lane for lane in ("daban", "trend") if selected_by.get(lane)]
+            if not lanes:
+                lanes = ["trend"]
+            qualities = [
+                assess_delivery_quality(item, lane=lane, stage="09:25")
+                for lane in lanes
+            ]
+            gate_reasons = [
+                reason
+                for quality in qualities
+                if quality["status"] != "deliverable_watch"
+                for reason in quality.get("reasons") or []
+            ]
+            rejected.append({
+                **item,
+                "rejection_reasons": (
+                    list(dict.fromkeys(gate_reasons))
+                    or [f"竞价分策略排名未进入前{limit}"]
+                ),
+            })
     return {
         "schema": "auction_shortlist_v1",
         "source_asof": pool.get("asof"),

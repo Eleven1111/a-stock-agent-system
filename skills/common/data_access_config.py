@@ -77,6 +77,8 @@ DEFAULTS: Dict[str, Any] = {
         "min_sources_for_boost": 2,
         "candidate_bonus_max": 3.0,
         "sentiment_delta_max": 0.8,
+        "theme_min_confirmed_stocks": 1,
+        "theme_min_attention_score": 60.0,
         "baidu_enabled": False,
     },
     "global_market": {
@@ -364,6 +366,23 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
             if 0 < parsed <= upper
             else DEFAULTS["social_attention"][key]
         )
+    theme_min = social.get("theme_min_confirmed_stocks")
+    social["theme_min_confirmed_stocks"] = (
+        theme_min
+        if isinstance(theme_min, int)
+        and not isinstance(theme_min, bool)
+        and 1 <= theme_min <= 5
+        else DEFAULTS["social_attention"]["theme_min_confirmed_stocks"]
+    )
+    theme_score = _number(
+        social.get("theme_min_attention_score"),
+        DEFAULTS["social_attention"]["theme_min_attention_score"],
+    )
+    social["theme_min_attention_score"] = (
+        theme_score
+        if 0 < theme_score <= 100
+        else DEFAULTS["social_attention"]["theme_min_attention_score"]
+    )
     social["baidu_enabled"] = (
         social.get("baidu_enabled")
         if isinstance(social.get("baidu_enabled"), bool)
