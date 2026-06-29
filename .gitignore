@@ -1,12 +1,6 @@
 # 运行时数据
 data/
 cache/
-docs_private/
-reports/
-agent_state/
-state_identity.json*
-market/snapshots/
-cron/output/
 *.pyc
 __pycache__/
 
@@ -29,4 +23,12 @@ Thumbs.db
 *.egg-info/
 docs/superpowers/
 .venv/
-.omx/
+
+# 运行时产物
+cron/output/*.json.lock
+market/snapshots/
+outputs/
+
+# 保留 job_runs.json 在 git 中
+cron/output/*.json
+!cron/output/job_runs.json
