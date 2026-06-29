@@ -752,7 +752,10 @@ def format_report(result: Mapping[str, Any]) -> str:
         lines.append(
             "主线板块：" + "；".join(
                 f"{item.get('rank')}.{item.get('sector')}({item.get('state')},"
-                f"涨停{item.get('limitup_count')},分{item.get('score')})"
+                f"涨停{item.get('limitup_count')},"
+                f"证据{item.get('evidence_count')}:"
+                f"{','.join(item.get('evidence_types') or []) or '-'},"
+                f"分{item.get('score')})"
                 for item in mainlines
             )
         )
@@ -760,13 +763,14 @@ def format_report(result: Mapping[str, Any]) -> str:
         lines.append("打板关闭原因：" + "；".join(selection.get("reasons") or []))
     lines.extend([
         "",
-        "| 代码 | 名称 | 板块/排名 | 龙头排名 | 打板门禁 | 打板分 | 趋势分 |",
+        "| 代码 | 名称 | 板块/行业/排名 | 龙头排名 | 打板门禁 | 打板分 | 趋势分 |",
         "|------|------|-----------|----------|----------|--------|--------|",
     ])
     for item in result.get("candidates", [])[:20]:
         lines.append(
             f"| {item['code']} | {item['name']} | "
-            f"{item.get('sector') or '-'} / {item.get('sector_rank') or '-'} | "
+            f"{item.get('sector') or item.get('industry') or '-'} / "
+            f"{item.get('sector_rank') or '-'} | "
             f"{item.get('leader_rank') or '-'} | "
             f"{'通过' if item.get('hot_money_qualified') else '关闭'} | "
             f"{item['daban_score']} | {item['trend_score']} |"
@@ -805,6 +809,9 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
                     for key in (
                         "sector", "rank", "score", "state",
                         "limitup_count", "qualified_for_daban",
+                        "evidence_count", "evidence_types",
+                        "theme_confirmed", "theme_attention_score",
+                        "theme_confirmed_stock_count", "sector_flow_yi",
                     )
                 }
                 for item in selection.get("sectors") or []
@@ -820,7 +827,11 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
                 for key in (
                     "code", "name", "daban_rank", "daban_score",
                     "trend_rank", "trend_score", "strategy_id",
-                    "sector", "sector_rank", "sector_state",
+                    "sector", "sector_source", "industry", "industry_source",
+                    "sector_rank", "sector_state",
+                    "sector_evidence_count", "sector_evidence_types",
+                    "sector_theme_confirmed", "sector_theme_attention_score",
+                    "sector_flow_yi",
                     "leader_rank", "leader_role", "hot_money_qualified",
                 )
             }

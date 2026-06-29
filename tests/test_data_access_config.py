@@ -22,6 +22,8 @@ def test_missing_config_uses_historical_defaults(tmp_path):
     assert loaded["providers"]["eastmoney"]["coordination_backend"] == "shared_file"
     assert loaded["providers"]["xueqiu"]["max_attempts"] == 2
     assert loaded["social_attention"]["min_sources_for_boost"] == 2
+    assert loaded["social_attention"]["theme_min_confirmed_stocks"] == 1
+    assert loaded["social_attention"]["theme_min_attention_score"] == 60.0
     assert loaded["social_attention"]["baidu_enabled"] is False
 
 
@@ -159,6 +161,8 @@ def test_social_attention_settings_are_sanitized(tmp_path):
                 "min_sources_for_boost": 1,
                 "candidate_bonus_max": 99,
                 "sentiment_delta_max": -1,
+                "theme_min_confirmed_stocks": 0,
+                "theme_min_attention_score": 101,
                 "baidu_enabled": "yes",
             }
         }),

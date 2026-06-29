@@ -320,12 +320,17 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "social-attention-midday",
         "social-attention-close",
     ):
+        assert jobs[job_id]["enabled"] is True
         assert jobs[job_id]["run"]["command"].endswith("--json")
         assert jobs[job_id]["deliver"] == "local"
         assert any(
             "social_attention.json" in path
             for path in jobs[job_id]["allowed_state_writes"]
         )
+    assert jobs["candidate-preopen"]["context_from"] == ["social-attention-preopen"]
+    assert jobs["candidate-preopen"]["dependency_policy"].get("optional_jobs") == [
+        "social-attention-preopen"
+    ]
     assert jobs["auction-snapshot"]["context_from"] == ["candidate-preopen"]
     assert jobs["auction-snapshot"]["dependency_policy"].get("optional_jobs") == []
     from scripts.run_agent_dag import execution_order

@@ -28,6 +28,7 @@ import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
 import stage_intelligence  # noqa: E402
+from weak_market_delivery import assess_delivery_quality  # noqa: E402
 from market_temperature import temperature_from_context  # noqa: E402
 import monitor_registry  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -348,21 +349,8 @@ def rank_confirmations(
 
     selected: Dict[str, Dict[str, Any]] = {}
 
-    def _passes_quality_gate(item: Mapping[str, Any]) -> bool:
-        """最低质量门槛：垃圾票不能进 watch。"""
-        ctx = item.get("selection_context") or {}
-        sector = item.get("sector") or ctx.get("sector")
-        leader_rank = item.get("leader_rank") or ctx.get("leader_rank")
-        qualified = item.get("qualified")
-        if qualified is None:
-            qualified = ctx.get("qualified")
-        if qualified is False:
-            return False
-        if leader_rank is not None and int(leader_rank) > 150:
-            return False
-        if sector is None and leader_rank is not None and int(leader_rank) > 100:
-            return False
-        return True
+    def _delivery_quality(item: Mapping[str, Any], lane: str) -> Dict[str, Any]:
+        return assess_delivery_quality(item, lane=lane, stage="09:35")
 
     def _add_lane(lane: str, quota: int) -> None:
         if quota <= 0:
@@ -378,9 +366,11 @@ def rank_confirmations(
             if code in selected:
                 selected[code]["open_selected_by"][lane] = True
                 continue
-            if not _passes_quality_gate(item):
+            delivery_quality = _delivery_quality(item, lane)
+            if delivery_quality["status"] != "deliverable_watch":
                 continue
             chosen = dict(item)
+            chosen["delivery_quality"] = delivery_quality
             chosen["open_selected_by"] = {
                 "daban": lane == "daban",
                 "trend": lane == "trend",
@@ -401,8 +391,6 @@ def rank_confirmations(
             code = candidate_pipeline.naked_code(item.get("code"))
             if code in selected:
                 continue
-            if not _passes_quality_gate(item):
-                continue
             if (
                 "hot_money_qualified" in item
                 and not item.get("hot_money_qualified")
@@ -411,7 +399,12 @@ def rank_confirmations(
                 continue
             if temperature_active and not _lane_member(item, "trend"):
                 continue
+            lane = "trend" if _lane_member(item, "trend") else "daban"
+            delivery_quality = _delivery_quality(item, lane)
+            if delivery_quality["status"] != "deliverable_watch":
+                continue
             chosen = dict(item)
+            chosen["delivery_quality"] = delivery_quality
             chosen["open_selected_by"] = {
                 "daban": False,
                 "trend": temperature_active,

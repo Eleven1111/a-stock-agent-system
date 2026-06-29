@@ -26,6 +26,8 @@
     "mainline_top_n": 2,
     "leader_top_n": 2,
     "min_sector_limitups": 3,
+    "min_sector_evidence_types_weak": 2,
+    "sector_flow_confirm_yi": 5.0,
     "sector_weights": {
       "limitup_count": 0.45,
       "amount": 0.2,

@@ -116,8 +116,8 @@ def test_run_discovery_persists_pool_and_lifecycle(tmp_path, monkeypatch):
     assert "leader_rank" in report["top_candidates"][0]
 
 
-def test_run_discovery_injects_cached_industry_into_sector(tmp_path, monkeypatch):
-    """注入的行业映射应填补沪市空缺并经由 quotes 进入候选的 sector。"""
+def test_run_discovery_uses_narrow_cached_industry_as_sector(tmp_path, monkeypatch):
+    """窄行业映射可作为主线 sector；industry 字段仍保留来源。"""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     listed_date = (date.today() - timedelta(days=500)).isoformat()
     # 沪市主板代码：上市列表本不带行业，全靠映射补
@@ -161,9 +161,66 @@ def test_run_discovery_injects_cached_industry_into_sector(tmp_path, monkeypatch
 
     assert result["candidate_count"] == 6
     assert all(item.get("sector") == "半导体" for item in result["candidates"])
+    assert all(item.get("industry") == "半导体" for item in result["candidates"])
+    assert all(
+        item.get("sector_source") == "eastmoney_industry_board"
+        for item in result["candidates"]
+    )
     # 板块归属齐备 → 选股态可识别该主线
     selection = read_json(discovery.hot_money_selection_file(), {})
     assert any(row.get("sector") == "半导体" for row in selection.get("sectors") or [])
+
+
+def test_run_discovery_does_not_promote_coarse_exchange_industry(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    listed_date = (date.today() - timedelta(days=500)).isoformat()
+    universe = [
+        {
+            "code": f"6006{i:02d}",
+            "name": f"粗行业{i}",
+            "listed_date": listed_date,
+            "industry": "C 制造业",
+        }
+        for i in range(12)
+    ]
+    quote_fields = {
+        item["code"]: {
+            "price": 10 + i,
+            "prev_close": 9.5 + i,
+            "change_pct": 5 + i / 10,
+            "amount": 200_000_000 + i * 10_000_000,
+            "turnover": 4 + i,
+            "volume": 1_000_000,
+        }
+        for i, item in enumerate(universe)
+    }
+    klines = {item["code"]: _bars(8 + i) for i, item in enumerate(universe)}
+
+    def quote_fetcher(enriched_universe):
+        return {
+            item["code"]: {**item, **quote_fields[item["code"]], "code": item["code"]}
+            for item in enriched_universe
+        }
+
+    result = discovery.run_discovery(
+        "2026-06-10",
+        watch_limit=6,
+        prefilter_limit=10,
+        universe_fetcher=lambda: universe,
+        quote_fetcher=quote_fetcher,
+        kline_fetcher=lambda candidates: {
+            item["code"]: klines[item["code"]] for item in candidates
+        },
+        industry_provider=lambda _asof: {},
+        settle_previous=False,
+    )
+
+    assert result["candidate_count"] == 6
+    assert all(item.get("industry") == "C 制造业" for item in result["candidates"])
+    assert all(item.get("sector") is None for item in result["candidates"])
+    selection = read_json(discovery.hot_money_selection_file(), {})
+    assert selection["sector_coverage"] == 0.0
+    assert selection["daban_ready"] is False
 
 
 def test_run_discovery_industry_injection_is_noop_without_cache(tmp_path, monkeypatch):

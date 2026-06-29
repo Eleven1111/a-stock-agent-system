@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence
 
 from data_access_config import social_attention_settings
 from paths import cache_dir
+from sector_taxonomy import is_broad_sector_label, resolve_sector
 from state_store import atomic_write_json, read_json
 
 
@@ -60,6 +61,22 @@ def _metadata_for(
         or stock_metadata.get(f"SZ{code}")
         or {}
     )
+
+
+def _social_payload(context: Mapping[str, Any] | None) -> Mapping[str, Any]:
+    if not isinstance(context, Mapping):
+        return {}
+    if context.get("schema") == SCHEMA:
+        return context
+    payload = context.get("social_attention")
+    return payload if isinstance(payload, Mapping) else {}
+
+
+def _int(value: Any, default: int = 0) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
 
 
 def build_social_attention_snapshot(
@@ -145,11 +162,15 @@ def build_social_attention_snapshot(
             else "low"
         )
         meta = _metadata_for(code, metadata)
-        sector = str(meta.get("sector") or meta.get("industry") or "").strip() or None
+        sector, sector_source = resolve_sector(meta)
+        industry = str(meta.get("industry") or "").strip() or None
         stocks[code] = {
             "code": code,
             "name": raw["name"] or meta.get("name") or code,
-            "sector": sector,
+            "sector": sector or None,
+            "sector_source": sector_source,
+            "industry": industry,
+            "industry_source": meta.get("industry_source"),
             "attention_score": round(attention_score, 2),
             "attention_velocity": round(velocity, 2),
             "cross_source_count": source_count,
@@ -178,7 +199,7 @@ def build_social_attention_snapshot(
     themes: dict[str, dict[str, Any]] = {}
     for item in stocks.values():
         sector = item.get("sector")
-        if not sector:
+        if not sector or is_broad_sector_label(sector):
             continue
         theme = themes.setdefault(
             str(sector),
@@ -195,17 +216,25 @@ def build_social_attention_snapshot(
         if item["eligible_for_boost"]:
             theme["confirmed"] += 1
     normalized_themes = {}
+    min_theme_confirmed = int(settings["theme_min_confirmed_stocks"])
+    min_theme_score = float(settings["theme_min_attention_score"])
     for name, theme in themes.items():
         leaders = sorted(
             theme["leaders"],
             key=lambda item: (-item["attention_score"], item["code"]),
         )[:5]
+        attention_score = round(
+            sum(theme["scores"]) / len(theme["scores"]),
+            2,
+        )
+        confirmed_stock_count = theme["confirmed"]
         normalized_themes[name] = {
             "stock_count": len(theme["scores"]),
-            "confirmed_stock_count": theme["confirmed"],
-            "attention_score": round(
-                sum(theme["scores"]) / len(theme["scores"]),
-                2,
+            "confirmed_stock_count": confirmed_stock_count,
+            "attention_score": attention_score,
+            "confirmed": bool(
+                confirmed_stock_count >= min_theme_confirmed
+                and attention_score >= min_theme_score
             ),
             "leaders": leaders,
         }
@@ -320,6 +349,55 @@ def candidate_attention_overlay(
         "notes": notes,
         "display_only": False,
         "record": dict(record),
+    }
+
+
+def theme_attention_evidence(
+    sector: Any,
+    context: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Return same-day social theme evidence for a tradable narrow sector."""
+    name = str(sector or "").strip()
+    if not name or is_broad_sector_label(name):
+        return {
+            "available": False,
+            "confirmed": False,
+            "attention_score": 0.0,
+            "confirmed_stock_count": 0,
+            "stock_count": 0,
+            "leaders": [],
+        }
+    payload = _social_payload(context)
+    themes = payload.get("themes") if isinstance(payload, Mapping) else None
+    record = themes.get(name) if isinstance(themes, Mapping) else None
+    if not isinstance(record, Mapping):
+        return {
+            "available": False,
+            "confirmed": False,
+            "attention_score": 0.0,
+            "confirmed_stock_count": 0,
+            "stock_count": 0,
+            "leaders": [],
+        }
+
+    settings = social_attention_settings()
+    score = _number(record.get("attention_score"))
+    confirmed_stock_count = _int(record.get("confirmed_stock_count"))
+    stock_count = _int(record.get("stock_count"))
+    confirmed = bool(record.get("confirmed"))
+    if not confirmed:
+        confirmed = (
+            confirmed_stock_count >= int(settings["theme_min_confirmed_stocks"])
+            and score >= float(settings["theme_min_attention_score"])
+        )
+    leaders = record.get("leaders") if isinstance(record.get("leaders"), list) else []
+    return {
+        "available": True,
+        "confirmed": confirmed,
+        "attention_score": round(score, 2),
+        "confirmed_stock_count": confirmed_stock_count,
+        "stock_count": stock_count,
+        "leaders": leaders[:5],
     }
 
 

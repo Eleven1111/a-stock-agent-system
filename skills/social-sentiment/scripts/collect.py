@@ -49,7 +49,16 @@ def load_stock_metadata() -> dict[str, dict[str, Any]]:
                 code = code[2:]
             code = code.zfill(6)
             existing = result.setdefault(code, {})
-            for key in ("name", "sector", "industry"):
+            for key in (
+                "name",
+                "sector",
+                "sector_source",
+                "industry",
+                "industry_source",
+                "theme",
+                "concept",
+                "topic",
+            ):
                 if row.get(key):
                     existing[key] = row[key]
     return result

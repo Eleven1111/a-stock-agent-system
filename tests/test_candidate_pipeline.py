@@ -3,6 +3,7 @@
 from datetime import date, timedelta
 
 import candidate_pipeline as cp
+import weak_market_delivery as wmd
 
 
 def _quote(code, name, change_pct, amount, turnover=5.0, price=10.0):
@@ -98,6 +99,16 @@ def test_rank_candidates_propagates_sector_from_live_context():
     assert ranked[0]["sector"] == "半导体"
 
 
+def test_rank_candidates_keeps_coarse_industry_out_of_sector():
+    ranked = cp.rank_candidates(
+        [{**_quote("600001", "粗行业", 3.0, 500_000_000, turnover=8), "industry": "C 制造业"}],
+        {"600001": _klines([10 + i * 0.1 for i in range(60)])},
+    )
+
+    assert ranked[0]["industry"] == "C 制造业"
+    assert ranked[0]["sector"] is None
+
+
 def test_missing_kline_cannot_enter_watch_pool_as_balanced_fill():
     missing = _quote("600001", "缺历史数据", 9.9, 2_000_000_000, turnover=20)
     ready = _quote("600002", "历史完整", 2.0, 500_000_000, turnover=5)
@@ -191,6 +202,74 @@ def test_missing_hot_money_state_closes_daban_but_keeps_trend_lane():
 
     assert not any(item["selected_by"]["daban"] for item in result["candidates"])
     assert any(item["selected_by"]["trend"] for item in result["candidates"])
+
+
+def test_weak_stale_market_blocks_broad_sector_trend_delivery():
+    candidate = {
+        **_quote("300001", "弱市趋势", 4.0, 1_000_000_000, turnover=12),
+        "sector": "C 制造业",
+    }
+    result = cp.build_watch_pool(
+        [candidate],
+        {"300001": _klines([10 + day * 0.08 for day in range(60)])},
+        watch_limit=1,
+        selection_state={
+            "status": "insufficient_data",
+            "daban_ready": False,
+            "market_timing": {
+                "status": "insufficient_data",
+                "breadth": {
+                    "advancers": 756,
+                    "decliners": 4394,
+                    "flat": 55,
+                    "limitup_count": 77,
+                    "limitdown_count": 54,
+                },
+                "temperature": {"tier": "neutral", "context_fresh": False},
+            },
+            "sectors": [
+                {"sector": "C 制造业", "rank": 1, "qualified_for_daban": False},
+            ],
+            "stock_sectors": {"300001": "C 制造业"},
+        },
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["candidates"] == []
+    evaluated = {item["code"]: item for item in result["evaluated_candidates"]}
+    assert evaluated["300001"]["sector"] == "C 制造业"
+
+
+def test_weak_market_delivery_requires_two_sector_evidence_types():
+    quality = wmd.assess_delivery_quality(
+        {
+            **_quote("600001", "弱市龙头", 9.8, 1_000_000_000, turnover=15),
+            "sector": "半导体",
+            "sector_rank": 1,
+            "leader_rank": 1,
+            "hot_money_qualified": True,
+            "sector_evidence_count": 1,
+            "sector_evidence_types": ["limitup_cluster"],
+        },
+        lane="daban",
+        stage="D0_close",
+        selection_state={
+            "market_timing": {
+                "status": "ready",
+                "breadth": {
+                    "advancers": 900,
+                    "decliners": 3900,
+                    "flat": 100,
+                    "limitup_count": 55,
+                    "limitdown_count": 38,
+                },
+                "temperature": {"tier": "neutral", "context_fresh": True},
+            }
+        },
+    )
+
+    assert quality["status"] == "research_only"
+    assert any("两类共振" in reason for reason in quality["reasons"])
 
 
 def test_non_mainline_candidate_cannot_consume_daban_quota():
@@ -338,6 +417,53 @@ def test_auction_fill_does_not_revive_non_mainline_daban_candidate():
     result = cp.rank_auction_shortlist(pool, factors, limit=2)
 
     assert [item["code"] for item in result["shortlist"]] == ["sz300001"]
+
+
+def test_auction_shortlist_does_not_revive_weak_market_research_only_candidate():
+    pool = {
+        "asof": "2026-06-29",
+        "candidates": [
+            {
+                "code": "sz300001",
+                "name": "弱市趋势",
+                "sector": "C 制造业",
+                "daban_score": 0,
+                "trend_score": 99,
+                "selected_by": {"daban": False, "trend": True, "balanced_fill": False},
+                "selection_context": {
+                    "window": "D0_close",
+                    "market_timing": {
+                        "status": "insufficient_data",
+                        "breadth": {
+                            "advancers": 756,
+                            "decliners": 4394,
+                            "flat": 55,
+                            "limitup_count": 77,
+                            "limitdown_count": 54,
+                        },
+                        "temperature": {"tier": "neutral", "context_fresh": False},
+                    },
+                    "sector": {"name": "C 制造业", "rank": 1},
+                    "leader": {"rank": 111},
+                },
+            },
+        ],
+    }
+    factors = [
+        {
+            "code": "sz300001",
+            "auction_gap_pct": 2.0,
+            "auction_amount": 30_000_000,
+            "auction_bid_ask_ratio": 2.0,
+            "auction_net_bid_delta": 10_000,
+            "is_yiziban": False,
+        }
+    ]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=1)
+
+    assert result["shortlist"] == []
+    assert any("弱市" in reason for reason in result["rejected"][0]["rejection_reasons"])
 
 
 def test_auction_social_attention_is_current_bounded_tiebreaker():

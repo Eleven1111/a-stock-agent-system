@@ -56,6 +56,8 @@ def _config():
         "mainline_top_n": 2,
         "leader_top_n": 2,
         "min_sector_limitups": 3,
+        "min_sector_evidence_types_weak": 2,
+        "sector_flow_confirm_yi": 5.0,
         "sector_weights": {
             "limitup_count": 0.45,
             "amount": 0.20,
@@ -102,6 +104,29 @@ def test_market_timing_derives_breadth_and_previous_ladder_premium():
     assert timing["breadth"]["decliners"] == 1
     assert timing["breadth"]["limitup_count"] == 6
     assert timing["previous_ladder_premium"] == 10.0
+
+
+def test_market_timing_marks_stale_structural_weak_market():
+    quotes = []
+    for i in range(15):
+        quotes.append(_quote(f"60{i:04d}", "C 制造业", 10.0))
+    for i in range(15, 65):
+        quotes.append(_quote(f"60{i:04d}", "C 制造业", -10.0))
+    for i in range(65, 100):
+        quotes.append(_quote(f"60{i:04d}", "C 制造业", -1.0))
+
+    timing = hms.build_market_timing(
+        quotes,
+        _context("2026-06-21"),
+        event_asof="2026-06-22",
+        config=_config(),
+    )
+
+    assert timing["status"] == "insufficient_data"
+    assert timing["weak_market"]["weak_regime"] is True
+    assert timing["weak_market"]["extreme_weak"] is True
+    assert timing["weak_market"]["status"] == "weak_data_stale"
+    assert timing["weak_market"]["up_ratio"] == 0.15
 
 
 def test_sector_leadership_is_cross_sectional_and_persistent():
@@ -153,6 +178,71 @@ def test_sector_leadership_consumes_normalized_social_stocks_and_themes():
 
     assert sectors["半导体"]["attention"] == 88
     assert sectors["军工"]["attention"] == 20
+
+
+def test_weak_market_mainline_requires_multi_evidence_confirmation():
+    quotes = [
+        _quote("600001", "半导体", 10.0, 1_500_000_000, 18),
+        _quote("600002", "半导体", 9.9, 1_000_000_000, 14),
+        _quote("600003", "半导体", 9.8, 800_000_000, 11),
+        _quote("600004", "军工", -4.0),
+        _quote("600005", "煤炭", -3.0),
+        _quote("600006", "银行", -2.0),
+        _quote("600007", "医药", -1.0),
+        _quote("600008", "传媒", -5.0),
+        _quote("600009", "有色", -6.0),
+        _quote("600010", "通信", -7.0),
+    ]
+    context = {
+        "ladder_asof": "2026-06-22",
+        "lianban_ladder": {
+            "600001": {"sector": "半导体", "lianban": 2},
+            "600002": {"sector": "半导体", "lianban": 1},
+            "600003": {"sector": "半导体", "lianban": 1},
+        },
+        "prev_lianban_ladder": {
+            "600001": {"sector": "半导体", "lianban": 1},
+            "600011": {"sector": "军工", "lianban": 1},
+            "600012": {"sector": "传媒", "lianban": 1},
+            "600013": {"sector": "有色", "lianban": 1},
+            "600014": {"sector": "医药", "lianban": 1},
+        },
+        "sector_limitups": {"半导体": 3},
+    }
+    timing = hms.build_market_timing(
+        quotes, context, event_asof="2026-06-22", config=_config()
+    )
+
+    weak_without_theme = hms.build_sector_leadership(
+        quotes, context, timing, config=_config()
+    )
+    semi = next(row for row in weak_without_theme["sectors"] if row["sector"] == "半导体")
+    assert timing["weak_market"]["weak_regime"] is True
+    assert semi["evidence_types"] == ["limitup_cluster"]
+    assert semi["qualified_for_daban"] is False
+    assert weak_without_theme["status"] == "insufficient_data"
+
+    context["social_attention"] = {
+        "schema": "social_attention_snapshot_v1",
+        "themes": {
+            "半导体": {
+                "attention_score": 88,
+                "confirmed_stock_count": 1,
+                "stock_count": 1,
+                "confirmed": True,
+            }
+        },
+        "stocks": {},
+    }
+    weak_with_theme = hms.build_sector_leadership(
+        quotes, context, timing, config=_config()
+    )
+    semi = next(row for row in weak_with_theme["sectors"] if row["sector"] == "半导体")
+    assert semi["evidence_types"] == ["limitup_cluster", "social_theme"]
+    assert semi["evidence_count"] == 2
+    assert semi["theme_confirmed"] is True
+    assert semi["qualified_for_daban"] is True
+    assert weak_with_theme["status"] == "ready"
 
 
 def test_missing_sector_coverage_blocks_only_hot_money_lane():

@@ -11,7 +11,10 @@ from typing import Any, Mapping, Sequence
 
 from crowding_fragility import build_market_crowding_fragility, sector_crowding_fragility
 from market_temperature import classify_market_state, temperature_from_context
+from sector_taxonomy import resolve_sector
+from social_attention import theme_attention_evidence
 from tradeability import limit_pct
+from weak_market_delivery import derive_weak_market_regime
 
 
 SCHEMA = "hot_money_selection_state_v1"
@@ -25,6 +28,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "mainline_top_n": 2,
     "leader_top_n": 2,
     "min_sector_limitups": 3,
+    "min_sector_evidence_types_weak": 2,
+    "sector_flow_confirm_yi": 5.0,
     "sector_weights": {
         "limitup_count": 0.45,
         "amount": 0.20,
@@ -93,14 +98,18 @@ def _stock_sector(
     attention = (
         (social.get("stocks") or social.get("records") or {}).get(code) or {}
     )
-    return str(
-        quote.get("sector")
-        or quote.get("industry")
-        or ladder.get("sector")
-        or attention.get("sector")
-        or attention.get("industry")
-        or ""
-    ).strip()
+    sector, _source = resolve_sector(quote, ladder=ladder, social=attention)
+    return sector
+
+
+def _sector_flow_yi(sector: str, context: Mapping[str, Any]) -> float | None:
+    flows = context.get("sector_flows") or {}
+    if not isinstance(flows, Mapping) or sector not in flows:
+        return None
+    value = flows.get(sector)
+    if isinstance(value, Mapping):
+        value = value.get("main_net_yi")
+    return _num(value)
 
 
 def build_market_timing(
@@ -154,7 +163,7 @@ def build_market_timing(
         reasons.append(f"市场温度{temperature.get('tier')}不允许新开打板仓")
 
     ready = not reasons
-    return {
+    result = {
         "status": "ready" if ready else "insufficient_data",
         "event_asof": event_asof,
         "context_asof": context_asof or None,
@@ -173,6 +182,8 @@ def build_market_timing(
         "temperature": temperature,
         "reasons": reasons,
     }
+    result["weak_market"] = derive_weak_market_regime(result)
+    return result
 
 
 def build_sector_leadership(
@@ -212,8 +223,11 @@ def build_sector_leadership(
         top_changes = sorted(
             (_num(member.get("change_pct")) for member in members), reverse=True
         )[:10]
+        theme_evidence = theme_attention_evidence(sector, context)
         theme_attention = attention_themes.get(sector) or {}
-        attention = _num(theme_attention.get("attention_score"))
+        attention = _num(theme_evidence.get("attention_score"))
+        if attention <= 0:
+            attention = _num(theme_attention.get("attention_score"))
         if attention <= 0:
             attention = sum(
                 _num(record.get("attention_score") or record.get("score"))
@@ -224,14 +238,35 @@ def build_sector_leadership(
                     or stock_sectors.get(_code(code)) == sector
                 )
             )
+        limitup_count = max(
+            calculated_limitups,
+            int(declared_limitups.get(sector) or 0),
+        )
+        flow_yi = _sector_flow_yi(sector, context)
+        evidence_types: list[str] = []
+        if limitup_count >= int(cfg["min_sector_limitups"]):
+            evidence_types.append("limitup_cluster")
+        if theme_evidence.get("confirmed"):
+            evidence_types.append("social_theme")
+        if flow_yi is not None and flow_yi >= float(cfg["sector_flow_confirm_yi"]):
+            evidence_types.append("sector_flow")
         sector_cf = sector_crowding_fragility(members)
         rows.append({
             "sector": sector,
             "stock_count": len(members),
-            "limitup_count": max(calculated_limitups, int(declared_limitups.get(sector) or 0)),
+            "limitup_count": limitup_count,
             "amount": round(sum(_num(member.get("amount")) for member in members), 2),
             "top10_change": round(mean(top_changes), 4) if top_changes else 0.0,
             "attention": round(attention, 4),
+            "theme_confirmed": bool(theme_evidence.get("confirmed")),
+            "theme_confirmed_stock_count": int(
+                theme_evidence.get("confirmed_stock_count") or 0
+            ),
+            "theme_stock_count": int(theme_evidence.get("stock_count") or 0),
+            "theme_attention_score": theme_evidence.get("attention_score"),
+            "sector_flow_yi": flow_yi,
+            "evidence_types": evidence_types,
+            "evidence_count": len(evidence_types),
             "crowding_score": sector_cf.get("crowding_score"),
             "fragility_score": sector_cf.get("fragility_score"),
         })
@@ -258,6 +293,10 @@ def build_sector_leadership(
     timing_ready = bool(market_timing.get("daban_ready"))
     coverage = round(len(stock_sectors) / len(valid), 4) if valid else 0.0
     coverage_ready = coverage >= float(cfg["min_sector_coverage"])
+    weak_market = bool((market_timing.get("weak_market") or {}).get("weak_regime"))
+    min_evidence_count = (
+        int(cfg["min_sector_evidence_types_weak"]) if weak_market else 1
+    )
     for rank, row in enumerate(rows, 1):
         row["rank"] = rank
         in_current_top = rank <= int(cfg["mainline_top_n"])
@@ -273,6 +312,7 @@ def build_sector_leadership(
             and coverage_ready
             and in_current_top
             and row["limitup_count"] >= int(cfg["min_sector_limitups"])
+            and row["evidence_count"] >= min_evidence_count
         )
 
     qualified = any(row["qualified_for_daban"] for row in rows)
@@ -284,7 +324,10 @@ def build_sector_leadership(
             f"板块映射覆盖不足: {coverage:.1%} < {float(cfg['min_sector_coverage']):.1%}"
         )
     if timing_ready and coverage_ready and not qualified:
-        reasons.append("没有板块同时满足主线排名和涨停集群门槛")
+        if weak_market:
+            reasons.append("弱市没有板块同时满足主线排名、涨停集群和多源共振门槛")
+        else:
+            reasons.append("没有板块同时满足主线排名和涨停集群门槛")
 
     crowding = build_market_crowding_fragility(
         quotes, context, market_timing,
@@ -322,6 +365,8 @@ def build_sector_leadership(
                 "mainline_top_n",
                 "leader_top_n",
                 "min_sector_limitups",
+                "min_sector_evidence_types_weak",
+                "sector_flow_confirm_yi",
                 "sector_weights",
             )
         },
@@ -395,6 +440,19 @@ def apply_leader_identity(
             sector_state = sector_states.get(sector, {})
             item["sector_rank"] = sector_state.get("rank")
             item["sector_state"] = sector_state.get("state")
+            item["sector_evidence_types"] = list(
+                sector_state.get("evidence_types") or []
+            )
+            item["sector_evidence_count"] = int(
+                sector_state.get("evidence_count") or 0
+            )
+            item["sector_theme_confirmed"] = bool(
+                sector_state.get("theme_confirmed")
+            )
+            item["sector_theme_attention_score"] = sector_state.get(
+                "theme_attention_score"
+            )
+            item["sector_flow_yi"] = sector_state.get("sector_flow_yi")
             item["leader_rank"] = rank
             item["leader_role"] = (
                 "sector_leader" if rank == 1
@@ -466,15 +524,40 @@ def selection_context_for(
             "dominant_state": market_state.get("dominant_state"),
             "market_state_label": market_state.get("dominant_label"),
             "state_risk_off": bool(market_state.get("risk_off")),
+            "weak_market": dict(market.get("weak_market") or {}),
         },
         "sector": {
             "name": sector_name or None,
             "rank": sector.get("rank") or candidate.get("sector_rank"),
             "state": sector.get("state") or candidate.get("sector_state"),
+            "source": candidate.get("sector_source"),
             "score": sector.get("score"),
             "qualified": bool(sector.get("qualified_for_daban")),
+            "evidence_types": list(
+                sector.get("evidence_types")
+                or candidate.get("sector_evidence_types")
+                or []
+            ),
+            "evidence_count": sector.get("evidence_count")
+            if sector.get("evidence_count") is not None
+            else candidate.get("sector_evidence_count"),
+            "theme_confirmed": bool(
+                sector.get("theme_confirmed")
+                or candidate.get("sector_theme_confirmed")
+            ),
+            "theme_attention_score": sector.get("theme_attention_score")
+            if sector.get("theme_attention_score") is not None
+            else candidate.get("sector_theme_attention_score"),
+            "theme_confirmed_stock_count": sector.get("theme_confirmed_stock_count"),
+            "sector_flow_yi": sector.get("sector_flow_yi")
+            if sector.get("sector_flow_yi") is not None
+            else candidate.get("sector_flow_yi"),
             "crowding_score": sector.get("crowding_score"),
             "fragility_score": sector.get("fragility_score"),
+        },
+        "industry": {
+            "name": candidate.get("industry"),
+            "source": candidate.get("industry_source"),
         },
         "leader": {
             "rank": candidate.get("leader_rank"),
@@ -501,9 +584,22 @@ def advance_selection_context(
             "name": candidate.get("sector"),
             "rank": candidate.get("sector_rank"),
             "state": candidate.get("sector_state"),
+            "evidence_types": candidate.get("sector_evidence_types"),
+            "evidence_count": candidate.get("sector_evidence_count"),
+            "theme_confirmed": candidate.get("sector_theme_confirmed"),
+            "theme_attention_score": candidate.get("sector_theme_attention_score"),
+            "sector_flow_yi": candidate.get("sector_flow_yi"),
         }.items() if value is not None
     })
     context["sector"] = sector
+    industry = dict(context.get("industry") or {})
+    industry.update({
+        key: value for key, value in {
+            "name": candidate.get("industry"),
+            "source": candidate.get("industry_source"),
+        }.items() if value is not None
+    })
+    context["industry"] = industry
     leader = dict(context.get("leader") or {})
     leader.update({
         key: value for key, value in {
@@ -526,6 +622,7 @@ def compact_selection_context(context: Mapping[str, Any] | None) -> dict[str, An
     value = dict(context or {})
     market = value.get("market_timing") or {}
     sector = value.get("sector") or {}
+    industry = value.get("industry") or {}
     leader = value.get("leader") or {}
     snapshot = value.get("selection_snapshot") or {}
     return {
@@ -536,9 +633,16 @@ def compact_selection_context(context: Mapping[str, Any] | None) -> dict[str, An
         "crowding_score": market.get("crowding_score"),
         "fragility_score": market.get("fragility_score"),
         "dominant_state": market.get("dominant_state"),
+        "weak_market_status": (market.get("weak_market") or {}).get("status"),
         "sector": sector.get("name"),
+        "sector_source": sector.get("source"),
         "sector_rank": sector.get("rank"),
         "sector_state": sector.get("state"),
+        "sector_evidence_count": sector.get("evidence_count"),
+        "sector_evidence_types": list(sector.get("evidence_types") or []),
+        "sector_theme_confirmed": bool(sector.get("theme_confirmed")),
+        "industry": industry.get("name"),
+        "industry_source": industry.get("source"),
         "leader_rank": leader.get("rank"),
         "leader_role": leader.get("role"),
         "qualified": bool(leader.get("qualified")),

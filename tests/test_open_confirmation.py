@@ -158,6 +158,87 @@ def test_open_daban_lane_rejects_candidate_outside_mainline_leader_gate():
     assert [item["code"] for item in ranked] == ["sz300001"]
 
 
+def test_open_confirmation_reads_nested_selection_qualified_gate():
+    shortlist = [
+        {
+            "code": "sh600001",
+            "name": "嵌套不合格",
+            "auction_score": 99,
+            "auction_daban_score": 99,
+            "auction_trend_score": 10,
+            "auction_selected_by": {"daban": True, "trend": False},
+            "selection_context": {"qualified": False},
+        },
+        {
+            "code": "sz300001",
+            "name": "趋势候选",
+            "auction_score": 80,
+            "auction_daban_score": 0,
+            "auction_trend_score": 80,
+            "auction_selected_by": {"daban": False, "trend": True},
+        },
+    ]
+    confirmations = [
+        {
+            "code": item["code"],
+            "name": item["name"],
+            "action": "trend_watch",
+            "change_pct": 5.0,
+            "tradeability": {"tradeable": True, "status": "normal"},
+            "reasons": [],
+        }
+        for item in shortlist
+    ]
+
+    ranked = oc.rank_confirmations(shortlist, confirmations, limit=2)
+
+    assert [item["code"] for item in ranked] == ["sz300001"]
+
+
+def test_open_confirmation_blocks_weak_market_broad_sector_watch_delivery():
+    shortlist = [
+        {
+            "code": "sh600001",
+            "name": "弱市宽行业",
+            "sector": "C 制造业",
+            "auction_score": 92,
+            "auction_daban_score": 20,
+            "auction_trend_score": 92,
+            "auction_selected_by": {"daban": False, "trend": True},
+            "selection_context": {
+                "window": "09:25",
+                "market_timing": {
+                    "status": "insufficient_data",
+                    "breadth": {
+                        "advancers": 756,
+                        "decliners": 4394,
+                        "flat": 55,
+                        "limitup_count": 77,
+                        "limitdown_count": 54,
+                    },
+                    "temperature": {"tier": "neutral", "context_fresh": False},
+                },
+                "sector": {"name": "C 制造业", "rank": 1},
+                "leader": {"rank": 111},
+            },
+        },
+    ]
+    confirmations = [
+        {
+            "code": "sh600001",
+            "name": "弱市宽行业",
+            "action": "trend_watch",
+            "change_pct": 4.0,
+            "tradeability": {"tradeable": True, "status": "normal"},
+            "reasons": [],
+        }
+    ]
+
+    ranked = oc.rank_confirmations(shortlist, confirmations, limit=1)
+
+    assert ranked == []
+
+
 def test_research_only_watch_keeps_requested_buy_for_ledger_audit():
     research_only = {
         "decision": "watch",

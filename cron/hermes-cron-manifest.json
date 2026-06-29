@@ -104,7 +104,7 @@
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py social-attention-preopen --emit-target",
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": false,
@@ -143,11 +143,15 @@
       "context_scope": "cron",
       "deliver": "local",
       "max_output_chars": 2500,
-      "context_from": [],
+      "context_from": [
+        "social-attention-preopen"
+      ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
         "max_age_minutes": 90,
-        "optional_jobs": []
+        "optional_jobs": [
+          "social-attention-preopen"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -204,7 +208,7 @@
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py social-attention-midday --emit-target",
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": false,
@@ -235,7 +239,7 @@
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py social-attention-close --emit-target",
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": false,

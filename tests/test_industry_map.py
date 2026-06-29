@@ -95,7 +95,9 @@ def test_enrich_fills_missing_industry_and_is_immutable():
     enriched = im.enrich_records(records, mapping)
 
     assert enriched[0]["industry"] == "食品饮料"      # 填补 SSE 空缺
+    assert enriched[0]["industry_source"] == "eastmoney_industry_board"
     assert enriched[1]["industry"] == "食品饮料"      # 映射统一口径，覆盖旧值
+    assert enriched[1]["industry_source"] == "eastmoney_industry_board"
     assert enriched[2].get("industry", "") == ""      # 缺失则留空
     assert records[0] == {"code": "600519", "name": "贵州茅台"}  # 原对象不被 mutate
 
