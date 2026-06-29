@@ -153,6 +153,25 @@ def test_dag_skip_keeps_latest_trading_date_batch(tmp_path):
     assert result["batch_id"] == "a-share-20260618"
 
 
+def test_dag_calendar_block_is_reported_as_blocked(tmp_path):
+    job = _job()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state = tmp_path / "state"
+
+    result = execute_dag(
+        manifest_path=str(manifest),
+        targets=["gate-demo"],
+        trading_date="2027-01-04",
+        runtime="local",
+        env={**os.environ, "A_STOCK_STATE_HOME": str(state)},
+    )
+
+    assert result["status"] == "blocked"
+    assert result["runs"][0]["status"] == "blocked_calendar"
+    assert result["runs"][0]["returncode"] == 75
+
+
 def test_dag_uses_openclaw_state_fallback_before_calendar_skip(tmp_path):
     job = _job()
     manifest = tmp_path / "manifest.json"

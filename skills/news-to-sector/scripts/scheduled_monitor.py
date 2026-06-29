@@ -41,6 +41,19 @@ INTRADAY_LIMIT = int(_NEWS_CONFIG.get("intraday_limit", DEFAULT_LIMIT))
 INTRADAY_FRESHNESS_SLA_MINUTES = int(_NEWS_CONFIG.get("intraday_freshness_sla_minutes", 10))
 INTRADAY_CANDIDATE_LIMIT = int(_NEWS_CONFIG.get("intraday_candidate_limit", 20))
 SCHEDULED_STOCK_LIMIT = int(_NEWS_CONFIG.get("scheduled_stock_limit", 20))
+FALLBACK_NOISE_KEYWORDS = {
+    "世界杯", "足球", "赛前", "比赛", "球队", "球员", "小将", "nba",
+    "影视", "综艺", "明星", "票房", "演唱会", "游戏攻略",
+}
+FALLBACK_HARD_MARKET_KEYWORDS = {
+    "a股", "沪深", "上证", "深证", "创业板", "科创", "北交所", "港股",
+    "股票", "上市公司", "个股", "板块", "证监会", "交易所",
+    "央行", "国务院", "发改委", "工信部", "财政部", "商务部",
+    "减持", "增持", "并购", "重组",
+    "人民币", "美联储", "关税", "制裁", "大宗商品", "油价",
+    "黄金", "有色", "稀土", "钨", "半导体", "芯片", "算力",
+    "新能源", "光伏", "锂电", "房地产", "券商", "金融", "自贸", "临港",
+}
 
 
 def build_queries(base_queries: List[str] | None = None, *, mode: str = "scheduled") -> List[str]:
@@ -76,6 +89,17 @@ def fetch_news(query: str, api_key: str, limit: int) -> List[Dict[str, Any]]:
 
 def fetch_fallback_news(limit: int) -> List[Dict[str, Any]]:
     return fetch_public_finance_news(limit).data
+
+
+def is_relevant_fallback_event(event: Dict[str, Any]) -> bool:
+    text = f"{event.get('title') or ''} {event.get('snippet') or ''}".lower()
+    if not text.strip():
+        return False
+    has_market_anchor = any(keyword in text for keyword in FALLBACK_HARD_MARKET_KEYWORDS)
+    if not has_market_anchor:
+        return False
+    has_noise = any(keyword in text for keyword in FALLBACK_NOISE_KEYWORDS)
+    return not has_noise
 
 
 def stock_code_from_query(query: str) -> str | None:
@@ -287,8 +311,9 @@ def run_monitor(
     if not events:
         try:
             fetched = fetch_fallback_news(max(8, limit * max(1, len(queries))))
-            fallback_events = len(fetched)
-            for event in fetched:
+            relevant_fallback = [event for event in fetched if is_relevant_fallback_event(event)]
+            fallback_events = len(relevant_fallback)
+            for event in relevant_fallback:
                 events.append(
                     enrich_event_timing(
                         event,

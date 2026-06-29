@@ -19,6 +19,7 @@ from typing import Any, Dict
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
 sys.path.insert(0, COMMON)
+BLOCKED_RETURNCODES = {75, 78}
 
 from runtime_context import (  # noqa: E402
     ARTIFACT_TEMPLATE,
@@ -375,6 +376,7 @@ def run_job(args: argparse.Namespace) -> int:
                 "source_versions",
             )
         }
+    status_override = "blocked" if returncode in BLOCKED_RETURNCODES and not timed_out else None
     artifact = build_artifact(
         job=job,
         run_id=run_id,
@@ -394,6 +396,7 @@ def run_job(args: argparse.Namespace) -> int:
         runtime=runtime,
         snapshot_ref=snapshot_ref,
         calendar_gate=calendar_gate,
+        status_override=status_override,
     )
     write_artifact(artifact)
     record_run(artifact)

@@ -888,7 +888,7 @@ def main() -> None:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
             print(f"候选发现失败：{exc}")
-        raise SystemExit(1)
+        raise SystemExit(75)
 
     if args.json:
         print(json.dumps(json_report(result), ensure_ascii=False, default=str))

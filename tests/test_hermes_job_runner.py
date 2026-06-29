@@ -336,6 +336,44 @@ def test_weekend_run_belongs_to_latest_trading_date():
     assert resolve_trading_date("2026-06-14T10:00:00+08:00") == "2026-06-12"
 
 
+def test_runner_maps_business_block_returncode_to_blocked_artifact(tmp_path):
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json, sys\n"
+        "print(json.dumps({'schema':'demo_v1','status':'insufficient_data'}))\n"
+        "raise SystemExit(75)\n",
+        encoding="utf-8",
+    )
+    job = _base_job("blocked-business")
+    job["run"]["command"] = f"{sys.executable} {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+
+    env = os.environ.copy()
+    env["HERMES_HOME"] = str(tmp_path / "hermes")
+    result = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(ROOT, "scripts", "hermes_job_runner.py"),
+            "blocked-business",
+            "--manifest",
+            str(manifest),
+            "--trading-date",
+            "2026-06-12",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+    assert result.returncode == 75
+    ledger = read_json(str(tmp_path / "hermes" / "cron" / "output" / "job_runs.json"), [])
+    artifact = read_json(ledger[0]["artifact_path"], {})
+    assert artifact["status"] == "blocked"
+    assert artifact["summary"]["status"] == "insufficient_data"
+
+
 def test_runner_blocks_without_starting_worker_when_required_dependency_missing(tmp_path):
     marker = tmp_path / "worker-ran"
     worker = tmp_path / "worker.py"

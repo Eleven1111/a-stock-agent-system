@@ -684,7 +684,7 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 180,
+        "max_age_minutes": 300,
         "optional_jobs": [
           "open-confirmation"
         ]
@@ -698,7 +698,7 @@
       "run": {
         "command": "python skills/stock-triage/scripts/capital_flow_monitor.py --json --cache",
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 120
       },
       "external_note": "需 Hermes Agent + NO_PROXY 环境（东财 API）"
     },
@@ -1123,7 +1123,7 @@
       "run": {
         "command": "python skills/stock-triage/scripts/event_calendar.py --json",
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 180
       },
       "external_note": "需 Hermes Agent + NO_PROXY；无事件静默"
     },
@@ -1215,7 +1215,11 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 10080
+        "max_age_minutes": 10080,
+        "accepted_statuses": [
+          "ok",
+          "skipped_non_trading_day"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -1252,7 +1256,11 @@
       ],
       "dependency_policy": {
         "trading_date": "previous_trading_day",
-        "max_age_minutes": 7200
+        "max_age_minutes": 7200,
+        "accepted_statuses": [
+          "ok",
+          "skipped_non_trading_day"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [

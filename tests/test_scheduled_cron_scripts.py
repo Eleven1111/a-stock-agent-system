@@ -77,7 +77,7 @@ def test_scheduled_news_monitor_uses_public_fallback_as_descriptive_only(monkeyp
         monitor,
         "fetch_fallback_news",
         lambda limit: [{
-            "title": "政策支持先进制造",
+            "title": "国务院政策支持先进制造",
             "snippet": "",
             "source": "新浪财经",
             "provider": "sina",
@@ -93,6 +93,47 @@ def test_scheduled_news_monitor_uses_public_fallback_as_descriptive_only(monkeyp
     assert result["signals"] == []
     assert result["events"][0]["provider"] == "sina"
 
+
+
+def test_scheduled_news_monitor_filters_irrelevant_public_fallback(monkeypatch):
+    monitor = load_module("scheduled_news_monitor_fallback_filter_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: None)
+    monkeypatch.setattr(
+        monitor,
+        "fetch_fallback_news",
+        lambda limit: [
+            {
+                "title": "巴西VS日本赛前，12家AI全部看好巴西",
+                "snippet": "世界杯淘汰赛焦点对决",
+                "source": "新浪财经",
+                "provider": "sina",
+                "date": "刚刚",
+                "link": "https://example.com/sports",
+            },
+            {
+                "title": "证监会优化并购重组监管安排",
+                "snippet": "支持上市公司提升质量",
+                "source": "新浪财经",
+                "provider": "sina",
+                "date": "刚刚",
+                "link": "https://example.com/market",
+            },
+            {
+                "title": "ServiceNow与埃森哲联手推出AI风险服务",
+                "snippet": "加速企业告别遗留平台",
+                "source": "新浪财经",
+                "provider": "sina",
+                "date": "刚刚",
+                "link": "https://example.com/us-ai",
+            },
+        ],
+    )
+
+    result = monitor.run_monitor(["A股 政策"], limit=1, now=datetime(2026, 6, 23, 10, 0))
+
+    assert result["status"] == "degraded"
+    assert result["event_count"] == 1
+    assert result["events"][0]["link"] == "https://example.com/market"
 
 
 def test_scheduled_news_monitor_adds_active_registry_queries(monkeypatch):

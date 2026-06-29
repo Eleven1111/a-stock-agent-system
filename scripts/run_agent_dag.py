@@ -281,7 +281,13 @@ def execute_dag(
         reused_concurrent = bool(
             concurrent_artifact and concurrent_artifact.get("status") == "ok"
         )
-        status = "ok" if completed and (completed.returncode == 0 or reused_concurrent) else "failed"
+        _BLOCKED_CODES = {75, 78}
+        if completed and (completed.returncode == 0 or reused_concurrent):
+            status = "ok"
+        elif completed and completed.returncode in _BLOCKED_CODES:
+            status = "blocked"
+        else:
+            status = "failed"
         runs.append({
             "job_id": job_id,
             "status": "reused_concurrent" if reused_concurrent else status,
@@ -293,7 +299,7 @@ def execute_dag(
         if status != "ok":
             return {
                 "schema": "a_stock_dag_run_v1",
-                "status": "failed",
+                "status": status,
                 "runtime": runtime,
                 "trading_date": day,
                 "batch_id": batch,
@@ -359,7 +365,7 @@ def main() -> None:
         max_attempts=args.max_attempts,
         reuse_targets=args.reuse_targets,
     )
-    if args.emit_target and result["status"] == "skipped_non_trading_day":
+    if args.emit_target and result["status"] in ("skipped_non_trading_day", "blocked"):
         print("NO_REPLY")
     elif args.emit_target and result["status"] == "ok" and len(args.targets) == 1:
         artifact = _load_artifact(
@@ -374,6 +380,8 @@ def main() -> None:
             {},
         )
         sys.stdout.write(target_output(job, artifact or {}))
+    elif result["status"] in {"ok", "skipped_non_trading_day", "blocked"}:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         # 任务失败时输出人类可读的短消息而不是原始 DAG JSON
         failed_runs = result.get("runs", [])
@@ -385,7 +393,7 @@ def main() -> None:
             parts.append(f"错误: {err_msg}")
         print("\n".join(parts))
     raise SystemExit(
-        0 if result["status"] in {"ok", "skipped_non_trading_day"} else 1
+        0 if result["status"] in {"ok", "skipped_non_trading_day", "blocked"} else 1
     )
 
 
