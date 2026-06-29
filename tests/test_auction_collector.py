@@ -285,7 +285,7 @@ def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch)
     assert decision["selection_context"]["window"] == "09:25"
     assert decision["policy_decision"]["decision"] == "watch"
     report = ac.json_report(result)
-    assert report["research_only"] is True
+    assert report["research_only"] is False
     assert report["top_candidates"][0]["sector"] == "半导体"
     assert report["top_candidates"][0]["strategy_id"] == "daban:mainline_leader_confirm"
     assert "factors" not in report

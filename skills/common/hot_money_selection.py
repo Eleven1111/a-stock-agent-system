@@ -19,7 +19,7 @@ DABAN_STRATEGY_ID = "daban:mainline_leader_confirm"
 TREND_STRATEGY_ID = "trend_pullback"
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "research_only": True,
+    "research_only": False,
     "min_quote_count": 500,
     "min_sector_coverage": 0.20,
     "mainline_top_n": 2,
