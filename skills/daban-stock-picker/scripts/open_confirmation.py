@@ -354,6 +354,8 @@ def rank_confirmations(
         sector = item.get("sector") or ctx.get("sector")
         leader_rank = item.get("leader_rank") or ctx.get("leader_rank")
         qualified = item.get("qualified")
+        if qualified is None:
+            qualified = ctx.get("qualified")
         if qualified is False:
             return False
         if leader_rank is not None and int(leader_rank) > 150:
