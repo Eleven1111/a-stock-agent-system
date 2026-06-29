@@ -23,12 +23,3 @@ Thumbs.db
 *.egg-info/
 docs/superpowers/
 .venv/
-
-# 运行时产物
-cron/output/*.json.lock
-market/snapshots/
-outputs/
-
-# 保留 job_runs.json 在 git 中
-cron/output/*.json
-!cron/output/job_runs.json

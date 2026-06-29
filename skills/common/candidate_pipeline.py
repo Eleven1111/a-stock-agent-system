@@ -13,52 +13,6 @@ from social_attention import candidate_attention_overlay
 from weak_market_delivery import assess_delivery_quality
 
 
-DEFAULT_THEME_WEIGHTING = {
-    "enabled": True,
-    # additive deltas applied to a candidate's lane score based on the
-    # lifecycle stage of the theme its resolved sector belongs to. Conservative
-    # by default; every value is config-overridable (§4c: nothing hardcoded).
-    "stage_deltas": {
-        "mainline": 3.0,
-        "diverging": -3.0,
-        "fading": -6.0,
-        "emerging": 0.0,
-    },
-}
-
-
-def _theme_weighting_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    merged = dict(DEFAULT_THEME_WEIGHTING)
-    supplied = dict(config or {})
-    merged.update({key: value for key, value in supplied.items() if key != "stage_deltas"})
-    merged["stage_deltas"] = {
-        **DEFAULT_THEME_WEIGHTING["stage_deltas"],
-        **dict(supplied.get("stage_deltas") or {}),
-    }
-    return merged
-
-
-def theme_stage_adjustment(
-    sector: str | None,
-    theme_stages: Mapping[str, Mapping[str, Any]] | None,
-    config: Mapping[str, Any] | None,
-) -> Dict[str, Any]:
-    """Resolve a candidate's sector to a live theme stage and return the
-    additive score delta (config-gated). No-op ({"delta": 0.0}) whenever the
-    hook is disabled, no theme map is supplied, or the sector matches no theme —
-    so behaviour is identical to today unless explicitly turned on with data."""
-    weighting = _theme_weighting_config(config)
-    if not weighting.get("enabled") or not theme_stages or not sector:
-        return {"delta": 0.0, "stage": None, "theme_id": None, "notes": []}
-    entry = theme_stages.get(str(sector).strip().lower())
-    if not isinstance(entry, Mapping):
-        return {"delta": 0.0, "stage": None, "theme_id": None, "notes": []}
-    stage = str(entry.get("stage") or "")
-    delta = float((weighting.get("stage_deltas") or {}).get(stage, 0.0))
-    notes = [f"主题[{sector}]处于{stage}阶段 {delta:+.1f}"] if delta else []
-    return {"delta": round(delta, 2), "stage": stage or None, "theme_id": entry.get("id"), "notes": notes}
-
-
 def naked_code(code: Any) -> str:
     text = str(code or "").strip().lower()
     return text[2:] if text.startswith(("sh", "sz")) else text.zfill(6)
@@ -293,8 +247,6 @@ def rank_candidates(
     eligible: Sequence[Mapping[str, Any]],
     kline_by_code: Mapping[str, Sequence[Mapping[str, Any]]],
     signal_ctx: Mapping[str, Any] | None = None,
-    theme_stages: Mapping[str, Mapping[str, Any]] | None = None,
-    theme_weighting: Mapping[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     """Produce separate cross-sectional ranks for limit-up and trend strategies."""
     enriched: List[Dict[str, Any]] = []
@@ -355,9 +307,7 @@ def rank_candidates(
             ladder=ladder,
             social=social_record,
         )
-        theme_adj = theme_stage_adjustment(sector, theme_stages, theme_weighting)
-        theme_delta = float(theme_adj["delta"])
-        daban_score = min(100.0, daban_score + hm_bonus + social_delta + theme_delta)
+        daban_score = min(100.0, daban_score + hm_bonus + social_delta)
         if not daban_eligible or not item["feature_ready"]:
             daban_score = 0.0
 
@@ -373,7 +323,7 @@ def rank_candidates(
             + 0.10 * (1.0 - volatility_p.get(code, 1.0))
         )
         trend_score -= min(15.0, overextension * 15.0)
-        trend_score += social_delta + theme_delta
+        trend_score += social_delta
         if not item["feature_ready"]:
             trend_score = 0.0
         item.update({
@@ -385,9 +335,6 @@ def rank_candidates(
             "social_attention_bonus": round(social_delta, 2),
             "social_attention_notes": social["notes"],
             "social_attention": social["record"],
-            "theme_stage_bonus": round(theme_delta, 2),
-            "theme_stage": theme_adj["stage"],
-            "theme_stage_notes": theme_adj["notes"],
             "sector": sector or None,
             "sector_source": sector_source,
             "industry": item.get("industry"),

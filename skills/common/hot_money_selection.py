@@ -533,7 +533,6 @@ def selection_context_for(
             "source": candidate.get("sector_source"),
             "score": sector.get("score"),
             "qualified": bool(sector.get("qualified_for_daban")),
-            "qualified_for_daban": bool(sector.get("qualified_for_daban")),
             "evidence_types": list(
                 sector.get("evidence_types")
                 or candidate.get("sector_evidence_types")
@@ -565,7 +564,6 @@ def selection_context_for(
             "role": candidate.get("leader_role"),
             "score": candidate.get("leader_score"),
             "qualified": bool(candidate.get("hot_money_qualified")),
-            "hot_money_qualified": bool(candidate.get("hot_money_qualified")),
             "ablation": candidate.get("ablation"),
         },
         "selection_snapshot": dict(state.get("snapshot") or {}),
@@ -609,7 +607,6 @@ def advance_selection_context(
             "role": candidate.get("leader_role"),
             "score": candidate.get("leader_score"),
             "qualified": candidate.get("hot_money_qualified"),
-            "hot_money_qualified": candidate.get("hot_money_qualified"),
             "auction_sector_rank": candidate.get("auction_sector_rank"),
             "auction_sector_delta": candidate.get("auction_sector_delta"),
             "open_sector_rank": candidate.get("open_sector_rank"),
@@ -649,8 +646,5 @@ def compact_selection_context(context: Mapping[str, Any] | None) -> dict[str, An
         "leader_rank": leader.get("rank"),
         "leader_role": leader.get("role"),
         "qualified": bool(leader.get("qualified")),
-        "hot_money_qualified": bool(
-            leader.get("hot_money_qualified", leader.get("qualified"))
-        ),
         "snapshot_id": snapshot.get("snapshot_id"),
     }
