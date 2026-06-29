@@ -1,0 +1,158 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "closing-triage",
+  "run_id": "closing-triage-20260623-153500-8631",
+  "batch_id": "a-share-20260623",
+  "trading_date": "2026-06-23",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-23T15:35:00+08:00",
+  "finished_at": "2026-06-23T15:35:00+08:00",
+  "duration_seconds": 0.078,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/stock-triage/scripts/context_digest.py --kind closing-triage --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "schema": "hermes_context_digest_v1",
+    "status": "ready"
+  },
+  "context_from": [
+    {
+      "job_id": "four-dim-scorer",
+      "run_id": "four-dim-scorer-20260623-151800-8274",
+      "batch_id": "a-share-20260623",
+      "trading_date": "2026-06-23",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/four-dim-scorer/four-dim-scorer-20260623-151800-8274.json",
+      "status": "ok",
+      "finished_at": "2026-06-23T15:18:02+08:00",
+      "summary": {
+        "schema": "four_dim_batch_v1",
+        "status": "ready",
+        "signals_count": 0
+      },
+      "age_minutes": 16.967,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    },
+    {
+      "job_id": "portfolio-check",
+      "run_id": "portfolio-check-20260623-152547-8388",
+      "batch_id": "a-share-20260623",
+      "trading_date": "2026-06-23",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/portfolio-check/portfolio-check-20260623-152547-8388.json",
+      "status": "ok",
+      "finished_at": "2026-06-23T15:25:48+08:00",
+      "summary": {},
+      "age_minutes": 9.2,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    },
+    {
+      "job_id": "capital-flow",
+      "run_id": "capital-flow-20260623-143000-7468",
+      "batch_id": "a-share-20260623",
+      "trading_date": "2026-06-23",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/capital-flow/capital-flow-20260623-143000-7468.json",
+      "status": "ok",
+      "finished_at": "2026-06-23T14:30:26+08:00",
+      "summary": {
+        "schema": "capital_flow_v2",
+        "status": "insufficient_data",
+        "alerts_count": 26
+      },
+      "age_minutes": 64.567,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-23",
+    "batch_id": "a-share-20260623",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 90,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "four-dim-scorer",
+        "run_id": "four-dim-scorer-20260623-151800-8274",
+        "batch_id": "a-share-20260623",
+        "trading_date": "2026-06-23",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/four-dim-scorer/four-dim-scorer-20260623-151800-8274.json",
+        "status": "ok",
+        "finished_at": "2026-06-23T15:18:02+08:00",
+        "summary": {
+          "schema": "four_dim_batch_v1",
+          "status": "ready",
+          "signals_count": 0
+        },
+        "age_minutes": 16.967,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      },
+      {
+        "job_id": "portfolio-check",
+        "run_id": "portfolio-check-20260623-152547-8388",
+        "batch_id": "a-share-20260623",
+        "trading_date": "2026-06-23",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/portfolio-check/portfolio-check-20260623-152547-8388.json",
+        "status": "ok",
+        "finished_at": "2026-06-23T15:25:48+08:00",
+        "summary": {},
+        "age_minutes": 9.2,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      },
+      {
+        "job_id": "capital-flow",
+        "run_id": "capital-flow-20260623-143000-7468",
+        "batch_id": "a-share-20260623",
+        "trading_date": "2026-06-23",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/capital-flow/capital-flow-20260623-143000-7468.json",
+        "status": "ok",
+        "finished_at": "2026-06-23T14:30:26+08:00",
+        "summary": {
+          "schema": "capital_flow_v2",
+          "status": "insufficient_data",
+          "alerts_count": 26
+        },
+        "age_minutes": 64.567,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-23",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-b2b65e616bbaf5b57945a9b0",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/closing-triage/snap-b2b65e616bbaf5b57945a9b0.json",
+    "payload_hash": "f4a85ab34c7b99f8e6d96f6c3cea0e76221dc16530d6cc4f822f1b3dbea9ed3e",
+    "source_versions": {}
+  },
+  "stdout": "{\n  \"schema\": \"hermes_context_digest_v1\",\n  \"kind\": \"closing-triage\",\n  \"generated_at\": \"2026-06-23T15:35:00\",\n  \"status\": \"ready\",\n  \"missing_context\": [],\n  \"context_count\": 3,\n  \"highlights\": [\n    {\n      \"job_id\": \"four-dim-scorer\",\n      \"run_id\": \"four-dim-scorer-20260623-151800-8274\",\n      \"status\": \"ok\",\n      \"finished_at\": \"2026-06-23T15:18:02+08:00\",\n      \"summary\": {\n        \"schema\": \"four_dim_batch_v1\",\n        \"status\": \"ready\",\n        \"signals_count\": 0\n      },\n      \"artifact_path\": \"/Users/eleven/meta-11/a-stock-agent-system/cron/output/four-dim-scorer/four-dim-scorer-20260623-151800-8274.json\"\n    },\n    {\n      \"job_id\": \"portfolio-check\",\n      \"run_id\": \"portfolio-check-20260623-152547-8388\",\n      \"status\": \"ok\",\n      \"finished_at\": \"2026-06-23T15:25:48+08:00\",\n      \"summary\": {},\n      \"artifact_path\": \"/Users/eleven/meta-11/a-stock-agent-system/cron/output/portfolio-check/portfolio-check-20260623-152547-8388.json\"\n    },\n    {\n      \"job_id\": \"capital-flow\",\n      \"run_id\": \"capital-flow-20260623-143000-7468\",\n      \"status\": \"ok\",\n      \"finished_at\": \"2026-06-23T14:30:26+08:00\",\n      \"summary\": {\n        \"schema\": \"capital_flow_v2\",\n        \"status\": \"insufficient_data\",\n        \"alerts_count\": 26\n      },\n      \"artifact_path\": \"/Users/eleven/meta-11/a-stock-agent-system/cron/output/capital-flow/capital-flow-20260623-143000-7468.json\"\n    }\n  ]\n}\n",
+  "stderr": "",
+  "stdout_preview": "{\n  \"schema\": \"hermes_context_digest_v1\",\n  \"kind\": \"closing-triage\",\n  \"generated_at\": \"2026-06-23T15:35:00\",\n  \"status\": \"ready\",\n  \"missing_context\": [],\n  \"context_count\": 3,\n  \"highlights\": [\n    {\n      \"job_id\": \"four-dim-scorer\",\n      \"run_id\": \"four-dim-scorer-20260623-151800-8274\",\n      \"status\": \"ok\",\n      \"finished_at\": \"2026-06-23T15:18:02+08:00\",\n      \"summary\": {\n        \"schema\": \"four_dim_batch_v1\",\n        \"status\": \"ready\",\n        \"signals_count\": 0\n      },\n      \"artifact_path\": \"/Users/eleven/meta-11/a-stock-agent-system/cron/output/four-dim-scorer/four-dim-scorer-20260623-151800-8274.json\"\n    },\n    {\n      \"job_id\": \"portfolio-check\",\n      \"run_id\": \"portfolio-check-20260623-152547-8388\",\n      \"status\": \"ok\",\n      \"finished_at\": \"2026-06-23T15:25:48+08:00\",\n      \"summary\": {},\n      \"artifact_path\": \"/Users/eleven/meta-11/a-stock-agent-system/cron/output/portfolio-check/portfolio-check-20260623-152547-8388.json\"\n    },\n    {\n      \"job_id\": \"capital-flow\",\n      \"run_id\": \"capital-flow-20260623-143000-7468\",\n      \"status\": \"ok\",\n      \"finished_at\": \"2026-06-23T14:30:26+08:00\",\n      \"summary\": {\n        \"schema\": \"capital_flow_v2\",\n        \"statu\n...[truncated 205 chars]",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/closing-triage/closing-triage-20260623-153500-8631.json"
+}

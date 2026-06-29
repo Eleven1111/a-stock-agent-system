@@ -1,0 +1,69 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "intraday-alert",
+  "run_id": "intraday-alert-20260624-092500-26504",
+  "batch_id": "a-share-20260624",
+  "trading_date": "2026-06-24",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-24T09:25:00+08:00",
+  "finished_at": "2026-06-24T09:25:00+08:00",
+  "duration_seconds": 0.157,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/stock-triage/scripts/intraday_monitor.py --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": false,
+  "summary": {
+    "text_preview": ""
+  },
+  "context_from": [
+    {
+      "job_id": "open-confirmation",
+      "required": false,
+      "reasons": [
+        "missing"
+      ],
+      "gate_status": "optional_failed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-24",
+    "batch_id": "a-share-20260624",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 480,
+      "optional_jobs": [
+        "open-confirmation"
+      ],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "open-confirmation",
+        "required": false,
+        "reasons": [
+          "missing"
+        ],
+        "gate_status": "optional_failed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-24",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": null,
+  "stdout": "",
+  "stderr": "",
+  "stdout_preview": "",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/intraday-alert/intraday-alert-20260624-092500-26504.json"
+}

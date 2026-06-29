@@ -1,0 +1,144 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-db5fd357bf0244ca2c24051a",
+  "dataset": "four-dim-scorer",
+  "trading_date": "2026-06-22",
+  "batch_id": "a-share-20260622",
+  "producer": "four-dim-scorer",
+  "producer_version": "2d5bc5e5bc77186bbca873df8f6755bb091dc9f0",
+  "captured_at": "2026-06-22T15:18:02+08:00",
+  "payload_schema": "four_dim_batch_v1",
+  "payload_hash": "10acde3526fb23b68ae164cc2d42b3a424ab6ad5fdd07de165a4d9f84dc34457",
+  "source_versions": {},
+  "payload": {
+    "schema": "four_dim_batch_v1",
+    "generated_at": "2026-06-22T15:18:02",
+    "status": "ready",
+    "target_count": 20,
+    "signals": [],
+    "signal_count": 0,
+    "results": [
+      {
+        "code": "000048",
+        "name": "京基智农",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "000725",
+        "name": "京东方Ａ",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "000519",
+        "name": "中兵红箭",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "300308",
+        "name": "中际旭创",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "000657",
+        "name": "中钨高新",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "600030",
+        "name": "中信证券",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "000811",
+        "name": "冰轮环境",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "600522",
+        "name": "中天科技",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "000823",
+        "name": "超声电子",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "600584",
+        "name": "长电科技",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "000960",
+        "name": "锡业股份",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "002068",
+        "name": "黑猫股份",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "600703",
+        "name": "三安光电",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "002297",
+        "name": "博云新材",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "002409",
+        "name": "雅克科技",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "002440",
+        "name": "闰土股份",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "002601",
+        "name": "龙佰集团",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "002805",
+        "name": "丰元股份",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "002842",
+        "name": "翔鹭钨业",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      },
+      {
+        "code": "002910",
+        "name": "庄园牧场",
+        "status": "failed",
+        "error": "name 'fetch_serpapi_news' is not defined"
+      }
+    ]
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/four-dim-scorer/snap-db5fd357bf0244ca2c24051a.json"
+}

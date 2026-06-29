@@ -1,0 +1,4327 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-ea5bf3285b0aa50fe9955867",
+  "dataset": "open-confirmation",
+  "trading_date": "2026-06-22",
+  "batch_id": "a-share-20260622",
+  "producer": "open-confirmation",
+  "producer_version": "81a2ed8ce0d0bf8fd77e663454d4f6809bff5578",
+  "captured_at": "2026-06-22T09:30:08+08:00",
+  "payload_schema": "open_confirmation_v3",
+  "payload_hash": "c5a06b36657913b43e97649c36853526cf3be6faa671957f358bba1aea2dfadf",
+  "source_versions": {},
+  "payload": {
+    "schema": "open_confirmation_v3",
+    "asof": "2026-06-22",
+    "generated_at": "2026-06-22T09:30:07",
+    "status": "ready",
+    "source_asof": "2026-06-22",
+    "market_temperature": {
+      "tier": "修复",
+      "height": 5,
+      "promotion_rate": null,
+      "limitup_total": 10,
+      "retreat_signal": null,
+      "notes": [
+        "晋级率缺失（无昨日梯队快照），按高度板保守判定"
+      ],
+      "allow_new_daban": true,
+      "position_multiplier": 0.6,
+      "top_n_limit": 2,
+      "advice": "小仓试错，优先首板龙一",
+      "context_asof": "2026-06-22",
+      "context_fresh": true
+    },
+    "market_regime": {
+      "regime": "risk_on",
+      "reason": "板块影响合计+19",
+      "score": 19
+    },
+    "input_snapshot": {
+      "schema": "market_snapshot_v1",
+      "snapshot_id": "snap-fa1718a88082090ecf03764a",
+      "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/open-confirmation-input/snap-fa1718a88082090ecf03764a.json",
+      "payload_hash": "15d8cc8af23b030cbd9521325904cff7777c8564670873d72742d32889c5210f",
+      "source_versions": {
+        "tencent": "tencent-adapter-v2",
+        "akshare": "akshare-adapter-v1"
+      },
+      "producer": "open-confirmation",
+      "producer_version": "unknown",
+      "captured_at": "2026-06-22T01:30:07+00:00",
+      "consumed_from_snapshot": true
+    },
+    "confirmations": [
+      {
+        "code": "sh603986",
+        "name": "兆易创新",
+        "price": 643.83,
+        "prev_close": 629.0,
+        "change_pct": 2.36,
+        "auction_gap_pct": 2.23,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 691.9,
+          "limit_down": 566.1
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "640.61-647.05",
+          "max_chase_price": 673.03,
+          "stop_price": 611.64,
+          "target_price": 695.34,
+          "target_price_2": 721.09,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz002436",
+        "name": "兴森科技",
+        "price": 53.69,
+        "prev_close": 52.06,
+        "change_pct": 3.13,
+        "auction_gap_pct": 2.79,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 57.27,
+          "limit_down": 46.85
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "53.42-53.96",
+          "max_chase_price": 55.7,
+          "stop_price": 51.01,
+          "target_price": 57.99,
+          "target_price_2": 60.13,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sh600183",
+        "name": "生益科技",
+        "price": 186.65,
+        "prev_close": 183.87,
+        "change_pct": 1.51,
+        "auction_gap_pct": 1.85,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 202.26,
+          "limit_down": 165.48
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "185.72-187.58",
+          "max_chase_price": 196.74,
+          "stop_price": 177.32,
+          "target_price": 201.58,
+          "target_price_2": 209.05,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sh688525",
+        "name": "佰维存储",
+        "price": 394.88,
+        "prev_close": 386.2,
+        "change_pct": 2.25,
+        "auction_gap_pct": 2.23,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 463.44,
+          "limit_down": 308.96
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "392.91-396.85",
+          "max_chase_price": 413.23,
+          "stop_price": 375.14,
+          "target_price": 426.47,
+          "target_price_2": 442.27,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sh600487",
+        "name": "亨通光电",
+        "price": 115.45,
+        "prev_close": 111.01,
+        "change_pct": 4.0,
+        "auction_gap_pct": 3.82,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 122.11,
+          "limit_down": 99.91
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "114.87-116.03",
+          "max_chase_price": 118.78,
+          "stop_price": 109.68,
+          "target_price": 124.69,
+          "target_price_2": 129.3,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sh600522",
+        "name": "中天科技",
+        "price": 58.41,
+        "prev_close": 56.55,
+        "change_pct": 3.29,
+        "auction_gap_pct": 3.25,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 62.21,
+          "limit_down": 50.9
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "58.12-58.70",
+          "max_chase_price": 60.51,
+          "stop_price": 55.49,
+          "target_price": 63.08,
+          "target_price_2": 65.42,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz002281",
+        "name": "光迅科技",
+        "price": 277.72,
+        "prev_close": 266.2,
+        "change_pct": 4.33,
+        "auction_gap_pct": 3.45,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 292.82,
+          "limit_down": 239.58
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "276.33-279.11",
+          "max_chase_price": 284.83,
+          "stop_price": 263.83,
+          "target_price": 299.94,
+          "target_price_2": 311.05,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sh600392",
+        "name": "盛和资源",
+        "price": 32.8,
+        "prev_close": 31.66,
+        "change_pct": 3.6,
+        "auction_gap_pct": 3.6,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 34.83,
+          "limit_down": 28.49
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "32.64-32.96",
+          "max_chase_price": 33.88,
+          "stop_price": 31.16,
+          "target_price": 35.42,
+          "target_price_2": 36.74,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sh688146",
+        "name": "中船特气",
+        "price": 368.8,
+        "prev_close": 364.0,
+        "change_pct": 1.32,
+        "auction_gap_pct": 0.73,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 436.8,
+          "limit_down": 291.2
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "366.96-370.64",
+          "max_chase_price": 389.48,
+          "stop_price": 350.36,
+          "target_price": 398.3,
+          "target_price_2": 413.06,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sh688498",
+        "name": "源杰科技",
+        "price": 1685.0,
+        "prev_close": 1673.36,
+        "change_pct": 0.7,
+        "auction_gap_pct": 0.69,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 2008.03,
+          "limit_down": 1338.69
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "1676.58-1693.42",
+          "max_chase_price": 1790.5,
+          "stop_price": 1600.75,
+          "target_price": 1819.8,
+          "target_price_2": 1887.2,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz300433",
+        "name": "蓝思科技",
+        "price": 56.85,
+        "prev_close": 55.77,
+        "change_pct": 1.94,
+        "auction_gap_pct": 1.94,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 66.92,
+          "limit_down": 44.62
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "56.57-57.13",
+          "max_chase_price": 59.67,
+          "stop_price": 54.01,
+          "target_price": 61.4,
+          "target_price_2": 63.67,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz300308",
+        "name": "中际旭创",
+        "price": 1369.0,
+        "prev_close": 1367.88,
+        "change_pct": 0.08,
+        "auction_gap_pct": 0.52,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 1641.46,
+          "limit_down": 1094.3
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "1362.15-1375.84",
+          "max_chase_price": 1463.63,
+          "stop_price": 1300.55,
+          "target_price": 1478.52,
+          "target_price_2": 1533.28,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz300285",
+        "name": "国瓷材料",
+        "price": 93.8,
+        "prev_close": 89.53,
+        "change_pct": 4.77,
+        "auction_gap_pct": 3.94,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 107.44,
+          "limit_down": 71.62
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "93.33-94.27",
+          "max_chase_price": 95.8,
+          "stop_price": 89.11,
+          "target_price": 101.3,
+          "target_price_2": 105.06,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sh688008",
+        "name": "澜起科技",
+        "price": 276.0,
+        "prev_close": 269.9,
+        "change_pct": 2.26,
+        "auction_gap_pct": 2.26,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 323.88,
+          "limit_down": 215.92
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "274.62-277.38",
+          "max_chase_price": 288.79,
+          "stop_price": 262.2,
+          "target_price": 298.08,
+          "target_price_2": 309.12,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sh600549",
+        "name": "厦门钨业",
+        "price": 89.0,
+        "prev_close": 85.91,
+        "change_pct": 3.6,
+        "auction_gap_pct": 4.34,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 94.5,
+          "limit_down": 77.32
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "88.55-89.44",
+          "max_chase_price": 91.92,
+          "stop_price": 84.55,
+          "target_price": 96.12,
+          "target_price_2": 99.68,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz300502",
+        "name": "新易盛",
+        "price": 585.11,
+        "prev_close": 581.48,
+        "change_pct": 0.62,
+        "auction_gap_pct": 0.91,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 697.78,
+          "limit_down": 465.18
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "582.18-588.04",
+          "max_chase_price": 622.18,
+          "stop_price": 555.85,
+          "target_price": 631.92,
+          "target_price_2": 655.32,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz301308",
+        "name": "江波龙",
+        "price": 591.0,
+        "prev_close": 577.79,
+        "change_pct": 2.29,
+        "auction_gap_pct": 2.29,
+        "board_status": "high_open",
+        "action": "watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 693.35,
+          "limit_down": 462.23
+        },
+        "reasons": [
+          "竞价强但开盘未形成明确可执行信号"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "588.04-593.95",
+          "max_chase_price": 618.24,
+          "stop_price": 561.45,
+          "target_price": 638.28,
+          "target_price_2": 661.92,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz000725",
+        "name": "京东方Ａ",
+        "price": 6.8,
+        "prev_close": 6.55,
+        "change_pct": 3.82,
+        "auction_gap_pct": 3.97,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 7.21,
+          "limit_down": 5.9
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "6.77-6.83",
+          "max_chase_price": 7.01,
+          "stop_price": 6.46,
+          "target_price": 7.34,
+          "target_price_2": 7.62,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz000657",
+        "name": "中钨高新",
+        "price": 102.87,
+        "prev_close": 98.48,
+        "change_pct": 4.46,
+        "auction_gap_pct": 4.25,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 108.33,
+          "limit_down": 88.63
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": "102.36-103.38",
+          "max_chase_price": 105.37,
+          "stop_price": 97.73,
+          "target_price": 111.1,
+          "target_price_2": 115.21,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      },
+      {
+        "code": "sz002491",
+        "name": "通鼎互联",
+        "price": 33.99,
+        "prev_close": 31.58,
+        "change_pct": 7.63,
+        "auction_gap_pct": 7.54,
+        "board_status": "high_open",
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 34.74,
+          "limit_down": 28.42
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": null,
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "required_fields_missing",
+            "announcement_scan_missing"
+          ],
+          "risk_warnings": [
+            "缺少推荐必填字段：price_range",
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "未完成公司公告扫描，不得给出无条件买入结论"
+          ],
+          "announcement_scan": {
+            "scanned": 0,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": [
+              "未完成公司公告扫描"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "default",
+          "pricing_method": "fixed_pct_fallback",
+          "entry_range": null,
+          "max_chase_price": 33.79,
+          "stop_price": 32.29,
+          "target_price": 36.71,
+          "target_price_2": 38.07,
+          "atr": null,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": true,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch"
+      }
+    ],
+    "signals": [
+      {
+        "code": "sz002436",
+        "name": "兴森科技",
+        "listed_date": "2010-06-18",
+        "exchange": "SZSE",
+        "board": "主板",
+        "industry": "C 制造业",
+        "price": 53.69,
+        "prev_close": 52.06,
+        "open": 53.5,
+        "volume": 32961.0,
+        "change_pct": 3.13,
+        "high": 53.5,
+        "low": 53.5,
+        "amount": 176340000.0,
+        "turnover": 0.22,
+        "pe": 630.08,
+        "market_cap": 909.33,
+        "market_code": "sz002436",
+        "listed_days": 5848,
+        "momentum_5d": 41.5344,
+        "momentum_20d": 51.1726,
+        "momentum_60d": 162.1264,
+        "volume_ratio_5d": 0.0157,
+        "above_ma20": 1.0,
+        "above_ma60": 1.0,
+        "breakout_20d": 1.0,
+        "volatility_20d": 5.0831,
+        "kline_days": 70,
+        "feature_ready": true,
+        "atr14": 3.112,
+        "daban_eligible": true,
+        "daban_score": 59.76,
+        "trend_score": 73.68,
+        "hot_money_bonus": 0.0,
+        "hot_money_notes": [],
+        "social_attention_bonus": 0.0,
+        "social_attention_notes": [],
+        "social_attention": null,
+        "daban_rank": 22,
+        "trend_rank": 7,
+        "selected_by": {
+          "daban": true,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "002436",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "daban:first_board_reseal",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔3/中枢0 | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "indicative_price": 53.51,
+        "auction_gap_pct": 2.79,
+        "auction_volume": 44824.0,
+        "auction_amount": 239853224.0,
+        "auction_bid_ask_ratio": 29.55,
+        "auction_net_bid_delta": 8386.0,
+        "board_status": "high_open",
+        "seal_amount_ratio_pct": null,
+        "snapshots_used": 2,
+        "is_yiziban": false,
+        "auction_daban_score": 71.07,
+        "auction_trend_score": 78.03,
+        "auction_social_attention_delta": 0.0,
+        "auction_score": 78.03,
+        "auction_selected_by": {
+          "daban": true,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "auction_rank": 2,
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 57.27,
+          "limit_down": 46.85
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": [
+          {
+            "title": "关于股票交易异常波动的公告",
+            "date": "2026-06-17",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-18/1225376770.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于回购股份进展的公告",
+            "date": "2026-06-02",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-03/1225345367.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年年度权益分派实施公告",
+            "date": "2026-05-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-21/1225320675.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年年度股东会法律意见书",
+            "date": "2026-05-18",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-19/1225313759.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年年度股东会决议公告",
+            "date": "2026-05-18",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-19/1225313758.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于首次回购股份暨回购股份进展的公告",
+            "date": "2026-05-06",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-07/1225279524.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于回购股份事项前十名股东及前十名无限售条件股东持股情况的公告",
+            "date": "2026-04-27",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-28/1225203580.PDF",
+            "text": ""
+          },
+          {
+            "title": "募集资金存放、管理与使用情况鉴证报告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184956.PDF",
+            "text": ""
+          },
+          {
+            "title": "国联民生证券承销保荐有限公司关于深圳市兴森快捷电路科技股份有限公司2025年度募集资金存放管理与使用情况的专项核查意见",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184955.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于拟续聘年度审计机构的公告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184954.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（丁亭亭）",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184953.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（徐顽强）",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184952.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（朱宁）",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184951.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（李嘉宁）",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184950.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于举行2025年度网上业绩说明会的公告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184949.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年度环境、社会和公司治理报告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184948.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年度内控审计报告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184947.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年度内部控制自我评价报告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184946.PDF",
+            "text": ""
+          },
+          {
+            "title": "董事、高级管理人员薪酬管理制度",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184945.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于计提资产减值准备的公告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184944.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于召开2025年年度股东会的通知",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184943.PDF",
+            "text": ""
+          },
+          {
+            "title": "第七届董事会第十二次会议决议公告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184942.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于2025年度利润分配预案的公告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184941.PDF",
+            "text": ""
+          },
+          {
+            "title": "2026年一季度报告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184939.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年度募集资金存放、管理与使用情况的专项报告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184938.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年度营业收入扣除情况的专项核查意见",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184937.PDF",
+            "text": ""
+          },
+          {
+            "title": "深圳市兴森快捷电路科技股份有限公司对会计师事务所2025年度履职情况评估报告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184936.PDF",
+            "text": ""
+          },
+          {
+            "title": "董事会审计委员会对会计师事务所履行监督职责情况的报告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184935.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年度非经营性资金占用及其他关联资金往来的专项说明",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184934.PDF",
+            "text": ""
+          },
+          {
+            "title": "上市公司2025年度非经营性资金占用及其他关联资金往来情况汇总表",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225184933.PDF",
+            "text": ""
+          }
+        ],
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "公告澄清/风险提示：关于股票交易异常波动的公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 2,
+            "clarification_hits": [
+              "异常波动"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：关于股票交易异常波动的公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "avoid",
+          "stage": "open",
+          "strategy_lane": "daban",
+          "pricing_method": "atr_adaptive",
+          "entry_range": "53.42-53.96",
+          "max_chase_price": 55.7,
+          "stop_price": 49.96,
+          "target_price": 59.91,
+          "target_price_2": 64.58,
+          "atr": 3.112,
+          "position_pct": 0.0,
+          "horizon": "T+1",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "avoid",
+        "open_daban_score": 75.27,
+        "open_trend_score": 79.79,
+        "open_score": 79.79,
+        "open_selected_by": {
+          "daban": true,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "open_rank": 1,
+        "strategy_id": "daban:first_board_reseal",
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": 0.0,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "market_regime": {
+          "regime": "risk_on",
+          "reason": "板块影响合计+19",
+          "score": 19
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "daban",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": 0.0,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "002436",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "daban:first_board_reseal",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔3/中枢0 | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "ledger_links": {
+          "correlation_id": "corr-79184d7ecc5ee46fdd5e",
+          "recommendation_id": "open-2026-06-22-002436",
+          "signal_id": "sig-79184d7ecc5ee46fdd5e",
+          "monitor_id": "stock:002436"
+        }
+      },
+      {
+        "code": "sz002281",
+        "name": "光迅科技",
+        "listed_date": "2009-08-21",
+        "exchange": "SZSE",
+        "board": "主板",
+        "industry": "C 制造业",
+        "price": 277.72,
+        "prev_close": 266.2,
+        "open": 279.0,
+        "volume": 7988.0,
+        "change_pct": 4.33,
+        "high": 279.0,
+        "low": 279.0,
+        "amount": 222870000.0,
+        "turnover": 0.1,
+        "pe": 222.85,
+        "market_cap": 2308.91,
+        "market_code": "sz002281",
+        "listed_days": 6149,
+        "momentum_5d": 36.1175,
+        "momentum_20d": 29.2445,
+        "momentum_60d": 253.1199,
+        "volume_ratio_5d": 0.016,
+        "above_ma20": 1.0,
+        "above_ma60": 1.0,
+        "breakout_20d": 1.0,
+        "volatility_20d": 5.0526,
+        "kline_days": 70,
+        "feature_ready": true,
+        "atr14": 16.163,
+        "daban_eligible": true,
+        "daban_score": 65.65,
+        "trend_score": 78.84,
+        "hot_money_bonus": 0.0,
+        "hot_money_notes": [],
+        "social_attention_bonus": 0.0,
+        "social_attention_notes": [],
+        "social_attention": null,
+        "daban_rank": 18,
+        "trend_rank": 1,
+        "selected_by": {
+          "daban": true,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "002281",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "trend_pullback",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔3/中枢0 | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "indicative_price": 275.38,
+        "auction_gap_pct": 3.45,
+        "auction_volume": 11877.0,
+        "auction_amount": 327068826.0,
+        "auction_bid_ask_ratio": 0.01,
+        "auction_net_bid_delta": 12.0,
+        "board_status": "high_open",
+        "seal_amount_ratio_pct": null,
+        "snapshots_used": 2,
+        "is_yiziban": false,
+        "auction_daban_score": 63.61,
+        "auction_trend_score": 70.21,
+        "auction_social_attention_delta": 0.0,
+        "auction_score": 70.21,
+        "auction_selected_by": {
+          "daban": true,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "auction_rank": 7,
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 292.82,
+          "limit_down": 239.58
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": [
+          {
+            "title": "申万宏源证券承销保荐有限责任公司关于武汉光迅科技股份有限公司向特定对象发行股票并在主板上市之上市保荐书",
+            "date": "2026-06-10",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-11/1225363364.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司向特定对象发行股票并在主板上市之上市公告书",
+            "date": "2026-06-10",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-11/1225363363.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司关于向特定对象发行A股股票上市公告书披露的提示性公告",
+            "date": "2026-06-10",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-11/1225363362.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于武汉光迅科技股份有限公司使用募集资金置换预先已投入募投项目及支付发行费用的自筹资金专项说明的鉴证报告",
+            "date": "2026-06-08",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-09/1225356821.PDF",
+            "text": ""
+          },
+          {
+            "title": "申万宏源证券承销保荐有限责任公司关于武汉光迅科技股份有限公司使用募集资金置换预先已投入募投项目及支付发行费用的自筹资金的核查意见",
+            "date": "2026-06-08",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-09/1225356820.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司关于以募集资金置换预先已投入募投项目及支付发行费用的自筹资金的公告",
+            "date": "2026-06-08",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-09/1225356819.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司第八届董事会第六次会议决议公告",
+            "date": "2026-06-08",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-09/1225356818.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司关于签订募集资金三方监管协议的公告",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225337528.PDF",
+            "text": ""
+          },
+          {
+            "title": "北京市嘉源律师事务所关于武汉光迅科技股份有限公司2025年度向特定对象发行股票发行过程和发行对象合规性的见证法律意见书",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225337527.PDF",
+            "text": ""
+          },
+          {
+            "title": "申万宏源证券承销保荐有限责任公司关于武汉光迅科技股份有限公司向特定对象发行股票发行过程和认购对象合规性报告",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225337526.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司向特定对象发行股票发行情况报告书",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225337525.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司关于向特定对象发行股票发行情况报告书披露的提示性公告",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225337524.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司股票交易异常波动暨风险提示公告",
+            "date": "2026-05-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-21/1225321640.PDF",
+            "text": ""
+          },
+          {
+            "title": "北京市嘉源律师事务所关于武汉光迅科技股份有限公司2025年年度股东会的法律意见书",
+            "date": "2026-05-13",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-14/1225304887.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司二〇二五年年度股东会决议公告",
+            "date": "2026-05-13",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-14/1225304886.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司第八届董事会第五次会议决议公告",
+            "date": "2026-05-13",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-14/1225304885.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司股票交易异常波动公告",
+            "date": "2026-05-12",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-13/1225301563.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司股票交易异常波动公告",
+            "date": "2026-05-07",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-08/1225282503.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司2025年度向特定对象发行股票募集说明书（注册稿）",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225149835.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司关于向特定对象发行股票申请获得中国证监会同意注册批复的公告",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225149834.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（马洪）",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148250.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（孙晋）",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148249.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（王征）",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148248.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（赵勇）",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148247.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（胡华夏）",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148246.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司关于举行2025年度网上业绩说明会的公告",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148245.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司2025年度ESG报告",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148244.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司二〇二五年度内部控制审计报告",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148243.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司2025年度内部控制评价报告",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148242.PDF",
+            "text": ""
+          },
+          {
+            "title": "武汉光迅科技股份有限公司董事会授权管理办法",
+            "date": "2026-04-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225148241.PDF",
+            "text": ""
+          }
+        ],
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "conditional",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 12,
+            "clarification_hits": [],
+            "hard_risk_hits": [],
+            "warnings": []
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "watch",
+          "stage": "open",
+          "strategy_lane": "trend",
+          "pricing_method": "atr_adaptive",
+          "entry_range": "276.33-279.11",
+          "max_chase_price": 284.83,
+          "stop_price": 245.39,
+          "target_price": 326.21,
+          "target_price_2": 358.54,
+          "atr": 16.163,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "watch",
+        "open_daban_score": 73.42,
+        "open_trend_score": 77.71,
+        "open_score": 77.71,
+        "open_selected_by": {
+          "daban": false,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "open_rank": 2,
+        "strategy_id": "trend_pullback",
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 6.0,
+          "projected_sector_exposure_pct": 6.0,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "market_regime": {
+          "regime": "risk_on",
+          "reason": "板块影响合计+19",
+          "score": 19
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "buy",
+          "decision": "watch",
+          "position_multiplier": 0.0,
+          "quality_status": "conditional",
+          "reasons": [
+            "quality_not_passed",
+            "strategy_unverified"
+          ],
+          "strategy_lane": "trend",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 6.0,
+            "projected_sector_exposure_pct": 6.0,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "002281",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "trend_pullback",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔3/中枢0 | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "ledger_links": {
+          "correlation_id": "corr-332929fadb7a31ed4bf8",
+          "recommendation_id": "open-2026-06-22-002281",
+          "signal_id": "sig-332929fadb7a31ed4bf8",
+          "monitor_id": "stock:002281"
+        }
+      },
+      {
+        "code": "sh600487",
+        "name": "亨通光电",
+        "listed_date": "2003-08-22",
+        "exchange": "SSE",
+        "board": "MAIN",
+        "price": 115.45,
+        "prev_close": 111.01,
+        "open": 115.2,
+        "volume": 27883.0,
+        "change_pct": 4.0,
+        "high": 115.2,
+        "low": 115.2,
+        "amount": 321210000.0,
+        "turnover": 0.11,
+        "pe": 88.0,
+        "market_cap": 2841.28,
+        "market_code": "sh600487",
+        "listed_days": 8340,
+        "momentum_5d": 18.7629,
+        "momentum_20d": 57.7002,
+        "momentum_60d": 178.53,
+        "volume_ratio_5d": 0.0129,
+        "above_ma20": 1.0,
+        "above_ma60": 1.0,
+        "breakout_20d": 1.0,
+        "volatility_20d": 5.0671,
+        "kline_days": 70,
+        "feature_ready": true,
+        "atr14": 6.915,
+        "daban_eligible": true,
+        "daban_score": 56.53,
+        "trend_score": 75.04,
+        "hot_money_bonus": 0.0,
+        "hot_money_notes": [],
+        "social_attention_bonus": 0.0,
+        "social_attention_notes": [],
+        "social_attention": null,
+        "daban_rank": 24,
+        "trend_rank": 3,
+        "selected_by": {
+          "daban": true,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "600487",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "trend_pullback",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔6/中枢1 | 最新中枢[50.89,54.30] | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "indicative_price": 115.25,
+        "auction_gap_pct": 3.82,
+        "auction_volume": 29178.0,
+        "auction_amount": 336276450.0,
+        "auction_bid_ask_ratio": 1.58,
+        "auction_net_bid_delta": -48.0,
+        "board_status": "high_open",
+        "seal_amount_ratio_pct": null,
+        "snapshots_used": 2,
+        "is_yiziban": false,
+        "auction_daban_score": 61.98,
+        "auction_trend_score": 71.24,
+        "auction_social_attention_delta": 0.0,
+        "auction_score": 71.24,
+        "auction_selected_by": {
+          "daban": true,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "auction_rank": 5,
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 122.11,
+          "limit_down": 99.91
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": [
+          {
+            "title": "亨通光电关于控股股东部分股权质押公告",
+            "date": "2026-06-18",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-19/1225377509.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电2026年第二次临时股东会的法律意见书",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-16/1225372167.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于分拆所属子公司至科创板上市事宜相关内幕信息知情人买卖公司股票情况查询结果的公告",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-16/1225372166.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电2026年第二次临时股东会决议公告",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-16/1225372163.PDF",
+            "text": ""
+          },
+          {
+            "title": "申万宏源证券承销保荐有限责任公司关于江苏亨通光电股份有限公司分拆所属子公司至科创板上市事宜相关内幕信息知情人买卖公司股票情况查询结果之核查意见",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-16/1225372162.PDF",
+            "text": ""
+          },
+          {
+            "title": "上海市锦天城律师事务所关于亨通光电分拆所属子公司亨通华海至上海证券交易所科创板上市相关内幕信息知情人买卖股票情况之专项核查意见",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-16/1225372157.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电2026年第二次临时股东会会议材料",
+            "date": "2026-06-09",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-10/1225359831.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电股票交易异常波动的公告",
+            "date": "2026-06-03",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-04/1225349641.PDF",
+            "text": ""
+          },
+          {
+            "title": "立信会计师事务所（特殊普通合伙）关于亨通光电拟分拆所属子公司亨通华海至科创板上市的专项核查意见",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340374.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电董事会关于本次分拆所属子公司江苏亨通华海科技股份有限公司至上海证券交易所科创板上市履行法定程序的完备性、合规性及提交法律文件有效性的说明",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340373.PDF",
+            "text": ""
+          },
+          {
+            "title": "江苏亨通光电股份有限公司关于分拆所属子公司江苏亨通华海科技股份有限公司至科创板上市的预案",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340372.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于控股股东部分股权质押公告",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340371.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于召开2026年第二次临时股东会的通知",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340370.PDF",
+            "text": ""
+          },
+          {
+            "title": "申万宏源证券承销保荐有限责任公司关于亨通光电分拆所属子公司亨通华海至科创板上市的核查意见",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340369.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电第九届董事会第十六次会议决议公告",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340368.PDF",
+            "text": ""
+          },
+          {
+            "title": "上海市锦天城律师事务所关于江苏亨通光电股份有限公司分拆所属子公司江苏亨通华海科技股份有限公司至上海证券交易所科创板上市之法律意见书",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340367.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电独立董事专门会议对第九届董事会第十六次会议相关事项的审核意见",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340366.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电董事会关于本次分拆所属子公司上市董事会决议日前公司股票价格波动情况的说明",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340365.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于分拆所属子公司上市的一般风险提示性公告",
+            "date": "2026-05-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-30/1225340364.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于控股股东部分股权解除质押公告",
+            "date": "2026-05-27",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-28/1225332749.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电2025年年度股东会的法律意见书",
+            "date": "2026-05-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-23/1225327396.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电2025年年度股东会决议公告",
+            "date": "2026-05-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-23/1225327390.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电2025年年度股东会会议材料",
+            "date": "2026-05-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-16/1225310932.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于控股股东部分股权质押公告",
+            "date": "2026-05-14",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-15/1225305825.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于2024年度奖励基金通过信托购买公司股票实施完毕的公告",
+            "date": "2026-05-12",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-13/1225300937.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于控股股东部分股权解除质押及质押公告",
+            "date": "2026-05-11",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-12/1225290742.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于召开2025年度及2026年第一季度业绩暨2025年度分红说明会的提示性公告",
+            "date": "2026-05-07",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-08/1225282178.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电董事会审计委员会对立信会计师事务所（特殊普通合伙）2025年度履行监督职责情况的报告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225195873.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电关于续聘会计师事务所的公告",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225195871.PDF",
+            "text": ""
+          },
+          {
+            "title": "亨通光电未来三年（2026-2028）股东回报规划",
+            "date": "2026-04-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225195869.PDF",
+            "text": ""
+          }
+        ],
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "公告澄清/风险提示：亨通光电股票交易异常波动的公告",
+            "公告澄清/风险提示：亨通光电关于分拆所属子公司上市的一般风险提示性公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 20,
+            "clarification_hits": [
+              "异常波动",
+              "风险提示"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：亨通光电股票交易异常波动的公告",
+              "公告澄清/风险提示：亨通光电关于分拆所属子公司上市的一般风险提示性公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "avoid",
+          "stage": "open",
+          "strategy_lane": "trend",
+          "pricing_method": "atr_adaptive",
+          "entry_range": "114.87-116.03",
+          "max_chase_price": 118.78,
+          "stop_price": 101.62,
+          "target_price": 136.19,
+          "target_price_2": 150.03,
+          "atr": 6.915,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "avoid",
+        "open_daban_score": 71.54,
+        "open_trend_score": 77.56,
+        "open_score": 77.56,
+        "open_selected_by": {
+          "daban": false,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "open_rank": 3,
+        "strategy_id": "trend_pullback",
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": null,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "market_regime": {
+          "regime": "risk_on",
+          "reason": "板块影响合计+19",
+          "score": 19
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "trend",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": null,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "600487",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "trend_pullback",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔6/中枢1 | 最新中枢[50.89,54.30] | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "ledger_links": {
+          "correlation_id": "corr-bef979489ffd5eca987a",
+          "recommendation_id": "open-2026-06-22-600487",
+          "signal_id": "sig-bef979489ffd5eca987a",
+          "monitor_id": "stock:600487"
+        }
+      },
+      {
+        "code": "sz300285",
+        "name": "国瓷材料",
+        "listed_date": "2012-01-13",
+        "exchange": "SZSE",
+        "board": "创业板",
+        "industry": "C 制造业",
+        "price": 93.8,
+        "prev_close": 89.53,
+        "open": 93.0,
+        "volume": 50043.0,
+        "change_pct": 4.77,
+        "high": 93.0,
+        "low": 93.0,
+        "amount": 465400000.0,
+        "turnover": 0.59,
+        "pe": 150.33,
+        "market_cap": 927.25,
+        "market_code": "sz300285",
+        "listed_days": 5274,
+        "momentum_5d": 65.0985,
+        "momentum_20d": 92.5426,
+        "momentum_60d": 202.9217,
+        "volume_ratio_5d": 0.0318,
+        "above_ma20": 1.0,
+        "above_ma60": 1.0,
+        "breakout_20d": 1.0,
+        "volatility_20d": 8.077,
+        "kline_days": 70,
+        "feature_ready": true,
+        "atr14": 6.533,
+        "daban_eligible": false,
+        "daban_score": 0.0,
+        "trend_score": 69.84,
+        "hot_money_bonus": 0.0,
+        "hot_money_notes": [],
+        "social_attention_bonus": 0.0,
+        "social_attention_notes": [],
+        "social_attention": null,
+        "daban_rank": 58,
+        "trend_rank": 18,
+        "selected_by": {
+          "daban": false,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "300285",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "trend_pullback",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔2/中枢0 | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "indicative_price": 93.06,
+        "auction_gap_pct": 3.94,
+        "auction_volume": 77351.0,
+        "auction_amount": 719828406.0,
+        "auction_bid_ask_ratio": 0.05,
+        "auction_net_bid_delta": 32.0,
+        "board_status": "high_open",
+        "seal_amount_ratio_pct": null,
+        "snapshots_used": 2,
+        "is_yiziban": false,
+        "auction_daban_score": 32.5,
+        "auction_trend_score": 67.42,
+        "auction_social_attention_delta": 0.0,
+        "auction_score": 67.42,
+        "auction_selected_by": {
+          "daban": false,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "auction_rank": 13,
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 107.44,
+          "limit_down": 71.62
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": [
+          {
+            "title": "关于股票交易异常波动的公告",
+            "date": "2026-06-17",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-17/1225376408.PDF",
+            "text": ""
+          },
+          {
+            "title": "北京天达共和律师事务所关于山东国瓷功能材料股份有限公司2026年限制性股票激励计划调整授予价格的法律意见书",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-15/1225370645.PDF",
+            "text": ""
+          },
+          {
+            "title": "董事会薪酬与考核委员会关于2025年年度权益分派实施后调整2026年限制性股票激励计划授予价格的核查意见",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-15/1225370644.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于2025年年度权益分派实施后调整2026年限制性股票激励计划授予价格的公告",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-15/1225370643.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于公司开展外汇衍生品交易业务的可行性分析报告",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-15/1225370642.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于公司对SDI投资项目开展外汇衍生品套期保值业务的公告",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-15/1225370641.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于公司下属全资公司向银行申请SDI项目借款暨公司为其借款及套期保值保证金提供担保的公告",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-15/1225370640.PDF",
+            "text": ""
+          },
+          {
+            "title": "第六届董事会第十三次会议决议公告",
+            "date": "2026-06-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-15/1225370639.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于公司第一大股东、实际控制人股权新质押的公告",
+            "date": "2026-06-12",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-12/1225367964.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于2025年年度权益分派实施后调整回购股份价格上限的公告",
+            "date": "2026-06-02",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-02/1225345656.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于回购公司股份的进展公告",
+            "date": "2026-06-01",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-01/1225343903.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年年度权益分派实施的公告",
+            "date": "2026-05-26",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-26/1225331328.PDF",
+            "text": ""
+          },
+          {
+            "title": "北京天达共和律师事务所关于山东国瓷功能材料股份有限公司2025年年度股东会的法律意见书",
+            "date": "2026-05-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-15/1225309713.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年年度股东会决议公告",
+            "date": "2026-05-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-15/1225309712.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于参加2026年山东辖区上市公司投资者网上集体接待日活动的公告",
+            "date": "2026-05-12",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-12/1225300915.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于回购公司股份的进展公告",
+            "date": "2026-05-06",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-06/1225279718.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于会计政策变更的公告",
+            "date": "2026-04-27",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-28/1225202240.PDF",
+            "text": ""
+          },
+          {
+            "title": "第六届董事会第十二次会议决议公告",
+            "date": "2026-04-27",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-28/1225202239.PDF",
+            "text": ""
+          },
+          {
+            "title": "2026年一季度报告",
+            "date": "2026-04-27",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-28/1225202237.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年度董事会工作报告",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126956.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年年度报告披露提示性公告",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126955.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年度财务决算报告",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126954.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于董事、高级管理人员2025年度薪酬确认及2026年度薪酬方案的公告",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126953.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于拟续聘会计师事务所的公告",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126952.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（李济东）",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126951.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（刘欣梅）",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126950.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（王玥）",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126949.PDF",
+            "text": ""
+          },
+          {
+            "title": "独立董事2025年度述职报告（温学礼-届满离任）",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126948.PDF",
+            "text": ""
+          },
+          {
+            "title": "关于举行2025年度网上业绩说明会的通知公告",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126947.PDF",
+            "text": ""
+          },
+          {
+            "title": "2025年度可持续发展（ESG）报告",
+            "date": "2026-04-20",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225126946.PDF",
+            "text": ""
+          }
+        ],
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "公告澄清/风险提示：关于股票交易异常波动的公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 12,
+            "clarification_hits": [
+              "异常波动"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：关于股票交易异常波动的公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "avoid",
+          "stage": "open",
+          "strategy_lane": "trend",
+          "pricing_method": "atr_adaptive",
+          "entry_range": "93.33-94.27",
+          "max_chase_price": 95.8,
+          "stop_price": 80.73,
+          "target_price": 113.4,
+          "target_price_2": 126.47,
+          "atr": 6.533,
+          "position_pct": 0.0,
+          "horizon": "T+1到T+3",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "avoid",
+        "open_daban_score": 54.3,
+        "open_trend_score": 77.0,
+        "open_score": 77.0,
+        "open_selected_by": {
+          "daban": false,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "open_rank": 4,
+        "strategy_id": "trend_pullback",
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": 0.0,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "market_regime": {
+          "regime": "risk_on",
+          "reason": "板块影响合计+19",
+          "score": 19
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "trend",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": 0.0,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "300285",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "trend_pullback",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔2/中枢0 | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "ledger_links": {
+          "correlation_id": "corr-dec07539117dd92027ff",
+          "recommendation_id": "open-2026-06-22-300285",
+          "signal_id": "sig-dec07539117dd92027ff",
+          "monitor_id": "stock:300285"
+        }
+      },
+      {
+        "code": "sh600392",
+        "name": "盛和资源",
+        "listed_date": "2003-05-29",
+        "exchange": "SSE",
+        "board": "MAIN",
+        "price": 32.8,
+        "prev_close": 31.66,
+        "open": 32.78,
+        "volume": 58211.0,
+        "change_pct": 3.6,
+        "high": 32.78,
+        "low": 32.78,
+        "amount": 190820000.0,
+        "turnover": 0.33,
+        "pe": 57.57,
+        "market_cap": 574.58,
+        "market_code": "sh600392",
+        "listed_days": 8425,
+        "momentum_5d": 27.0543,
+        "momentum_20d": 37.7311,
+        "momentum_60d": 53.4644,
+        "volume_ratio_5d": 0.0275,
+        "above_ma20": 1.0,
+        "above_ma60": 1.0,
+        "breakout_20d": 1.0,
+        "volatility_20d": 4.1748,
+        "kline_days": 70,
+        "feature_ready": true,
+        "atr14": 1.526,
+        "daban_eligible": true,
+        "daban_score": 64.6,
+        "trend_score": 70.24,
+        "hot_money_bonus": 0.0,
+        "hot_money_notes": [],
+        "social_attention_bonus": 0.0,
+        "social_attention_notes": [],
+        "social_attention": null,
+        "daban_rank": 20,
+        "trend_rank": 17,
+        "selected_by": {
+          "daban": true,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "research_evidence": {
+          "schema": "research_evidence_v1",
+          "code": "600392",
+          "asof": "2026-06-22",
+          "chanlun": {
+            "selection_strategy_id": "daban:first_board_reseal",
+            "strategy_id": null,
+            "status": "no_signal",
+            "allowed_in_live_agent": false,
+            "gate_decision": null,
+            "gate_asof": null,
+            "gating_reason": null,
+            "gate_stats": null,
+            "signals": [],
+            "live_bullish_signals": [],
+            "live_bearish_signals": [],
+            "display_only_signals": [],
+            "structure_summary": "笔5/中枢1 | 最新中枢[23.73,27.82] | 无三类买卖点/背驰"
+          },
+          "serenity": {
+            "available": false,
+            "stale": null,
+            "hard_risks": []
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "indicative_price": 32.8,
+        "auction_gap_pct": 3.6,
+        "auction_volume": 66796.0,
+        "auction_amount": 219090880.0,
+        "auction_bid_ask_ratio": 3.52,
+        "auction_net_bid_delta": 2293.0,
+        "board_status": "high_open",
+        "seal_amount_ratio_pct": null,
+        "snapshots_used": 2,
+        "is_yiziban": false,
+        "auction_daban_score": 67.19,
+        "auction_trend_score": 70.01,
+        "auction_social_attention_delta": 0.0,
+        "auction_score": 70.01,
+        "auction_selected_by": {
+          "daban": true,
+          "trend": true,
+          "balanced_fill": false
+        },
+        "auction_rank": 8,
+        "action": "trend_watch",
+        "tradeability": {
+          "tradeable": true,
+          "status": "normal",
+          "reason": "可正常成交",
+          "limit_up": 34.83,
+          "limit_down": 28.49
+        },
+        "reasons": [
+          "符合趋势策略3%-10%中度上涨观察窗口"
+        ],
+        "announcements": [
+          {
+            "title": "盛和资源控股股份有限公司股票交易异常波动公告",
+            "date": "2026-06-18",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-19/1225378101.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司关于持股5%以上股东权益变动触及1%刻度的提示性公告",
+            "date": "2026-06-16",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-17/1225373355.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司关于为控股子公司提供担保的进展公告",
+            "date": "2026-06-12",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-13/1225367513.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司关于股份回购进展公告",
+            "date": "2026-06-02",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-06-03/1225345740.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源超额奖励发放管理办法（2026年5月修订）",
+            "date": "2026-05-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-25/1225328089.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源董事和高级管理人员薪酬管理制度",
+            "date": "2026-05-24",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-25/1225328088.PDF",
+            "text": ""
+          },
+          {
+            "title": "北京金杜（成都）律师事务所关于盛和资源控股股份有限公司2025年年度股东会之法律意见书",
+            "date": "2026-05-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-23/1225327155.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司2025年年度股东会决议公告",
+            "date": "2026-05-22",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-23/1225327154.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司2025年年度股东会会议资料",
+            "date": "2026-05-15",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-16/1225309004.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司关于为控股子公司提供担保的进展公告",
+            "date": "2026-05-12",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-13/1225300828.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司关于股份回购进展公告",
+            "date": "2026-05-06",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-05-07/1225278876.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源2025年年度报告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225258047.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源2026年度“提质增效重回报”行动方案",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225258039.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源2026年第一季度报告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225258038.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司2025年年度报告摘要",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225258035.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源独立董事2025年度述职报告-赵发忠",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225258019.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源独立董事2025年度述职报告-杨文浩（已离任）",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225258016.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司关于召开2025年年度业绩暨现金分红说明会的公告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225258013.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源董事会对独立董事独立性自查情况的专项报告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225258010.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司关于2026年度向银行及其他金融机构申请融资额度的公告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225258001.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源董事会审计委员会2025年度履职情况报告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257998.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司第九届董事会第八次会议决议公告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257997.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源2025年度审计报告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257984.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源独立董事2025年度述职报告-林安利",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257950.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源2025年度内部控制审计报告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257947.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司2025年环境、社会及治理报告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257942.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源独立董事2025年度述职报告-谢玉玲",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257937.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源第九届董事会独立董事专门会议2026年第一次会议决议",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257929.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源控股股份有限公司关于2026年度预计担保额度的公告",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257924.PDF",
+            "text": ""
+          },
+          {
+            "title": "盛和资源独立董事2025年度述职报告-周玮",
+            "date": "2026-04-29",
+            "source": "CNINFO",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225257921.PDF",
+            "text": ""
+          }
+        ],
+        "quality_report": {
+          "schema": "recommendation_quality_v1",
+          "status": "rejected",
+          "eligible_for_directional_advice": false,
+          "blocking_checks": [
+            "announcement_clarification",
+            "market_intelligence_missing"
+          ],
+          "risk_warnings": [
+            "A股T+1：当日买入不可卖出，止损仅能从下一交易日起执行",
+            "公告澄清/风险提示：盛和资源控股股份有限公司股票交易异常波动公告",
+            "筹码/机构必要数据缺失：lockups, margin_trading, holder_changes",
+            "筹码/机构提示：missing_dataset:lockups",
+            "筹码/机构提示：missing_dataset:margin_trading",
+            "筹码/机构提示：missing_dataset:holder_changes"
+          ],
+          "announcement_scan": {
+            "scanned": 6,
+            "clarification_hits": [
+              "异常波动"
+            ],
+            "hard_risk_hits": [],
+            "warnings": [
+              "公告澄清/风险提示：盛和资源控股股份有限公司股票交易异常波动公告"
+            ]
+          },
+          "execution_constraints": {
+            "market": "A_SHARE",
+            "settlement_rule": "T+1",
+            "same_day_sell_allowed": false,
+            "acquired_on": "2026-06-22",
+            "earliest_sell_date": "2026-06-23",
+            "sell_allowed": false,
+            "overnight_gap_risk": true,
+            "calendar_covered": true,
+            "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+          },
+          "market_intelligence": {
+            "available": false,
+            "stale": null,
+            "directional_ready": false,
+            "missing_datasets": [
+              "lockups",
+              "margin_trading",
+              "holder_changes"
+            ],
+            "stale_datasets": [],
+            "hard_risks": [],
+            "warnings": [
+              "missing_dataset:lockups",
+              "missing_dataset:margin_trading",
+              "missing_dataset:holder_changes"
+            ],
+            "positives": []
+          }
+        },
+        "execution_plan": {
+          "schema": "a_share_execution_plan_v2",
+          "decision": "avoid",
+          "stage": "open",
+          "strategy_lane": "daban",
+          "pricing_method": "atr_adaptive",
+          "entry_range": "32.64-32.96",
+          "max_chase_price": 33.88,
+          "stop_price": 30.97,
+          "target_price": 35.85,
+          "target_price_2": 38.14,
+          "atr": 1.526,
+          "position_pct": 0.0,
+          "horizon": "T+1",
+          "trigger": "价格位于买入区间、可成交性正常且公告质检通过",
+          "beyond_max_chase": false,
+          "invalidation": [
+            "超过最高追价线",
+            "开盘后快速跌破竞价价且无法收回",
+            "公告质检出现澄清、监管或硬风险"
+          ],
+          "market": "A_SHARE",
+          "settlement_rule": "T+1",
+          "same_day_sell_allowed": false,
+          "acquired_on": "2026-06-22",
+          "earliest_sell_date": "2026-06-23",
+          "sell_allowed": false,
+          "overnight_gap_risk": true,
+          "calendar_covered": true,
+          "calendar_source": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml"
+        },
+        "decision": "avoid",
+        "open_daban_score": 73.92,
+        "open_trend_score": 75.76,
+        "open_score": 75.76,
+        "open_selected_by": {
+          "daban": true,
+          "trend": false,
+          "balanced_fill": false
+        },
+        "open_rank": 5,
+        "strategy_id": "daban:first_board_reseal",
+        "portfolio_risk": {
+          "schema": "portfolio_policy_v1",
+          "allowed": true,
+          "reasons": [],
+          "total_assets": 100000.0,
+          "projected_single_position_pct": 0.0,
+          "projected_sector_exposure_pct": null,
+          "limits": {
+            "max_single_position_pct": 25.0,
+            "max_sector_exposure_pct": 40.0
+          }
+        },
+        "market_regime": {
+          "regime": "risk_on",
+          "reason": "板块影响合计+19",
+          "score": 19
+        },
+        "policy_decision": {
+          "schema": "a_share_decision_policy_v1",
+          "requested_action": "avoid",
+          "decision": "avoid",
+          "position_multiplier": 1.0,
+          "quality_status": "rejected",
+          "reasons": [],
+          "strategy_lane": "daban",
+          "portfolio_risk": {
+            "schema": "portfolio_policy_v1",
+            "allowed": true,
+            "reasons": [],
+            "total_assets": 100000.0,
+            "projected_single_position_pct": 0.0,
+            "projected_sector_exposure_pct": null,
+            "limits": {
+              "max_single_position_pct": 25.0,
+              "max_sector_exposure_pct": 40.0
+            }
+          },
+          "research_evidence": {
+            "schema": "research_evidence_v1",
+            "code": "600392",
+            "asof": "2026-06-22",
+            "chanlun": {
+              "selection_strategy_id": "daban:first_board_reseal",
+              "strategy_id": null,
+              "status": "no_signal",
+              "allowed_in_live_agent": false,
+              "gate_decision": null,
+              "gate_asof": null,
+              "gating_reason": null,
+              "gate_stats": null,
+              "signals": [],
+              "live_bullish_signals": [],
+              "live_bearish_signals": [],
+              "display_only_signals": [],
+              "structure_summary": "笔5/中枢1 | 最新中枢[23.73,27.82] | 无三类买卖点/背驰"
+            },
+            "serenity": {
+              "available": false,
+              "stale": null,
+              "hard_risks": []
+            },
+            "market_intelligence": {
+              "available": false,
+              "stale": null,
+              "directional_ready": false,
+              "missing_datasets": [
+                "lockups",
+                "margin_trading",
+                "holder_changes"
+              ],
+              "stale_datasets": [],
+              "hard_risks": [],
+              "warnings": [
+                "missing_dataset:lockups",
+                "missing_dataset:margin_trading",
+                "missing_dataset:holder_changes"
+              ],
+              "positives": []
+            }
+          }
+        },
+        "ledger_links": {
+          "correlation_id": "corr-45c01b4a56566a26608d",
+          "recommendation_id": "open-2026-06-22-600392",
+          "signal_id": "sig-45c01b4a56566a26608d",
+          "monitor_id": "stock:600392"
+        }
+      }
+    ],
+    "signal_count": 5,
+    "portfolio_research_snapshot": {
+      "status": "recorded",
+      "path": "/Users/eleven/meta-11/a-stock-agent-system/skills/stock-triage/data/portfolio_research_snapshots/2026-06-22.json",
+      "snapshot_sha256": "7e61961b8673bb5a2c30b9019e3b3b5558834aa378191cf4ea0a9e5d014b12e8",
+      "reason": null
+    }
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/open-confirmation/snap-ea5bf3285b0aa50fe9955867.json"
+}

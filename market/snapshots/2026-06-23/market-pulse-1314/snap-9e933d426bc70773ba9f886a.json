@@ -1,0 +1,23 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-9e933d426bc70773ba9f886a",
+  "dataset": "market-pulse-1314",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "market-pulse-1314",
+  "producer_version": "78d8946e7716f5384cf5faaadd8d260717b698f7",
+  "captured_at": "2026-06-23T13:14:00+08:00",
+  "payload_schema": "market_pulse_digest_v1",
+  "payload_hash": "176c4a68f71bd00aad100e2ed424c5d51658fdb922b6bb1acc1d74f789b91d5e",
+  "source_versions": {},
+  "payload": {
+    "schema": "market_pulse_digest_v1",
+    "status": "insufficient_data",
+    "profile": "midday",
+    "generated_at": "2026-06-23T13:14:00",
+    "message": "SERPER_API_KEY missing; no market pulse judgement",
+    "events": [],
+    "signals": []
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/market-pulse-1314/snap-9e933d426bc70773ba9f886a.json"
+}

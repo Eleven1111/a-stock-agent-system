@@ -1,0 +1,244 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-9fd623c872a3ecb65132f329",
+  "dataset": "open-confirmation",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "open-confirmation",
+  "producer_version": "78d8946e7716f5384cf5faaadd8d260717b698f7",
+  "captured_at": "2026-06-23T09:35:03+08:00",
+  "payload_schema": "open_confirmation_v3",
+  "payload_hash": "0466343a588934126f0210f3300b6795eff07bf794563d58dc12a01f70592c37",
+  "source_versions": {},
+  "payload": {
+    "schema": "open_confirmation_v3",
+    "status": "ready",
+    "asof": "2026-06-23",
+    "generated_at": "2026-06-23T09:35:02",
+    "source_asof": "2026-06-22",
+    "market_temperature": {
+      "tier": "修复",
+      "height": 5,
+      "promotion_rate": null,
+      "limitup_total": 134,
+      "retreat_signal": null,
+      "notes": [
+        "晋级率缺失（无昨日梯队快照），按高度板保守判定"
+      ],
+      "allow_new_daban": true,
+      "position_multiplier": 0.6,
+      "top_n_limit": 2,
+      "advice": "小仓试错，优先首板龙一",
+      "context_asof": "2026-06-22",
+      "context_fresh": true
+    },
+    "signal_count": 5,
+    "portfolio_research_snapshot": {
+      "status": "recorded",
+      "path": "/Users/eleven/meta-11/a-stock-agent-system/skills/stock-triage/data/portfolio_research_snapshots/2026-06-23.json",
+      "snapshot_sha256": "2886b847d96bf54ad3aad17464fe25c65b0fcc2ff9dd4eb5df943d909f8a1e6c",
+      "reason": null
+    },
+    "signals": [
+      {
+        "code": "sz000776",
+        "name": "广发证券",
+        "sector": "J 金融业",
+        "open_rank": 1,
+        "open_sector_rank": 1,
+        "open_score": 88.68,
+        "strategy_id": "trend_pullback",
+        "decision": "watch",
+        "quality_status": "conditional",
+        "policy_reasons": [
+          "quality_not_passed",
+          "strategy_unverified"
+        ],
+        "selection_context": {
+          "window": "09:35",
+          "status": null,
+          "tier": null,
+          "daban_ready": false,
+          "crowding_score": null,
+          "fragility_score": null,
+          "dominant_state": null,
+          "sector": "J 金融业",
+          "sector_rank": null,
+          "sector_state": null,
+          "leader_rank": null,
+          "leader_role": null,
+          "qualified": false,
+          "snapshot_id": null
+        },
+        "execution_plan": {
+          "decision": "watch",
+          "entry_range": "23.77-24.01",
+          "max_chase_price": 24.29,
+          "stop_price": 22.22,
+          "target_price": 26.39,
+          "position_pct": 0.0,
+          "earliest_sell_date": "2026-06-24",
+          "same_day_sell_allowed": false
+        }
+      },
+      {
+        "code": "sz002068",
+        "name": "黑猫股份",
+        "sector": "C 制造业",
+        "open_rank": 2,
+        "open_sector_rank": 1,
+        "open_score": 88.28,
+        "strategy_id": "trend_pullback",
+        "decision": "watch",
+        "quality_status": "conditional",
+        "policy_reasons": [
+          "quality_not_passed",
+          "strategy_unverified"
+        ],
+        "selection_context": {
+          "window": "09:35",
+          "status": null,
+          "tier": null,
+          "daban_ready": false,
+          "crowding_score": null,
+          "fragility_score": null,
+          "dominant_state": null,
+          "sector": "C 制造业",
+          "sector_rank": null,
+          "sector_state": null,
+          "leader_rank": null,
+          "leader_role": null,
+          "qualified": false,
+          "snapshot_id": null
+        },
+        "execution_plan": {
+          "decision": "watch",
+          "entry_range": "11.98-12.10",
+          "max_chase_price": 12.31,
+          "stop_price": 11.23,
+          "target_price": 13.4,
+          "position_pct": 0.0,
+          "earliest_sell_date": "2026-06-24",
+          "same_day_sell_allowed": false
+        }
+      },
+      {
+        "code": "sh600176",
+        "name": "中国巨石",
+        "sector": null,
+        "open_rank": 3,
+        "open_sector_rank": null,
+        "open_score": 87.67,
+        "strategy_id": "trend_pullback",
+        "decision": "watch",
+        "quality_status": "passed",
+        "policy_reasons": [
+          "strategy_unverified"
+        ],
+        "selection_context": {
+          "window": "09:35",
+          "status": null,
+          "tier": null,
+          "daban_ready": false,
+          "crowding_score": null,
+          "fragility_score": null,
+          "dominant_state": null,
+          "sector": null,
+          "sector_rank": null,
+          "sector_state": null,
+          "leader_rank": null,
+          "leader_role": null,
+          "qualified": false,
+          "snapshot_id": null
+        },
+        "execution_plan": {
+          "decision": "watch",
+          "entry_range": "60.20-60.80",
+          "max_chase_price": 62.47,
+          "stop_price": 56.52,
+          "target_price": 67.14,
+          "position_pct": 0.0,
+          "earliest_sell_date": "2026-06-24",
+          "same_day_sell_allowed": false
+        }
+      },
+      {
+        "code": "sh600522",
+        "name": "中天科技",
+        "sector": null,
+        "open_rank": 4,
+        "open_sector_rank": null,
+        "open_score": 79.66,
+        "strategy_id": "trend_pullback",
+        "decision": "watch",
+        "quality_status": "passed",
+        "policy_reasons": [],
+        "selection_context": {
+          "window": "09:35",
+          "status": null,
+          "tier": null,
+          "daban_ready": false,
+          "crowding_score": null,
+          "fragility_score": null,
+          "dominant_state": null,
+          "sector": null,
+          "sector_rank": null,
+          "sector_state": null,
+          "leader_rank": null,
+          "leader_role": null,
+          "qualified": false,
+          "snapshot_id": null
+        },
+        "execution_plan": {
+          "decision": "watch",
+          "entry_range": "60.58-61.18",
+          "max_chase_price": 63.8,
+          "stop_price": 53.22,
+          "target_price": 72.36,
+          "position_pct": 0.0,
+          "earliest_sell_date": "2026-06-24",
+          "same_day_sell_allowed": false
+        }
+      },
+      {
+        "code": "sz002491",
+        "name": "通鼎互联",
+        "sector": "C 制造业",
+        "open_rank": 5,
+        "open_sector_rank": 2,
+        "open_score": 79.66,
+        "strategy_id": "trend_pullback",
+        "decision": "watch",
+        "quality_status": "passed",
+        "policy_reasons": [],
+        "selection_context": {
+          "window": "09:35",
+          "status": null,
+          "tier": null,
+          "daban_ready": false,
+          "crowding_score": null,
+          "fragility_score": null,
+          "dominant_state": null,
+          "sector": "C 制造业",
+          "sector_rank": null,
+          "sector_state": null,
+          "leader_rank": null,
+          "leader_role": null,
+          "qualified": false,
+          "snapshot_id": null
+        },
+        "execution_plan": {
+          "decision": "watch",
+          "entry_range": "34.81-35.15",
+          "max_chase_price": 36.38,
+          "stop_price": 30.12,
+          "target_price": 42.27,
+          "position_pct": 0.0,
+          "earliest_sell_date": "2026-06-24",
+          "same_day_sell_allowed": false
+        }
+      }
+    ]
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/open-confirmation/snap-9fd623c872a3ecb65132f329.json"
+}

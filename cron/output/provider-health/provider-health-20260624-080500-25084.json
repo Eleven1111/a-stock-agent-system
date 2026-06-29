@@ -1,0 +1,64 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "provider-health",
+  "run_id": "provider-health-20260624-080500-25084",
+  "batch_id": "a-share-20260624",
+  "trading_date": "2026-06-24",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "local",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-24T08:05:00+08:00",
+  "finished_at": "2026-06-24T08:05:21+08:00",
+  "duration_seconds": 20.538,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python scripts/provider_doctor.py --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "schema": "a_stock_provider_health_v1",
+    "status": "degraded"
+  },
+  "context_from": [],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-24",
+    "batch_id": "a-share-20260624",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": null,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": []
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-24",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-aff4c7e6f9a9f6d77f5aac2d",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-24/provider-health/snap-aff4c7e6f9a9f6d77f5aac2d.json",
+    "payload_hash": "3c909a019b527abe18f69241f9f6f6e334f9793dff306b601bc30c00cb9fa051",
+    "source_versions": {
+      "akshare_push2": "external-source-v1",
+      "akshare_push2ex": "external-source-v1",
+      "akshare_ths": "external-source-v1",
+      "eastmoney_push2his": "external-source-v1",
+      "serper": "serper-adapter-v1",
+      "sina+eastmoney": "external-source-v1",
+      "tencent": "tencent-adapter-v2"
+    }
+  },
+  "stdout": "{\n  \"schema\": \"a_stock_provider_health_v1\",\n  \"status\": \"degraded\",\n  \"datasets\": {\n    \"tencent_quote\": {\n      \"dataset\": \"tencent_quote\",\n      \"provider\": \"tencent\",\n      \"required\": true,\n      \"status\": \"ok\",\n      \"row_count\": 1,\n      \"duration_seconds\": 0.136\n    },\n    \"eastmoney_fund_flow\": {\n      \"dataset\": \"eastmoney_fund_flow\",\n      \"provider\": \"eastmoney_push2his\",\n      \"required\": false,\n      \"status\": \"error\",\n      \"error_type\": \"DataSourceError\",\n      \"error\": \"[eastmoney:network] Remote end closed connection without response\",\n      \"duration_seconds\": 1.362\n    },\n    \"akshare_limitup\": {\n      \"dataset\": \"akshare_limitup\",\n      \"provider\": \"akshare_push2ex\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 96,\n      \"duration_seconds\": 3.934\n    },\n    \"ths_industry_catalog\": {\n      \"dataset\": \"ths_industry_catalog\",\n      \"provider\": \"akshare_ths\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 90,\n      \"duration_seconds\": 0.38\n    },\n    \"akshare_spot_em\": {\n      \"dataset\": \"akshare_spot_em\",\n      \"provider\": \"akshare_push2\",\n      \"required\": false,\n      \"status\": \"error\",\n      \"error_type\": \"DataSourceError\",\n      \"error\": \"[akshare_spot:unknown] 全A行情获取失败\",\n      \"duration_seconds\": 5.734\n    },\n    \"serper_news\": {\n      \"dataset\": \"serper_news\",\n      \"provider\": \"serper\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 1,\n      \"duration_seconds\": 8.357\n    },\n    \"public_finance_news\": {\n      \"dataset\": \"public_finance_news\",\n      \"provider\": \"sina+eastmoney\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 2,\n      \"duration_seconds\": 0.306\n    }\n  }\n}\n",
+  "stderr": "",
+  "stdout_preview": "{\n  \"schema\": \"a_stock_provider_health_v1\",\n  \"status\": \"degraded\",\n  \"datasets\": {\n    \"tencent_quote\": {\n      \"dataset\": \"tencent_quote\",\n      \"provider\": \"tencent\",\n      \"required\": true,\n      \"status\": \"ok\",\n      \"row_count\": 1,\n      \"duration_seconds\": 0.136\n    },\n    \"eastmoney_fund_flow\": {\n      \"dataset\": \"eastmoney_fund_flow\",\n      \"provider\": \"eastmoney_push2his\",\n      \"required\": false,\n      \"status\": \"error\",\n      \"error_type\": \"DataSourceError\",\n      \"error\": \"[eastmoney:network] Remote end closed connection without response\",\n      \"duration_seconds\": 1.362\n    },\n    \"akshare_limitup\": {\n      \"dataset\": \"akshare_limitup\",\n      \"provider\": \"akshare_push2ex\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 96,\n      \"duration_seconds\": 3.934\n    },\n    \"ths_industry_catalog\": {\n      \"dataset\": \"ths_industry_catalog\",\n      \"provider\": \"akshare_ths\",\n      \"required\": false,\n      \"status\": \"ok\",\n      \"row_count\": 90,\n      \"duration_seconds\": 0.38\n    },\n    \"akshare_spot_em\": {\n      \"dataset\": \"akshare_spot_em\",\n      \"provider\": \"akshare_push2\",\n      \"required\": false,\n      \"status\": \"error\",\n      \"error_type\": \"DataSourceError\"\n...[truncated 498 chars]",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/provider-health/provider-health-20260624-080500-25084.json"
+}

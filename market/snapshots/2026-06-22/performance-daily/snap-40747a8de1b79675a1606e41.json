@@ -1,0 +1,21 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-40747a8de1b79675a1606e41",
+  "dataset": "performance-daily",
+  "trading_date": "2026-06-22",
+  "batch_id": "a-share-20260622",
+  "producer": "performance-daily",
+  "producer_version": "2d5bc5e5bc77186bbca873df8f6755bb091dc9f0",
+  "captured_at": "2026-06-22T16:10:00+08:00",
+  "payload_schema": null,
+  "payload_hash": "527a796596516bd56f7d43b11056a38060c13144c88cdfaa6a7d83d53e3217b9",
+  "source_versions": {},
+  "payload": {
+    "total_signals": 0,
+    "closed": 0,
+    "pending": 0,
+    "legacy_excluded": 0,
+    "message": "尚无已结算信号（需至少到 T+1）"
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/performance-daily/snap-40747a8de1b79675a1606e41.json"
+}

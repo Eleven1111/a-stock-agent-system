@@ -1,0 +1,79 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "news-monitor",
+  "run_id": "news-monitor-20260623-200000-13657",
+  "batch_id": "a-share-20260623",
+  "trading_date": "2026-06-23",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "timeout",
+  "returncode": 124,
+  "started_at": "2026-06-23T20:00:00+08:00",
+  "finished_at": "2026-06-23T20:03:00+08:00",
+  "duration_seconds": 180.012,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/news-to-sector/scripts/scheduled_monitor.py --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": false,
+  "summary": {
+    "text_preview": ""
+  },
+  "context_from": [
+    {
+      "job_id": "global-preopen",
+      "run_id": "global-preopen-20260623-094500-2042",
+      "batch_id": "a-share-20260623",
+      "trading_date": "2026-06-23",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/global-preopen/global-preopen-20260623-094500-2042.json",
+      "status": "ok",
+      "finished_at": "2026-06-23T09:45:16+08:00",
+      "summary": {},
+      "age_minutes": 614.733,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-23",
+    "batch_id": "a-share-20260623",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 900,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "global-preopen",
+        "run_id": "global-preopen-20260623-094500-2042",
+        "batch_id": "a-share-20260623",
+        "trading_date": "2026-06-23",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/global-preopen/global-preopen-20260623-094500-2042.json",
+        "status": "ok",
+        "finished_at": "2026-06-23T09:45:16+08:00",
+        "summary": {},
+        "age_minutes": 614.733,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-23",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": null,
+  "stdout": "",
+  "stderr": "\nTIMEOUT after 180s",
+  "stdout_preview": "",
+  "stderr_preview": "\nTIMEOUT after 180s",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/news-monitor/news-monitor-20260623-200000-13657.json"
+}

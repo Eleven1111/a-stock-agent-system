@@ -1,0 +1,531 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-4865a3db30f875eea3436258",
+  "dataset": "stock-intelligence",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "stock-intelligence-refresh",
+  "producer_version": "v2",
+  "captured_at": "2026-06-23T07:49:22+00:00",
+  "payload_schema": "stock_intelligence_v2",
+  "payload_hash": "b031d80593bd22c4877557ba833f656cdae694fa71b7f0f4ae5cf0235f47b6f1",
+  "source_versions": {
+    "eastmoney": "eastmoney-intelligence-v2"
+  },
+  "payload": {
+    "schema": "stock_intelligence_v2",
+    "code": "600397",
+    "name": "江钨装备",
+    "asof": "2026-06-23",
+    "fetched_at": "2026-06-23T07:49:11+00:00",
+    "lockups": {
+      "history": [
+        {
+          "date": "2015-02-04",
+          "type": "定向增发机构配售股份",
+          "shares": 344626874.0,
+          "ratio_pct": 34.8122
+        },
+        {
+          "date": "2013-02-04",
+          "type": "定向增发机构配售股份",
+          "shares": 53434504.0,
+          "ratio_pct": 16.5603
+        }
+      ],
+      "upcoming": []
+    },
+    "margin_trading": [],
+    "holder_changes": [
+      {
+        "date": "2026-03-31",
+        "holder_count": 81637.0,
+        "holder_change": 36988.0,
+        "holder_change_pct": 82.841720979193,
+        "average_free_shares": 0.0
+      }
+    ],
+    "dragon_tiger": {
+      "records": [
+        {
+          "date": "2026-06-17",
+          "reason": "非ST、*ST和S证券连续三个交易日内收盘价格涨幅偏离值累计达到20%的证券",
+          "net_buy_wan": 8614.4,
+          "turnover_pct": 14.73
+        }
+      ],
+      "seats": {
+        "buy": [
+          {
+            "name": "沪股通专用",
+            "buy_amount_wan": 20862.3,
+            "sell_amount_wan": 0.0,
+            "net_amount_wan": 20862.3,
+            "institutional": false
+          },
+          {
+            "name": "高盛(中国)证券有限责任公司上海浦东新区世纪大道证券营业部",
+            "buy_amount_wan": 7348.7,
+            "sell_amount_wan": 0.0,
+            "net_amount_wan": 7348.7,
+            "institutional": false
+          },
+          {
+            "name": "机构专用",
+            "buy_amount_wan": 6699.7,
+            "sell_amount_wan": 0.0,
+            "net_amount_wan": 6699.7,
+            "institutional": true
+          },
+          {
+            "name": "华泰证券股份有限公司总部",
+            "buy_amount_wan": 6004.0,
+            "sell_amount_wan": 0.0,
+            "net_amount_wan": 6004.0,
+            "institutional": false
+          },
+          {
+            "name": "中信证券股份有限公司上海分公司",
+            "buy_amount_wan": 5911.6,
+            "sell_amount_wan": 0.0,
+            "net_amount_wan": 5911.6,
+            "institutional": false
+          }
+        ],
+        "sell": [
+          {
+            "name": "沪股通专用",
+            "buy_amount_wan": 0.0,
+            "sell_amount_wan": 18383.3,
+            "net_amount_wan": -18383.3,
+            "institutional": false
+          },
+          {
+            "name": "机构专用",
+            "buy_amount_wan": 0.0,
+            "sell_amount_wan": 5797.6,
+            "net_amount_wan": -5797.6,
+            "institutional": true
+          },
+          {
+            "name": "中信证券股份有限公司上海分公司",
+            "buy_amount_wan": 0.0,
+            "sell_amount_wan": 5151.4,
+            "net_amount_wan": -5151.4,
+            "institutional": false
+          },
+          {
+            "name": "机构专用",
+            "buy_amount_wan": 0.0,
+            "sell_amount_wan": 4707.2,
+            "net_amount_wan": -4707.2,
+            "institutional": true
+          },
+          {
+            "name": "华安证券股份有限公司南通站前东街证券营业部",
+            "buy_amount_wan": 0.0,
+            "sell_amount_wan": 4172.5,
+            "net_amount_wan": -4172.5,
+            "institutional": false
+          }
+        ]
+      },
+      "institution": {
+        "buy_amount_wan": 6699.7,
+        "sell_amount_wan": 10504.8,
+        "net_amount_wan": -3805.1
+      }
+    },
+    "block_trades": [
+      {
+        "date": "2015-06-26",
+        "price": 11.5,
+        "close": 10.4,
+        "premium_pct": 10.58,
+        "volume": 2500000.0,
+        "amount": 28750000.0,
+        "buyer": "华泰证券股份有限公司长沙韶山北路证券营业部",
+        "seller": "招商证券股份有限公司北京安立路证券营业部"
+      },
+      {
+        "date": "2015-04-30",
+        "price": 10.9,
+        "close": 11.25,
+        "premium_pct": -3.11,
+        "volume": 11300000.0,
+        "amount": 123170000.0,
+        "buyer": "海通证券股份有限公司北京工人体育场北路证券营业部",
+        "seller": "申银万国证券股份有限公司南昌北京西路证券营业部"
+      },
+      {
+        "date": "2015-04-30",
+        "price": 10.9,
+        "close": 11.25,
+        "premium_pct": -3.11,
+        "volume": 11000000.0,
+        "amount": 119900000.0,
+        "buyer": "海通证券股份有限公司上海共和新路证券营业部",
+        "seller": "申银万国证券股份有限公司南昌北京西路证券营业部"
+      },
+      {
+        "date": "2015-04-30",
+        "price": 10.9,
+        "close": 11.25,
+        "premium_pct": -3.11,
+        "volume": 9840000.0,
+        "amount": 107256000.0,
+        "buyer": "国泰君安证券股份有限公司石家庄建华南大街证券营业部",
+        "seller": "申银万国证券股份有限公司南昌北京西路证券营业部"
+      },
+      {
+        "date": "2015-04-30",
+        "price": 10.9,
+        "close": 11.25,
+        "premium_pct": -3.11,
+        "volume": 9000000.0,
+        "amount": 98100000.0,
+        "buyer": "宏源证券股份有限公司宜兴人民中路证券营业部",
+        "seller": "申银万国证券股份有限公司南昌北京西路证券营业部"
+      },
+      {
+        "date": "2015-04-30",
+        "price": 10.9,
+        "close": 11.25,
+        "premium_pct": -3.11,
+        "volume": 3380000.0,
+        "amount": 36842000.0,
+        "buyer": "中国银河证券股份有限公司上虞王充路证券营业部",
+        "seller": "申银万国证券股份有限公司南昌北京西路证券营业部"
+      },
+      {
+        "date": "2015-04-30",
+        "price": 10.9,
+        "close": 11.25,
+        "premium_pct": -3.11,
+        "volume": 2480000.0,
+        "amount": 27032000.0,
+        "buyer": "海通证券股份有限公司广州宝岗大道证券营业部",
+        "seller": "申银万国证券股份有限公司南昌北京西路证券营业部"
+      },
+      {
+        "date": "2015-04-30",
+        "price": 10.9,
+        "close": 11.25,
+        "premium_pct": -3.11,
+        "volume": 2000000.0,
+        "amount": 21800000.0,
+        "buyer": "中信建投证券股份有限公司南京龙园西路证券营业部",
+        "seller": "申银万国证券股份有限公司南昌北京西路证券营业部"
+      },
+      {
+        "date": "2015-04-20",
+        "price": 8.0,
+        "close": 8.53,
+        "premium_pct": -6.21,
+        "volume": 49348338.0,
+        "amount": 394786704.0,
+        "buyer": "国泰君安证券股份有限公司上海打浦路证券营业部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-04-15",
+        "price": 8.34,
+        "close": 8.69,
+        "premium_pct": -4.03,
+        "volume": 20000000.0,
+        "amount": 166800000.0,
+        "buyer": "国泰君安证券股份有限公司上海打浦路证券营业部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-04-10",
+        "price": 8.59,
+        "close": 9.54,
+        "premium_pct": -9.96,
+        "volume": 29500000.0,
+        "amount": 253405000.0,
+        "buyer": "国泰君安证券股份有限公司上海打浦路证券营业部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-04-09",
+        "price": 8.52,
+        "close": 9.15,
+        "premium_pct": -6.89,
+        "volume": 5000000.0,
+        "amount": 42600000.0,
+        "buyer": "华泰证券股份有限公司武汉西马路证券营业部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-04-09",
+        "price": 8.52,
+        "close": 9.15,
+        "premium_pct": -6.89,
+        "volume": 15000000.0,
+        "amount": 127800000.0,
+        "buyer": "海通证券股份有限公司机构业务部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-04-03",
+        "price": 8.07,
+        "close": 8.97,
+        "premium_pct": -10.03,
+        "volume": 27600000.0,
+        "amount": 222732000.0,
+        "buyer": "国泰君安证券股份有限公司上海打浦路证券营业部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-04-03",
+        "price": 8.07,
+        "close": 8.97,
+        "premium_pct": -10.03,
+        "volume": 500000.0,
+        "amount": 4035000.0,
+        "buyer": "国泰君安证券股份有限公司上海打浦路证券营业部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-04-03",
+        "price": 8.07,
+        "close": 8.97,
+        "premium_pct": -10.03,
+        "volume": 5400000.0,
+        "amount": 43578000.0,
+        "buyer": "华泰证券股份有限公司武汉西马路证券营业部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-04-03",
+        "price": 8.07,
+        "close": 8.97,
+        "premium_pct": -10.03,
+        "volume": 16000000.0,
+        "amount": 129120000.0,
+        "buyer": "海通证券股份有限公司机构业务部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-03-30",
+        "price": 7.07,
+        "close": 7.85,
+        "premium_pct": -9.94,
+        "volume": 9500000.0,
+        "amount": 67165000.0,
+        "buyer": "海通证券股份有限公司机构业务部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2015-03-30",
+        "price": 7.07,
+        "close": 7.85,
+        "premium_pct": -9.94,
+        "volume": 6000000.0,
+        "amount": 42420000.0,
+        "buyer": "华泰证券股份有限公司武汉西马路证券营业部",
+        "seller": "海通证券股份有限公司上海宣化路证券营业部"
+      },
+      {
+        "date": "2013-06-14",
+        "price": 5.0,
+        "close": 5.0,
+        "premium_pct": 0.0,
+        "volume": 34000000.0,
+        "amount": 170000000.0,
+        "buyer": "中国国际金融有限公司北京建国门外大街证券营业部",
+        "seller": "中国国际金融有限公司北京建国门外大街证券营业部"
+      }
+    ],
+    "reports": [],
+    "dataset_status": {
+      "lockups": {
+        "provider": "eastmoney",
+        "status": "ok",
+        "required": true,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": "2015-02-04",
+        "max_query_age_days": 4,
+        "max_record_age_days": null,
+        "error": null
+      },
+      "margin_trading": {
+        "provider": "eastmoney",
+        "status": "empty",
+        "required": true,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": null,
+        "max_query_age_days": 4,
+        "max_record_age_days": 7,
+        "error": null
+      },
+      "holder_changes": {
+        "provider": "eastmoney",
+        "status": "ok",
+        "required": true,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": "2026-03-31",
+        "max_query_age_days": 4,
+        "max_record_age_days": 180,
+        "error": null
+      },
+      "dragon_tiger": {
+        "provider": "eastmoney",
+        "status": "ok",
+        "required": false,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": "2026-06-17",
+        "max_query_age_days": 4,
+        "max_record_age_days": 45,
+        "error": null
+      },
+      "block_trades": {
+        "provider": "eastmoney",
+        "status": "ok",
+        "required": false,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": "2015-06-26",
+        "max_query_age_days": 4,
+        "max_record_age_days": 45,
+        "error": null
+      },
+      "reports": {
+        "provider": "eastmoney",
+        "status": "empty",
+        "required": false,
+        "queried_asof": "2026-06-23",
+        "latest_record_date": null,
+        "max_query_age_days": 7,
+        "max_record_age_days": 365,
+        "error": null
+      }
+    },
+    "data_quality": {
+      "status": "partial",
+      "missing_datasets": [],
+      "stale_datasets": [
+        "block_trades"
+      ],
+      "missing_required_datasets": [],
+      "stale_required_datasets": [],
+      "directional_ready": true,
+      "errors": []
+    },
+    "source": {
+      "provider": "eastmoney",
+      "adapter_version": "eastmoney-intelligence-v2",
+      "upstream_reference": "simonlin1212/a-stock-data@9379ab9",
+      "fetched_at": "2026-06-23T07:49:22+00:00",
+      "health": {
+        "schema": "provider_health_v2",
+        "provider": "eastmoney",
+        "state": "open",
+        "open_circuits": [
+          "json:push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
+        ],
+        "circuits": {
+          "json:push2his.eastmoney.com/api/qt/stock/fflow/daykline/get": {
+            "state": "open",
+            "consecutive_failures": 4,
+            "open_until_epoch": 1782196503.236948,
+            "last_failure_at": "2026-06-23T06:30:03+00:00",
+            "last_error": {
+              "source": "eastmoney",
+              "error_type": "network",
+              "error": "Remote end closed connection without response",
+              "attempts": 1,
+              "timestamp": "2026-06-23T06:30:03+00:00"
+            },
+            "probe_started_at": "2026-06-23T06:30:00+00:00",
+            "last_success_at": "2026-06-23T02:30:16+00:00"
+          },
+          "json:push2his.eastmoney.com/api/qt/kamt.kline/get": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T06:30:00+00:00"
+          },
+          "datacenter:RPT_LIFT_STAGE": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:49:13+00:00",
+            "last_failure_at": "2026-06-23T07:48:01+00:00",
+            "last_error": {
+              "source": "eastmoney",
+              "error_type": "timeout",
+              "error": "coordination lock timeout: rate_limit",
+              "attempts": 1,
+              "timestamp": "2026-06-23T07:48:01+00:00"
+            }
+          },
+          "datacenter:RPTA_WEB_RZRQ_GGMX": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:49:14+00:00"
+          },
+          "datacenter:RPT_HOLDERNUMLATEST": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:49:15+00:00"
+          },
+          "datacenter:RPT_DAILYBILLBOARD_DETAILSNEW": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:49:17+00:00"
+          },
+          "datacenter:RPT_BILLBOARD_DAILYDETAILSBUY": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:49:18+00:00"
+          },
+          "datacenter:RPT_BILLBOARD_DAILYDETAILSSELL": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:49:19+00:00"
+          },
+          "datacenter:RPT_DATA_BLOCKTRADE": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:49:20+00:00"
+          },
+          "reports": {
+            "state": "closed",
+            "consecutive_failures": 0,
+            "open_until_epoch": 0,
+            "last_success_at": "2026-06-23T07:49:22+00:00"
+          }
+        },
+        "coordination_backend": "shared_file",
+        "coordination_root": "/Users/eleven/meta-11/a-stock-agent-system/skills/stock-triage/cache/provider_coordination/eastmoney"
+      }
+    },
+    "risk_summary": {
+      "hard_risks": [],
+      "warnings": [
+        "stale_dataset:block_trades"
+      ],
+      "positives": [],
+      "details": {
+        "lockup_30d_max_ratio_pct": 0.0,
+        "recent_holder_change_pct": [
+          82.841720979193
+        ],
+        "institution_lhb_net_wan": -3805.1,
+        "recent_block_trade_premium_pct": [],
+        "report_count_180d": 0,
+        "consensus_institution_count": 0,
+        "consensus_next_eps": null,
+        "consensus_sample_size": 0
+      }
+    }
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/stock-intelligence/snap-4865a3db30f875eea3436258.json"
+}

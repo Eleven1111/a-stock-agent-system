@@ -1,0 +1,86 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "hk-a-linkage",
+  "run_id": "hk-a-linkage-20260622-094519-78371",
+  "batch_id": "a-share-20260622",
+  "trading_date": "2026-06-22",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "local",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-22T09:45:19+08:00",
+  "finished_at": "2026-06-22T09:45:24+08:00",
+  "duration_seconds": 5.208,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/stock-triage/scripts/hk_a_linkage.py --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": false,
+  "summary": {
+    "message": "AH溢价TOP5: 招商银行: A=37.02 H=46.6 溢价-12.7% | 海螺水泥: A=17.29 H=17.57 溢价8.1% | 紫金矿业: A=29.19 H=31.3 溢价2.5% | 中国平安: A=49.07 H=53.0 溢价1.7%",
+    "alerts_count": 0
+  },
+  "context_from": [
+    {
+      "job_id": "global-preopen",
+      "run_id": "global-preopen-20260622-094500-78363",
+      "batch_id": "a-share-20260622",
+      "trading_date": "2026-06-22",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/global-preopen/global-preopen-20260622-094500-78363.json",
+      "status": "ok",
+      "finished_at": "2026-06-22T09:45:19+08:00",
+      "summary": {},
+      "age_minutes": 0.0,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-22",
+    "batch_id": "a-share-20260622",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 420,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "global-preopen",
+        "run_id": "global-preopen-20260622-094500-78363",
+        "batch_id": "a-share-20260622",
+        "trading_date": "2026-06-22",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/global-preopen/global-preopen-20260622-094500-78363.json",
+        "status": "ok",
+        "finished_at": "2026-06-22T09:45:19+08:00",
+        "summary": {},
+        "age_minutes": 0.0,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-22",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-788c6e5daa9b559753c8bfcd",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/hk-a-linkage/snap-788c6e5daa9b559753c8bfcd.json",
+    "payload_hash": "ca4d9b015dd085a36948660a3be32d3a6fb80ac8e6cacaf7133504ccbfb65a48",
+    "source_versions": {}
+  },
+  "stdout": "{\n  \"timestamp\": \"2026-06-22T09:45:19.853816\",\n  \"ah_pairs\": [\n    {\n      \"a_code\": \"600036\",\n      \"a_name\": \"招商银行\",\n      \"a_price\": 37.02,\n      \"a_change\": -0.64,\n      \"hk_code\": \"hk03968\",\n      \"hk_price\": 46.6,\n      \"hk_change\": -1.19,\n      \"premium\": -12.7\n    },\n    {\n      \"a_code\": \"601318\",\n      \"a_name\": \"中国平安\",\n      \"a_price\": 49.07,\n      \"a_change\": -0.63,\n      \"hk_code\": \"hk02318\",\n      \"hk_price\": 53.0,\n      \"hk_change\": -1.58,\n      \"premium\": 1.7\n    },\n    {\n      \"a_code\": \"600585\",\n      \"a_name\": \"海螺水泥\",\n      \"a_price\": 17.29,\n      \"a_change\": -2.65,\n      \"hk_code\": \"hk00914\",\n      \"hk_price\": 17.57,\n      \"hk_change\": -1.13,\n      \"premium\": 8.1\n    },\n    {\n      \"a_code\": \"601899\",\n      \"a_name\": \"紫金矿业\",\n      \"a_price\": 29.19,\n      \"a_change\": -1.68,\n      \"hk_code\": \"hk02899\",\n      \"hk_price\": 31.3,\n      \"hk_change\": -2.43,\n      \"premium\": 2.5\n    }\n  ],\n  \"hk_stocks\": [\n    {\n      \"code\": \"hk00700\",\n      \"name\": \"腾讯控股\",\n      \"price\": 432.0,\n      \"change_pct\": -1.86,\n      \"a_impact\": [\n        \"AI算力\",\n        \"互联网\"\n      ]\n    },\n    {\n      \"code\": \"hk09988\",\n      \"name\": \"阿里巴巴-SW\",\n      \"price\": 102.2,\n      \"change_pct\": -2.57,\n      \"a_impact\": [\n        \"互联网\",\n        \"电商\"\n      ]\n    },\n    {\n      \"code\": \"hk03690\",\n      \"name\": \"美团-W\",\n      \"price\": 72.15,\n      \"change_pct\": 0.49,\n      \"a_impact\": []\n    },\n    {\n      \"code\": \"hk01810\",\n      \"name\": \"小米集团-W\",\n      \"price\": 24.1,\n      \"change_pct\": -1.95,\n      \"a_impact\": [\n        \"消费电子\",\n        \"新能源车\"\n      ]\n    },\n    {\n      \"code\": \"hk09999\",\n      \"name\": \"网易-S\",\n      \"price\": 189.2,\n      \"change_pct\": -0.68,\n      \"a_impact\": []\n    },\n    {\n      \"code\": \"hk02318\",\n      \"name\": \"中国平安\",\n      \"price\": 52.9,\n      \"change_pct\": -1.76,\n      \"a_impact\": [\n        \"券商金融\"\n      ]\n    },\n    {\n      \"code\": \"hk00941\",\n      \"name\": \"中国移动\",\n      \"price\": 79.2,\n      \"change_pct\": -1.12,\n      \"a_impact\": [\n        \"通信\",\n        \"电信运营\"\n      ]\n    }\n  ],\n  \"index_divergence\": {\n    \"spread\": 1.34,\n    \"sse_pct\": 0.13,\n    \"hsi_pct\": -1.21\n  },\n  \"alerts\": [],\n  \"summary\": \"AH溢价TOP5: 招商银行: A=37.02 H=46.6 溢价-12.7% | 海螺水泥: A=17.29 H=17.57 溢价8.1% | 紫金矿业: A=29.19 H=31.3 溢价2.5% | 中国平安: A=49.07 H=53.0 溢价1.7%\",\n  \"indices\": {\n    \"sse\": {\n      \"name\": \"上证综指\",\n      \"price\": 4095.91,\n      \"change_pct\": 0.13\n    },\n    \"hsi\": {\n      \"name\": \"恒生指数\",\n      \"price\": 23635.18,\n      \"change_pct\": -1.21\n    }\n  }\n}\n",
+  "stderr": "",
+  "stdout_preview": "{\n  \"timestamp\": \"2026-06-22T09:45:19.853816\",\n  \"ah_pairs\": [\n    {\n      \"a_code\": \"600036\",\n      \"a_name\": \"招商银行\",\n      \"a_price\": 37.02,\n      \"a_change\": -0.64,\n      \"hk_code\": \"hk03968\",\n      \"hk_price\": 46.6,\n      \"hk_change\": -1.19,\n      \"premium\": -12.7\n    },\n    {\n      \"a_code\": \"601318\",\n      \"a_name\": \"中国平安\",\n      \"a_price\": 49.07,\n      \"a_change\": -0.63,\n      \"hk_code\": \"hk02318\",\n      \"hk_price\": 53.0,\n      \"hk_change\": -1.58,\n      \"premium\": 1.7\n    },\n    {\n      \"a_code\": \"600585\",\n      \"a_name\": \"海螺水泥\",\n      \"a_price\": 17.29,\n      \"a_change\": -2.65,\n      \"hk_code\": \"hk00914\",\n      \"hk_price\": 17.57,\n      \"hk_change\": -1.13,\n      \"premium\": 8.1\n    },\n    {\n      \"a_code\": \"601899\",\n      \"a_name\": \"紫金矿业\",\n      \"a_price\": 29.19,\n      \"a_change\": -1.68,\n      \"hk_code\": \"hk02899\",\n      \"hk_price\": 31.3,\n      \"hk_change\": -2.43,\n      \"premium\": 2.5\n    }\n  ],\n  \"hk_stocks\": [\n    {\n      \"code\": \"hk00700\",\n      \"name\": \"腾讯控股\",\n      \"price\": 432.0,\n      \"change_pct\": -1.86,\n      \"a_impact\": [\n        \"AI算力\",\n        \"互联网\"\n      ]\n    },\n    {\n      \"code\": \"hk09988\",\n      \"name\": \"阿里巴巴-SW\",\n      \"price\": 102.2,\n      \"change_pct\": -2.5\n...[truncated 1272 chars]",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/hk-a-linkage/hk-a-linkage-20260622-094519-78371.json"
+}

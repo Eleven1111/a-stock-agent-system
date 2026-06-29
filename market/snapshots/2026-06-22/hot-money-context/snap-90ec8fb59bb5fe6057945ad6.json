@@ -1,0 +1,32 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-90ec8fb59bb5fe6057945ad6",
+  "dataset": "hot-money-context",
+  "trading_date": "2026-06-22",
+  "batch_id": "a-share-20260622",
+  "producer": "hot-money-context",
+  "producer_version": "2d5bc5e5bc77186bbca873df8f6755bb091dc9f0",
+  "captured_at": "2026-06-22T15:02:45+08:00",
+  "payload_schema": null,
+  "payload_hash": "d0d7c6015c53f303a3b4473ec4210b49bd28aa368b9e7d864207ab80a921f701",
+  "source_versions": {},
+  "payload": {
+    "status": "ready",
+    "asof": "2026-06-22",
+    "limitup_total": 134,
+    "input_snapshot": {
+      "schema": "market_snapshot_v1",
+      "snapshot_id": "snap-fe81a8ff8a1e595bf3f5b240",
+      "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/hot-money-context-input/snap-fe81a8ff8a1e595bf3f5b240.json",
+      "payload_hash": "a5ff698f52908824393934ee4fac67c058ab8002491b3244110876263d62703e",
+      "source_versions": {
+        "akshare": "akshare-adapter-v1"
+      },
+      "producer": "hot-money-context",
+      "producer_version": "unknown",
+      "captured_at": "2026-06-22T07:02:45+00:00",
+      "consumed_from_snapshot": true
+    }
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-22/hot-money-context/snap-90ec8fb59bb5fe6057945ad6.json"
+}

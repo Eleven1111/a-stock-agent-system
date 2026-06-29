@@ -1,0 +1,150 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-391ca3a4a398a3b1608b7ef1",
+  "dataset": "candidate-discovery",
+  "trading_date": "2026-06-23",
+  "batch_id": "a-share-20260623",
+  "producer": "candidate-discovery",
+  "producer_version": "78d8946e7716f5384cf5faaadd8d260717b698f7",
+  "captured_at": "2026-06-23T15:07:36+08:00",
+  "payload_schema": "candidate_watch_pool_v1",
+  "payload_hash": "e3246e5e5fe41cd6576871419bd9e75743b6330b3e9019aea9a91e7b29248772",
+  "source_versions": {},
+  "payload": {
+    "schema": "candidate_watch_pool_v1",
+    "asof": "2026-06-23",
+    "status": "ready",
+    "bootstrap_status": null,
+    "scanned_count": 5207,
+    "eligible_count": 3509,
+    "rejected_count": 1698,
+    "enriched_count": 350,
+    "candidate_count": 200,
+    "hot_money_selection": {
+      "status": "insufficient_data",
+      "daban_ready": false,
+      "research_only": true,
+      "sector_coverage": 0.5664,
+      "market_timing": {
+        "status": "insufficient_data",
+        "daban_ready": false,
+        "breadth": {
+          "advancers": 2549,
+          "decliners": 2548,
+          "flat": 110,
+          "limitup_count": 126,
+          "limitdown_count": 63
+        },
+        "previous_ladder_premium": 1.1801,
+        "tier": "冰点"
+      },
+      "mainline_sectors": [
+        {
+          "sector": "C 制造业",
+          "rank": 1,
+          "score": 96.64,
+          "state": "emerging",
+          "limitup_count": 46,
+          "qualified_for_daban": false
+        },
+        {
+          "sector": "通用设备",
+          "rank": 2,
+          "score": 78.05,
+          "state": "emerging",
+          "limitup_count": 4,
+          "qualified_for_daban": false
+        }
+      ],
+      "reasons": [
+        "市场择时证据未通过"
+      ],
+      "snapshot_id": "snap-4f3b99e6ebc58758147ac0e7"
+    },
+    "rejection_reason_counts": {
+      "成交额低于0.8亿元": 1615,
+      "ST/*ST/退市整理股票": 225,
+      "股价低于2元": 70,
+      "停牌或缺少有效成交": 14,
+      "上市不足60天": 9
+    },
+    "top_candidates": [
+      {
+        "code": "000070",
+        "name": "特发信息",
+        "daban_rank": 1,
+        "daban_score": 100.0,
+        "trend_rank": 31,
+        "trend_score": 96.84,
+        "strategy_id": "trend_pullback",
+        "sector": "C 制造业",
+        "sector_rank": 1,
+        "sector_state": "emerging",
+        "leader_rank": 3,
+        "leader_role": "sector_follower",
+        "hot_money_qualified": false
+      },
+      {
+        "code": "002297",
+        "name": "博云新材",
+        "daban_rank": 47,
+        "daban_score": 88.22,
+        "trend_rank": 1,
+        "trend_score": 100.0,
+        "strategy_id": "trend_pullback",
+        "sector": "C 制造业",
+        "sector_rank": 1,
+        "sector_state": "emerging",
+        "leader_rank": 110,
+        "leader_role": "sector_follower",
+        "hot_money_qualified": false
+      },
+      {
+        "code": "000571",
+        "name": "新大洲A",
+        "daban_rank": 2,
+        "daban_score": 100.0,
+        "trend_rank": 70,
+        "trend_score": 93.13,
+        "strategy_id": "trend_pullback",
+        "sector": "B 采矿业",
+        "sector_rank": 39,
+        "sector_state": "neutral",
+        "leader_rank": 1,
+        "leader_role": "sector_leader",
+        "hot_money_qualified": false
+      },
+      {
+        "code": "000783",
+        "name": "长江证券",
+        "daban_rank": 3,
+        "daban_score": 100.0,
+        "trend_rank": 28,
+        "trend_score": 97.05,
+        "strategy_id": "trend_pullback",
+        "sector": "J 金融业",
+        "sector_rank": 28,
+        "sector_state": "neutral",
+        "leader_rank": 1,
+        "leader_role": "sector_leader",
+        "hot_money_qualified": false
+      },
+      {
+        "code": "600172",
+        "name": "黄河旋风",
+        "daban_rank": 10,
+        "daban_score": 100.0,
+        "trend_rank": 3,
+        "trend_score": 99.36,
+        "strategy_id": "trend_pullback",
+        "sector": "通用设备",
+        "sector_rank": 2,
+        "sector_state": "emerging",
+        "leader_rank": 1,
+        "leader_role": "sector_leader",
+        "hot_money_qualified": false
+      }
+    ]
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/candidate-discovery/snap-391ca3a4a398a3b1608b7ef1.json"
+}

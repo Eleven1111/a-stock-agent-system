@@ -1,0 +1,41 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-69dd3fc37b5b2efca4f46be0",
+  "dataset": "hot-money-morning-checkpoint",
+  "trading_date": "2026-06-24",
+  "batch_id": "a-share-20260624",
+  "producer": "hot-money-morning-checkpoint",
+  "producer_version": "678743b7c73d3bc25797afbd4af4b2569aeb3834",
+  "captured_at": "2026-06-24T09:50:01+08:00",
+  "payload_schema": null,
+  "payload_hash": "46c0b9415c295658ce0082a560fed64ad16f8a7b1f3cca290016a59aa0941738",
+  "source_versions": {},
+  "payload": {
+    "status": "ready",
+    "profile": "morning_confirm",
+    "window": "09:50",
+    "asof": "2026-06-24",
+    "research_only": true,
+    "observation_count": 5,
+    "confirmed_count": 2,
+    "confirmed": [
+      {
+        "code": "sz300373",
+        "name": "扬杰科技",
+        "sector": "C 制造业",
+        "sector_rank": 1,
+        "change_pct": 3.41,
+        "research_state": "confirmed"
+      },
+      {
+        "code": "sh603339",
+        "name": "四方科技",
+        "sector": null,
+        "sector_rank": 1,
+        "change_pct": 4.88,
+        "research_state": "confirmed"
+      }
+    ]
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-24/hot-money-morning-checkpoint/snap-69dd3fc37b5b2efca4f46be0.json"
+}

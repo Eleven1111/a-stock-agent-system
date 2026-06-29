@@ -1,0 +1,89 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "auction-snapshot",
+  "run_id": "auction-snapshot-20260623-092200-1489",
+  "batch_id": "a-share-20260623",
+  "trading_date": "2026-06-23",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "local",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-23T09:22:00+08:00",
+  "finished_at": "2026-06-23T09:22:01+08:00",
+  "duration_seconds": 0.935,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/daban-stock-picker/scripts/auction_collector.py --snapshot --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {},
+  "context_from": [
+    {
+      "job_id": "candidate-preopen",
+      "run_id": "candidate-preopen-20260623-091500-1307",
+      "batch_id": "a-share-20260623",
+      "trading_date": "2026-06-23",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-preopen/candidate-preopen-20260623-091500-1307.json",
+      "status": "ok",
+      "finished_at": "2026-06-23T09:15:00+08:00",
+      "summary": {
+        "schema": "candidate_watch_pool_v1",
+        "status": "ready"
+      },
+      "age_minutes": 7.0,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-23",
+    "batch_id": "a-share-20260623",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 90,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "candidate-preopen",
+        "run_id": "candidate-preopen-20260623-091500-1307",
+        "batch_id": "a-share-20260623",
+        "trading_date": "2026-06-23",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-preopen/candidate-preopen-20260623-091500-1307.json",
+        "status": "ok",
+        "finished_at": "2026-06-23T09:15:00+08:00",
+        "summary": {
+          "schema": "candidate_watch_pool_v1",
+          "status": "ready"
+        },
+        "age_minutes": 7.0,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-23",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-cad21082ed8176c2c9a9e2d4",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/auction-snapshot/snap-cad21082ed8176c2c9a9e2d4.json",
+    "payload_hash": "f354fac6a5865e405a8b30bf842c1684bda2e8d8ed1ffad11653a02665209c6e",
+    "source_versions": {}
+  },
+  "stdout": "{\"ok\": true, \"asof\": \"2026-06-23\", \"snapshot_counts\": {\"sz000048\": 8, \"sz000725\": 8, \"sz000519\": 8, \"sz300308\": 8, \"sz000657\": 8, \"sh600030\": 8, \"sz000811\": 8, \"sh600522\": 8, \"sz000823\": 8, \"sh600584\": 8, \"sz000960\": 8, \"sz002068\": 8, \"sh600703\": 8, \"sz002297\": 8, \"sz002409\": 8, \"sz002440\": 8, \"sz002601\": 8, \"sz002805\": 8, \"sz002842\": 8, \"sz002910\": 8, \"sh600078\": 8, \"sh600096\": 8, \"sh600141\": 8, \"sh603083\": 8, \"sh600160\": 8, \"sh600162\": 8, \"sh600367\": 8, \"sh600497\": 8, \"sh600531\": 8, \"sh600549\": 8, \"sh601869\": 8, \"sh600769\": 8, \"sh600869\": 8, \"sh601958\": 8, \"sh603002\": 8, \"sh605020\": 8, \"sz300059\": 8, \"sz001296\": 8, \"sh603986\": 8, \"sz002281\": 8, \"sh600105\": 8, \"sh603993\": 8, \"sz002057\": 8, \"sz002354\": 8, \"sz000776\": 8, \"sh600352\": 8, \"sh688525\": 8, \"sz002916\": 8, \"sz300857\": 8, \"sz301308\": 8, \"sh688012\": 8, \"sz002407\": 8, \"sz000021\": 8, \"sh603618\": 8, \"sz000831\": 8, \"sz001309\": 8, \"sh600330\": 8, \"sz300398\": 8, \"sz300548\": 8, \"sz300604\": 8, \"sh600259\": 8, \"sh600362\": 8, \"sz002080\": 8, \"sz002371\": 8, \"sz300497\": 8, \"sz000630\": 8, \"sz300346\": 8, \"sh600392\": 8, \"sh688126\": 8, \"sh688515\": 8, \"sh601688\": 8, \"sz301396\": 8, \"sz000063\": 8, \"sh600111\": 8, \"sh688048\": 8, \"sh688313\": 8, \"sz300033\": 8, \"sh601211\": 8, \"sz300671\": 8, \"sh603259\": 8, \"sh688729\": 8, \"sh600498\": 8, \"sz300769\": 8, \"sz300803\": 8, \"sz300223\": 8, \"sh600460\": 8, \"sz300861\": 8, \"sz300166\": 8, \"sz300283\": 8, \"sh688548\": 8, \"sz300042\": 8, \"sh601336\": 8, \"sh600176\": 8, \"sz002378\": 8, \"sz001257\": 8, \"sh688478\": 8, \"sz300243\": 8, \"sz301160\": 8, \"sz301292\": 8, \"sz301071\": 8, \"sz002213\": 8, \"sz300382\": 8, \"sz300943\": 8, \"sh688286\": 8, \"sz003026\": 8, \"sz301127\": 8, \"sz002885\": 8, \"sz002137\": 8, \"sz301500\": 8, \"sz300560\": 8, \"sz000751\": 8, \"sz000759\": 8, \"sz002584\": 8, \"sz002491\": 8, \"sz301041\": 8, \"sh688065\": 8, \"sz300162\": 8, \"sh600667\": 8, \"sz300545\": 8, \"sh600487\": 8, \"sz002436\": 8, \"sh600226\": 8, \"sz300373\": 8, \"sz300592\": 8, \"sz300538\": 8, \"sz300475\": 8, \"sh601208\": 8, \"sh605168\": 8, \"sh601179\": 8, \"sh603629\": 8, \"sh603976\": 8, \"sz301548\": 8, \"sz301356\": 8, \"sh688347\": 8, \"sh603399\": 8, \"sz002579\": 8, \"sz002851\": 8, \"sh688119\": 8, \"sh688530\": 8, \"sh600378\": 8, \"sz002971\": 8, \"sz000682\": 8, \"sh603262\": 8, \"sh605376\": 8, \"sz300401\": 8, \"sz301618\": 8, \"sz000987\": 8, \"sz002963\": 8, \"sz300501\": 8, \"sh605589\": 8, \"sz301630\": 8, \"sz002114\": 8, \"sh688367\": 8, \"sz002741\": 8, \"sz002384\": 8, \"sh600234\": 8, \"sh601138\": 8, \"sh688507\": 8, \"sz300951\": 8, \"sh603256\": 8, \"sh600183\": 8, \"sh688766\": 8, \"sz002185\": 8, \"sh600058\": 8, \"sh601991\": 8, \"sz301591\": 8, \"sz002421\": 8, \"sz300502\": 8, \"sz300408\": 8, \"sh605358\": 8, \"sz002747\": 8, \"sz002938\": 8, \"sz002463\": 8, \"sz002138\": 8, \"sh688256\": 8, \"sz300394\": 8, \"sz300054\": 8, \"sh688008\": 8, \"sz300196\": 8, \"sz002156\": 8, \"sz000988\": 8, \"sz300811\": 8, \"sz300390\": 8, \"sh688268\": 8, \"sh688820\": 8, \"sh601519\": 8, \"sh603757\": 8, \"sz000426\": 8, \"sh600400\": 8, \"sh605069\": 8, \"sz002539\": 8, \"sh603186\": 8, \"sh603773\": 8, \"sz002709\": 8, \"sh605305\": 8, \"sh603661\": 8, \"sh603012\": 8, \"sh600470\": 8, \"sh603316\": 8, \"sz002272\": 8}}\n",
+  "stderr": "",
+  "stdout_preview": "{\"ok\": true, \"asof\": \"2026-06-23\", \"snapshot_counts\": {\"sz000048\": 8, \"sz000725\": 8, \"sz000519\": 8, \"sz300308\": 8, \"sz000657\": 8, \"sh600030\": 8, \"sz000811\": 8, \"sh600522\": 8, \"sz000823\": 8, \"sh600584\": 8, \"sz000960\": 8, \"sz002068\": 8, \"sh600703\": 8, \"sz002297\": 8, \"sz002409\": 8, \"sz002440\": 8, \"sz002601\": 8, \"sz002805\": 8, \"sz002842\": 8, \"sz002910\": 8, \"sh600078\": 8, \"sh600096\": 8, \"sh600141\": 8, \"sh603083\": 8, \"sh600160\": 8, \"sh600162\": 8, \"sh600367\": 8, \"sh600497\": 8, \"sh600531\": 8, \"sh600549\": 8, \"sh601869\": 8, \"sh600769\": 8, \"sh600869\": 8, \"sh601958\": 8, \"sh603002\": 8, \"sh605020\": 8, \"sz300059\": 8, \"sz001296\": 8, \"sh603986\": 8, \"sz002281\": 8, \"sh600105\": 8, \"sh603993\": 8, \"sz002057\": 8, \"sz002354\": 8, \"sz000776\": 8, \"sh600352\": 8, \"sh688525\": 8, \"sz002916\": 8, \"sz300857\": 8, \"sz301308\": 8, \"sh688012\": 8, \"sz002407\": 8, \"sz000021\": 8, \"sh603618\": 8, \"sz000831\": 8, \"sz001309\": 8, \"sh600330\": 8, \"sz300398\": 8, \"sz300548\": 8, \"sz300604\": 8, \"sh600259\": 8, \"sh600362\": 8, \"sz002080\": 8, \"sz002371\": 8, \"sz300497\": 8, \"sz000630\": 8, \"sz300346\": 8, \"sh600392\": 8, \"sh688126\": 8, \"sh688515\": 8, \"sh601688\": 8, \"sz301396\": 8, \"sz000063\": 8, \"sh600111\": 8, \"sh688048\": 8, \"sh688313\": 8, \"sz30\n...[truncated 1856 chars]",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/auction-snapshot/auction-snapshot-20260623-092200-1489.json"
+}

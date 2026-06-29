@@ -1,0 +1,91 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "catalyst-trigger",
+  "run_id": "catalyst-trigger-20260623-091800-1390",
+  "batch_id": "a-share-20260623",
+  "trading_date": "2026-06-23",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-23T09:18:00+08:00",
+  "finished_at": "2026-06-23T09:18:00+08:00",
+  "duration_seconds": 0.194,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python scripts/realtime_catalyst_trigger.py --json",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "status": "skipped"
+  },
+  "context_from": [
+    {
+      "job_id": "candidate-discovery",
+      "run_id": "candidate-discovery-20260622-150700-83986",
+      "batch_id": "a-share-20260622",
+      "trading_date": "2026-06-22",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-discovery/candidate-discovery-20260622-150700-83986.json",
+      "status": "ok",
+      "finished_at": "2026-06-22T15:07:22+08:00",
+      "summary": {
+        "schema": "candidate_watch_pool_v1",
+        "status": "ready"
+      },
+      "age_minutes": 1090.633,
+      "required": true,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-23",
+    "batch_id": "a-share-20260623",
+    "policy": {
+      "trading_date": "previous_trading_day",
+      "max_age_minutes": 7200,
+      "optional_jobs": [],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "candidate-discovery",
+        "run_id": "candidate-discovery-20260622-150700-83986",
+        "batch_id": "a-share-20260622",
+        "trading_date": "2026-06-22",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/candidate-discovery/candidate-discovery-20260622-150700-83986.json",
+        "status": "ok",
+        "finished_at": "2026-06-22T15:07:22+08:00",
+        "summary": {
+          "schema": "candidate_watch_pool_v1",
+          "status": "ready"
+        },
+        "age_minutes": 1090.633,
+        "required": true,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-23",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": {
+    "schema": "market_snapshot_v1",
+    "snapshot_id": "snap-da66462659ef93fa9f23e024",
+    "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-23/catalyst-trigger/snap-da66462659ef93fa9f23e024.json",
+    "payload_hash": "48480c3d8e840da13e14b86b42ae7f56e20dcbfb36086ec815c0e7f11db87781",
+    "source_versions": {}
+  },
+  "stdout": "{\n  \"status\": \"skipped\",\n  \"reason\": \"非交易时段\"\n}\n",
+  "stderr": "",
+  "stdout_preview": "{\n  \"status\": \"skipped\",\n  \"reason\": \"非交易时段\"\n}\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/catalyst-trigger/catalyst-trigger-20260623-091800-1390.json"
+}

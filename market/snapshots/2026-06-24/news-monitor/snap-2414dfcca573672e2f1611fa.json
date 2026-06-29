@@ -1,0 +1,513 @@
+{
+  "schema": "market_snapshot_v1",
+  "snapshot_id": "snap-2414dfcca573672e2f1611fa",
+  "dataset": "news-monitor",
+  "trading_date": "2026-06-24",
+  "batch_id": "a-share-20260624",
+  "producer": "news-monitor",
+  "producer_version": "678743b7c73d3bc25797afbd4af4b2569aeb3834",
+  "captured_at": "2026-06-24T11:00:53+08:00",
+  "payload_schema": "scheduled_news_monitor_v1",
+  "payload_hash": "26d86d3b4c4155198c66b8bb5d1cc335364b0ae8d5703facf48bec896eaa0d12",
+  "source_versions": {
+    "serper": "serper-adapter-v1"
+  },
+  "payload": {
+    "schema": "scheduled_news_monitor_v1",
+    "generated_at": "2026-06-24T11:00:00",
+    "status": "stale_data",
+    "mode": "scheduled",
+    "query_count": 25,
+    "events": [
+      {
+        "query": "国务院 发改委 工信部 证监会 A股 产业政策",
+        "title": "郑栅洁主任在十四届全国人大四次会议经济主题记者会上答记者问",
+        "snippet": "3月6日，十四届全国人大四次会议举行经济主题记者会。国家发展和改革委员会主任郑栅洁、财政部部长蓝佛安、商务部部长王文涛、中国人民银行行长...",
+        "source": "中华人民共和国国家发展和改革委员会",
+        "date": "2026年3月6日",
+        "link": "https://www.ndrc.gov.cn/fzggw/wld/zsj/zyhd/202603/t20260306_1404063.html",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:02+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": null,
+        "latency_minutes": null,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "unknown"
+      },
+      {
+        "query": "国务院 发改委 工信部 证监会 A股 产业政策",
+        "title": "重庆钢铁(601005):重庆钢铁股份有限公司向特定对象发行股票证券募集说明书（注册稿）",
+        "snippet": "重庆钢铁(601005):重庆钢铁股份有限公司向特定对象发行股票证券募集说明书（注册稿）",
+        "source": "中财网",
+        "date": "3 周前",
+        "link": "https://www.cfi.net.cn/p20260603002758.html",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:02+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-06-03T11:00:00",
+        "latency_minutes": 30240,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "国务院 发改委 工信部 证监会 A股 产业政策",
+        "title": "金牌领航①｜解码“服务高质量发展最佳首席经济学家”的制胜之道",
+        "snippet": "21世纪经济报道记者崔文静实习生张长荣. 第五届21世纪金牌分析师评选榜单出炉。本届评选在设立33个行业分析师奖项的同时，特备设立8大特色奖项，旨在...",
+        "source": "21财经",
+        "date": "2025年12月19日",
+        "link": "https://www.21jingji.com/article/20251219/herald/8f919286a2fb88a295197f040c877009.html",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:02+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": null,
+        "latency_minutes": null,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "unknown"
+      },
+      {
+        "query": "地缘冲突 制裁 关税 大宗商品 A股 风险",
+        "title": "15家券商火线解读美伊冲突！附多家机构报告全文",
+        "snippet": "21世纪经济报道记者崔文静实习生张长荣. 当地时间2月28日，美国与以色列对伊朗发动代号“咆哮之狮”的大规模海空联合军事打击，袭击范围覆盖德黑兰总统...",
+        "source": "21财经",
+        "date": "2026年3月1日",
+        "link": "https://www.21jingji.com/article/20260301/herald/bff920f5487946c601a5684889ae18c2.html",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:05+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": null,
+        "latency_minutes": null,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "unknown"
+      },
+      {
+        "query": "地缘冲突 制裁 关税 大宗商品 A股 风险",
+        "title": "不要高估短期冲击，不要低估长期重构：2026宏观变局下的航运逻辑",
+        "snippet": "不要高估短期冲击，不要低估长期重构：2026宏观变局下的航运逻辑. ——弘则研究首席宏观分析师章左昊在易贸航运大会谈地缘政治、出口周期与大宗商品新格局.",
+        "source": "信德海事网",
+        "date": "1 个月前",
+        "link": "https://www.xindemarinenews.com/china/63681.html",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:05+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": null,
+        "latency_minutes": null,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "unknown"
+      },
+      {
+        "query": "地缘冲突 制裁 关税 大宗商品 A股 风险",
+        "title": "2026年世界经济面临“四重变局”",
+        "snippet": "2025年，在美国“对等关税”实施、贸易环境恶化、外汇市场波动加剧、地缘冲突烈度升级等多重冲击下，世界经济复苏进程持续承压。展望2026年，全球经济在...",
+        "source": "证券时报",
+        "date": "2026年1月22日",
+        "link": "https://stcn.com/article/detail/3607122.html",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:05+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": null,
+        "latency_minutes": null,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "unknown"
+      },
+      {
+        "query": "博云新材 002297 公告 澄清 风险提示 监管问询",
+        "title": "公告精选 | 长川科技、卫星化学上半年业绩预期高增，通威股份50亿增资太阳能公司",
+        "snippet": "长川科技（300604.SZ）：预计2026年半年度归属于上市公司股东的净利润为9.00亿元—10.00亿元，同比增长110.76%—134.18%。 卫星化学（002648.",
+        "source": "搜狐网",
+        "date": "1 天前",
+        "link": "https://m.sohu.com/a/1040105656_121157270?scm=10001.325_13-325_13.0.0-0-0-0-0.5_1334",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:06+00:00",
+        "stock_code": "002297",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-06-23T11:00:00",
+        "latency_minutes": 1440,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "博云新材 002297 公告 澄清 风险提示 监管问询",
+        "title": "股市“小作文”扎堆，虚假信息十几秒触达几十万股民",
+        "snippet": "今年以来，被称为“小作文”的股市虚假信息，出现愈演愈烈的迹象，尤其是随着近段时间AI算力产业链行情的爆发，“小作文”数量明显增加。",
+        "source": "上观新闻",
+        "date": "4 周前",
+        "link": "https://www.jfdaily.com/wx/detail.do?id=1118855",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:06+00:00",
+        "stock_code": "002297",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-05-27T11:00:00",
+        "latency_minutes": 40320,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "旭光电子 600353 公告 澄清 风险提示 监管问询",
+        "title": "监管持续收紧题材炒作！46家公司集中风险警示 严控ST股及科技题材过热炒作",
+        "snippet": "世名科技因沾边光刻材料概念遭资金爆炒，首轮提示相关业务营收占比极低、无法支撑业绩后，股价依旧强势；旭光电子绑定算力、光模块热门赛道，...",
+        "source": "搜狐网",
+        "date": "23小时前",
+        "link": "https://www.sohu.com/a/1040352991_121157270",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:08+00:00",
+        "stock_code": "600353",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-06-23T12:00:00",
+        "latency_minutes": 1380,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "江钨装备 600397 公告 澄清 风险提示 监管问询",
+        "title": "5连板后，600397紧急澄清",
+        "snippet": "6月23日晚，收获5连板的江钨装备（600397）发布股票交易异常波动暨风险提示公告，直接回应市场热议的“矿山资产注入”传闻，明确表示公司无相关安排或活动。",
+        "source": "东方财富",
+        "date": "4小时前",
+        "link": "https://wap.eastmoney.com/a/202606243780166931.html",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:14+00:00",
+        "stock_code": "600397",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-06-24T07:00:00",
+        "latency_minutes": 240,
+        "risk_classification": {
+          "is_risk": true,
+          "clarification_hits": [
+            "澄清",
+            "风险提示"
+          ],
+          "thesis_invalidation_hits": [],
+          "review_hits": [
+            "澄清",
+            "风险提示"
+          ],
+          "warning_only_hits": [
+            "异常波动"
+          ],
+          "hard_risk_hits": [],
+          "warnings": [
+            "公告需人工复核：5连板后，600397紧急澄清",
+            "公告波动提示：5连板后，600397紧急澄清"
+          ]
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "三安光电 600703 公告 澄清 风险提示 监管问询",
+        "title": "三安光电实控人林秀成被留置！靠废钢贸易起家跨界进入光电行业，曾是厦门首富",
+        "snippet": "3月22日晚，三安光电公告称，三安集团近日收到通知，公司实控人林秀成被留置、立案调查，原因未知。林秀成自2017年7月未在公司任职，公司称生产经营正常。",
+        "source": "新浪财经",
+        "date": "2026年3月24日",
+        "link": "/goto?url=CAESewHuR6pNw01koGnM-wwsGF05ix6QIA1VevusmRsCS9NepKitrdNgqBCKSnW_BKb_PPgrW0AzVoX127djr_VoJfSdkfA2dodiMYewrbno3T82fz9UTheNlksOpO3WLOaC4F7Oz7upiMlpnA7TXkCGUI7-2JHkSMJ6VqVFgg==",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:27+00:00",
+        "stock_code": "600703",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": null,
+        "latency_minutes": null,
+        "risk_classification": {
+          "is_risk": true,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [
+            "立案调查"
+          ],
+          "warnings": [
+            "公告硬风险：三安光电实控人林秀成被留置！靠废钢贸易起家跨界进入光电行业，曾是厦门首富"
+          ]
+        },
+        "freshness_class": "unknown"
+      },
+      {
+        "query": "C 制造业 A股 政策 产业链 订单 风险",
+        "title": "【十大券商一周策略】大涨之后，科技板块还有多少空间？看好AI算力，成长主导但谨慎追高",
+        "snippet": "【十大券商一周策略】大涨之后，科技板块还有多少空间？看好AI算力，成长主导但谨慎追高,创金合信工业周期股票C,证券相关基金,海外额度榜,互联网泡沫,中信证券,存量资金,...",
+        "source": "手机新浪网",
+        "date": "2 天前",
+        "link": "https://k.sina.com.cn/article_5952915705_162d248f9067035806.html?from=finance",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:49+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-06-22T11:00:00",
+        "latency_minutes": 2880,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "C 制造业 A股 政策 产业链 订单 风险",
+        "title": "在半导体板块领涨之后，资金是流向了人工智能订单，还是宏观层面的经济反弹？",
+        "snippet": "地缘政治风险缓解，为基金回购CashableAI Hardware Chain的可兑现股份打开了窗口。",
+        "source": "Moomoo",
+        "date": "4 天前",
+        "link": "https://www.moomoo.com/hans/news/post/71759203/after-the-semiconductor-sector-led-the-gains-is-the-capital",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:49+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-06-20T11:00:00",
+        "latency_minutes": 5760,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "C 制造业 A股 政策 产业链 订单 风险",
+        "title": "地缘风险驱动供应链重构：PPE树脂行业现状、痛点与企业发展策略",
+        "snippet": "东方财富网旗下财经自媒体平台“财富号”，于2017年3月1日上线，汇聚权威、全面、专业的财经自媒体，为中国广大投资者提供个性化、专业化的财经资讯和一站...",
+        "source": "财富号",
+        "date": "2 周前",
+        "link": "https://caifuhao.eastmoney.com/news/20260611163833753374710",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:49+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-06-10T11:00:00",
+        "latency_minutes": 20160,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "化学原料 A股 政策 产业链 订单 风险",
+        "title": "3公司获得推荐评级-更新中",
+        "snippet": "【23:05 绿发电力(000537)首次覆盖报告：国内优质综合绿色能源服务商风光储业务协同发展】 诚通证券6月23日给予绿发电力(000537)推荐评级。",
+        "source": "中财网",
+        "date": "12小时前",
+        "link": "https://www.cfi.net.cn/p20260623000525.html",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:53+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-06-23T23:00:00",
+        "latency_minutes": 720,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "化学原料 A股 政策 产业链 订单 风险",
+        "title": "罗志恒：美伊冲突对中国产业链的影响 哪些受损？哪些受益？",
+        "snippet": "来源：粤开志恒宏观粤开证券首席经济学家、研究院院长：罗志恒分析师：原野、孟之绪、曾勇摘要当前，美伊形势扑朔迷离...",
+        "source": "新浪财经",
+        "date": "2026年4月27日",
+        "link": "https://finance.sina.cn/stock/ggyj/2026-04-27/detail-inhvwwmq9257997.d.html?vt=4",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:53+00:00",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": null,
+        "latency_minutes": null,
+        "risk_classification": {
+          "is_risk": false,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [],
+          "warnings": []
+        },
+        "freshness_class": "unknown"
+      }
+    ],
+    "event_count": 16,
+    "risk_events": [
+      {
+        "query": "江钨装备 600397 公告 澄清 风险提示 监管问询",
+        "title": "5连板后，600397紧急澄清",
+        "snippet": "6月23日晚，收获5连板的江钨装备（600397）发布股票交易异常波动暨风险提示公告，直接回应市场热议的“矿山资产注入”传闻，明确表示公司无相关安排或活动。",
+        "source": "东方财富",
+        "date": "4小时前",
+        "link": "https://wap.eastmoney.com/a/202606243780166931.html",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:14+00:00",
+        "stock_code": "600397",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": "2026-06-24T07:00:00",
+        "latency_minutes": 240,
+        "risk_classification": {
+          "is_risk": true,
+          "clarification_hits": [
+            "澄清",
+            "风险提示"
+          ],
+          "thesis_invalidation_hits": [],
+          "review_hits": [
+            "澄清",
+            "风险提示"
+          ],
+          "warning_only_hits": [
+            "异常波动"
+          ],
+          "hard_risk_hits": [],
+          "warnings": [
+            "公告需人工复核：5连板后，600397紧急澄清",
+            "公告波动提示：5连板后，600397紧急澄清"
+          ]
+        },
+        "freshness_class": "stale"
+      },
+      {
+        "query": "三安光电 600703 公告 澄清 风险提示 监管问询",
+        "title": "三安光电实控人林秀成被留置！靠废钢贸易起家跨界进入光电行业，曾是厦门首富",
+        "snippet": "3月22日晚，三安光电公告称，三安集团近日收到通知，公司实控人林秀成被留置、立案调查，原因未知。林秀成自2017年7月未在公司任职，公司称生产经营正常。",
+        "source": "新浪财经",
+        "date": "2026年3月24日",
+        "link": "/goto?url=CAESewHuR6pNw01koGnM-wwsGF05ix6QIA1VevusmRsCS9NepKitrdNgqBCKSnW_BKb_PPgrW0AzVoX127djr_VoJfSdkfA2dodiMYewrbno3T82fz9UTheNlksOpO3WLOaC4F7Oz7upiMlpnA7TXkCGUI7-2JHkSMJ6VqVFgg==",
+        "provider": "serper",
+        "fetched_at": "2026-06-24T03:00:27+00:00",
+        "stock_code": "600703",
+        "discovered_at": "2026-06-24T11:00:00",
+        "ingested_at": "2026-06-24T11:00:00",
+        "published_at": null,
+        "latency_minutes": null,
+        "risk_classification": {
+          "is_risk": true,
+          "clarification_hits": [],
+          "thesis_invalidation_hits": [],
+          "review_hits": [],
+          "warning_only_hits": [],
+          "hard_risk_hits": [
+            "立案调查"
+          ],
+          "warnings": [
+            "公告硬风险：三安光电实控人林秀成被留置！靠废钢贸易起家跨界进入光电行业，曾是厦门首富"
+          ]
+        },
+        "freshness_class": "unknown"
+      }
+    ],
+    "risk_event_count": 2,
+    "signals": [],
+    "signal_count": 0,
+    "provider_status": {
+      "serper_event_count": 16,
+      "fallback_event_count": 0
+    },
+    "freshness": {
+      "status": "stale",
+      "sla_minutes": 180,
+      "parsed_event_count": 9,
+      "unknown_event_count": 7,
+      "newest_latency_minutes": 240,
+      "oldest_latency_minutes": 40320
+    },
+    "errors": []
+  },
+  "snapshot_path": "/Users/eleven/meta-11/a-stock-agent-system/market/snapshots/2026-06-24/news-monitor/snap-2414dfcca573672e2f1611fa.json"
+}

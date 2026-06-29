@@ -1,0 +1,89 @@
+{
+  "schema": "hermes_cron_artifact_v2",
+  "job_id": "intraday-alert",
+  "run_id": "intraday-alert-20260624-132806-33006",
+  "batch_id": "a-share-20260624",
+  "trading_date": "2026-06-24",
+  "context_scope": "cron",
+  "runtime": "openclaw",
+  "execution_mode": "isolated_subprocess",
+  "deliver": "origin",
+  "status": "ok",
+  "returncode": 0,
+  "started_at": "2026-06-24T13:28:06+08:00",
+  "finished_at": "2026-06-24T13:28:07+08:00",
+  "duration_seconds": 1.677,
+  "command": "/Users/eleven/meta-11/a-stock-agent-system/.venv/bin/python skills/stock-triage/scripts/intraday_monitor.py",
+  "cwd": "/Users/eleven/meta-11/a-stock-agent-system",
+  "has_signal": true,
+  "summary": {
+    "text_preview": "⚡ 盘中异动 | 13:28\n  🟡 剑桥科技 换手10.1%拉升，成交71.3亿\n  🟡 江丰电子 急涨5.1%，现价307.73\n  🟡 中微公司 急涨6.0%，现价393.99\n  🟡 丰元股份 换手10.3%异动，成交8.3亿\n  🟡 庄园牧场 换手10.2%异动，成交2.1亿\n  🟡 飞凯材料 急涨5.7%，现价50.0\n  🔴 长川科技(300604) 涨停！现价312.59 (+11.88%)\n  🟡 花园生物 换手10.0%砸盘，成交10.8亿\n  🟡 探路者 换手10.1%拉升，成交19.0亿\n  🟡 方正电机 换手10.0%异动，成交6.7亿\n  🟡 共同药业 换手10.2\n...[truncated 218 chars]"
+  },
+  "context_from": [
+    {
+      "job_id": "open-confirmation",
+      "run_id": "open-confirmation-20260624-093506-26754",
+      "batch_id": "a-share-20260624",
+      "trading_date": "2026-06-24",
+      "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/open-confirmation/open-confirmation-20260624-093506-26754.json",
+      "status": "ok",
+      "finished_at": "2026-06-24T09:35:09+08:00",
+      "summary": {
+        "schema": "open_confirmation_v3",
+        "status": "ready",
+        "signals_count": 5
+      },
+      "age_minutes": 232.95,
+      "required": false,
+      "reasons": [],
+      "gate_status": "passed"
+    }
+  ],
+  "dependency_gate": {
+    "passed": true,
+    "trading_date": "2026-06-24",
+    "batch_id": "a-share-20260624",
+    "policy": {
+      "trading_date": "same_trading_date",
+      "max_age_minutes": 480,
+      "optional_jobs": [
+        "open-confirmation"
+      ],
+      "accepted_statuses": [
+        "ok"
+      ]
+    },
+    "dependencies": [
+      {
+        "job_id": "open-confirmation",
+        "run_id": "open-confirmation-20260624-093506-26754",
+        "batch_id": "a-share-20260624",
+        "trading_date": "2026-06-24",
+        "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/open-confirmation/open-confirmation-20260624-093506-26754.json",
+        "status": "ok",
+        "finished_at": "2026-06-24T09:35:09+08:00",
+        "summary": {
+          "schema": "open_confirmation_v3",
+          "status": "ready",
+          "signals_count": 5
+        },
+        "age_minutes": 232.95,
+        "required": false,
+        "reasons": [],
+        "gate_status": "passed"
+      }
+    ]
+  },
+  "calendar_gate": {
+    "action": "run",
+    "calendar_date": "2026-06-24",
+    "policy": "required",
+    "reason": null
+  },
+  "market_snapshot": null,
+  "stdout": "⚡ 盘中异动 | 13:28\n  🟡 剑桥科技 换手10.1%拉升，成交71.3亿\n  🟡 江丰电子 急涨5.1%，现价307.73\n  🟡 中微公司 急涨6.0%，现价393.99\n  🟡 丰元股份 换手10.3%异动，成交8.3亿\n  🟡 庄园牧场 换手10.2%异动，成交2.1亿\n  🟡 飞凯材料 急涨5.7%，现价50.0\n  🔴 长川科技(300604) 涨停！现价312.59 (+11.88%)\n  🟡 花园生物 换手10.0%砸盘，成交10.8亿\n  🟡 探路者 换手10.1%拉升，成交19.0亿\n  🟡 方正电机 换手10.0%异动，成交6.7亿\n  🟡 共同药业 换手10.2%砸盘，成交2.3亿\n  🟡 华峰测控 急涨5.4%，现价447.06\n  🔴 富创精密(688409) 涨停！现价225.88 (+10.2%)\n  🔴 联讯仪器(688808) 涨停！现价2598.0 (+10.08%)\n  🟡 福达合金 换手10.6%拉升，成交12.8亿\n  🟡 达利凯普 换手10.4%拉升，成交8.4亿\n  🟡 美信科技 换手10.1%砸盘，成交1.7亿\n  🟡 协昌科技 换手10.0%砸盘，成交1.4亿\n",
+  "stderr": "",
+  "stdout_preview": "⚡ 盘中异动 | 13:28\n  🟡 剑桥科技 换手10.1%拉升，成交71.3亿\n  🟡 江丰电子 急涨5.1%，现价307.73\n  🟡 中微公司 急涨6.0%，现价393.99\n  🟡 丰元股份 换手10.3%异动，成交8.3亿\n  🟡 庄园牧场 换手10.2%异动，成交2.1亿\n  🟡 飞凯材料 急涨5.7%，现价50.0\n  🔴 长川科技(300604) 涨停！现价312.59 (+11.88%)\n  🟡 花园生物 换手10.0%砸盘，成交10.8亿\n  🟡 探路者 换手10.1%拉升，成交19.0亿\n  🟡 方正电机 换手10.0%异动，成交6.7亿\n  🟡 共同药业 换手10.2%砸盘，成交2.3亿\n  🟡 华峰测控 急涨5.4%，现价447.06\n  🔴 富创精密(688409) 涨停！现价225.88 (+10.2%)\n  🔴 联讯仪器(688808) 涨停！现价2598.0 (+10.08%)\n  🟡 福达合金 换手10.6%拉升，成交12.8亿\n  🟡 达利凯普 换手10.4%拉升，成交8.4亿\n  🟡 美信科技 换手10.1%砸盘，成交1.7亿\n  🟡 协昌科技 换手10.0%砸盘，成交1.4亿\n",
+  "stderr_preview": "",
+  "artifact_path": "/Users/eleven/meta-11/a-stock-agent-system/cron/output/intraday-alert/intraday-alert-20260624-132806-33006.json"
+}
