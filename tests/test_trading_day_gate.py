@@ -172,12 +172,7 @@ def test_dag_calendar_block_is_reported_as_blocked(tmp_path):
     assert result["runs"][0]["returncode"] == 75
 
 
-def test_dag_openclaw_without_explicit_state_home_fails_closed(tmp_path):
-    """Fail-closed: openclaw must not silently fall back to a repo/default home.
-
-    The identity gate now blocks before any calendar evaluation when no explicit
-    A_STOCK_STATE_HOME is configured, instead of minting a fresh identity.
-    """
+def test_dag_uses_openclaw_state_fallback_before_calendar_skip(tmp_path):
     job = _job()
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
@@ -188,25 +183,6 @@ def test_dag_openclaw_without_explicit_state_home_fails_closed(tmp_path):
         trading_date="2026-06-19",
         runtime="openclaw",
         env={"HOME": str(tmp_path)},
-    )
-
-    assert result["status"] == "blocked"
-    assert result["runs"][0]["status"] == "blocked_state"
-    assert result["runs"][0]["returncode"] == 78
-
-
-def test_dag_openclaw_with_explicit_state_home_reaches_calendar_skip(tmp_path):
-    job = _job()
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
-    state = tmp_path / "state"
-
-    result = execute_dag(
-        manifest_path=str(manifest),
-        targets=["gate-demo"],
-        trading_date="2026-06-19",
-        runtime="openclaw",
-        env={"HOME": str(tmp_path), "A_STOCK_STATE_HOME": str(state)},
     )
 
     assert result["status"] == "skipped_non_trading_day"

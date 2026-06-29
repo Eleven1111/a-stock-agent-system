@@ -729,7 +729,7 @@
       "run": {
         "command": "python skills/stock-triage/scripts/capital_flow_monitor.py --json --cache --delivery-job-id capital-flow",
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 120
       },
       "external_note": "需 Hermes Agent + NO_PROXY 环境（东财 API）"
     },

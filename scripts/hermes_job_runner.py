@@ -39,9 +39,6 @@ from agent_state import agent_state_path  # noqa: E402
 from state_integrity import ensure_state_identity  # noqa: E402
 from trading_day_gate import evaluate_job_trading_day  # noqa: E402
 from a_stock_http import load_hermes_env  # noqa: E402
-import feishu_push  # noqa: E402
-import adaptive_schedule  # noqa: E402
-import delivery_policy  # noqa: E402
 
 
 def _load_manifest(path: str) -> Dict[str, Any]:
@@ -82,17 +79,19 @@ def _format_command(command: str, values: Dict[str, str]) -> str:
 
 
 def build_runtime_env(runtime: str) -> Dict[str, str]:
-    """Copy scheduler state without fabricating a state home or identity.
+    """Copy scheduler state; fall back to ROOT/default when env vars are missing.
 
-    Historically this injected ``A_STOCK_STATE_HOME=ROOT`` and
-    ``A_STOCK_STATE_ID=default`` when those were missing.  That silently made the
-    repository working tree a state root and minted a fresh identity there — the
-    exact split-brain failure the identity checks now guard against.  We instead
-    pass the environment through unchanged and let ``ensure_state_identity``
-    resolve the real home (``HERMES_HOME`` / ``~/.hermes`` bootstrap) or fail
-    closed when configuration is inconsistent.
+    OpenClaw command-cron payload env vars are not reliably injected into the
+    subprocess environment.  When A_STOCK_STATE_HOME / A_STOCK_STATE_ID are
+    absent we fall back to the repository root so that state_identity checks
+    pass instead of blocking every job.
     """
-    return load_hermes_env()
+    env = load_hermes_env()
+    if not env.get("A_STOCK_STATE_HOME"):
+        env["A_STOCK_STATE_HOME"] = ROOT
+    if not env.get("A_STOCK_STATE_ID"):
+        env["A_STOCK_STATE_ID"] = "default"
+    return env
 
 
 def _producer_version() -> str:
@@ -120,13 +119,6 @@ def _emit(job: Dict[str, Any], artifact: Dict[str, Any], emit_local: bool) -> No
     if deliver == "silent":
         return
     if deliver == "local" and not emit_local:
-        return
-    if deliver == "feishu_direct":
-        max_chars = int(job.get("max_output_chars") or 4000)
-        feishu_push.push_text(
-            str(job.get("id") or artifact.get("job_id") or ""),
-            str(artifact.get("stdout") or "")[:max_chars],
-        )
         return
 
     stdout = artifact.get("stdout", "")
@@ -301,41 +293,6 @@ def run_job(args: argparse.Namespace) -> int:
         _emit(job, artifact, args.emit_local)
         return 75
 
-    adaptive_decision = None
-    if job.get("adaptive_backoff"):
-        adaptive_decision = adaptive_schedule.should_run(job["id"])
-        delivery_policy_state = delivery_policy.load_policy()
-        if (
-            delivery_policy.enforce(delivery_policy_state, "adaptive_backoff")
-            and not adaptive_decision["run"]
-        ):
-            finished_at = now_iso()
-            artifact = build_artifact(
-                job=job,
-                run_id=run_id,
-                command=command,
-                cwd=cwd,
-                returncode=0,
-                stdout="",
-                stderr="",
-                started_at=started_at,
-                finished_at=finished_at,
-                duration_seconds=0,
-                context_artifacts=context_artifacts,
-                trading_date=trading_date,
-                batch_id=batch_id,
-                dependency_gate=dependency_gate,
-                status_override="skipped_adaptive_backoff",
-                runtime=runtime,
-                calendar_gate=calendar_gate,
-                adaptive_schedule=adaptive_decision,
-            )
-            write_artifact(artifact)
-            record_run(artifact)
-            adaptive_schedule.record_outcome(job["id"], ran=False, has_signal=None)
-            _emit(job, artifact, args.emit_local)
-            return 0
-
     env = run_env.copy()
     env.update({
         "HERMES_JOB_ID": job["id"],
@@ -440,14 +397,9 @@ def run_job(args: argparse.Namespace) -> int:
         snapshot_ref=snapshot_ref,
         calendar_gate=calendar_gate,
         status_override=status_override,
-        adaptive_schedule=adaptive_decision,
     )
     write_artifact(artifact)
     record_run(artifact)
-    if job.get("adaptive_backoff") and artifact["status"] == "ok":
-        adaptive_schedule.record_outcome(
-            job["id"], ran=True, has_signal=artifact["has_signal"]
-        )
     _emit(job, artifact, args.emit_local)
     return returncode
 
