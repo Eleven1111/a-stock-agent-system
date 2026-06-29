@@ -36,8 +36,8 @@ def test_classify_without_promo_conservative():
 def test_tier_constraints():
     frozen = mt.compute_temperature(_ladder({"a": 1, "b": 2}), _ladder({"a": 1}))
     assert frozen["tier"] == "冰点"
-    assert frozen["allow_new_daban"] is False
-    assert frozen["top_n_limit"] == 0
+    assert frozen["allow_new_daban"] is True
+    assert frozen["top_n_limit"] == 2
 
     accel = mt.compute_temperature(
         _ladder({"a": 6, "b": 3, "c": 2}),

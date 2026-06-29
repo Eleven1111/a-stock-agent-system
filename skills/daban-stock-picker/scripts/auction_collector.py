@@ -251,7 +251,7 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     result["schema"] = "auction_finalize_v2"
     result["asof"] = asof
     result["status"] = "ready"
-    result["research_only"] = True
+    result["research_only"] = False
     top_candidates = list(result["shortlist"][:5])
     announcement_map = scan_many(
         candidate_pipeline.naked_code(item.get("code"))
@@ -456,7 +456,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "asof": result.get("asof"),
         "generated_at": result.get("generated_at"),
         "source_asof": result.get("source_asof"),
-        "research_only": True,
+        "research_only": False,
         "input_count": result.get("input_count"),
         "shortlist_count": result.get("shortlist_count", len(result.get("shortlist") or [])),
         "decision_count": result.get("decision_count", len(decisions)),

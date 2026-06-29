@@ -32,8 +32,8 @@ if _HERE not in sys.path:
 from signal_context import read_signal_context  # noqa: E402
 
 TIER_RULES = {
-    "冰点": {"allow_new_daban": False, "position_multiplier": 0.3, "top_n_limit": 0,
-             "advice": "只观察，不追高"},
+    "冰点": {"allow_new_daban": True, "position_multiplier": 0.3, "top_n_limit": 2,
+             "advice": "轻仓聚焦板块龙头，只做强势板块"},
     "修复": {"allow_new_daban": True, "position_multiplier": 0.6, "top_n_limit": 2,
              "advice": "小仓试错，优先首板龙一"},
     "发酵": {"allow_new_daban": True, "position_multiplier": 1.0, "top_n_limit": 5,

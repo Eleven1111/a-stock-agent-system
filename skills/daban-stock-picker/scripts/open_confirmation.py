@@ -348,6 +348,20 @@ def rank_confirmations(
 
     selected: Dict[str, Dict[str, Any]] = {}
 
+    def _passes_quality_gate(item: Mapping[str, Any]) -> bool:
+        """最低质量门槛：垃圾票不能进 watch。"""
+        ctx = item.get("selection_context") or {}
+        sector = item.get("sector") or ctx.get("sector")
+        leader_rank = item.get("leader_rank") or ctx.get("leader_rank")
+        qualified = item.get("qualified")
+        if qualified is False:
+            return False
+        if leader_rank is not None and int(leader_rank) > 150:
+            return False
+        if sector is None and leader_rank is not None and int(leader_rank) > 100:
+            return False
+        return True
+
     def _add_lane(lane: str, quota: int) -> None:
         if quota <= 0:
             return
@@ -361,6 +375,8 @@ def rank_confirmations(
             code = candidate_pipeline.naked_code(item.get("code"))
             if code in selected:
                 selected[code]["open_selected_by"][lane] = True
+                continue
+            if not _passes_quality_gate(item):
                 continue
             chosen = dict(item)
             chosen["open_selected_by"] = {
@@ -382,6 +398,8 @@ def rank_confirmations(
         ):
             code = candidate_pipeline.naked_code(item.get("code"))
             if code in selected:
+                continue
+            if not _passes_quality_gate(item):
                 continue
             if (
                 "hot_money_qualified" in item
