@@ -1,0 +1,1 @@
+@/tmp/blob_update.py
