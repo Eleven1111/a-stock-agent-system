@@ -29,3 +29,4 @@ Thumbs.db
 *.egg-info/
 docs/superpowers/
 .venv/
+.omx/
