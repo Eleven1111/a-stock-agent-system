@@ -44,6 +44,7 @@ def _settings(**overrides):
         "snapshot_min_keep_per_dataset": 1,
         "snapshot_max_total_mb": 1024,
         "gc_max_delete_files": 100,
+        "snapshot_cold_archive_enabled": True,
     }
     settings.update(overrides)
     return settings
@@ -204,3 +205,102 @@ def test_gc_reports_but_never_deletes_invalid_snapshot(tmp_path):
     assert result["scanned"]["invalid_snapshots"] == 1
     assert result["invalid_snapshot_paths"] == [str(invalid)]
     assert result["capacity_satisfied"] is False
+
+
+def test_gc_archives_expired_snapshot_before_deleting_it(tmp_path):
+    import gzip
+
+    expired = _write_snapshot(
+        tmp_path,
+        dataset="candidate-discovery-input",
+        snapshot_id="expired",
+        captured_at="2026-05-01T09:00:00+00:00",
+    )
+    original_bytes = expired.read_bytes()
+
+    result = storage_retention.cleanup_storage(
+        state_home=tmp_path,
+        settings=_settings(snapshot_min_keep_per_dataset=0),
+        now=NOW,
+        apply=True,
+    )
+
+    assert not expired.exists()
+    archived_path = (
+        storage_retention.archive_dir(tmp_path)
+        / "2026-01-01"
+        / "candidate-discovery-input"
+        / "expired.json.gz"
+    )
+    assert archived_path.exists()
+    with gzip.open(archived_path, "rb") as handle:
+        assert handle.read() == original_bytes
+    assert result["archived"]["count"] == 1
+    assert result["archived"]["bytes"] > 0
+    assert result["archived"]["enabled"] is True
+
+
+def test_gc_dry_run_reports_would_archive_without_writing_anything(tmp_path):
+    _write_snapshot(
+        tmp_path,
+        dataset="auction-input",
+        snapshot_id="expired",
+        captured_at="2026-05-01T09:00:00+00:00",
+    )
+
+    result = storage_retention.cleanup_storage(
+        state_home=tmp_path,
+        settings=_settings(snapshot_min_keep_per_dataset=0),
+        now=NOW,
+        apply=False,
+    )
+
+    assert result["archived"]["count"] == 1
+    assert result["archived"]["bytes"] is None
+    assert not storage_retention.archive_dir(tmp_path).exists()
+
+
+def test_gc_skips_archiving_when_disabled_via_config(tmp_path):
+    expired = _write_snapshot(
+        tmp_path,
+        dataset="candidate-discovery-input",
+        snapshot_id="expired",
+        captured_at="2026-05-01T09:00:00+00:00",
+    )
+
+    result = storage_retention.cleanup_storage(
+        state_home=tmp_path,
+        settings=_settings(
+            snapshot_min_keep_per_dataset=0,
+            snapshot_cold_archive_enabled=False,
+        ),
+        now=NOW,
+        apply=True,
+    )
+
+    assert not expired.exists()
+    assert result["archived"]["enabled"] is False
+    assert result["archived"]["count"] == 0
+    assert not storage_retention.archive_dir(tmp_path).exists()
+
+
+def test_gc_does_not_archive_cron_artifacts(tmp_path):
+    artifact = tmp_path / "cron" / "output" / "candidate-discovery" / "old.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("{}", encoding="utf-8")
+    job_runs = tmp_path / "cron" / "output" / "job_runs.json"
+    job_runs.write_text("[]", encoding="utf-8")
+    old_timestamp = datetime(2026, 4, 1, tzinfo=timezone.utc).timestamp()
+    os.utime(artifact, (old_timestamp, old_timestamp))
+    os.utime(job_runs, (old_timestamp, old_timestamp))
+
+    result = storage_retention.cleanup_storage(
+        state_home=tmp_path,
+        settings=_settings(snapshot_min_keep_per_dataset=0),
+        now=NOW,
+        apply=True,
+    )
+
+    assert not artifact.exists()
+    assert result["deleted"]["cron_artifacts"] == 1
+    assert result["archived"]["count"] == 0

@@ -68,6 +68,7 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
                 "snapshot_input_retention_days": 0,
                 "snapshot_min_keep_per_dataset": -1,
                 "snapshot_max_total_mb": "bad",
+                "snapshot_cold_archive_enabled": "bad",
             },
         }),
         encoding="utf-8",

@@ -48,6 +48,7 @@ DEFAULTS: Dict[str, Any] = {
         "snapshot_min_keep_per_dataset": 3,
         "snapshot_max_total_mb": 4096,
         "gc_max_delete_files": 10000,
+        "snapshot_cold_archive_enabled": True,
     },
     "intraday_monitor": {
         "limit_move_pct": 9.5,
@@ -299,6 +300,8 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
             )
         elif key == "snapshot_max_total_mb":
             storage[key] = _number(value, default, positive=True)
+        elif key == "snapshot_cold_archive_enabled":
+            storage[key] = value if isinstance(value, bool) else default
         else:
             storage[key] = (
                 value
