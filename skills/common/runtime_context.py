@@ -316,6 +316,7 @@ def build_artifact(
     runtime: Optional[str] = None,
     snapshot_ref: Optional[Dict[str, Any]] = None,
     calendar_gate: Optional[Dict[str, Any]] = None,
+    adaptive_schedule: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     parsed = try_parse_json(stdout)
     has_signal = output_has_signal(parsed, stdout)
@@ -349,6 +350,7 @@ def build_artifact(
         "context_from": context_artifacts,
         "dependency_gate": dependency_gate,
         "calendar_gate": calendar_gate,
+        "adaptive_schedule": adaptive_schedule,
         "market_snapshot": snapshot_ref,
         "stdout": stored_stdout,
         "stdout_truncated_chars": stdout_truncated_chars,

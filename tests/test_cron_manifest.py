@@ -75,6 +75,11 @@ def test_pure_notification_jobs_push_feishu_direct_and_skip_agent_context():
         assert _manifest_job(job_id)["deliver"] == "feishu_direct"
 
 
+def test_high_frequency_idle_prone_jobs_opt_into_adaptive_backoff():
+    for job_id in ("official-policy-watch", "news-monitor", "news-monitor-intraday"):
+        assert _manifest_job(job_id)["adaptive_backoff"] is True
+
+
 def test_missing_field():
     manifest = {"jobs": [{"id": "bad", "name": "Bad"}]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:

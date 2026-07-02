@@ -136,6 +136,103 @@ def test_dry_run_replaces_bare_python_with_current_interpreter(
     assert payload["command"].startswith(sys.executable + " ")
 
 
+def _seed_adaptive_state(state_home, job_id, *, miss_streak, ticks_since_run):
+    path = state_home / "runtime" / "adaptive_schedule.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "schema": "adaptive_schedule_v1",
+            "jobs": {
+                job_id: {
+                    "miss_streak": miss_streak,
+                    "ticks_since_run": ticks_since_run,
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_adaptive_backoff_enforce_mode_skips_when_not_due(tmp_path, monkeypatch):
+    marker = tmp_path / "worker-ran"
+    worker = tmp_path / "worker.py"
+    worker.write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n", encoding="utf-8")
+    job = _base_job("official-policy-watch")
+    job["adaptive_backoff"] = True
+    job["run"]["command"] = f"{sys.executable} {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    # streak=21 -> interval=8; ticks_since_run starts at 5, should_run bumps to 6 < 8 -> not due.
+    _seed_adaptive_state(state_home, "official-policy-watch", miss_streak=21, ticks_since_run=5)
+    monkeypatch.setattr(
+        job_runner.delivery_policy,
+        "load_policy",
+        lambda *a, **k: {"adaptive_backoff": {"enabled": True, "mode": "enforce"}},
+    )
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args(["official-policy-watch", "--manifest", str(manifest)])
+    )
+
+    assert result == 0
+    assert not marker.exists()
+    ledger = read_json(str(state_home / "cron" / "output" / "job_runs.json"), [])
+    artifact = read_json(ledger[0]["artifact_path"], {})
+    assert artifact["status"] == "skipped_adaptive_backoff"
+    assert artifact["adaptive_schedule"]["would_skip"] is True
+
+
+def test_adaptive_backoff_shadow_mode_still_runs_when_not_due(tmp_path, monkeypatch):
+    marker = tmp_path / "worker-ran"
+    worker = tmp_path / "worker.py"
+    worker.write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n", encoding="utf-8")
+    job = _base_job("news-monitor")
+    job["adaptive_backoff"] = True
+    job["run"]["command"] = f"{sys.executable} {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    _seed_adaptive_state(state_home, "news-monitor", miss_streak=21, ticks_since_run=5)
+    # Real shipped default is shadow -- no monkeypatch of delivery_policy here.
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args(["news-monitor", "--manifest", str(manifest)])
+    )
+
+    assert result == 0
+    assert marker.exists()
+
+
+def test_adaptive_backoff_records_outcome_after_successful_run(tmp_path, monkeypatch):
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json\nprint(json.dumps({'schema':'demo_v1','alerts':[{'x':1}]}))\n",
+        encoding="utf-8",
+    )
+    job = _base_job("news-monitor-intraday")
+    job["adaptive_backoff"] = True
+    job["run"]["command"] = f"{sys.executable} {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    _seed_adaptive_state(state_home, "news-monitor-intraday", miss_streak=5, ticks_since_run=0)
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args(["news-monitor-intraday", "--manifest", str(manifest)])
+    )
+
+    assert result == 0
+    state = read_json(str(state_home / "runtime" / "adaptive_schedule.json"), {})
+    entry = state["jobs"]["news-monitor-intraday"]
+    assert entry["miss_streak"] == 0
+    assert entry["ticks_since_run"] == 0
+
+
 def _base_job(job_id, deliver="origin"):
     return {
         "id": job_id,
