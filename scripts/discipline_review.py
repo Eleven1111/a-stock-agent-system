@@ -4,4 +4,4 @@
 from _canonical import run
 
 
-run("skills/stock-triage/scripts/eod_anomaly_scanner.py")
+run("skills/stock-triage/scripts/discipline_review.py")

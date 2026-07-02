@@ -1,6 +1,6 @@
 """腾讯行情解析 — 字段下标锁定测试（防止 parts[45] 等魔数静默漂移）"""
 
-from a_stock_http import parse_tencent_quote_line, _TENCENT_FIELDS
+from a_stock_http import parse_tencent_minute_response, parse_tencent_quote_line, _TENCENT_FIELDS
 
 
 def _build_line(code="sz002156"):
@@ -60,3 +60,43 @@ def test_parse_handles_empty_fields():
     r = parse_tencent_quote_line(line)
     assert r is not None
     assert r["fields"]["price"] is None   # 空字段 → None，不崩溃
+
+
+# ======================== 分时（minute/query）解析 ========================
+# 真实响应实测于 web.ifzq.gtimg.cn/appstock/app/minute/query?code=sz000001
+
+def test_parse_minute_response_real_shape():
+    payload = {
+        "data": {
+            "sz000001": {
+                "data": {
+                    "data": [
+                        "0930 10.20 17257 17602140.00",
+                        "0931 10.25 71645 73234935.00",
+                    ],
+                    "date": None,
+                },
+                "qt": {},
+            },
+        },
+    }
+    rows = parse_tencent_minute_response(payload, "000001", "sz")
+    assert rows == [
+        {"time": "0930", "price": 10.20, "cum_volume": 17257.0, "cum_amount": 17602140.0},
+        {"time": "0931", "price": 10.25, "cum_volume": 71645.0, "cum_amount": 73234935.0},
+    ]
+
+
+def test_parse_minute_response_wrong_code_key_returns_empty():
+    payload = {"data": {"sz000001": {"data": {"data": ["0930 10.20 17257 17602140.00"]}}}}
+    assert parse_tencent_minute_response(payload, "999999", "sz") == []
+
+
+def test_parse_minute_response_skips_malformed_rows():
+    payload = {"data": {"sz000001": {"data": {"data": ["0930 10.20 17257 17602140.00", "garbage"]}}}}
+    rows = parse_tencent_minute_response(payload, "000001", "sz")
+    assert len(rows) == 1
+
+
+def test_parse_minute_response_handles_missing_data():
+    assert parse_tencent_minute_response({}, "000001", "sz") == []

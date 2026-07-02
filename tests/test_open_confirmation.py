@@ -579,3 +579,86 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
     assert "selection_context" in report["signals"][0]
     lifecycle = candidate_lifecycle.load_day(source_asof)
     assert sum(record["current_stage"] == "open_confirmed" for record in lifecycle["records"]) == 3
+
+
+def test_apply_policy_blocks_daban_lane_when_discipline_gate_trips(monkeypatch):
+    """09:35 是最终写 recommendations.json 的关口；日周止损/连续错单必须在这里也生效，
+    不能只在09:26竞价收口生效，否则一个已被熔断的账户仍会在开盘确认阶段拿到buy。"""
+    monkeypatch.setattr(
+        oc.strategy_registry,
+        "live_record",
+        lambda strategy_id: {
+            "strategy_id": strategy_id,
+            "allowed_in_live_agent": True,
+            "gating_status": "enabled",
+            "runtime_allowed": True,
+        },
+    )
+    monkeypatch.setattr(
+        oc,
+        "build_research_evidence",
+        lambda code, strategy_id, asof: {
+            "schema": "research_evidence_v1",
+            "chanlun": {"status": "no_signal", "live_bullish_signals": [], "live_bearish_signals": []},
+            "serenity": {"available": False, "stale": None, "hard_risks": []},
+            "market_intelligence": {
+                "available": True, "stale": False, "directional_ready": True,
+                "hard_risks": [], "warnings": [],
+            },
+        },
+    )
+    item = {
+        "code": "sh600001",
+        "hot_money_qualified": True,
+        "open_selected_by": {"daban": True, "trend": False},
+        "execution_plan": {"decision": "buy", "position_pct": 4.0},
+        "quality_report": {"status": "passed"},
+    }
+    kwargs = dict(asof="2026-06-12", portfolio={"cash": 20000, "positions": []})
+
+    clean = oc._apply_policy(item, discipline_state={"blocked": False, "reasons": []}, **kwargs)
+    blocked = oc._apply_policy(
+        item,
+        discipline_state={"blocked": True, "reasons": ["consecutive_losses_freeze"]},
+        **kwargs,
+    )
+
+    assert clean["policy_decision"]["decision"] == "buy"
+    assert blocked["decision"] == "avoid"
+    assert blocked["policy_decision"]["decision"] == "avoid"
+    assert "consecutive_losses_freeze" in blocked["policy_decision"]["reasons"]
+
+
+def test_build_confirmation_computes_real_discipline_state_from_ledger(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
+        {"cash": 100000, "positions": [], "cash_reconciled": True},
+    )
+    for trade_date in ["2026-06-08", "2026-06-09", "2026-06-10"]:
+        oc.signal_ledger.append_event(
+            "trade.executed",
+            oc.signal_ledger.make_links(f"loss-{trade_date}"),
+            {"code": "600099", "action": "close", "trade_date": trade_date, "pnl": -100, "pnl_pct": -3.0},
+        )
+    monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    event_asof = "2026-06-11"
+    atomic_write_json(
+        oc._shortlist_path(event_asof),
+        {"schema": "auction_finalize_v2", "asof": event_asof, "source_asof": "2026-06-10", "shortlist": []},
+    )
+
+    result = oc.build_confirmation([], event_asof, limit=1)
+
+    assert result["discipline_state"]["consecutive_losses"] == 3
+    assert result["discipline_state"]["blocked"] is True
+    assert "consecutive_losses_freeze" in result["discipline_state"]["reasons"]
+    report = oc.json_report(result)
+    assert report["discipline_state"]["blocked"] is True

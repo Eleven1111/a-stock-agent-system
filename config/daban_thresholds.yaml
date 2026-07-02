@@ -47,3 +47,4 @@ market_gate:
   day_loss_pct_stop: -2.0
   week_loss_pct_freeze: -5.0
   consecutive_losses_max: 3
+  position_time_stop_trading_days: 2  # 打板仓位持有超过N个交易日仍未走出行情，无论盈亏提示了结

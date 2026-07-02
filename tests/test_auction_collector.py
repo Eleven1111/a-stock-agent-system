@@ -181,6 +181,7 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     atomic_write_json(
         str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
@@ -238,6 +239,7 @@ def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     monkeypatch.setattr(ac.strategy_registry, "live_record", lambda _strategy_id: None)
     atomic_write_json(
@@ -295,6 +297,7 @@ def test_finalize_passes_selection_market_risk_to_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
     captured = []
 
@@ -347,3 +350,57 @@ def test_finalize_passes_selection_market_risk_to_policy(tmp_path, monkeypatch):
     ac.finalize(event_asof, shortlist_limit=1)
 
     assert captured == [{"dominant_state": "S6", "fragility_score": 0.8}]
+
+
+def test_finalize_computes_real_discipline_state_from_ledger(tmp_path, monkeypatch):
+    """market_gate 阈值(config/daban_thresholds.yaml)必须对照真实交易记录，
+    而不是永远为0的默认值——否则'连续错单3次冻结交易'从未真正生效过。"""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    atomic_write_json(
+        str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
+        {"cash": 100000, "positions": [], "cash_reconciled": True},
+    )
+    for trade_date in ["2026-06-08", "2026-06-09", "2026-06-10"]:
+        ac.signal_ledger.append_event(
+            "trade.executed",
+            ac.signal_ledger.make_links(f"loss-{trade_date}"),
+            {"code": "600001", "action": "close", "trade_date": trade_date, "pnl": -100, "pnl_pct": -3.0},
+        )
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    candidate = {
+        "code": "600002",
+        "name": "候选票",
+        "daban_score": 90,
+        "trend_score": 20,
+        "hot_money_qualified": True,
+        "selected_by": {"daban": True, "trend": False},
+        "selection_context": {"window": "D0_close"},
+    }
+    atomic_write_json(ac._pool_path(), {"status": "ready", "asof": source_asof, "candidates": [candidate]})
+    candidate_lifecycle.initialize_day(source_asof, [candidate])
+    atomic_write_json(ac._state_path(event_asof), {
+        "asof": event_asof,
+        "series": {
+            "sh600002": [{
+                "t": "09:24:50", "name": "候选票", "price": 10.5, "prev_close": 10.0,
+                "volume": 20_000, "market_cap": 100.0,
+                "bids": [(10.5, 5_000)] * 5, "asks": [(10.51, 2_000)] * 5,
+            }],
+        },
+    })
+
+    result = ac.finalize(event_asof, shortlist_limit=1)
+
+    assert result["discipline_state"]["consecutive_losses"] == 3
+    assert result["discipline_state"]["blocked"] is True
+    assert "consecutive_losses_freeze" in result["discipline_state"]["reasons"]
+    decision = result["preopen_decisions"][0]
+    assert decision["policy_decision"]["decision"] == "avoid"
+    assert "consecutive_losses_freeze" in decision["policy_decision"]["reasons"]
+    report = ac.json_report(result)
+    assert report["discipline_state"]["blocked"] is True

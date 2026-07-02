@@ -20,17 +20,18 @@ Usage:
 import json
 import sys
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional
 
 # 共享状态存储
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from state_store import read_json, atomic_write_json, update_json_list, mutate_json
 from paths import data_file
-from a_share_rules import t1_constraint
+from a_share_rules import t1_constraint, is_trading_day
 from data_access_config import risk_settings
 from data_provider import fetch_tencent_quote
 from http_client import DataSourceError
+import daban_config
 import monitor_registry
 import signal_ledger
 
@@ -47,6 +48,8 @@ TAKE_PROFIT_PCT = float(_RISK_CONFIG["take_profit_pct"])
 TRAILING_STOP = float(_RISK_CONFIG["trailing_stop_pct"])
 MAX_SINGLE_POSITION = float(_RISK_CONFIG["max_single_position_pct"])
 MAX_SECTOR_EXPOSURE = float(_RISK_CONFIG["max_sector_exposure_pct"])
+# 打板仓位专属时间止损：非固定百分比，参数走 daban_thresholds 单一事实源。
+POSITION_TIME_STOP_DAYS = int(daban_config.section("market_gate")["position_time_stop_trading_days"])
 
 
 def _default_portfolio() -> Dict:
@@ -130,6 +133,46 @@ def _latest_stock_links(code: str) -> Dict:
         signal_id=f"position:{str(code).zfill(6)}",
         monitor_id=f"stock:{str(code).zfill(6)}",
     )
+
+
+def _latest_signal_strategy(code: str) -> Optional[str]:
+    """开仓时的车道归属：找该代码最近一条 signal.opened 事件的 strategy_id。
+
+    找不到就是 None（手工建仓/无对应推荐），不臆造车道，时间止损直接跳过。
+    """
+    try:
+        events = signal_ledger.read_events()
+    except (OSError, TimeoutError):
+        return None
+    normalized = str(code).zfill(6)
+    for event in reversed(events):
+        if event.get("event_type") != "signal.opened":
+            continue
+        payload = event.get("payload") or {}
+        if str(payload.get("code") or "").zfill(6) == normalized:
+            return payload.get("strategy_id")
+    return None
+
+
+def _position_lane(strategy_id: Optional[str]) -> Optional[str]:
+    if not strategy_id:
+        return None
+    return "daban" if str(strategy_id).startswith("daban") else "trend"
+
+
+def _trading_days_elapsed(start: Optional[str], end: str) -> int:
+    """start(不含)到 end(含)之间的交易日数，用于打板仓位时间止损。"""
+    try:
+        cursor = date.fromisoformat(str(start)[:10])
+        end_date = date.fromisoformat(str(end)[:10])
+    except (TypeError, ValueError):
+        return 0
+    count = 0
+    while cursor < end_date:
+        cursor += timedelta(days=1)
+        if is_trading_day(cursor):
+            count += 1
+    return count
 
 
 def _record_trade_execution(
@@ -276,6 +319,8 @@ def add_position(
         return {"error": f"价格与股数必须为正: cost={cost}, shares={shares}"}
     total_cost = cost * shares
     acquired_on = trade_date or date.today().isoformat()
+    strategy_id = _latest_signal_strategy(code)
+    lane = _position_lane(strategy_id)
     outcome: Dict = {}
 
     def _mut(pf):
@@ -302,6 +347,8 @@ def add_position(
                 "code": code, "name": name, "cost": cost, "shares": shares,
                 "buy_date": acquired_on, "add_date": acquired_on,
                 "peak_price": cost,
+                "strategy_id": strategy_id,
+                "lane": lane,
                 "lots": [{
                     "shares": shares,
                     "cost": cost,
@@ -541,6 +588,31 @@ def _apply_prices(pf: Dict, fetched: Dict[str, Optional[Dict]]) -> Dict:
                     "execution_status": "t1_locked" if t1_state["locked_shares"] else "sellable",
                     **t1_state,
                 })
+
+            if pos["pnl_pct"] >= TAKE_PROFIT_PCT:
+                alerts.append({
+                    "level": "🟢 止盈目标",
+                    "msg": (
+                        f"{pos['name']}({pos['code']}) 浮盈{pos['pnl_pct']}%，"
+                        f"已达到止盈目标{TAKE_PROFIT_PCT}%，建议分批了结，不要等回撤止盈才动"
+                    ),
+                    "execution_status": "t1_locked" if t1_state["locked_shares"] else "sellable",
+                    **t1_state,
+                })
+
+            if pos.get("lane") == "daban":
+                held_trading_days = _trading_days_elapsed(pos.get("buy_date"), date.today().isoformat())
+                if held_trading_days >= POSITION_TIME_STOP_DAYS:
+                    alerts.append({
+                        "level": "🟠 时间止损",
+                        "msg": (
+                            f"{pos['name']}({pos['code']}) 打板来源仓位已持有{held_trading_days}个"
+                            f"交易日，超过{POSITION_TIME_STOP_DAYS}天时间止损线，无论盈亏({pos['pnl_pct']}%)"
+                            f"建议了结，不要把打板仓位捂成波段"
+                        ),
+                        "execution_status": "t1_locked" if t1_state["locked_shares"] else "sellable",
+                        **t1_state,
+                    })
         else:
             pos["current_price"] = None
             pos["change_pct"] = None
