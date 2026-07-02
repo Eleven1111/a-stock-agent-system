@@ -8,5 +8,9 @@
   "summary_mode": {
     "enabled": true,
     "mode": "enforce"
+  },
+  "adaptive_backoff": {
+    "enabled": true,
+    "mode": "shadow"
   }
 }

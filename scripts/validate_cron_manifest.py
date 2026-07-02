@@ -144,6 +144,10 @@ def validate(filepath):
         if silent is not None and not isinstance(silent, bool):
             errors.append(f"job[{i}] ({jid}) silent_when_no_signal must be boolean")
 
+        adaptive_backoff = job.get("adaptive_backoff")
+        if adaptive_backoff is not None and not isinstance(adaptive_backoff, bool):
+            errors.append(f"job[{i}] ({jid}) adaptive_backoff must be boolean")
+
         if job.get("execution_mode") not in VALID_EXECUTION_MODES:
             errors.append(f"job[{i}] ({jid}) invalid execution_mode: {job.get('execution_mode')}")
 

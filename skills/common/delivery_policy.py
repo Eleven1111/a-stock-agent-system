@@ -19,6 +19,10 @@ DEFAULT_POLICY: dict[str, Any] = {
         "enabled": True,
         "mode": "enforce",
     },
+    "adaptive_backoff": {
+        "enabled": True,
+        "mode": "shadow",
+    },
 }
 
 

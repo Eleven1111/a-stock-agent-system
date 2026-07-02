@@ -40,6 +40,8 @@ from state_integrity import ensure_state_identity  # noqa: E402
 from trading_day_gate import evaluate_job_trading_day  # noqa: E402
 from a_stock_http import load_hermes_env  # noqa: E402
 import feishu_push  # noqa: E402
+import adaptive_schedule  # noqa: E402
+import delivery_policy  # noqa: E402
 
 
 def _load_manifest(path: str) -> Dict[str, Any]:
@@ -301,6 +303,41 @@ def run_job(args: argparse.Namespace) -> int:
         _emit(job, artifact, args.emit_local)
         return 75
 
+    adaptive_decision = None
+    if job.get("adaptive_backoff"):
+        adaptive_decision = adaptive_schedule.should_run(job["id"])
+        delivery_policy_state = delivery_policy.load_policy()
+        if (
+            delivery_policy.enforce(delivery_policy_state, "adaptive_backoff")
+            and not adaptive_decision["run"]
+        ):
+            finished_at = now_iso()
+            artifact = build_artifact(
+                job=job,
+                run_id=run_id,
+                command=command,
+                cwd=cwd,
+                returncode=0,
+                stdout="",
+                stderr="",
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_seconds=0,
+                context_artifacts=context_artifacts,
+                trading_date=trading_date,
+                batch_id=batch_id,
+                dependency_gate=dependency_gate,
+                status_override="skipped_adaptive_backoff",
+                runtime=runtime,
+                calendar_gate=calendar_gate,
+                adaptive_schedule=adaptive_decision,
+            )
+            write_artifact(artifact)
+            record_run(artifact)
+            adaptive_schedule.record_outcome(job["id"], ran=False, has_signal=None)
+            _emit(job, artifact, args.emit_local)
+            return 0
+
     env = run_env.copy()
     env.update({
         "HERMES_JOB_ID": job["id"],
@@ -405,9 +442,14 @@ def run_job(args: argparse.Namespace) -> int:
         snapshot_ref=snapshot_ref,
         calendar_gate=calendar_gate,
         status_override=status_override,
+        adaptive_schedule=adaptive_decision,
     )
     write_artifact(artifact)
     record_run(artifact)
+    if job.get("adaptive_backoff") and artifact["status"] == "ok":
+        adaptive_schedule.record_outcome(
+            job["id"], ran=True, has_signal=artifact["has_signal"]
+        )
     _emit(job, artifact, args.emit_local)
     return returncode
 
