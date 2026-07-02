@@ -22,6 +22,7 @@ from data_provider import fetch_tencent_quote
 from eastmoney_intelligence import eastmoney_json
 from http_client import DataSourceError, request_json
 from provider_contract import health_attempt, observation_error, observation_ok
+import delivery_output
 import runtime_targets
 
 load_hermes_env()
@@ -395,6 +396,28 @@ def format_report(data: Dict) -> str:
     return "\n".join(lines)
 
 
+def has_delivery_anomaly(data: Dict[str, Any]) -> bool:
+    status = str(data.get("status") or "ready")
+    return status not in {"ready", "degraded"} or bool(data.get("alerts"))
+
+
+def delivery_summary_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    nb = data.get("northbound") or {}
+    net = nb.get("net_flow_yi")
+    net_text = "NA" if net is None else f"{net:+.1f}亿"
+    return {
+        "schema": "delivery_summary_v1",
+        "job_id": "capital-flow",
+        "status": data.get("status") or "ready",
+        "summary": (
+            f"资金流 {str(data.get('timestamp') or '')[:10]}："
+            f"北向{net_text}；跟踪股{len(data.get('stocks') or [])}；"
+            f"板块{len(data.get('sectors') or [])}；无资金异动。"
+        ),
+        "alerts": [],
+    }
+
+
 def cache_signal_context(data: Dict[str, Any]) -> None:
     """把资金流采集结果落入情绪上下文缓存（northbound/板块/个股主力资金），
     供 four_dim 情绪面消费。失败不阻塞主输出。"""
@@ -426,11 +449,29 @@ if __name__ == "__main__":
     p.add_argument("--json", action="store_true")
     p.add_argument("--cache", action="store_true",
                    help="把资金流落入情绪上下文缓存，供四维情绪面 overlay")
+    p.add_argument("--delivery-job-id", help="启用该 cron job 的无异常摘要投递")
     args = p.parse_args()
     data = collect_flow_data()
     if args.cache:
         cache_signal_context(data)
     if args.json:
-        print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
+        if args.delivery_job_id:
+            print(delivery_output.maybe_summarize_json(
+                data,
+                {**delivery_summary_payload(data), "job_id": args.delivery_job_id},
+                job_id=args.delivery_job_id,
+                has_anomaly=has_delivery_anomaly(data),
+            ))
+        else:
+            print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
     else:
-        print(format_report(data))
+        report = format_report(data)
+        if args.delivery_job_id:
+            print(delivery_output.maybe_summarize_text(
+                report,
+                delivery_summary_payload(data)["summary"],
+                job_id=args.delivery_job_id,
+                has_anomaly=has_delivery_anomaly(data),
+            ))
+        else:
+            print(report)

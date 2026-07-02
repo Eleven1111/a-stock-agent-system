@@ -31,6 +31,7 @@ from monitor_registry import active_entries  # noqa: E402
 from recommendation_quality import scan_announcement_risks  # noqa: E402
 from catalyst_context import update_catalyst_context  # noqa: E402
 from runtime_targets import load_stock_targets  # noqa: E402
+import novelty_gate  # noqa: E402
 
 
 _NEWS_CONFIG = news_monitor_settings()
@@ -333,6 +334,14 @@ def run_monitor(
             continue
         seen.add(key)
         deduped.append(classify_event(event))
+    job_id = "news-monitor-intraday" if mode == "intraday" else "news-monitor"
+    novelty = novelty_gate.filter_items(
+        deduped,
+        namespace="market-news",
+        job_id=job_id,
+        now=current,
+    )
+    deduped = novelty.items
 
     risk_events = [
         event for event in deduped
@@ -368,6 +377,13 @@ def run_monitor(
         "risk_event_count": len(risk_events),
         "signals": deduped if directional_ready else [],
         "signal_count": len(deduped) if directional_ready else 0,
+        "duplicate_event_count": novelty.duplicate_count,
+        "archive_note": novelty_gate.duplicate_archive_note(novelty),
+        "novelty_gate": {
+            "fail_open": novelty.fail_open,
+            "shadow": novelty.shadow,
+            "would_suppress": novelty.would_suppress,
+        },
         "provider_status": {
             "serper_event_count": serper_events,
             "fallback_event_count": fallback_events,
@@ -385,6 +401,8 @@ def format_report(result: Dict[str, Any]) -> str:
     for event in result["events"][:8]:
         prefix = "⚠️ " if (event.get("risk_classification") or {}).get("is_risk") else ""
         lines.append(f"- {prefix}{event['title']} | {event.get('source') or 'unknown'}")
+    if result.get("archive_note"):
+        lines.append(result["archive_note"])
     return "\n".join(lines)
 
 

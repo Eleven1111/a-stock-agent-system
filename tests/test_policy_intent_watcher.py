@@ -113,6 +113,7 @@ def test_build_watch_result_marks_only_unseen_items(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(watcher, "skill_data_dir", lambda _skill: str(tmp_path))
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
 
     first = watcher.build_watch_result(
         catalog,

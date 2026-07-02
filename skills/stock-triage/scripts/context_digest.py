@@ -12,8 +12,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import datetime
 from typing import Any, Dict, List
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+import delivery_output
 
 
 def _load_context_from_env() -> List[Dict[str, Any]]:
@@ -59,17 +63,53 @@ def format_digest(digest: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def has_delivery_anomaly(digest: Dict[str, Any]) -> bool:
+    return bool(digest.get("missing_context")) or digest.get("status") != "ready"
+
+
+def delivery_summary(digest: Dict[str, Any]) -> str:
+    return (
+        f"{digest['kind']} {str(digest.get('generated_at') or '')[:10]}："
+        f"上游{digest.get('context_count', 0)}项齐备，无缺失上下文。"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Digest upstream Hermes cron artifacts")
     parser.add_argument("--kind", default=os.environ.get("HERMES_JOB_ID", "context-digest"))
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--delivery-job-id", help="启用该 cron job 的无异常摘要投递")
     args = parser.parse_args()
 
     digest = build_digest(args.kind, _load_context_from_env())
     if args.json:
-        print(json.dumps(digest, ensure_ascii=False, indent=2))
+        if args.delivery_job_id:
+            summary_payload = {
+                "schema": "delivery_summary_v1",
+                "job_id": args.delivery_job_id,
+                "status": digest.get("status"),
+                "summary": delivery_summary(digest),
+                "alerts": [],
+            }
+            print(delivery_output.maybe_summarize_json(
+                digest,
+                summary_payload,
+                job_id=args.delivery_job_id,
+                has_anomaly=has_delivery_anomaly(digest),
+            ))
+        else:
+            print(json.dumps(digest, ensure_ascii=False, indent=2))
     else:
-        print(format_digest(digest))
+        report = format_digest(digest)
+        if args.delivery_job_id:
+            print(delivery_output.maybe_summarize_text(
+                report,
+                delivery_summary(digest),
+                job_id=args.delivery_job_id,
+                has_anomaly=has_delivery_anomaly(digest),
+            ))
+        else:
+            print(report)
 
 
 if __name__ == "__main__":

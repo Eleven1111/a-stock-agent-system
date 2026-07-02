@@ -30,6 +30,7 @@ sys.path.insert(0, str(COMMON))
 from http_client import DataSourceError, request_text  # noqa: E402
 from paths import skill_data_dir  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
+import novelty_gate  # noqa: E402
 
 
 BJ = timezone(timedelta(hours=8))
@@ -389,6 +390,15 @@ def build_watch_result(
         if item["should_decode"] and item["freshness"] == "recent"
     ]
     new_items, _seen = mark_new_items(decode_ready_items, no_state=no_state, max_seen=max_seen)
+    novelty = novelty_gate.NoveltyResult(new_items, [])
+    if not no_state and new_items:
+        novelty = novelty_gate.filter_items(
+            new_items,
+            namespace="market-news",
+            job_id="official-policy-watch",
+            now=datetime.now(timezone.utc),
+        )
+        new_items = novelty.items
     ok_sources = [item for item in source_results if item["status"] == "ok"]
     status = "no_signal"
     if not ok_sources:
@@ -414,7 +424,14 @@ def build_watch_result(
             "failed_sources": len(source_results) - len(ok_sources),
             "candidate_count": len(ranked_items),
             "new_count": len(new_items),
+            "duplicate_event_count": novelty.duplicate_count,
             "lookback_days": lookback_days,
+        },
+        "archive_note": novelty_gate.duplicate_archive_note(novelty),
+        "novelty_gate": {
+            "fail_open": novelty.fail_open,
+            "shadow": novelty.shadow,
+            "would_suppress": novelty.would_suppress,
         },
         "signals": new_items,
         "candidate_preview": ranked_items[:25],

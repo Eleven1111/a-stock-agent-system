@@ -33,6 +33,7 @@ from data_provider import _next_serper_key  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from paths import data_file, cache_dir  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
+import novelty_gate  # noqa: E402
 import monitor_registry  # noqa: E402
 
 T1_KEYWORDS = [
@@ -200,6 +201,34 @@ def run_trigger(force: bool = False) -> Dict[str, Any]:
             "scanned": len(catalysts),
             "new": 0,
         }
+    novelty = novelty_gate.filter_items(
+        new_catalysts,
+        namespace="market-news",
+        job_id="catalyst-trigger",
+        now=now,
+    )
+    original_new_count = len(new_catalysts)
+    new_catalysts = novelty.items
+
+    if not new_catalysts:
+        for c in novelty.duplicate_items:
+            if c.get("link"):
+                processed.add(c["link"])
+        cache["processed_links"] = list(processed)[-500:]
+        atomic_write_json(TRIGGER_CACHE, cache)
+        return {
+            "status": "no_new",
+            "timestamp": now.isoformat(),
+            "scanned": len(catalysts),
+            "new": 0,
+            "duplicate_event_count": novelty.duplicate_count,
+            "archive_note": novelty_gate.duplicate_archive_note(novelty),
+            "novelty_gate": {
+                "fail_open": novelty.fail_open,
+                "shadow": novelty.shadow,
+                "would_suppress": novelty.would_suppress,
+            },
+        }
 
     t1_catalysts = [c for c in new_catalysts if c.get("tier") == "T1"]
     t2_catalysts = [c for c in new_catalysts if c.get("tier") == "T2"]
@@ -250,7 +279,7 @@ def run_trigger(force: bool = False) -> Dict[str, Any]:
             "action": "priority_watch" if top_tier == "T1" else "watch",
         })
 
-    for c in new_catalysts:
+    for c in [*new_catalysts, *novelty.duplicate_items]:
         if c.get("link"):
             processed.add(c["link"])
     cache["processed_links"] = list(processed)[-500:]
@@ -261,6 +290,14 @@ def run_trigger(force: bool = False) -> Dict[str, Any]:
         "timestamp": now.isoformat(),
         "scanned": len(catalysts),
         "new": len(new_catalysts),
+        "candidate_new": original_new_count,
+        "duplicate_event_count": novelty.duplicate_count,
+        "archive_note": novelty_gate.duplicate_archive_note(novelty),
+        "novelty_gate": {
+            "fail_open": novelty.fail_open,
+            "shadow": novelty.shadow,
+            "would_suppress": novelty.would_suppress,
+        },
         "t1_count": len(t1_catalysts),
         "t2_count": len(t2_catalysts),
         "matched_stocks": len(matched),
@@ -288,3 +325,5 @@ if __name__ == "__main__":
                     print(f"    └─ {e}")
         elif result.get("status") == "no_new":
             print(f"催化扫描完成，无新事件 (共扫描{result['scanned']}条)")
+            if result.get("archive_note"):
+                print(result["archive_note"])

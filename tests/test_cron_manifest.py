@@ -7,6 +7,7 @@ from scripts.validate_cron_manifest import validate
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+MANIFEST_PATH = os.path.join(ROOT, "cron", "hermes-cron-manifest.json")
 
 VALID_JOB = {
     "id": "test-job",
@@ -43,6 +44,24 @@ def test_valid_manifest():
         assert validate(path) is True
     finally:
         os.unlink(path)
+
+
+def _manifest_job(job_id):
+    with open(MANIFEST_PATH, encoding="utf-8") as f:
+        manifest = json.load(f)
+    return next(job for job in manifest["jobs"] if job["id"] == job_id)
+
+
+def test_same_window_auction_and_open_pushes_are_merged():
+    auction_finalize = _manifest_job("auction-finalize")
+    auction_brief = _manifest_job("auction-intelligence-brief")
+    open_confirmation = _manifest_job("open-confirmation")
+    open_brief = _manifest_job("open-intelligence-brief")
+
+    assert auction_finalize["deliver"] == "local"
+    assert auction_brief["deliver"] == "origin"
+    assert open_confirmation["deliver"] == "local"
+    assert open_brief["deliver"] == "origin"
 
 
 def test_missing_field():
@@ -341,19 +360,21 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     ]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
     assert jobs["candidate-preopen"]["deliver"] == "local"
-    # auction-finalize / open-confirmation push their gated conclusions to origin
-    # (deliver=local→origin, intentional per "四合一 cron 修复").
-    assert jobs["auction-finalize"]["deliver"] == "origin"
-    assert jobs["open-confirmation"]["deliver"] == "origin"
+    # Same-window execution artifacts are now local; the following brief jobs
+    # remain the single origin-push surface for each window.
+    assert jobs["auction-finalize"]["deliver"] == "local"
+    assert jobs["auction-intelligence-brief"]["deliver"] == "origin"
+    assert jobs["open-confirmation"]["deliver"] == "local"
+    assert jobs["open-intelligence-brief"]["deliver"] == "origin"
     assert jobs["auction-market-snapshot"]["schedule"] == "24 9 * * 1-5"
     assert "--full-universe" in jobs["auction-market-snapshot"]["run"]["command"]
-    for job_id, schedule, stage in (
-        ("preopen-intelligence-brief", "50 8 * * 1-5", "preopen"),
-        ("auction-intelligence-brief", "27 9 * * 1-5", "auction"),
-        ("open-intelligence-brief", "36 9 * * 1-5", "open"),
+    for job_id, schedule, stage, deliver in (
+        ("preopen-intelligence-brief", "50 8 * * 1-5", "preopen", "origin"),
+        ("auction-intelligence-brief", "27 9 * * 1-5", "auction", "origin"),
+        ("open-intelligence-brief", "36 9 * * 1-5", "open", "origin"),
     ):
         assert jobs[job_id]["schedule"] == schedule
-        assert jobs[job_id]["deliver"] == "origin"
+        assert jobs[job_id]["deliver"] == deliver
         assert jobs[job_id]["context_from"] == []
         assert jobs[job_id]["run"]["command"].endswith(f"--stage {stage}")
     assert jobs["hot-money-morning-checkpoint"]["context_from"] == ["open-confirmation"]
