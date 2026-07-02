@@ -22,6 +22,7 @@ sys.path.insert(0, SCRIPT_DIR)
 sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 
 import four_dim_scorer  # noqa: E402
+import four_dim_score_log  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import read_json  # noqa: E402
 
@@ -173,6 +174,10 @@ def main() -> None:
     args = parser.parse_args()
 
     result = score_targets(parse_targets(args.targets, limit=args.limit, asof=args.asof))
+    # Instrumentation (T5): persist four_dim sub-scores keyed by (code, asof) so
+    # they can later be joined with settled candidate_lifecycle outcomes. Never
+    # blocks the scorer's own output.
+    four_dim_score_log.record_scores(result, asof=args.asof)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), default=str))
     else:

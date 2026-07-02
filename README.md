@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![CI](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml)
-[![Smoke](https://img.shields.io/badge/smoke-11%2F11%20passed-brightgreen)](scripts/smoke_test.py)
+[![Smoke](https://img.shields.io/badge/smoke-13%2F13%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
 > time out on `global_monitor` or `hk_a_linkage` because they depend on live market data.
@@ -433,7 +433,7 @@ a-stock-agent-system/
 │   ├── hermes_job_runner.py    # Backward-compatible runner implementation
 │   ├── hermes_gateway_doctor.py # Deployment-side Gateway import/schedule diagnostics
 │   ├── generate_system_crontab.py # System cron fallback generator
-│   ├── smoke_test.py           # 11-test validation suite
+│   ├── smoke_test.py           # 13-test validation suite
 │   ├── snapshot_gc.py          # Snapshot/artifact retention and capacity cleanup
 │   └── validate_cron_manifest.py
 ├── tests/                      # Full regression suite
@@ -520,7 +520,7 @@ get filled on is not actionable.
 ```bash
 pip install -e ".[dev]"
 python -m pytest -q tests/        # Full regression suite
-python scripts/smoke_test.py      # 11 integration checks
+python scripts/smoke_test.py      # 13 integration checks
 python scripts/validate_cron_manifest.py
 ```
 
