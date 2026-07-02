@@ -922,6 +922,44 @@
       "external_note": "按持仓、有效建议、主动监控和候选池优先级生成确定性刷新队列；优先消费筹码/机构证据，研究执行由Hermes/OpenClaw Agent领取"
     },
     {
+      "id": "research-dispatch",
+      "name": "研究任务确定性调度",
+      "schedule": "50 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py research-dispatch --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2000,
+      "context_from": [
+        "closing-triage",
+        "candidate-discovery"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 120,
+        "optional_jobs": [
+          "candidate-discovery"
+        ]
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/research-committee/data/",
+        "$A_STOCK_STATE_HOME/cron/output/research-dispatch/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/research_dispatch.py --json",
+        "cwd": ".",
+        "timeout_seconds": 60
+      }
+    },
+    {
       "id": "news-monitor",
       "name": "资讯监控 — 政策/产业/地缘触发",
       "schedule": "0 9,11,15,20,22 * * 1-5",

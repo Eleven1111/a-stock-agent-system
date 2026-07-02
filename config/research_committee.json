@@ -1,0 +1,101 @@
+{
+  "schema": "research_committee_config_v1",
+  "claim_ttl_minutes": 120,
+  "max_attempts_per_role": 2,
+  "budget": {
+    "daily_char_budget": 400000,
+    "instructions_chars_estimate": 3000
+  },
+  "task_kinds": {
+    "candidate_deep_dive": {
+      "experts": ["evidence_auditor", "thesis_builder", "risk_redteam"],
+      "priority": 70,
+      "cooldown_days": 3,
+      "pack_budget_chars": 24000,
+      "pack_jobs": [
+        "closing-triage",
+        "four-dim-scorer",
+        "candidate-discovery",
+        "hot-money-context",
+        "capital-flow"
+      ],
+      "required_sections": ["agent_state", "fact_artifacts"]
+    },
+    "anomaly_review": {
+      "experts": ["risk_redteam"],
+      "priority": 85,
+      "cooldown_days": 1,
+      "pack_budget_chars": 16000,
+      "pack_jobs": [
+        "intraday-alert",
+        "capital-flow",
+        "news-monitor-intraday",
+        "market-pulse-1500"
+      ],
+      "required_sections": ["fact_artifacts"]
+    },
+    "postmortem": {
+      "experts": ["evidence_auditor", "risk_redteam"],
+      "priority": 60,
+      "cooldown_days": 7,
+      "pack_budget_chars": 20000,
+      "pack_jobs": ["performance-daily", "closing-triage", "four-dim-scorer"],
+      "required_sections": ["agent_state", "fact_artifacts"]
+    },
+    "user_request": {
+      "experts": ["evidence_auditor", "thesis_builder", "risk_redteam"],
+      "priority": 95,
+      "cooldown_days": 0,
+      "pack_budget_chars": 24000,
+      "pack_jobs": [
+        "closing-triage",
+        "four-dim-scorer",
+        "candidate-discovery",
+        "news-monitor"
+      ],
+      "required_sections": ["agent_state"]
+    }
+  },
+  "experts": {
+    "evidence_auditor": {
+      "profile": "skills/research-committee/experts/evidence_auditor.md",
+      "max_output_chars": 4000
+    },
+    "thesis_builder": {
+      "profile": "skills/research-committee/experts/thesis_builder.md",
+      "max_output_chars": 5000
+    },
+    "risk_redteam": {
+      "profile": "skills/research-committee/experts/risk_redteam.md",
+      "max_output_chars": 5000
+    }
+  },
+  "finding": {
+    "max_summary_chars": 600,
+    "max_finding_chars": 10000
+  },
+  "synthesis": {
+    "veto_confidence": 0.7,
+    "conflict_confidence": 0.6,
+    "advance_min_support_confidence": 0.6,
+    "escalation": {
+      "enabled": false,
+      "max_rounds": 1
+    }
+  },
+  "triggers": {
+    "candidate_deep_dive": {
+      "enabled": true,
+      "top_k": 2
+    },
+    "postmortem": {
+      "enabled": true,
+      "min_final_loss_pct": -5.0,
+      "max_per_day": 1
+    },
+    "anomaly_review": {
+      "enabled": true,
+      "behavior_risk_levels": ["high", "critical"]
+    }
+  }
+}

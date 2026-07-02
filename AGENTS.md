@@ -56,6 +56,7 @@ Core ownership:
 | Recommendation and trade events | `skills/common/signal_ledger.py` |
 | Scheduled orchestration | `scripts/run_agent_dag.py`, `cron/hermes-cron-manifest.json` |
 | Deep research cache | `skills/common/deep_research_cache.py` |
+| Research plane (task bus, evidence packs, synthesis) | `skills/common/research_bus.py`, `skills/common/evidence_pack.py`, `skills/common/research_synthesis.py` |
 
 ## Scheduled Jobs
 
