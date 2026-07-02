@@ -308,6 +308,7 @@ def record_recommendation(
     social_attention: Optional[Dict[str, Any]] = None,
     selection_context: Optional[Dict[str, Any]] = None,
     discipline_state: Optional[Dict[str, Any]] = None,
+    evidence_sources: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -450,6 +451,7 @@ def record_recommendation(
         "policy_decision": policy,
         "portfolio_risk": risk,
         "research_evidence": evidence,
+        "evidence_sources": signal_ledger.normalize_evidence_sources(evidence_sources),
         "strategy_attributions": strategy_attributions(evidence),
         "social_attention": dict(social_attention or {}),
         "selection_context": dict(selection_context or {}),

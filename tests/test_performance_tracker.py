@@ -163,6 +163,98 @@ def test_compute_stats_reports_directional_research_attribution():
     assert stats["gating_by_attribution_strategy"]["chanlun_third_buy"]["closed"] == 1
 
 
+def test_compute_stats_aggregates_by_evidence_source_and_inactive_pipeline():
+    records = [
+        {
+            "code": "1",
+            "name": "a",
+            "grade": "A",
+            "strategy_id": "trend_pullback",
+            "outcome": "win",
+            "t1_close_ret": 4.0,
+            "t1_open_premium": 2.0,
+            "alpha_t1": 2.0,
+            "promoted": False,
+            "settlement_status": "final",
+            "signal_date": "2026-06-20",
+            "evidence_sources": [
+                {
+                    "source": "open-confirmation",
+                    "artifact": {"snapshot_id": "snap-open"},
+                    "weight_hint": "primary",
+                },
+                {
+                    "source": "auction-finalize",
+                    "artifact": {"path": "auction_shortlist_2026-06-20.json"},
+                    "weight_hint": "supporting",
+                },
+            ],
+        },
+        {
+            "code": "2",
+            "name": "b",
+            "grade": "A",
+            "strategy_id": "trend_pullback",
+            "outcome": "loss",
+            "t1_close_ret": -2.0,
+            "t1_open_premium": -1.0,
+            "alpha_t1": -1.0,
+            "promoted": False,
+            "settlement_status": "final",
+            "signal_date": "2026-06-21",
+            "evidence_sources": [
+                {
+                    "source": "open-confirmation",
+                    "artifact": {"snapshot_id": "snap-open-2"},
+                    "weight_hint": "primary",
+                }
+            ],
+        },
+        {
+            "code": "3",
+            "name": "c",
+            "grade": "B",
+            "strategy_id": "trend_pullback",
+            "outcome": "win",
+            "t1_close_ret": 1.0,
+            "t1_open_premium": 0.5,
+            "alpha_t1": 0.3,
+            "promoted": False,
+            "settlement_status": "final",
+            "signal_date": "2026-05-20",
+            "evidence_sources": [
+                {
+                    "source": "candidate-discovery",
+                    "artifact": "candidate_pool_latest.json",
+                    "weight_hint": "primary",
+                }
+            ],
+        },
+    ]
+
+    stats = compute_stats(
+        records,
+        asof="2026-07-02",
+        known_evidence_pipelines={
+            "open-confirmation",
+            "auction-finalize",
+            "candidate-discovery",
+        },
+    )
+
+    by_source = stats["by_evidence_source"]
+    assert by_source["open-confirmation"]["primary_recommendations"] == 2
+    assert by_source["open-confirmation"]["t3_hit_rate"] == 50.0
+    assert by_source["open-confirmation"]["avg_excess_return"] == 0.5
+    assert by_source["auction-finalize"]["primary_recommendations"] == 0
+    assert by_source["auction-finalize"]["t3_hit_rate"] == 100.0
+    assert stats["inactive_evidence_pipelines_30d"] == ["candidate-discovery"]
+
+    rendered = pt.format_stats(stats, records)
+    assert "证据来源归因" in rendered
+    assert "candidate-discovery" in rendered
+
+
 def test_compute_stats_no_closed():
     s = compute_stats([{"code": "1", "outcome": "pending"}])
     assert s["closed"] == 0

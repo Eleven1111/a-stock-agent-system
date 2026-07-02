@@ -141,6 +141,9 @@ $A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl
 - `monitor_id`
 - `settlement_id`
 
+当前写入 schema 为 `signal_ledger_event_v2`。读取端兼容
+`signal_ledger_event_v1`，但不会迁移或改写历史行。
+
 事件类型包括：
 
 - `recommendation.created`
@@ -155,6 +158,23 @@ $A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl
 只有公告与交易质检通过的 `buy/add` 推荐才生成 `signal.opened`。`hold/watch/avoid`
 不会进入绩效样本。`trade.proposed` 不表示成交；只有 `portfolio_manager` 实际录入
 开仓、加仓或清仓后才写 `trade.executed`。
+
+`recommendation.created` payload 必须包含 `evidence_sources`：
+
+```json
+[
+  {
+    "source": "open-confirmation",
+    "artifact": {"snapshot_id": "snap-...", "snapshot_path": "..."},
+    "weight_hint": "primary"
+  }
+]
+```
+
+每项只引用推荐生成代码实际持有的上游 artifact，`weight_hint` 只能是
+`primary`、`supporting` 或 `context`。旧事件缺失该字段时，读取端按
+`{"source":"unknown","artifact":"unknown","weight_hint":"context"}` 兼容。
+新写入历史仍保持 append-only，不回填旧 JSONL 行。
 
 旧文件继续保留：
 
@@ -174,6 +194,8 @@ python skills/stock-triage/scripts/performance_tracker.py --json --gate
 ```
 
 因此结算完成后会自动按策略期望值更新 `strategy_registry.json`。
+周报同时按 `evidence_sources[*].source` 汇总 primary 推荐数、T+3 命中率和平均
+超额收益，并列出最近 30 天未作为 primary/supporting 出现过的证据管道。
 
 ## 统一 Policy 与 Agent 状态投影
 

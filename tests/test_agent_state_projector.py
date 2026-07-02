@@ -56,3 +56,32 @@ def test_projector_exposes_one_runtime_neutral_decision_surface(tmp_path):
     assert state["serenity_refresh_requests"][0]["code"] == "002156"
     assert state["behavior_risk"]["schema"] == "behavior_risk_v1"
     assert state["behavior_risk"]["signal_count"] == 1
+
+
+def test_projector_reads_legacy_recommendation_with_unknown_evidence_source(tmp_path):
+    ledger_file = str(tmp_path / "signal_ledger.jsonl")
+    links = signal_ledger.make_links("rec-legacy")
+    signal_ledger.append_event(
+        "recommendation.created",
+        links,
+        {
+            "id": "rec-legacy",
+            "code": "002156",
+            "name": "通富微电",
+            "action": "buy",
+        },
+        idempotency_key="rec-legacy",
+        ledger_file=ledger_file,
+    )
+
+    state = build_agent_state(
+        ledger_file=ledger_file,
+        portfolio={"cash": 50000, "positions": []},
+        monitors=[],
+        strategies={},
+        serenity_requests=[],
+    )
+
+    assert state["recommendations"][0]["evidence_sources"] == [
+        {"source": "unknown", "artifact": "unknown", "weight_hint": "context"}
+    ]

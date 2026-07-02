@@ -20,9 +20,14 @@ from state_store import file_lock
 
 
 LEDGER_FILE = data_file("stock-triage", "signal_ledger.jsonl")
-SCHEMA = "signal_ledger_event_v1"
+SCHEMA = "signal_ledger_event_v2"
+COMPATIBLE_SCHEMAS = {"signal_ledger_event_v1", SCHEMA}
 SETTLEABLE_ACTIONS = {"buy", "add"}
 TRADE_ACTIONS = {"buy", "add"}
+EVIDENCE_WEIGHT_HINTS = {"primary", "supporting", "context"}
+UNKNOWN_EVIDENCE_SOURCES = [
+    {"source": "unknown", "artifact": "unknown", "weight_hint": "context"}
+]
 
 
 def _now() -> str:
@@ -103,11 +108,45 @@ def _event_id(event_type: str, links: Mapping[str, Any], idempotency_key: Option
     return _stable_id("evt", f"{event_type}|{anchor}")
 
 
+def normalize_evidence_sources(value: Any) -> list[dict[str, Any]]:
+    normalized = []
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, Mapping):
+                continue
+            source = str(item.get("source") or "").strip()
+            if not source:
+                continue
+            weight_hint = str(item.get("weight_hint") or "context").strip()
+            if weight_hint not in EVIDENCE_WEIGHT_HINTS:
+                weight_hint = "context"
+            artifact = item.get("artifact")
+            normalized.append({
+                "source": source,
+                "artifact": artifact if artifact is not None else "unknown",
+                "weight_hint": weight_hint,
+            })
+    return normalized or [dict(UNKNOWN_EVIDENCE_SOURCES[0])]
+
+
+def _payload_with_evidence_sources(event_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    out = dict(payload)
+    if event_type in {"recommendation.created", "signal.opened"}:
+        out["evidence_sources"] = normalize_evidence_sources(
+            out.get("evidence_sources")
+        )
+    return out
+
+
 def _normalize_event(raw: Mapping[str, Any]) -> dict[str, Any]:
     event_type = str(raw["event_type"]).strip()
     links = dict(raw.get("links") or {})
     if not links.get("correlation_id"):
         raise ValueError("signal ledger event requires correlation_id")
+    payload = _payload_with_evidence_sources(
+        event_type,
+        dict(raw.get("payload") or {}),
+    )
     return {
         "schema": SCHEMA,
         "event_id": raw.get("event_id") or _event_id(
@@ -118,7 +157,7 @@ def _normalize_event(raw: Mapping[str, Any]) -> dict[str, Any]:
         "event_type": event_type,
         "occurred_at": raw.get("occurred_at") or _now(),
         "links": links,
-        "payload": dict(raw.get("payload") or {}),
+        "payload": payload,
     }
 
 
@@ -132,7 +171,12 @@ def _read_events_unlocked(ledger_file: str) -> list[dict[str, Any]]:
                 value = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if isinstance(value, dict) and value.get("schema") == SCHEMA:
+            if isinstance(value, dict) and value.get("schema") in COMPATIBLE_SCHEMAS:
+                event_type = str(value.get("event_type") or "")
+                value["payload"] = _payload_with_evidence_sources(
+                    event_type,
+                    dict(value.get("payload") or {}),
+                )
                 events.append(value)
     return events
 
@@ -293,6 +337,9 @@ def signal_opened_event(
         "strategy_id": record.get("strategy_id") or "default",
         "action": record.get("action") or "buy",
         "source": record.get("source") or "recommendation",
+        "evidence_sources": normalize_evidence_sources(
+            record.get("evidence_sources")
+        ),
         "strategy_attributions": list(record.get("strategy_attributions") or []),
         "social_attention": dict(record.get("social_attention") or {}),
         "selection_context": dict(record.get("selection_context") or {}),
@@ -365,8 +412,12 @@ def project_signals(
         if event_type == "signal.opened":
             if signal_id not in records:
                 order.append(signal_id)
+            payload = _payload_with_evidence_sources(
+                event_type,
+                dict(event.get("payload") or {}),
+            )
             records[signal_id] = {
-                **dict(event.get("payload") or {}),
+                **payload,
                 **{key: value for key, value in links.items() if value is not None},
                 "outcome": "pending",
                 "settlement_status": "pending",

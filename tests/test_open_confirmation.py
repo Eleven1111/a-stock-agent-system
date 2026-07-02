@@ -566,6 +566,23 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
     assert all(item["ledger_links"]["correlation_id"] for item in result["signals"])
     events = oc.signal_ledger.read_events(oc.recommendation_audit.LEDGER_FILE)
     assert sum(event["event_type"] == "signal.opened" for event in events) == 3
+    recommendation_events = [
+        event for event in events
+        if event["event_type"] == "recommendation.created"
+    ]
+    assert len(recommendation_events) == 3
+    evidence_sources = recommendation_events[0]["payload"]["evidence_sources"]
+    assert evidence_sources[0]["source"] == "open-confirmation"
+    assert evidence_sources[0]["weight_hint"] == "primary"
+    assert evidence_sources[0]["artifact"]["snapshot_id"].startswith("snap-")
+    assert evidence_sources[0]["artifact"]["consumed_from_snapshot"] is True
+    assert {
+        (item["source"], item["weight_hint"])
+        for item in evidence_sources
+    } >= {
+        ("auction-finalize", "supporting"),
+    }
+    assert oc.signal_ledger.project_signals(events)[0]["evidence_sources"] == evidence_sources
     assert sum(event["event_type"] == "monitor.activated" for event in events) == 3
     monitors = oc.monitor_registry.active_entries("stock", asof=event_asof)
     assert len(monitors) == 3

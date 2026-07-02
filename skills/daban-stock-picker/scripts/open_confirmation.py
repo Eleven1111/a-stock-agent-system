@@ -246,6 +246,36 @@ def _confirmation_latest_path() -> str:
     return data_file("daban-stock-picker", "open_confirmation_latest.json")
 
 
+def _evidence_sources(
+    *,
+    input_snapshot: Mapping[str, Any],
+    shortlist_result: Mapping[str, Any],
+    asof: str,
+) -> List[Dict[str, Any]]:
+    sources: List[Dict[str, Any]] = [{
+        "source": "open-confirmation",
+        "artifact": compact_ref(input_snapshot),
+        "weight_hint": "primary",
+    }, {
+        "source": "auction-finalize",
+        "artifact": {
+            "path": _shortlist_path(asof),
+            "schema": shortlist_result.get("schema"),
+            "asof": shortlist_result.get("asof"),
+            "source_asof": shortlist_result.get("source_asof"),
+        },
+        "weight_hint": "supporting",
+    }]
+    social_ref = shortlist_result.get("social_attention_snapshot")
+    if social_ref:
+        sources.append({
+            "source": "social-attention",
+            "artifact": social_ref,
+            "weight_hint": "context",
+        })
+    return sources
+
+
 def load_shortlist(asof: str) -> Dict[str, Any]:
     shortlist = read_json(_shortlist_path(asof), {})
     if not isinstance(shortlist, dict) or shortlist.get("asof") != asof:
@@ -514,6 +544,11 @@ def build_confirmation(
         event_asof=asof,
         max_age_days=4,
     )
+    evidence_sources = _evidence_sources(
+        input_snapshot=input_snapshot,
+        shortlist_result=shortlist_result,
+        asof=asof,
+    )
 
     confirmations = []
     for factor in factors:
@@ -637,6 +672,7 @@ def build_confirmation(
             },
             selection_context=item.get("selection_context"),
             discipline_state=item.get("discipline_state"),
+            evidence_sources=evidence_sources,
         )
     monitor_registry.reconcile_automatic(
         "stock",
