@@ -38,7 +38,7 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
     "market_gate": {
         "yday_limitup_index_open_min": -2.0, "broken_rate_first20m_max": 35.0,
         "week_trades_max": 3, "day_loss_pct_stop": -2.0, "week_loss_pct_freeze": -5.0,
-        "consecutive_losses_max": 3,
+        "consecutive_losses_max": 3, "position_time_stop_trading_days": 2,
     },
 }
 

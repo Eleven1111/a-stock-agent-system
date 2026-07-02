@@ -5,6 +5,14 @@ from datetime import date
 
 import portfolio_manager as pm
 import signal_ledger
+from a_share_rules import previous_trading_day
+
+
+def _n_trading_days_ago(n: int) -> str:
+    cursor = date.today()
+    for _ in range(n):
+        cursor = previous_trading_day(cursor)
+    return cursor.isoformat()
 
 
 def _wire(tmp_path, monkeypatch, initial=None):
@@ -236,3 +244,91 @@ def test_non_positive_inputs_rejected(tmp_path, monkeypatch):
     assert "error" in pm.add_position("600011", "华能", -1.0, 1000)
     assert "error" in pm.add_position("600011", "华能", 1.0, 0)
     assert pm.load_portfolio()["cash"] == 1000, "全部非法输入应为 no-op"
+
+
+# ========== 打板车道时间止损 + 止盈目标（P1） ==========
+
+def test_add_position_detects_daban_lane_from_latest_signal(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, initial={
+        "cash": 100000, "positions": [], "total_cost": 0, "cash_reconciled": True,
+    })
+    monkeypatch.setattr(signal_ledger, "LEDGER_FILE", pm.LEDGER_FILE)
+    signal_ledger.append_events([{
+        "event_type": "signal.opened",
+        "links": signal_ledger.make_links("rec-600011"),
+        "payload": {"code": "600011", "strategy_id": "daban:first_board_reseal"},
+    }], ledger_file=pm.LEDGER_FILE)
+
+    pm.add_position("600011", "华能", 10.0, 1000)
+
+    pos = pm.load_portfolio()["positions"][0]
+    assert pos["strategy_id"] == "daban:first_board_reseal"
+    assert pos["lane"] == "daban"
+
+
+def test_add_position_without_matching_signal_has_no_lane(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, initial={
+        "cash": 100000, "positions": [], "total_cost": 0, "cash_reconciled": True,
+    })
+    monkeypatch.setattr(signal_ledger, "LEDGER_FILE", pm.LEDGER_FILE)
+
+    pm.add_position("600011", "华能", 10.0, 1000)
+
+    pos = pm.load_portfolio()["positions"][0]
+    assert pos["strategy_id"] is None
+    assert pos["lane"] is None
+
+
+def test_daban_lane_position_past_time_stop_flags_regardless_of_pnl():
+    old_buy_date = _n_trading_days_ago(pm.POSITION_TIME_STOP_DAYS)
+    portfolio = {
+        "cash": 0,
+        "positions": [{
+            "code": "600011", "name": "华能", "cost": 10.0, "shares": 1000,
+            "peak_price": 10.0, "lane": "daban", "strategy_id": "daban:first_board_reseal",
+            "lots": [{"shares": 1000, "cost": 10.0, "acquired_on": old_buy_date}],
+            "buy_date": old_buy_date,
+        }],
+    }
+
+    result = pm._apply_prices(portfolio, {"600011": {"price": 10.1, "change_pct": 1.0}})
+
+    levels = [alert["level"] for alert in result["alerts"]]
+    assert "🟠 时间止损" in levels
+
+
+def test_trend_lane_position_is_not_time_stopped():
+    old_buy_date = _n_trading_days_ago(pm.POSITION_TIME_STOP_DAYS + 5)
+    portfolio = {
+        "cash": 0,
+        "positions": [{
+            "code": "600011", "name": "华能", "cost": 10.0, "shares": 1000,
+            "peak_price": 10.0, "lane": "trend", "strategy_id": "trend_pullback",
+            "lots": [{"shares": 1000, "cost": 10.0, "acquired_on": old_buy_date}],
+            "buy_date": old_buy_date,
+        }],
+    }
+
+    result = pm._apply_prices(portfolio, {"600011": {"price": 10.1, "change_pct": 1.0}})
+
+    levels = [alert["level"] for alert in result["alerts"]]
+    assert "🟠 时间止损" not in levels
+
+
+def test_take_profit_target_alert_fires_independently_of_trailing_stop():
+    today = date.today().isoformat()
+    portfolio = {
+        "cash": 0,
+        "positions": [{
+            "code": "600011", "name": "华能", "cost": 10.0, "shares": 1000,
+            "peak_price": 12.0,
+            "lots": [{"shares": 1000, "cost": 10.0, "acquired_on": today}],
+        }],
+    }
+
+    # 现价12.0：涨幅正好=止盈目标20%，且尚未从高点回落，回撤止盈不该触发
+    result = pm._apply_prices(portfolio, {"600011": {"price": 12.0, "change_pct": 20.0}})
+
+    levels = [alert["level"] for alert in result["alerts"]]
+    assert "🟢 止盈目标" in levels
+    assert "🟡 止盈" not in levels
