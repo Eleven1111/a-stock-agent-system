@@ -39,6 +39,7 @@ from agent_state import agent_state_path  # noqa: E402
 from state_integrity import ensure_state_identity  # noqa: E402
 from trading_day_gate import evaluate_job_trading_day  # noqa: E402
 from a_stock_http import load_hermes_env  # noqa: E402
+import feishu_push  # noqa: E402
 
 
 def _load_manifest(path: str) -> Dict[str, Any]:
@@ -119,6 +120,13 @@ def _emit(job: Dict[str, Any], artifact: Dict[str, Any], emit_local: bool) -> No
     if deliver == "silent":
         return
     if deliver == "local" and not emit_local:
+        return
+    if deliver == "feishu_direct":
+        max_chars = int(job.get("max_output_chars") or 4000)
+        feishu_push.push_text(
+            str(job.get("id") or artifact.get("job_id") or ""),
+            str(artifact.get("stdout") or "")[:max_chars],
+        )
         return
 
     stdout = artifact.get("stdout", "")

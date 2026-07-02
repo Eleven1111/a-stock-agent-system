@@ -80,7 +80,7 @@ def dependency_timeout_budget(
 
 def _delivery_args(job: Mapping[str, Any]) -> list[str]:
     policy = str(job.get("deliver") or "origin")
-    if policy in {"local", "silent"}:
+    if policy in {"local", "silent", "feishu_direct"}:
         return ["--no-deliver"]
     if policy != "origin":
         raise ValueError(f"unknown deliver policy for {job.get('id')}: {policy}")

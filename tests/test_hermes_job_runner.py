@@ -228,6 +228,32 @@ def test_runner_local_delivery_suppresses_stdout_but_keeps_artifact(tmp_path):
     assert os.path.exists(ledger[0]["artifact_path"])
 
 
+def test_runner_feishu_direct_delivery_suppresses_stdout_and_never_calls_lark_cli(tmp_path, monkeypatch):
+    worker = tmp_path / "worker.py"
+    worker.write_text("print('{\"schema\":\"demo_v1\",\"message\":\"routine\"}')\n", encoding="utf-8")
+    job = _base_job("feishu-demo", deliver="feishu_direct")
+    job["run"]["command"] = f"{sys.executable} {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+
+    env = os.environ.copy()
+    env["HERMES_HOME"] = str(tmp_path / "hermes")
+    env.pop("A_STOCK_FEISHU_CHAT_ID", None)
+    result = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "scripts", "hermes_job_runner.py"), "feishu-demo", "--manifest", str(manifest)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    ledger = read_json(str(tmp_path / "hermes" / "cron" / "output" / "job_runs.json"), [])
+    assert len(ledger) == 1
+    assert os.path.exists(ledger[0]["artifact_path"])
+
+
 def test_no_signal_detection_keeps_open_confirmations_visible():
     parsed = {
         "schema": "open_confirmation_v1",

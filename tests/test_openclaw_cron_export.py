@@ -79,6 +79,21 @@ def test_origin_delivery_maps_to_explicit_announce_route(tmp_path):
     assert parts[parts.index("--tz") + 1] == "Asia/Shanghai"
 
 
+def test_feishu_direct_delivery_skips_openclaw_announce(tmp_path):
+    job = _job("target", 30)
+    job["deliver"] = "feishu_direct"
+
+    command = build_openclaw_commands(
+        {"jobs": [job]},
+        repo_dir=str(tmp_path),
+        python="/venv/bin/python",
+    )[0]
+    parts = shlex.split(command)
+
+    assert "--no-deliver" in parts
+    assert "--announce" not in parts
+
+
 def test_export_uses_configured_openclaw_binary(tmp_path):
     command = build_openclaw_commands(
         {"jobs": [_job("target", 30)]},
