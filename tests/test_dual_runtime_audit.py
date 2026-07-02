@@ -1,5 +1,4 @@
 import json
-import os
 
 from scripts import dual_runtime_audit as audit
 
