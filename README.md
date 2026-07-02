@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![CI](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml)
-[![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
+[![Smoke](https://img.shields.io/badge/smoke-11%2F11%20passed-brightgreen)](scripts/smoke_test.py)
 
 > Smoke badge reflects the latest connected validation. Offline runs may still
 > time out on `global_monitor` or `hk_a_linkage` because they depend on live market data.
@@ -64,6 +64,7 @@ flowchart LR
 |--------|-------------|--------------|
 | **stock-analyst** | Multi-timeframe technical analysis (day/week/60m/30m), sector scanning, screener | Tencent, Sina, yfinance |
 | **hot-money-tactics** | Limit-up board analysis, sentiment cycles, sector rotation tracking | AkShare |
+| **eod-anomaly-scanner** | Full-market end-of-day scan for tail-window (14:30-15:00) volume/price anomalies, filtered by valuation and 60-day price position; next-morning `--confirm` mode checks the opening gap | Tencent, AkShare |
 | **social-sentiment** | Eastmoney popularity/rising ranks plus Xueqiu discussion/follow ranks; cross-source confirmation, velocity and crowding divergence | Eastmoney, Xueqiu, optional Baidu |
 | **daban-stock-picker** | Main-board 10cm limit-up candidate gate: first-board reseal, second-board weak-to-strong, six-question veto, tradeability. Thresholds read from a single source of truth shared with the backtest engine | `config/daban_thresholds.yaml`, structured JSON |
 | **chanlun-backtest** | Offline research gate (IS/OOS wall, costs, controls, statistical tests) **plus** `chan_structure` signal generator: fractals → strokes → pivots → third buy/sell → MACD divergence. Signals earn live weight only after the gate passes | Tencent qfq K-line, local research-state JSON |
@@ -74,11 +75,12 @@ flowchart LR
 | **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(15%) × catalyst(30%) × deep(25%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals | All above |
 | **hk-a-linkage** | AH premium spreads, HSI divergence, key HK stock movements | Tencent, yfinance |
 | **capital-flow-monitor** | Northbound flows, institutional/retail flows, sector-level flows | Eastmoney |
-| **portfolio-manager** | Lot-level P&L, A-share T+1 enforcement, stop-loss, trailing stops, concentration checks | Tencent |
+| **portfolio-manager** | Lot-level P&L, A-share T+1 enforcement, stop-loss, trailing stops, daban lane time-stop, take-profit target alerts, concentration checks | Tencent |
 | **intraday-monitor** | Dynamic portfolio/subscription alerts; sold and cancelled names are removed automatically | Tencent |
 | **institution-tracker** | Research visits, analyst reports, insider trades | Eastmoney |
 | **event-calendar** | Lockup expirations, dividends, policy windows | Eastmoney |
 | **performance-tracker** | Signal accuracy tracking with grade-level breakdown | Tencent |
+| **discipline-review** | Daily buy-side plan-vs-fill diff (chased entries, oversized fills, unfollowed calls) plus live exit-discipline alerts and the account circuit-breaker state | Tencent |
 
 ## Policy Intent in the Architecture
 
@@ -431,7 +433,7 @@ a-stock-agent-system/
 │   ├── hermes_job_runner.py    # Backward-compatible runner implementation
 │   ├── hermes_gateway_doctor.py # Deployment-side Gateway import/schedule diagnostics
 │   ├── generate_system_crontab.py # System cron fallback generator
-│   ├── smoke_test.py           # 9-test validation suite
+│   ├── smoke_test.py           # 11-test validation suite
 │   ├── snapshot_gc.py          # Snapshot/artifact retention and capacity cleanup
 │   └── validate_cron_manifest.py
 ├── tests/                      # Full regression suite
@@ -518,7 +520,7 @@ get filled on is not actionable.
 ```bash
 pip install -e ".[dev]"
 python -m pytest -q tests/        # Full regression suite
-python scripts/smoke_test.py      # 9 integration checks
+python scripts/smoke_test.py      # 11 integration checks
 python scripts/validate_cron_manifest.py
 ```
 

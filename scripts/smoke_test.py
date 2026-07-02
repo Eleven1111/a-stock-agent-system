@@ -87,6 +87,14 @@ tests = [
         [PY, "skills/stock-triage/scripts/recommendation_audit.py", "--example", "--json"],
         "recommendation_audit", 10, True
     ),
+    (  # 10. 执行纪律复盘（不刷新实时行情，允许无建议/无持仓）
+        [PY, "skills/stock-triage/scripts/discipline_review.py", "--no-refresh", "--json"],
+        "discipline_review", 15, True, True
+    ),
+    (  # 11. 尾盘异动扫描器（示例模式：全A扫描本身耗时且依赖易抖动的akshare接口，不适合smoke）
+        [PY, "skills/stock-triage/scripts/eod_anomaly_scanner.py", "--example", "--json"],
+        "eod_anomaly_scanner", 10, True
+    ),
 ]
 
 print("=" * 50)

@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![CI](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Eleven1111/a-stock-agent-system/actions/workflows/ci.yml)
-[![Smoke](https://img.shields.io/badge/smoke-9%2F9%20passed-brightgreen)](scripts/smoke_test.py)
+[![Smoke](https://img.shields.io/badge/smoke-11%2F11%20passed-brightgreen)](scripts/smoke_test.py)
 
 A 股多智能体投研系统。13 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池、政策意图解码和离线策略验证的完整决策链路。
 
@@ -57,6 +57,7 @@ flowchart LR
 |------|------|--------|
 | **stock-analyst** | 日/周/60分/30分多框架技术分析、板块扫描、条件筛选 | 腾讯、新浪、yfinance |
 | **hot-money-tactics** | 涨停板全景、连板梯队、封板质量、情绪周期、板块轮动 | AkShare |
+| **eod-anomaly-scanner** | 全A尾盘(14:30-15:00)量比+涨幅异动扫描，估值/60日位置过滤；次日开盘 `--confirm` 模式对比跳空 | 腾讯、AkShare |
 | **daban-stock-picker** | 主板10cm打板候选闸门：首板回封、二板弱转强、六问否决、可成交性 | 结构化行情/板块/持仓 JSON |
 | **chanlun-backtest** | 缠论/打板离线研究闸门：IS/OOS、成本、对照组、统计检验 | 本地研究状态 JSON |
 | **global-market-monitor** | 美股/VIX/美债/期货/外汇/自然灾害 → A股板块方向与个股观察映射 | yfinance、USGS、GDACS |
@@ -66,11 +67,12 @@ flowchart LR
 | **four-dim scorer** | S/A/B/C 加权分级：技术(30%)×情绪(15%)×催化(30%)×深度(25%) | 以上全部 |
 | **hk-a-linkage** | AH溢价率、恒生背离、港股权重异动 | 腾讯、yfinance |
 | **capital-flow-monitor** | 北向资金、主力/散户资金、板块资金 | 东方财富 |
-| **portfolio-manager** | 分批持仓、A股T+1约束、止损止盈、回撤止盈、仓位集中度风控 | 腾讯 |
+| **portfolio-manager** | 分批持仓、A股T+1约束、止损止盈、回撤止盈、打板车道时间止损、止盈目标提醒、仓位集中度风控 | 腾讯 |
 | **intraday-monitor** | 持仓+动态订阅异动告警；清仓和取消后自动退订 | 腾讯 |
 | **institution-tracker** | 机构调研、券商研报、大股东增减持 | 东方财富 |
 | **event-calendar** | 限售解禁、分红除权、政策窗口 | 东方财富 |
 | **performance-tracker** | 信号胜率统计、分级表现、反馈闭环 | 腾讯 |
+| **discipline-review** | 每日买入建议与实际成交对比（追价/超仓位/未跟单）、尚未处理的持仓纪律信号、账户熔断状态 | 腾讯 |
 
 ## 政策意图在系统里的位置
 
@@ -132,7 +134,7 @@ python -m pip install -e ".[charts,fundamentals,research,dev]"
 ### 验证
 
 ```bash
-python scripts/smoke_test.py      # 9项集成检查
+python scripts/smoke_test.py      # 11项集成检查
 python -m pytest -q tests/        # 全量回归测试
 ```
 
@@ -398,7 +400,7 @@ a-stock-agent-system/
 │   ├── hermes_job_runner.py    # 兼容保留的runner实现
 │   ├── hermes_gateway_doctor.py # 部署机Gateway导入/schedule诊断
 │   ├── generate_system_crontab.py # 系统cron兜底生成器
-│   ├── smoke_test.py           # 9项集成验证
+│   ├── smoke_test.py           # 11项集成验证
 │   └── validate_cron_manifest.py
 ├── tests/                      # 全量回归测试
 ├── skills/
@@ -446,7 +448,7 @@ a-stock-agent-system/
 ```bash
 pip install -e ".[dev]"
 python -m pytest -q tests/        # 全量回归测试
-python scripts/smoke_test.py      # 9项集成检查
+python scripts/smoke_test.py      # 11项集成检查
 python scripts/validate_cron_manifest.py
 ```
 
