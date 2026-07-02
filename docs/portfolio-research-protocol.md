@@ -107,8 +107,8 @@ date before using amount-based guidance:
 
 ```bash
 python skills/stock-triage/scripts/portfolio_manager.py \
-  --reconcile-cash 20000 --cash-source user_confirmed \
-  --cash-asof 2026-06-23 --json
+  --reconcile-cash <verified-cash-amount> --cash-source user_confirmed \
+  --cash-asof <YYYY-MM-DD> --json
 ```
 
 This updates runtime state only; account balances must never be committed to
