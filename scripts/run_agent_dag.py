@@ -26,6 +26,7 @@ from runtime_context import (  # noqa: E402
 from trading_day_gate import evaluate_job_trading_day  # noqa: E402
 from paths import hermes_home  # noqa: E402
 from state_store import file_lock  # noqa: E402
+import feishu_push  # noqa: E402
 
 
 def _load_manifest(path: str) -> dict[str, Any]:
@@ -392,6 +393,22 @@ def target_output(
                 output_chars=0,
                 was_compressed=False,
                 silent_reason="no_signal",
+                telemetry_path=telemetry_path,
+            )
+        return "NO_REPLY\n"
+    if job.get("deliver") == "feishu_direct":
+        stdout = str(artifact.get("stdout") or "")
+        max_chars = max(200, int(job.get("max_output_chars") or 4000))
+        text = stdout[:max_chars]
+        result = feishu_push.push_text(str(job.get("id") or artifact.get("job_id") or ""), text)
+        if record_telemetry:
+            _record_target_output_telemetry(
+                job,
+                artifact,
+                delivered=result["status"] == "sent",
+                output_chars=len(text),
+                was_compressed=len(stdout) > max_chars,
+                silent_reason="none" if result["status"] == "sent" else f"feishu_{result['status']}",
                 telemetry_path=telemetry_path,
             )
         return "NO_REPLY\n"

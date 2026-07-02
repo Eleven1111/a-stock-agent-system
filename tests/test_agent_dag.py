@@ -203,3 +203,61 @@ def test_target_output_records_push_telemetry_jsonl(tmp_path):
             "silent_reason": "no_signal",
         },
     ]
+
+
+def test_target_output_pushes_feishu_direct_jobs_without_entering_reply(tmp_path, monkeypatch):
+    telemetry = tmp_path / "state" / "cron" / "push_telemetry.jsonl"
+    calls = []
+    monkeypatch.setattr(
+        run_agent_dag.feishu_push,
+        "push_text",
+        lambda job_id, text: calls.append((job_id, text)) or {"status": "sent", "job_id": job_id},
+    )
+
+    output = run_agent_dag.target_output(
+        {
+            "id": "capital-flow",
+            "deliver": "feishu_direct",
+            "silent_when_no_signal": False,
+            "max_output_chars": 20,
+        },
+        {
+            "trading_date": "2026-06-12",
+            "stdout": "北向资金净流入 12.3 亿" * 5,
+            "has_signal": True,
+        },
+        telemetry_path=str(telemetry),
+        record_telemetry=True,
+    )
+
+    assert output == "NO_REPLY\n"
+    assert calls[0][0] == "capital-flow"
+    record = json.loads(telemetry.read_text(encoding="utf-8").splitlines()[0])
+    assert record["delivered"] is True
+    assert record["silent_reason"] == "none"
+
+
+def test_target_output_records_not_configured_feishu_push(tmp_path, monkeypatch):
+    telemetry = tmp_path / "state" / "cron" / "push_telemetry.jsonl"
+    monkeypatch.setattr(
+        run_agent_dag.feishu_push,
+        "push_text",
+        lambda job_id, text: {"status": "not_configured", "job_id": job_id},
+    )
+
+    output = run_agent_dag.target_output(
+        {
+            "id": "event-calendar",
+            "deliver": "feishu_direct",
+            "silent_when_no_signal": False,
+            "max_output_chars": 200,
+        },
+        {"trading_date": "2026-06-12", "stdout": "本周事件日历", "has_signal": True},
+        telemetry_path=str(telemetry),
+        record_telemetry=True,
+    )
+
+    assert output == "NO_REPLY\n"
+    record = json.loads(telemetry.read_text(encoding="utf-8").splitlines()[0])
+    assert record["delivered"] is False
+    assert record["silent_reason"] == "feishu_not_configured"

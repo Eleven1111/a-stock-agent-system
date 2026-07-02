@@ -14,7 +14,7 @@ REQUIRED = ["id", "name", "schedule", "timezone", "command", "cwd",
 VALID_OUTPUTS = {"json", "text", "none"}
 VALID_EXECUTION_MODES = {"isolated_subprocess"}
 VALID_CONTEXT_SCOPES = {"cron"}
-VALID_DELIVER = {"origin", "local", "silent"}
+VALID_DELIVER = {"origin", "local", "silent", "feishu_direct"}
 VALID_TRADING_DAY_POLICIES = {"required", "calendar_day"}
 VALID_DEPENDENCY_DATE_MODES = {
     "latest",
