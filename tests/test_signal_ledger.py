@@ -111,6 +111,35 @@ def test_concurrent_append_keeps_every_event(tmp_path):
     assert all(json.loads(line)["schema"] == ledger.SCHEMA for line in lines)
 
 
+def test_read_legacy_recommendation_event_defaults_unknown_evidence_source(tmp_path):
+    path = tmp_path / "signal_ledger.jsonl"
+    links = ledger.make_links("rec-legacy")
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "signal_ledger_event_v1",
+                "event_id": "evt-legacy",
+                "event_type": "recommendation.created",
+                "occurred_at": "2026-06-12T09:35:00",
+                "links": links,
+                "payload": {
+                    "id": "rec-legacy",
+                    "code": "002156",
+                    "action": "buy",
+                },
+            },
+            ensure_ascii=False,
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+    event = ledger.read_events(str(path))[0]
+
+    assert event["payload"]["evidence_sources"] == [
+        {"source": "unknown", "artifact": "unknown", "weight_hint": "context"}
+    ]
+
+
 def test_merge_legacy_assigns_stable_ids_and_deduplicates():
     legacy = {
         "code": "002156",
@@ -146,6 +175,46 @@ def test_opened_signal_preserves_research_strategy_attributions():
     )
 
     assert opened["payload"]["strategy_attributions"][0]["strategy_id"] == "chanlun_third_buy"
+
+
+def test_opened_signal_preserves_evidence_sources():
+    links = ledger.make_links("rec-evidence")
+    opened = ledger.signal_opened_event(
+        {
+            "code": "002156",
+            "date": "2026-06-12",
+            "entry_price": 11.0,
+            "strategy_id": "trend_pullback",
+            "evidence_sources": [
+                {
+                    "source": "open-confirmation",
+                    "artifact": {"snapshot_id": "snap-1"},
+                    "weight_hint": "primary",
+                },
+                {
+                    "source": "auction-finalize",
+                    "artifact": {"path": "auction_shortlist_2026-06-12.json"},
+                    "weight_hint": "supporting",
+                },
+            ],
+        },
+        links,
+    )
+
+    record = ledger.project_signals([opened])[0]
+
+    assert record["evidence_sources"] == [
+        {
+            "source": "open-confirmation",
+            "artifact": {"snapshot_id": "snap-1"},
+            "weight_hint": "primary",
+        },
+        {
+            "source": "auction-finalize",
+            "artifact": {"path": "auction_shortlist_2026-06-12.json"},
+            "weight_hint": "supporting",
+        },
+    ]
 
 
 def test_opened_signal_preserves_social_attention_attribution():

@@ -27,9 +27,9 @@ Usage:
 """
 
 import json
-import sys
 import os
-from datetime import datetime, date
+import sys
+from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Any, Mapping
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
@@ -50,6 +50,21 @@ BENCH_MARKET = "sh"
 BENCH_CODE = "000300"
 
 HOLD_DAYS = 3  # 打板最长观察窗（隔日为主，最多看到 T+3）
+EVIDENCE_PIPELINE_KEYWORDS = (
+    "candidate",
+    "auction",
+    "open-confirmation",
+    "social-attention",
+    "hot-money",
+    "four-dim",
+    "capital-flow",
+    "catalyst",
+    "serenity",
+    "news-monitor",
+    "official-policy-watch",
+    "market-pulse",
+    "stock-intelligence",
+)
 
 
 # ========== 纯函数：信号结算逻辑（可单测，不触网）==========
@@ -356,7 +371,125 @@ def _attribution_stats(
     }
 
 
-def compute_stats(records: List[Dict]) -> Dict:
+def _repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+
+def _known_evidence_pipelines() -> set[str]:
+    manifest = os.path.join(_repo_root(), "cron", "hermes-cron-manifest.json")
+    try:
+        with open(manifest, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return set()
+    pipelines = set()
+    for job in payload.get("jobs") or []:
+        if not isinstance(job, dict):
+            continue
+        job_id = str(job.get("id") or "")
+        command = str((job.get("run") or {}).get("command") or job.get("command") or "")
+        haystack = f"{job_id} {command}"
+        if any(keyword in haystack for keyword in EVIDENCE_PIPELINE_KEYWORDS):
+            pipelines.add(job_id)
+    return pipelines
+
+
+def _record_date(record: Dict[str, Any]) -> Optional[date]:
+    for key in ("signal_date", "date", "created_at", "resolved_at"):
+        raw = record.get(key)
+        if not raw:
+            continue
+        try:
+            return date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            continue
+    return None
+
+
+def _evidence_source_stats(
+    records: List[Dict],
+    *,
+    asof: Optional[str] = None,
+    known_evidence_pipelines: Optional[set[str]] = None,
+) -> tuple[Dict[str, Dict[str, Any]], List[str]]:
+    asof_date = date.fromisoformat(asof) if asof else date.today()
+    window_start = asof_date - timedelta(days=30)
+    known = set(known_evidence_pipelines or _known_evidence_pipelines())
+    grouped: Dict[str, Dict[str, Any]] = {}
+    active_recent: set[str] = set()
+
+    for record in records:
+        sources = signal_ledger.normalize_evidence_sources(
+            record.get("evidence_sources")
+        )
+        record_day = _record_date(record)
+        seen_for_record: set[str] = set()
+        for item in sources:
+            source = item["source"]
+            weight = item["weight_hint"]
+            known.add(source)
+            bucket = grouped.setdefault(
+                source,
+                {
+                    "primary_recommendations": 0,
+                    "t3_closed": 0,
+                    "t3_hits": 0,
+                    "t3_hit_rate": 0.0,
+                    "avg_excess_return": None,
+                    "_alphas": [],
+                },
+            )
+            if weight == "primary":
+                bucket["primary_recommendations"] += 1
+            if (
+                weight in {"primary", "supporting"}
+                and record_day is not None
+                and window_start <= record_day <= asof_date
+            ):
+                active_recent.add(source)
+            if source in seen_for_record or weight not in {"primary", "supporting"}:
+                continue
+            seen_for_record.add(source)
+            if record.get("t1_close_ret") is None:
+                continue
+            if record.get("settlement_status") == "provisional":
+                continue
+            bucket["t3_closed"] += 1
+            if str(record.get("outcome") or "").startswith("win"):
+                bucket["t3_hits"] += 1
+            if record.get("alpha_t1") is not None:
+                bucket["_alphas"].append(float(record["alpha_t1"]))
+
+    for bucket in grouped.values():
+        closed_count = bucket["t3_closed"]
+        bucket["t3_hit_rate"] = (
+            round(bucket["t3_hits"] / closed_count * 100, 1)
+            if closed_count
+            else 0.0
+        )
+        alphas = bucket.pop("_alphas")
+        bucket["avg_excess_return"] = (
+            round(sum(alphas) / len(alphas), 2) if alphas else None
+        )
+
+    inactive = sorted(
+        pipeline for pipeline in known
+        if pipeline not in active_recent and pipeline != "unknown"
+    )
+    return dict(sorted(grouped.items())), inactive
+
+
+def compute_stats(
+    records: List[Dict],
+    *,
+    asof: Optional[str] = None,
+    known_evidence_pipelines: Optional[set[str]] = None,
+) -> Dict:
+    by_evidence_source, inactive_evidence_pipelines = _evidence_source_stats(
+        records,
+        asof=asof,
+        known_evidence_pipelines=known_evidence_pipelines,
+    )
     # 仅统计**新口径已结算**记录（含 t1_close_ret）。旧 schema 记录（首穿锁定法、
     # 无 t1_close_ret）一律排除，避免把旧方法的虚高胜率混入新口径，污染"可信的数字"。
     closed = [r for r in records if r.get("t1_close_ret") is not None]
@@ -367,7 +500,9 @@ def compute_stats(records: List[Dict]) -> Dict:
         if legacy:
             msg += f"；另有 {legacy} 条旧口径记录已排除（建议重置 signal_history.json）"
         return {"total_signals": len(records), "closed": 0,
-                "pending": len(records) - legacy, "legacy_excluded": legacy, "message": msg}
+                "pending": len(records) - legacy, "legacy_excluded": legacy, "message": msg,
+                "by_evidence_source": by_evidence_source,
+                "inactive_evidence_pipelines_30d": inactive_evidence_pipelines}
 
     rets = [r["t1_close_ret"] for r in closed]
     wins = [r for r in closed if r["outcome"].startswith("win")]
@@ -441,6 +576,8 @@ def compute_stats(records: List[Dict]) -> Dict:
         "gating_by_strategy": gating_by_strategy,
         "by_attribution_strategy": by_attribution_strategy,
         "gating_by_attribution_strategy": gating_by_attribution_strategy,
+        "by_evidence_source": by_evidence_source,
+        "inactive_evidence_pipelines_30d": inactive_evidence_pipelines,
     }
 
 
@@ -578,6 +715,29 @@ def format_stats(stats: Dict, records: List[Dict]) -> str:
                 f"{ss.get('win_rate', 0)}% | "
                 f"{ss.get('avg_t1_close', 0):+.2f}% | "
                 f"{ss.get('expectancy', 0):+.2f}% |"
+            )
+
+    by_evidence_source = stats.get("by_evidence_source", {})
+    inactive_pipelines = stats.get("inactive_evidence_pipelines_30d", [])
+    if by_evidence_source or inactive_pipelines:
+        lines.append("")
+        lines.append("## 证据来源归因")
+        if by_evidence_source:
+            lines.append("| evidence_source | primary推荐 | T+3样本 | T+3命中率 | 平均超额 |")
+            lines.append("|-----------------|------------|---------|-----------|----------|")
+            for source, ss in by_evidence_source.items():
+                avg = ss.get("avg_excess_return")
+                avg_str = f"{avg:+.2f}%" if avg is not None else "N/A"
+                lines.append(
+                    f"| {source} | {ss.get('primary_recommendations', 0)} | "
+                    f"{ss.get('t3_closed', 0)} | {ss.get('t3_hit_rate', 0)}% | "
+                    f"{avg_str} |"
+                )
+        if inactive_pipelines:
+            lines.append("")
+            lines.append(
+                "30天未作为 primary/supporting 出现: "
+                + "、".join(inactive_pipelines)
             )
 
     recent = [r for r in records if r.get("outcome") and r["outcome"] != "pending"][-5:]
