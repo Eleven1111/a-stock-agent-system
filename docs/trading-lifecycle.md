@@ -62,6 +62,26 @@ python scripts/agent_runtime_context.py
 通知更新该文件；未覆盖年份会退化为工作日判断，并在结果中标记
 `calendar_covered=false`。
 
+## 打板交易纪律熔断
+
+`config/daban_thresholds.yaml` 的 `market_gate` 段是打板专属的账户级熔断线：
+本周新开仓≥3笔、日亏≥2%、周亏≥5%、连续错单≥3次、单只打板仓位超过
+`position_time_stop_trading_days`个交易日未走出行情。`trading_discipline.py`
+读取真实 `signal_ledger.jsonl` 的 `trade.executed` 事件和真实持仓市值算出前四
+个数字；`decision_policy` 只在 `strategy_lane == "daban"` 时据此把决策强制降级
+为 `avoid`，不影响趋势策略的仓位节奏。三处实盘调用点都已接线：09:26
+`auction-finalize`、09:35 `open-confirmation`（最终写 `recommendations.json` 的
+关口）、以及独立 CLI `recommendation_audit.py --record`。触发的 `reasons` 会
+同时出现在 `preopen_decisions`/`signals` 和 `--json` 报告里，不是只写在配置
+文件里的静态规则。时间止损和止盈目标线在 `portfolio_manager.py` 的持仓刷新
+里生效，仅在打板来源仓位（`lane == "daban"`，开仓时从最近一条
+`signal.opened` 事件自动识别）上触发，均为提示性告警，不自动下单。
+
+`discipline_review.py` 是每日收盘后的执行纪律复盘：对比当日 buy/add 建议与
+`trade.executed` 实际成交，标出追价、超仓位、未跟单三类偏离；同时汇总当前
+尚未处理的持仓纪律信号（止损/回撤止盈/时间止损/止盈目标）和账户熔断状态。
+只陈述差异，不判断对错——跟不跟单可能都是当时合理的临场决策。
+
 ## 09:26 集合竞价
 
 `auction-finalize` 在 09:26 执行，前五名生成 `preopen_decisions`：

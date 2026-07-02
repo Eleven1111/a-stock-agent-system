@@ -293,3 +293,31 @@ def test_abstain_marks_non_action_watch_but_not_executable_buy():
         requested_action="buy", quality_report={"status": "passed"}, strategy_record=ALLOWED_STRATEGY,
     )
     assert executable["decision"] == "buy" and executable["abstain"] is False
+
+
+def test_discipline_freeze_blocks_daban_lane():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        strategy_lane="daban",
+        discipline_state={"blocked": True, "reasons": ["day_loss_stop"]},
+    )
+
+    assert result["decision"] == "avoid"
+    assert result["position_multiplier"] == 0.0
+    assert "day_loss_stop" in result["reasons"]
+
+
+def test_discipline_freeze_does_not_apply_to_trend_lane():
+    # market_gate 阈值(周3笔/日跌2%等)是打板专属节奏，不应误伤趋势策略
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        strategy_lane="trend",
+        discipline_state={"blocked": True, "reasons": ["day_loss_stop"]},
+    )
+
+    assert result["decision"] == "buy"
+    assert "day_loss_stop" not in result["reasons"]

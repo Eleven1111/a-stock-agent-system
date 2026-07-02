@@ -32,6 +32,7 @@ from portfolio_policy import evaluate_candidate, portfolio_value
 from research_evidence import build_research_evidence, strategy_attributions
 import signal_ledger
 import strategy_registry
+import trading_discipline
 
 
 RECOMMENDATIONS_FILE = data_file("stock-triage", "recommendations.json")
@@ -306,6 +307,7 @@ def record_recommendation(
     portfolio_risk: Optional[Dict[str, Any]] = None,
     social_attention: Optional[Dict[str, Any]] = None,
     selection_context: Optional[Dict[str, Any]] = None,
+    discipline_state: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -370,6 +372,11 @@ def record_recommendation(
         {"code": code},
         float(sizing.get("recommended_position_pct") or 0),
     )
+    discipline = discipline_state or trading_discipline.assess_discipline_state(
+        signal_ledger.read_events(),
+        total_assets=account_value,
+        asof=record_date,
+    )
     policy = evaluate_decision(
         requested_action=action,
         quality_report=quality,
@@ -378,6 +385,7 @@ def record_recommendation(
         portfolio_risk=risk,
         research_evidence=evidence,
         strategy_lane=lane,
+        discipline_state=discipline,
     )
     effective_action = (
         "avoid"

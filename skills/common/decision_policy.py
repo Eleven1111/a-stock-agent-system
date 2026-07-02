@@ -73,6 +73,7 @@ def evaluate_decision(
     research_evidence: Optional[Mapping[str, Any]] = None,
     strategy_lane: Optional[str] = None,
     market_crowding: Optional[Mapping[str, Any]] = None,
+    discipline_state: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, Any]:
     action = str(requested_action or "watch").lower()
     quality_status = str(quality_report.get("status") or "conditional")
@@ -114,6 +115,11 @@ def evaluate_decision(
             decision = "avoid"
             multiplier = 0.0
             reasons.extend(str(reason) for reason in portfolio_risk.get("reasons") or [])
+
+        if strategy_lane == "daban" and discipline_state and discipline_state.get("blocked"):
+            decision = "avoid"
+            multiplier = 0.0
+            reasons.extend(str(reason) for reason in discipline_state.get("reasons") or [])
 
         serenity = (research_evidence or {}).get("serenity") or {}
         chanlun = (research_evidence or {}).get("chanlun") or {}
@@ -182,6 +188,7 @@ def evaluate_decision(
         "reasons": reasons,
         "strategy_lane": strategy_lane,
         "portfolio_risk": dict(portfolio_risk or {}),
+        "discipline_state": dict(discipline_state or {}),
         "research_evidence": dict(research_evidence or {}),
         "market_crowding": dict(market_crowding or {}),
         "expected_paths": _expected_paths(market_crowding),

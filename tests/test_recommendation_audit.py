@@ -204,6 +204,35 @@ def test_outcome_correction_appends_new_settlement_event(tmp_path, monkeypatch):
     assert signals[0]["pnl_pct"] == 4.0
 
 
+def test_discipline_freeze_blocks_daban_recommendation(tmp_path, monkeypatch):
+    """人工/独立 CLI 记录建议同样要过纪律熔断，不能绕开09:26/09:35的自动闸门。"""
+    _wire(tmp_path, monkeypatch)
+
+    result = ra.record_recommendation(
+        **_passed_buy(discipline_state={"blocked": True, "reasons": ["week_trade_cap"]})
+    )
+
+    assert result["record"]["action"] == "avoid"
+    assert "week_trade_cap" in result["record"]["policy_decision"]["reasons"]
+
+
+def test_discipline_state_defaults_to_real_ledger_when_not_supplied(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    monkeypatch.setattr(ra.signal_ledger, "LEDGER_FILE", ra.LEDGER_FILE)
+    for trade_date in ["2026-06-08", "2026-06-09", "2026-06-10"]:
+        ra.signal_ledger.append_event(
+            "trade.executed",
+            ra.signal_ledger.make_links(f"loss-{trade_date}"),
+            {"code": "600099", "action": "close", "trade_date": trade_date, "pnl": -100, "pnl_pct": -3.0},
+            ledger_file=ra.LEDGER_FILE,
+        )
+
+    result = ra.record_recommendation(**_passed_buy(asof="2026-06-11"))
+
+    assert result["record"]["action"] == "avoid"
+    assert "consecutive_losses_freeze" in result["record"]["policy_decision"]["reasons"]
+
+
 def test_avoid_recommendation_does_not_open_signal(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch)
     result = ra.record_recommendation(

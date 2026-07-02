@@ -46,12 +46,13 @@ from recommendation_quality import (  # noqa: E402
 from decision_policy import evaluate_decision  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
 from market_context import market_regime, read_market_context  # noqa: E402
-from portfolio_policy import evaluate_candidate  # noqa: E402
+from portfolio_policy import evaluate_candidate, portfolio_value  # noqa: E402
 from portfolio_research_history import record_open_confirmation  # noqa: E402
 import recommendation_audit  # noqa: E402
 from research_evidence import build_research_evidence  # noqa: E402
 import signal_ledger  # noqa: E402
 import strategy_registry  # noqa: E402
+import trading_discipline  # noqa: E402
 from signal_context import read_signal_context  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 from tradeability import assess_tradeability  # noqa: E402
@@ -116,6 +117,7 @@ def _apply_policy(
     asof: str | None = None,
     portfolio: Mapping[str, Any] | None = None,
     regime: Mapping[str, Any] | None = None,
+    discipline_state: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     result = dict(item)
     selected_by = result.get("open_selected_by") or {}
@@ -159,6 +161,7 @@ def _apply_policy(
         research_evidence=evidence,
         strategy_lane=lane,
         market_crowding=selection_market,
+        discipline_state=discipline_state,
     )
     result["strategy_id"] = strategy_id
     result["selection_context"] = hot_money_selection.advance_selection_context(
@@ -168,6 +171,7 @@ def _apply_policy(
     result["research_evidence"] = evidence
     result["portfolio_risk"] = portfolio_risk
     result["market_regime"] = dict(regime or {})
+    result["discipline_state"] = dict(discipline_state or {})
     result["policy_decision"] = policy
     if policy["decision"] in {"avoid", "watch"}:
         plan = dict(result.get("execution_plan") or {})
@@ -542,12 +546,17 @@ def build_confirmation(
     )
     portfolio = read_json(data_file("stock-triage", "portfolio.json"), {})
     regime = market_regime(read_market_context())
+    discipline_state = trading_discipline.assess_discipline_state(
+        signal_ledger.read_events(),
+        total_assets=portfolio_value(portfolio),
+        asof=asof,
+    )
     signals = [
         _apply_policy(_enrich_decision(
             item,
             announcement_map.get(candidate_pipeline.naked_code(item.get("code"))),
             asof,
-        ), asof=asof, portfolio=portfolio, regime=regime)
+        ), asof=asof, portfolio=portfolio, regime=regime, discipline_state=discipline_state)
         for item in signals
     ]
 
@@ -627,6 +636,7 @@ def build_confirmation(
                 "record": dict(item.get("social_attention") or {}),
             },
             selection_context=item.get("selection_context"),
+            discipline_state=item.get("discipline_state"),
         )
     monitor_registry.reconcile_automatic(
         "stock",
@@ -654,6 +664,7 @@ def build_confirmation(
         "source_asof": shortlist_result.get("source_asof"),
         "market_temperature": temperature,
         "market_regime": regime,
+        "discipline_state": discipline_state,
         "input_snapshot": compact_ref(input_snapshot),
         "confirmations": confirmations,
         "evaluated_confirmations": evaluated_confirmations,
@@ -738,6 +749,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "generated_at": result.get("generated_at"),
         "source_asof": result.get("source_asof"),
         "market_temperature": result.get("market_temperature"),
+        "discipline_state": result.get("discipline_state"),
         "signal_count": result.get("signal_count", 0),
         "portfolio_research_snapshot": result.get("portfolio_research_snapshot"),
         "signals": [

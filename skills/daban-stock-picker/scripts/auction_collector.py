@@ -39,9 +39,11 @@ from recommendation_quality import build_execution_plan, build_quality_report  #
 from decision_policy import evaluate_decision  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
 from market_context import market_regime, read_market_context  # noqa: E402
-from portfolio_policy import evaluate_candidate  # noqa: E402
+from portfolio_policy import evaluate_candidate, portfolio_value  # noqa: E402
 from research_evidence import build_research_evidence  # noqa: E402
+import signal_ledger  # noqa: E402
 import strategy_registry  # noqa: E402
+import trading_discipline  # noqa: E402
 from tradeability import limit_pct, round_limit  # noqa: E402
 from state_store import atomic_write_json, mutate_json, read_json  # noqa: E402
 from signal_context import read_signal_context  # noqa: E402
@@ -260,6 +262,11 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     decisions = []
     portfolio = read_json(data_file("stock-triage", "portfolio.json"), {})
     regime = market_regime(read_market_context())
+    discipline_state = trading_discipline.assess_discipline_state(
+        signal_ledger.read_events(),
+        total_assets=portfolio_value(portfolio),
+        asof=asof,
+    )
     monitor_expiry = add_trading_days(asof, 2)
     batch_id = os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}"
     stock_monitor_targets = []
@@ -335,6 +342,7 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
             research_evidence=evidence,
             strategy_lane=lane,
             market_crowding=selection_context.get("market_timing") or {},
+            discipline_state=discipline_state,
         )
         if policy["decision"] in {"avoid", "watch"}:
             plan["decision"] = policy["decision"]
@@ -348,6 +356,7 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
             "portfolio_risk": portfolio_risk,
             "research_evidence": evidence,
             "market_regime": regime,
+            "discipline_state": discipline_state,
             "strategy_id": strategy_id,
             "selection_context": selection_context,
             "announcements": announcement_map.get(code),
@@ -389,6 +398,7 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     )
     result["preopen_decisions"] = decisions
     result["decision_count"] = len(decisions)
+    result["discipline_state"] = discipline_state
     _persist_shortlist(result, asof)
 
     selected = [item["code"] for item in result["shortlist"]]
@@ -460,6 +470,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "input_count": result.get("input_count"),
         "shortlist_count": result.get("shortlist_count", len(result.get("shortlist") or [])),
         "decision_count": result.get("decision_count", len(decisions)),
+        "discipline_state": result.get("discipline_state"),
         "top_candidates": [
             {
                 "code": item.get("code"),
