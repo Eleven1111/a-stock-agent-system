@@ -142,3 +142,64 @@ def test_wait_for_concurrent_holder_uses_exact_run_id(monkeypatch):
     )
 
     assert artifact["artifact_path"] == "/tmp/holder.json"
+
+
+def test_target_output_records_push_telemetry_jsonl(tmp_path):
+    telemetry = tmp_path / "state" / "cron" / "push_telemetry.jsonl"
+
+    delivered = run_agent_dag.target_output(
+        {
+            "id": "signal-digest",
+            "deliver": "origin",
+            "silent_when_no_signal": False,
+            "max_output_chars": 20,
+        },
+        {
+            "trading_date": "2026-06-12",
+            "stdout": "x" * 500,
+            "has_signal": True,
+            "summary": {"message": "digest ok", "signals_count": 3},
+        },
+        telemetry_path=str(telemetry),
+        record_telemetry=True,
+    )
+    silent = run_agent_dag.target_output(
+        {
+            "id": "quiet-monitor",
+            "deliver": "origin",
+            "silent_when_no_signal": True,
+        },
+        {
+            "trading_date": "2026-06-12",
+            "stdout": '{"status":"no_signal","signals":[]}',
+            "has_signal": False,
+        },
+        telemetry_path=str(telemetry),
+        record_telemetry=True,
+    )
+
+    records = [
+        json.loads(line)
+        for line in telemetry.read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert "已压缩" in delivered
+    assert silent == "NO_REPLY\n"
+    assert records == [
+        {
+            "job_id": "signal-digest",
+            "trading_date": "2026-06-12",
+            "delivered": True,
+            "output_chars": len(delivered),
+            "was_compressed": True,
+            "silent_reason": "none",
+        },
+        {
+            "job_id": "quiet-monitor",
+            "trading_date": "2026-06-12",
+            "delivered": False,
+            "output_chars": 0,
+            "was_compressed": False,
+            "silent_reason": "no_signal",
+        },
+    ]
