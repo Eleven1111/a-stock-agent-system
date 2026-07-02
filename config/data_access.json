@@ -59,7 +59,8 @@
     "reference_protection_days": 30,
     "snapshot_min_keep_per_dataset": 3,
     "snapshot_max_total_mb": 4096,
-    "gc_max_delete_files": 10000
+    "gc_max_delete_files": 10000,
+    "snapshot_cold_archive_enabled": true
   },
   "intraday_monitor": {
     "limit_move_pct": 9.5,

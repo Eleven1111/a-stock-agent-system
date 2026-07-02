@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
+import shutil
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -169,6 +171,31 @@ def _sidecar_bytes(path: Path) -> int:
     return total
 
 
+def archive_dir(home: Path) -> Path:
+    return home / "archive" / "snapshots"
+
+
+def _archive_file(path: Path, *, root: Path, archive_root: Path) -> int:
+    """Gzip-copy an expiring snapshot into the cold archive tier before deletion.
+
+    Best-effort: a GC run must not fail because a single archive write failed
+    (disk full, permissions, etc.) — the file is still eligible for deletion
+    either way, same as the existing invalid-snapshot handling.
+    """
+    try:
+        relative = path.resolve(strict=False).relative_to(root.resolve(strict=False))
+    except ValueError:
+        return 0
+    target = archive_root / relative.parent / f"{relative.name}.gz"
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("rb") as source, gzip.open(target, "wb") as dest:
+            shutil.copyfileobj(source, dest)
+        return target.stat().st_size
+    except OSError:
+        return 0
+
+
 def _delete_file(path: Path, *, root: Path, apply: bool) -> int:
     if not _is_within(path, root):
         raise ValueError(f"refusing to delete outside retention root: {path}")
@@ -264,8 +291,21 @@ def cleanup_storage(
     cron_candidates.sort(key=lambda path: path.stat().st_mtime if path.exists() else 0)
     cron_selected = cron_candidates[: max(0, max_delete - len(selected))]
 
+    archive_enabled = bool(policy.get("snapshot_cold_archive_enabled", True))
+    archive_root = archive_dir(home)
+    archived_count = 0
+    archived_bytes = 0
+
     reclaimed = 0
     for path in selected:
+        if archive_enabled:
+            if apply:
+                written = _archive_file(path, root=snapshot_dir, archive_root=archive_root)
+                if written:
+                    archived_count += 1
+                    archived_bytes += written
+            else:
+                archived_count += 1
         reclaimed += _delete_file(path, root=snapshot_dir, apply=apply)
     for path in cron_selected:
         reclaimed += _delete_file(path, root=cron_dir, apply=apply)
@@ -300,6 +340,12 @@ def cleanup_storage(
         "protected": {
             "referenced_snapshots": protected_references,
             "minimum_per_dataset": min_keep,
+        },
+        "archived": {
+            "enabled": archive_enabled,
+            "archive_root": str(archive_root),
+            "count": archived_count,
+            "bytes": archived_bytes if apply else None,
         },
         "reclaimed_bytes": reclaimed,
         "remaining_snapshot_bytes": remaining_snapshot_bytes,

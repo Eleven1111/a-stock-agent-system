@@ -30,6 +30,7 @@ def main() -> None:
         f"{result['mode']}: snapshots="
         f"{result['deleted']['expired_snapshots'] + result['deleted']['size_cap_snapshots']}, "
         f"cron_artifacts={result['deleted']['cron_artifacts']}, "
+        f"archived={result['archived']['count']}, "
         f"reclaimed_bytes={result['reclaimed_bytes']}"
     )
 
