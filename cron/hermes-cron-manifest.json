@@ -53,10 +53,11 @@
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/global-preopen/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/market_context.json"
       ],
       "run": {
-        "command": "python skills/global-market-monitor/scripts/monitor.py --json --cache",
+        "command": "python skills/global-market-monitor/scripts/monitor.py --json --cache --delivery-job-id global-preopen",
         "cwd": ".",
         "timeout_seconds": 120
       },
@@ -425,7 +426,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "origin",
+      "deliver": "local",
       "max_output_chars": 4500,
       "context_from": [
         "auction-snapshot",
@@ -493,7 +494,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "origin",
+      "deliver": "local",
       "max_output_chars": 5000,
       "context_from": [
         "auction-finalize"
@@ -693,10 +694,11 @@
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/capital-flow/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/signal_context.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/capital_flow_monitor.py --json --cache",
+        "command": "python skills/stock-triage/scripts/capital_flow_monitor.py --json --cache --delivery-job-id capital-flow",
         "cwd": ".",
         "timeout_seconds": 120
       },
@@ -833,10 +835,11 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/closing-triage/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/context_digest.py --kind closing-triage",
+        "command": "python skills/stock-triage/scripts/context_digest.py --kind closing-triage --delivery-job-id closing-triage",
         "cwd": ".",
         "timeout_seconds": 20
       },
@@ -945,7 +948,9 @@
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
         "$A_STOCK_STATE_HOME/cron/output/news-monitor/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
+        "$A_STOCK_STATE_HOME/delivery/"
       ],
       "run": {
         "command": "python skills/news-to-sector/scripts/scheduled_monitor.py --json",
@@ -975,7 +980,9 @@
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/policy-intent-decoder/data/",
         "$A_STOCK_STATE_HOME/cron/output/official-policy-watch/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
+        "$A_STOCK_STATE_HOME/delivery/"
       ],
       "run": {
         "command": "python skills/policy-intent-decoder/scripts/watch_official_policy.py --json",
@@ -1060,7 +1067,9 @@
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
         "$A_STOCK_STATE_HOME/cron/output/news-monitor-intraday/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
+        "$A_STOCK_STATE_HOME/delivery/"
       ],
       "run": {
         "command": "python skills/news-to-sector/scripts/scheduled_monitor.py --mode intraday --json",
@@ -1269,7 +1278,9 @@
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
         "$A_STOCK_STATE_HOME/cron/output/catalyst-trigger/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
+        "$A_STOCK_STATE_HOME/delivery/"
       ],
       "run": {
         "command": "python scripts/realtime_catalyst_trigger.py",

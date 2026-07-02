@@ -1,0 +1,12 @@
+{
+  "schema": "delivery_policy_v1",
+  "novelty_gate": {
+    "enabled": true,
+    "mode": "enforce",
+    "ttl_days": 7
+  },
+  "summary_mode": {
+    "enabled": true,
+    "mode": "enforce"
+  }
+}

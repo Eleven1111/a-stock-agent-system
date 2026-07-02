@@ -31,6 +31,7 @@ from data_provider import (
     provider_client,
 )
 from data_access_config import global_market_settings
+import delivery_output
 from paths import cache_dir as _cache_dir
 
 CACHE_DIR = _cache_dir("global-market-monitor")
@@ -1063,6 +1064,28 @@ def print_summary(data: Dict[str, Any]):
     print("\n" + "═" * 60)
 
 
+def has_delivery_anomaly(data: Dict[str, Any]) -> bool:
+    impact = data.get("impact") or {}
+    return impact.get("status") == "insufficient_data" or bool(impact.get("alerts"))
+
+
+def delivery_summary_payload(data: Dict[str, Any], job_id: str) -> Dict[str, Any]:
+    impact = data.get("impact") or {}
+    vix = ((data.get("data") or {}).get("vix") or {}).get("^VIX") or {}
+    fx = ((data.get("data") or {}).get("fx") or {}).get("USDCNH=X") or {}
+    return {
+        "schema": "delivery_summary_v1",
+        "job_id": job_id,
+        "status": impact.get("status") or "ready",
+        "summary": (
+            f"全球盘前 {str(data.get('timestamp') or '')[:10]}："
+            f"VIX={vix.get('price', 'NA')}；离岸人民币={fx.get('price', 'NA')}；"
+            "无跨市场异常。"
+        ),
+        "alerts": [],
+    }
+
+
 # ========== 入口 ==========
 
 if __name__ == "__main__":
@@ -1075,6 +1098,7 @@ if __name__ == "__main__":
     parser.add_argument("--all", action="store_true", help="Full data + news")
     parser.add_argument("--cache", action="store_true",
                         help="把大盘影响落入共享缓存，供 four_dim 个股评分 overlay")
+    parser.add_argument("--delivery-job-id", help="启用该 cron job 的无异常摘要投递")
     args = parser.parse_args()
 
     include_news = args.news or args.all
@@ -1097,6 +1121,28 @@ if __name__ == "__main__":
                 print(f"market_context 写入失败: {_e}", file=__import__("sys").stderr)
 
     if args.summary or args.all:
-        print_summary(data)
+        if args.delivery_job_id:
+            import io
+            from contextlib import redirect_stdout
+
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                print_summary(data)
+            print(delivery_output.maybe_summarize_text(
+                buffer.getvalue(),
+                delivery_summary_payload(data, args.delivery_job_id)["summary"],
+                job_id=args.delivery_job_id,
+                has_anomaly=has_delivery_anomaly(data),
+            ))
+        else:
+            print_summary(data)
     else:
-        print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
+        if args.delivery_job_id:
+            print(delivery_output.maybe_summarize_json(
+                data,
+                delivery_summary_payload(data, args.delivery_job_id),
+                job_id=args.delivery_job_id,
+                has_anomaly=has_delivery_anomaly(data),
+            ))
+        else:
+            print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
