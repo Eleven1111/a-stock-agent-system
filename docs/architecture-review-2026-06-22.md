@@ -15,8 +15,8 @@ Claude 的改造方向是正确的：系统已经从“多脚本打分”演进�
 
 ## 审查范围
 
-- 研究基线：`/Users/na/na/Codex/股票研究/deep-research-report.md`
-- 本地仓库：`/Users/na/na/Claudecode/a-stock-agent-system`
+- 研究基线：本地研究报告快照（未提交）
+- 本地仓库：当前仓库工作树
 - GitHub：`Eleven1111/a-stock-agent-system`
 - 对照提交：本地与远端审查起点均为 `2b57bbf`，当时完全一致
 - 重点 PR：#34、#35、#36、#37
