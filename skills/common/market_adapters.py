@@ -6,6 +6,7 @@ from typing import Any, Sequence
 
 from a_stock_http import (
     fetch_tencent_kline as _fetch_tencent_kline,
+    fetch_tencent_minute as _fetch_tencent_minute,
     fetch_tencent_quote as _fetch_tencent_quote,
     fetch_tencent_snapshot as _fetch_tencent_snapshot,
 )
@@ -15,6 +16,7 @@ from http_client import DataSourceError, request_bytes
 ADAPTER_VERSIONS = {
     "tencent_quote": "tencent-adapter-v2",
     "tencent_kline": "tencent-kline-adapter-v2",
+    "tencent_minute": "tencent-adapter-v1",
     "tencent_orderbook": "tencent-adapter-v2",
     "akshare_limitup": "akshare-adapter-v1",
     "akshare_spot": "akshare-adapter-v1",
@@ -38,6 +40,10 @@ def fetch_tencent_kline(
     ktype: str = "day",
 ) -> list[dict[str, Any]]:
     return _fetch_tencent_kline(code, market=market, days=days, ktype=ktype)
+
+
+def fetch_tencent_minute(code: str, *, market: str) -> list[dict[str, Any]]:
+    return _fetch_tencent_minute(code, market=market)
 
 
 def fetch_hot_money_limitup_pool(date: str):

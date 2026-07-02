@@ -292,6 +292,44 @@ def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,
     return result
 
 
+def parse_tencent_minute_response(data: Dict[str, Any], code: str, market: str) -> List[Dict[str, Any]]:
+    """从 minute/query 的原始 JSON 提取逐分钟累计量价（纯函数，不触网，可单测）。
+
+    每行形如 "0930 10.20 17257 17602140.00" = 时间 现价 累计成交量(手) 累计成交额(元)。
+    """
+    rows = (
+        (data or {}).get("data", {})
+        .get(f"{market}{code}", {})
+        .get("data", {})
+        .get("data", [])
+    )
+    result = []
+    for row in rows:
+        parts = str(row).split()
+        if len(parts) < 4:
+            continue
+        try:
+            result.append({
+                "time": parts[0],
+                "price": float(parts[1]),
+                "cum_volume": float(parts[2]),
+                "cum_amount": float(parts[3]),
+            })
+        except ValueError:
+            continue
+    return result
+
+
+def fetch_tencent_minute(code: str, market: str = "sz") -> List[Dict[str, Any]]:
+    """腾讯当日分时数据。盘中调用只返回截至当前分钟的数据；收盘后返回全天 9:30-15:00。"""
+    url = f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={market}{code}"
+    try:
+        data = http_get_json(url, timeout=10)
+    except DataSourceError:
+        return []
+    return parse_tencent_minute_response(data, code, market)
+
+
 def fetch_tencent_hk_quote(code_hk: str) -> Dict[str, Any]:
     """港股实时行情"""
     code = code_hk.replace("hk", "")
