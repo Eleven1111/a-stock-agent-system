@@ -24,6 +24,8 @@ from runtime_context import (  # noqa: E402
     resolve_trading_date,
 )
 from trading_day_gate import evaluate_job_trading_day  # noqa: E402
+from paths import hermes_home  # noqa: E402
+from state_store import file_lock  # noqa: E402
 
 
 def _load_manifest(path: str) -> dict[str, Any]:
@@ -318,15 +320,86 @@ def execute_dag(
     }
 
 
-def target_output(job: Mapping[str, Any], artifact: Mapping[str, Any]) -> str:
+def push_telemetry_path() -> str:
+    return os.path.join(hermes_home(), "cron", "push_telemetry.jsonl")
+
+
+def append_push_telemetry(
+    record: Mapping[str, Any],
+    *,
+    telemetry_path: str | None = None,
+) -> None:
+    path = telemetry_path or push_telemetry_path()
+    with file_lock(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(dict(record), ensure_ascii=False, default=str))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+
+def _record_target_output_telemetry(
+    job: Mapping[str, Any],
+    artifact: Mapping[str, Any],
+    *,
+    delivered: bool,
+    output_chars: int,
+    was_compressed: bool,
+    silent_reason: str,
+    telemetry_path: str | None = None,
+) -> None:
+    record = {
+        "job_id": str(job.get("id") or artifact.get("job_id") or ""),
+        "trading_date": str(artifact.get("trading_date") or ""),
+        "delivered": bool(delivered),
+        "output_chars": int(output_chars),
+        "was_compressed": bool(was_compressed),
+        "silent_reason": silent_reason,
+    }
+    try:
+        append_push_telemetry(record, telemetry_path=telemetry_path)
+    except (OSError, TimeoutError):
+        return
+
+
+def target_output(
+    job: Mapping[str, Any],
+    artifact: Mapping[str, Any],
+    *,
+    record_telemetry: bool = False,
+    telemetry_path: str | None = None,
+) -> str:
     """Return bounded target output without bypassing delivery/no-signal policy."""
     if job.get("deliver") in {"local", "silent"}:
+        if record_telemetry:
+            _record_target_output_telemetry(
+                job,
+                artifact,
+                delivered=False,
+                output_chars=0,
+                was_compressed=False,
+                silent_reason="local",
+                telemetry_path=telemetry_path,
+            )
         return "NO_REPLY\n"
     if job.get("silent_when_no_signal") and not artifact.get("has_signal"):
+        if record_telemetry:
+            _record_target_output_telemetry(
+                job,
+                artifact,
+                delivered=False,
+                output_chars=0,
+                was_compressed=False,
+                silent_reason="no_signal",
+                telemetry_path=telemetry_path,
+            )
         return "NO_REPLY\n"
     stdout = str(artifact.get("stdout") or "")
     max_chars = max(200, int(job.get("max_output_chars") or 4000))
+    was_compressed = False
     if len(stdout) > max_chars:
+        was_compressed = True
         raw_summary = artifact.get("summary")
         summary = raw_summary if isinstance(raw_summary, Mapping) else {}
         parts = [summary.get("message", f"{job.get('id', 'job')} 运行完成")]
@@ -338,7 +411,18 @@ def target_output(job: Mapping[str, Any], artifact: Mapping[str, Any]) -> str:
             parts.append(" | ".join(f"{k.replace('_count','')}={v}" for k, v in count_keys.items()))
         parts.append(f"(输出{len(stdout)}字符，已压缩)")
         stdout = "\n".join(parts)[:max_chars]
-    return stdout + ("\n" if stdout and not stdout.endswith("\n") else "")
+    output = stdout + ("\n" if stdout and not stdout.endswith("\n") else "")
+    if record_telemetry:
+        _record_target_output_telemetry(
+            job,
+            artifact,
+            delivered=True,
+            output_chars=len(output),
+            was_compressed=was_compressed,
+            silent_reason="none",
+            telemetry_path=telemetry_path,
+        )
+    return output
 
 
 def main() -> None:
@@ -379,7 +463,7 @@ def main() -> None:
             (item for item in manifest.get("jobs", []) if item.get("id") == args.targets[0]),
             {},
         )
-        sys.stdout.write(target_output(job, artifact or {}))
+        sys.stdout.write(target_output(job, artifact or {}, record_telemetry=True))
     elif result["status"] in {"ok", "skipped_non_trading_day", "blocked"}:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:

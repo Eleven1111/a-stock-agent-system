@@ -30,14 +30,17 @@ import json
 import sys
 import os
 from datetime import datetime, date
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Mapping
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+sys.path.insert(0, ROOT)
 from state_store import read_json, atomic_write_json, update_json_list, mutate_json
 from paths import data_file
 from tradeability import limit_pct, round_limit
 from a_stock_http import fetch_tencent_kline, DataSourceError
 import signal_ledger
+from scripts.cron_budget_report import build_push_report, read_push_telemetry
 
 HISTORY_FILE = data_file("stock-triage", "signal_history.json")
 LEDGER_FILE = signal_ledger.LEDGER_FILE
@@ -485,6 +488,43 @@ def apply_strategy_gating(decisions: List[Dict]) -> List[Dict]:
     return applied
 
 
+def attach_push_report(stats: Dict) -> Dict:
+    enriched = dict(stats)
+    enriched["push_report"] = build_push_report(read_push_telemetry())
+    return enriched
+
+
+def format_push_report(report: Mapping[str, Any] | None) -> str:
+    if not report:
+        return ""
+    lines = ["## 推送与token计量"]
+    jobs = report.get("jobs") if isinstance(report.get("jobs"), Mapping) else {}
+    if not jobs:
+        lines.append("暂无推送计量数据。")
+        return "\n".join(lines)
+    lines.append("| 任务 | 日均推送 | 日均字符 | 静默率 | 压缩率 |")
+    lines.append("|------|----------|----------|--------|--------|")
+    for job_id, row in jobs.items():
+        lines.append(
+            f"| {job_id} | {row.get('daily_avg_pushes', 0):.3f} | "
+            f"{row.get('daily_avg_chars', 0):.3f} | "
+            f"{row.get('silent_rate', 0):.3f} | "
+            f"{row.get('compression_rate', 0):.3f} |"
+        )
+    top5 = report.get("char_top5") if isinstance(report.get("char_top5"), list) else []
+    if top5:
+        summary = ", ".join(
+            f"{item.get('job_id')}={item.get('output_chars', 0)}"
+            for item in top5
+        )
+        lines.append(f"字符量Top5: {summary}")
+    daily = report.get("daily_total_push_chars")
+    if isinstance(daily, Mapping) and daily:
+        latest_day = sorted(daily)[-1]
+        lines.append(f"最近交易日总推送字符: {latest_day}={daily[latest_day]}")
+    return "\n".join(lines)
+
+
 def format_stats(stats: Dict, records: List[Dict]) -> str:
     lines = ["📈 **打板信号胜率统计（T+1 隔日口径）**",
              f"⏰ {datetime.now().strftime('%Y-%m-%d')}", ""]
@@ -492,6 +532,9 @@ def format_stats(stats: Dict, records: List[Dict]) -> str:
     if stats.get("closed", 0) == 0:
         lines.append("尚无已结算信号，继续积累数据...")
         lines.append(f"当前 {stats.get('pending', 0)} 个信号待结算（需至少到 T+1）")
+        push_report = format_push_report(stats.get("push_report"))
+        if push_report:
+            lines.extend(["", push_report])
         return "\n".join(lines)
 
     alpha = stats.get("avg_alpha_t1")
@@ -546,6 +589,9 @@ def format_stats(stats: Dict, records: List[Dict]) -> str:
             lines.append(f"  {emoji} {r['name']}({r['code']}) {r['grade']}级 → "
                          f"隔日 {r.get('t1_close_ret', 0):+.1f}%{promo}")
 
+    push_report = format_push_report(stats.get("push_report"))
+    if push_report:
+        lines.extend(["", push_report])
     return "\n".join(lines)
 
 
@@ -578,6 +624,7 @@ if __name__ == "__main__":
             stats["gating_applied"] = apply_strategy_gating(
                 main_decisions + evidence_decisions
             )
+        stats = attach_push_report(stats)
         if args.json:
             print(json.dumps(stats, ensure_ascii=False, indent=2))
         else:

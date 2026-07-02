@@ -1,5 +1,6 @@
 """打板口径胜率追踪 — 结算逻辑测试（纯函数，不触网）"""
 
+import json
 import threading
 
 import performance_tracker as pt
@@ -361,3 +362,37 @@ def test_gate_stats_include_recommendation_ledger_signals(tmp_path, monkeypatch)
 
     assert stats["by_strategy"]["trend_pullback"]["closed"] == 1
     assert stats["by_strategy"]["trend_pullback"]["expectancy"] == 4.0
+
+
+def test_attach_push_report_adds_weekly_output_section(tmp_path, monkeypatch):
+    telemetry = tmp_path / "state" / "cron" / "push_telemetry.jsonl"
+    telemetry.parent.mkdir(parents=True)
+    telemetry.write_text(
+        "\n".join([
+            json.dumps({
+                "job_id": "alpha",
+                "trading_date": "2026-06-10",
+                "delivered": True,
+                "output_chars": 120,
+                "was_compressed": False,
+                "silent_reason": "none",
+            }),
+            json.dumps({
+                "job_id": "alpha",
+                "trading_date": "2026-06-11",
+                "delivered": False,
+                "output_chars": 0,
+                "was_compressed": False,
+                "silent_reason": "local",
+            }),
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
+
+    stats = pt.attach_push_report({"closed": 0})
+
+    assert stats["push_report"]["jobs"]["alpha"]["daily_avg_chars"] == 60.0
+    formatted = pt.format_push_report(stats["push_report"])
+    assert "推送与token计量" in formatted
+    assert "alpha" in formatted
