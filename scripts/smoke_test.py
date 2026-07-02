@@ -95,6 +95,14 @@ tests = [
         [PY, "skills/stock-triage/scripts/eod_anomaly_scanner.py", "--example", "--json"],
         "eod_anomaly_scanner", 10, True
     ),
+    (  # 12. 漏斗召回/门禁遗憾研究报告（无结算数据时 insufficient_data 仍是合法 JSON）
+        [PY, "scripts/funnel_recall_report.py"],
+        "funnel_recall_report", 20, True
+    ),
+    (  # 13. 评分校准研究报告（研究用，不改权重）
+        [PY, "scripts/score_calibration_report.py"],
+        "score_calibration_report", 20, True
+    ),
 ]
 
 print("=" * 50)
