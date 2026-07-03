@@ -27,15 +27,23 @@ def _df(rows):
 class _FakeClient:
     """单页 mootdx client 替身：start>0 即视为翻到尽头。"""
 
-    def __init__(self, bars_by_code):
+    def __init__(self, bars_by_code, index_bars_by_code=None):
         self._bars = bars_by_code
+        self._index_bars = index_bars_by_code or {}
         self.bar_calls = 0
+        self.index_bar_calls = 0
 
     def bars(self, symbol, frequency, offset, start):
         self.bar_calls += 1
         if start > 0:
             return None
         return self._bars.get(str(symbol))
+
+    def index_bars(self, symbol, frequency, offset, start):
+        self.index_bar_calls += 1
+        if start > 0:
+            return None
+        return self._index_bars.get(str(symbol))
 
     def stocks(self, market):  # pragma: no cover - reconstruct 用 universe 注入
         return None
@@ -127,6 +135,21 @@ def test_fetch_daily_stops_when_start_covered():
     kl = ms.fetch_daily("600000", "2024-06-02", client=client, max_pages=4)
     assert [b["date"] for b in kl] == ["2024-06-02", "2024-06-03"]
     assert client.bar_calls == 1   # 首页已覆盖 start_date，不再翻页
+
+
+def test_fetch_index_daily_uses_index_bars_not_stock_bars():
+    # 个股 client.bars() 的 symbol 空间不含指数代码（真实探针已确认 000300 在
+    # bars() 下返回 0 行）；fetch_index_daily 必须走 index_bars()，不能退回 bars()。
+    client = _FakeClient(
+        bars_by_code={},
+        index_bars_by_code={
+            "000300": _df([("2024-06-02", 3800.0, 3810.0), ("2024-06-03", 3810.0, 3825.0)])
+        },
+    )
+    kl = ms.fetch_index_daily("000300", "2024-06-02", client=client, max_pages=4)
+    assert [b["date"] for b in kl] == ["2024-06-02", "2024-06-03"]
+    assert client.index_bar_calls == 1
+    assert client.bar_calls == 0
 
 
 def test_reconstruct_filters_window_and_standardizes():

@@ -168,6 +168,24 @@ def fetch_daily(code: str, start_date: str, client: Any = None,
     return [by_date[d] for d in sorted(by_date)]
 
 
+def fetch_index_daily(code: str, start_date: str, client: Any = None,
+                      max_pages: int = 4) -> List[Dict[str, Any]]:
+    """指数日线（如沪深300=000300）。个股 client.bars() 的 symbol 空间不含指数代码，
+    需走 mootdx 的 index_bars()；其余分页/去重逻辑与 fetch_daily 一致。"""
+    client = client or get_client()
+    by_date: Dict[str, Dict[str, Any]] = {}
+    for page in range(max_pages):
+        df = client.index_bars(symbol=str(code), frequency=_DAILY, offset=_PAGE, start=page * _PAGE)
+        bars = to_kline(df)
+        if not bars:
+            break
+        for bar in bars:
+            by_date.setdefault(bar["date"], bar)
+        if min(by_date) <= start_date:   # 已覆盖到请求起点
+            break
+    return [by_date[d] for d in sorted(by_date)]
+
+
 def fetch_klines(codes: Sequence[str], start_date: str, client: Any = None,
                  max_pages: int = 4) -> Dict[str, List[Dict[str, Any]]]:
     """批量拉各 code 日线（复用 fetch_daily），供 assemble_events join。
