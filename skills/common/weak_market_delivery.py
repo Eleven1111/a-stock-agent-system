@@ -212,6 +212,32 @@ def _has_capacity_core_evidence(
     return False
 
 
+def daban_regime_gate(
+    item: Mapping[str, Any],
+    *,
+    lane: str,
+    market_timing: Mapping[str, Any],
+) -> dict[str, Any]:
+    """§7b 环境门禁（config-gated，默认关闭），仅作用于打板车道。
+
+    温度取自择时上下文，主题阶段取自候选上由主题体系盖的 ``theme_stage``；
+    门禁启用时温度缺失按 fail-closed 阻断交付。
+    """
+    if lane != "daban":
+        return {"enabled": False, "blocked": False, "reasons": []}
+    try:
+        from daban_adjustments import regime_gate_assessment
+    except ImportError:  # pragma: no cover - flat sys.path imports
+        return {"enabled": False, "blocked": False, "reasons": []}
+    temperature = _nested(market_timing, "temperature", "score")
+    score = float(temperature) if isinstance(temperature, (int, float)) else None
+    stage_value = item.get("theme_stage")
+    return regime_gate_assessment(
+        temperature_score=score,
+        theme_stage=str(stage_value) if stage_value else None,
+    )
+
+
 def assess_delivery_quality(
     item: Mapping[str, Any],
     *,
@@ -308,6 +334,11 @@ def assess_delivery_quality(
     ):
         status = "research_only"
         reasons.append("弱市下社媒拥挤但缺少结构核心证据")
+
+    gate = daban_regime_gate(item, lane=lane, market_timing=market_timing)
+    if status == "deliverable_watch" and gate.get("blocked"):
+        status = "research_only"
+        reasons.extend(str(reason) for reason in gate.get("reasons") or [])
 
     return {
         "schema": SCHEMA,
