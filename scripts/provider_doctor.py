@@ -29,6 +29,7 @@ from market_adapters import (  # noqa: E402
     fetch_industry_catalog_ths,
     fetch_tencent_quote,
 )
+import provider_health  # noqa: E402
 
 
 def _limitup_probe():
@@ -154,7 +155,21 @@ def run_probes() -> dict[str, Any]:
         "schema": "a_stock_provider_health_v1",
         "status": "error" if required_failed else "degraded" if optional_failed else "ok",
         "datasets": datasets,
+        "slo_ledger": _slo_ledger_summary(),
     }
+
+
+def _slo_ledger_summary() -> dict[str, Any]:
+    """Rolling-window SLO/circuit snapshot from real production traffic.
+
+    Distinct from the point-in-time probes above: this reflects breaker
+    state accumulated by actual request traffic, not a fresh synthetic call.
+    Never allowed to fail the probe script itself.
+    """
+    try:
+        return provider_health.summary()
+    except Exception as exc:  # noqa: BLE001
+        return {"schema": "a_stock_provider_health_summary_v1", "status": "error", "error": str(exc)}
 
 
 def main() -> int:
