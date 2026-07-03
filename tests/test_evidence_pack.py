@@ -4,6 +4,7 @@ import os
 import pytest
 
 import evidence_pack
+import research_bus as bus
 from paths import cron_output_dir, data_file, hermes_home
 
 
@@ -15,8 +16,19 @@ CONFIG = {
             "pack_jobs": ["closing-triage", "capital-flow"],
             "required_sections": ["agent_state", "fact_artifacts"],
         },
+        "serenity_refresh": {
+            "experts": ["deep_researcher"],
+            "priority": 75,
+            "cooldown_days": 90,
+            "pack_budget_chars": 4000,
+            "pack_jobs": [],
+            "required_sections": [],
+        },
     },
-    "experts": {"risk_redteam": {"max_output_chars": 5000}},
+    "experts": {
+        "risk_redteam": {"max_output_chars": 5000},
+        "deep_researcher": {"max_output_chars": 3000},
+    },
 }
 
 TASK = {
@@ -179,3 +191,90 @@ def test_budget_reduction_is_deterministic_and_bounded():
     assert "dropped_artifact_excerpts" in stored["reductions"]
     for entry in result["payload"]["fact_artifacts"]:
         assert "stdout_excerpt" not in entry
+
+
+def test_missing_deep_research_pulls_serenity_refresh_and_flags_gap():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    assert result["quality"]["deep_research_gap"] == "deep_research_missing_in_pack"
+    tasks = bus.load_tasks()
+    serenity_tasks = [t for t in tasks if t["kind"] == "serenity_refresh"]
+    assert len(serenity_tasks) == 1
+    assert serenity_tasks[0]["subject"]["code"] == "600519"
+    assert serenity_tasks[0]["trigger"]["origin_task_id"] == TASK["id"]
+
+
+def test_stale_deep_research_pulls_serenity_refresh_with_stale_reason(monkeypatch):
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+    monkeypatch.setattr(
+        "deep_research_cache.read_deep_research",
+        lambda code, today=None: {
+            "found": True, "code": code, "asof": "2026-01-01",
+            "stale": True, "age_days": 180, "deep_score": 6.0,
+        },
+    )
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    assert result["quality"]["deep_research_gap"] == "deep_research_stale_in_pack"
+    serenity_tasks = [
+        t for t in bus.load_tasks() if t["kind"] == "serenity_refresh"
+    ]
+    assert len(serenity_tasks) == 1
+
+
+def test_fresh_deep_research_does_not_pull_serenity_refresh(monkeypatch):
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+    monkeypatch.setattr(
+        "deep_research_cache.read_deep_research",
+        lambda code, today=None: {
+            "found": True, "code": code, "asof": "2026-07-01",
+            "stale": False, "age_days": 1, "deep_score": 8.0,
+        },
+    )
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    assert "deep_research_gap" not in result["quality"]
+    assert bus.load_tasks() == []
+
+
+def test_serenity_refresh_task_never_pulls_another_serenity_refresh():
+    serenity_task = {
+        "schema": "research_task_v1",
+        "id": "rt-2026-07-02-serenity_refresh-600519",
+        "kind": "serenity_refresh",
+        "subject": {"code": "600519", "name": "贵州茅台"},
+        "trading_date": "2026-07-02",
+    }
+
+    result = evidence_pack.build_pack(serenity_task, config=CONFIG)
+
+    assert "deep_research_gap" not in result["quality"]
+    assert bus.load_tasks() == []
+
+
+def test_repeated_pack_builds_do_not_duplicate_serenity_refresh_enqueue():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+
+    evidence_pack.build_pack(TASK, config=CONFIG)
+    evidence_pack.build_pack(TASK, config=CONFIG)
+
+    serenity_tasks = [
+        t for t in bus.load_tasks() if t["kind"] == "serenity_refresh"
+    ]
+    assert len(serenity_tasks) == 1

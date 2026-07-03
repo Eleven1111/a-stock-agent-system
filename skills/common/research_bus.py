@@ -457,7 +457,41 @@ def validate_finding(
     max_chars = int(limits.get("max_finding_chars") or 10000)
     if len(json.dumps(finding, ensure_ascii=False)) > max_chars:
         errors.append(f"finding exceeds {max_chars} chars")
+    if not errors and stance != "abstain":
+        errors.extend(_validate_kind_specific(finding, task=task))
     return errors
+
+
+def _validate_kind_specific(
+    finding: dict[str, Any],
+    *,
+    task: dict[str, Any],
+) -> list[str]:
+    """Per-kind fail-closed submit checks beyond the generic schema.
+
+    ``serenity_refresh`` findings preserve the fail-closed contract that used
+    to live in ``serenity_refresh_queue.complete_request``: a finding is only
+    accepted once a fresh ``deep_research_cache`` entry (asof not older than
+    the task's trading_date) exists for the subject code. This stops a
+    deep_researcher turn from marking the task done without actually writing
+    real research back to the cache.
+    """
+    if task.get("kind") != "serenity_refresh":
+        return []
+    code = str((task.get("subject") or {}).get("code") or "")
+    if not code:
+        return []
+    try:
+        from deep_research_cache import read_deep_research
+    except ImportError:
+        return []
+    trading_date = str(task.get("trading_date") or "")
+    cache = read_deep_research(code, today=trading_date)
+    if not cache:
+        return ["fresh deep-research cache not found for serenity_refresh subject"]
+    if str(cache.get("asof") or "") < trading_date:
+        return ["deep-research cache predates the serenity_refresh task"]
+    return []
 
 
 def _validate_stance_fields(finding: dict[str, Any], stance: Any) -> list[str]:

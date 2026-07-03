@@ -889,7 +889,7 @@
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py serenity-refresh-plan --emit-target",
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": true,
@@ -910,16 +910,16 @@
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
-        "$A_STOCK_STATE_HOME/skills/stock-triage/data/serenity_refresh_queue.json",
+        "$A_STOCK_STATE_HOME/skills/research-committee/data/",
         "$A_STOCK_STATE_HOME/cron/output/serenity-refresh-plan/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/common/serenity_refresh_queue.py plan --limit 5",
+        "command": "python skills/common/serenity_refresh_queue.py plan-bus --limit 5",
         "cwd": ".",
         "timeout_seconds": 30
       },
-      "external_note": "按持仓、有效建议、主动监控和候选池优先级生成确定性刷新队列；优先消费筹码/机构证据，研究执行由Hermes/OpenClaw Agent领取"
+      "external_note": "按持仓、有效建议、主动监控和候选池优先级把到期的Serenity刷新目标作为serenity_refresh任务入队research bus（一套队列/租约/预算）；研究执行由Hermes/OpenClaw在研究窗口内通过expert_runner领取。旧的独立队列claim/complete路径（serenity_refresh_queue.py）已弃用，仅用于排空历史积压"
     },
     {
       "id": "research-dispatch",
@@ -958,6 +958,44 @@
         "cwd": ".",
         "timeout_seconds": 60
       }
+    },
+    {
+      "id": "candidate-fsm-sweep",
+      "name": "候选状态机超时清扫",
+      "schedule": "55 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py candidate-fsm-sweep --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1500,
+      "context_from": [
+        "candidate-discovery"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 180,
+        "optional_jobs": [
+          "candidate-discovery"
+        ]
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_fsm/",
+        "$A_STOCK_STATE_HOME/cron/output/candidate-fsm-sweep/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/stock-triage/scripts/candidate_fsm_sweep.py --json",
+        "cwd": ".",
+        "timeout_seconds": 60
+      },
+      "external_note": "watching 超时淘汰(stale_watch)、confirmed 超时回退(confirm_stall)；纯确定性代码，零模型调用"
     },
     {
       "id": "news-monitor",

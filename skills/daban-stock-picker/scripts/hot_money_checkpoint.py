@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 
 from a_share_rules import add_trading_days  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
+import candidate_fsm  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
@@ -290,7 +291,33 @@ def run_checkpoint(profile: str, asof: str) -> dict[str, Any]:
                 for item in observations
             },
         )
+        _advance_fsm_to_confirmed(asof, confirmed)
     return result
+
+
+def _advance_fsm_to_confirmed(asof: str, confirmed: Sequence[Mapping[str, Any]]) -> None:
+    """Route checkpoint-confirmed candidates through the FSM: candidate ->
+    confirmed. This is the single trigger point for the review-gate guard
+    (research_committee candidate_deep_dive verdict), per advisory/enforce
+    config in candidate_selection.json. Idempotent: codes not currently at
+    `candidate` are left alone (already confirmed, or never promoted) so the
+    morning and afternoon checkpoints don't spam rejected events on repeat.
+    Best-effort: never blocks the checkpoint output, which is the
+    authoritative research-only surface."""
+    config = candidate_fsm.load_fsm_config()
+    for item in confirmed:
+        code = str(item.get("code") or "")
+        if not code:
+            continue
+        try:
+            state = candidate_fsm.current_state(code)
+            if state is not None and state.get("to_state") != "candidate":
+                continue
+            candidate_fsm.transition(
+                code, "confirmed", "score_above_threshold", asof=asof, config=config,
+            )
+        except Exception:  # noqa: BLE001
+            continue
 
 
 def json_report(result: Mapping[str, Any]) -> dict[str, Any]:

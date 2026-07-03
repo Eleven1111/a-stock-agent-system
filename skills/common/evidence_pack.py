@@ -144,10 +144,70 @@ def _artifact_entry(
     return _fit(entry, int(limits.get("artifact_chars") or 1500))
 
 
+def _deep_research_gap(
+    cache: dict[str, Any] | None,
+) -> str | None:
+    """Return why deep research coverage is insufficient, or None if fresh."""
+    if not isinstance(cache, dict):
+        return "missing"
+    if cache.get("stale"):
+        return "stale"
+    return None
+
+
+def _maybe_pull_serenity_refresh(
+    *,
+    task: dict[str, Any],
+    subject_code: str,
+    gap_reason: str,
+) -> str | None:
+    """Demand-pull hook (§6b): enqueue a serenity_refresh when a
+    candidate_deep_dive pack finds deep-research coverage missing/stale.
+
+    Only fires for candidate_deep_dive packs (the "复核拉动深研" demand-pull
+    the plan describes) — other kinds (anomaly_review, postmortem,
+    user_request, and serenity_refresh itself) never trigger this hook.
+    Guarded against recursion: a serenity_refresh task's own pack build must
+    never enqueue another serenity_refresh. Idempotent/dedup is inherited
+    from research_bus.enqueue_task (active-task + cooldown checks).
+    """
+    if task.get("kind") != "candidate_deep_dive":
+        return None
+    try:
+        import research_bus
+    except ImportError:
+        return None
+    reason = f"deep_research_{gap_reason}_in_pack"
+    outcome = research_bus.enqueue_task(
+        "serenity_refresh",
+        {"code": subject_code, "name": (task.get("subject") or {}).get("name")},
+        reason=reason,
+        trigger={
+            "source": "evidence_pack.build_pack",
+            "origin_task_id": task.get("id"),
+            "origin_kind": task.get("kind"),
+        },
+        trading_date=str(task.get("trading_date") or ""),
+        priority=task.get("priority"),
+        config=research_bus.load_config(),
+    )
+    if outcome.get("enqueued"):
+        research_bus.append_ledger_event({
+            "event_type": "research.enqueued",
+            "task_id": outcome["task"]["id"],
+            "kind": "serenity_refresh",
+            "reason": reason,
+            "trading_date": str(task.get("trading_date") or ""),
+        })
+    return reason
+
+
 def _subject_data(
     subject_code: str,
     trading_date: str,
     limits: dict[str, Any],
+    *,
+    task: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if not subject_code:
         return None
@@ -170,6 +230,13 @@ def _subject_data(
             for key in ("asof", "stale", "age_days", "scores", "summary")
             if cache.get(key) is not None
         }
+    gap_reason = _deep_research_gap(cache)
+    if gap_reason and task is not None:
+        pulled_reason = _maybe_pull_serenity_refresh(
+            task=task, subject_code=subject_code, gap_reason=gap_reason,
+        )
+        if pulled_reason:
+            data["deep_research_gap"] = pulled_reason
     if not data:
         return None
     return _fit(data, int(limits.get("subject_data_chars") or 4000))
@@ -253,6 +320,11 @@ def build_pack(
     jobs = list(kind_cfg.get("pack_jobs") or [])[
         : int(limits.get("max_artifacts") or 6)
     ]
+    subject_data = _subject_data(code, trading_date, limits, task=task)
+    deep_research_gap = (
+        subject_data.get("deep_research_gap")
+        if isinstance(subject_data, dict) else None
+    )
     payload: dict[str, Any] = {
         "task_id": task.get("id"),
         "kind": task.get("kind"),
@@ -262,10 +334,15 @@ def build_pack(
         "fact_artifacts": [
             _artifact_entry(job_id, trading_date, limits) for job_id in jobs
         ],
-        "subject_data": _subject_data(code, trading_date, limits),
+        "subject_data": subject_data,
     }
     payload, reductions = _reduce_to_budget(payload, budget_chars)
     payload["quality"] = _quality(payload, required)
+    if deep_research_gap:
+        # Recorded even if _reduce_to_budget dropped subject_data under
+        # pressure — the evidence pack must still surface "深度面证据缺失"
+        # honestly on the task/pack metadata (§6b requirement).
+        payload["quality"]["deep_research_gap"] = deep_research_gap
 
     digest = hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
     ref = f"sha256:{digest}"

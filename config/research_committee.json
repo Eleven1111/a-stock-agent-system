@@ -42,6 +42,14 @@
       "pack_jobs": ["performance-daily", "closing-triage", "four-dim-scorer"],
       "required_sections": ["agent_state", "fact_artifacts"]
     },
+    "serenity_refresh": {
+      "experts": ["deep_researcher"],
+      "priority": 75,
+      "cooldown_days": 90,
+      "pack_budget_chars": 4000,
+      "pack_jobs": [],
+      "required_sections": []
+    },
     "user_request": {
       "experts": ["evidence_auditor", "thesis_builder", "risk_redteam"],
       "priority": 95,
@@ -68,6 +76,10 @@
     "risk_redteam": {
       "profile": "skills/research-committee/experts/risk_redteam.md",
       "max_output_chars": 5000
+    },
+    "deep_researcher": {
+      "profile": "skills/research-committee/experts/deep_researcher.md",
+      "max_output_chars": 3000
     }
   },
   "finding": {
