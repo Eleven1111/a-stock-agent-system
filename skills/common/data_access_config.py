@@ -82,6 +82,16 @@ DEFAULTS: Dict[str, Any] = {
         "theme_min_attention_score": 60.0,
         "baidu_enabled": False,
     },
+    "provider_health": {
+        "window_size": 200,
+        "min_samples": 10,
+        "open_threshold": 0.5,
+        "cooldown_seconds": 300,
+        "probe_ttl_seconds": 60,
+    },
+    "field_chains": {
+        "capital_flow": ["eastmoney", "tencent"],
+    },
     "global_market": {
         "switches": {
             "yfinance": True,
@@ -392,6 +402,48 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
         else DEFAULTS["social_attention"]["baidu_enabled"]
     )
 
+    provider_health = result["provider_health"]
+    window_size = provider_health.get("window_size")
+    provider_health["window_size"] = (
+        window_size
+        if isinstance(window_size, int) and not isinstance(window_size, bool) and window_size > 0
+        else DEFAULTS["provider_health"]["window_size"]
+    )
+    min_samples = provider_health.get("min_samples")
+    provider_health["min_samples"] = (
+        min_samples
+        if isinstance(min_samples, int) and not isinstance(min_samples, bool) and min_samples > 0
+        else DEFAULTS["provider_health"]["min_samples"]
+    )
+    open_threshold = _number(provider_health.get("open_threshold"), -1)
+    provider_health["open_threshold"] = (
+        open_threshold
+        if 0 < open_threshold <= 1
+        else DEFAULTS["provider_health"]["open_threshold"]
+    )
+    for key in ("cooldown_seconds", "probe_ttl_seconds"):
+        provider_health[key] = _number(
+            provider_health.get(key),
+            DEFAULTS["provider_health"][key],
+            positive=True,
+        )
+
+    field_chains = result["field_chains"]
+    if not isinstance(field_chains, dict):
+        field_chains = copy.deepcopy(DEFAULTS["field_chains"])
+    else:
+        sanitized_chains: Dict[str, Any] = {}
+        for data_type, chain in field_chains.items():
+            if not isinstance(data_type, str) or not data_type.strip():
+                continue
+            if not isinstance(chain, list) or not chain:
+                continue
+            providers = [item for item in chain if isinstance(item, str) and item.strip()]
+            if providers:
+                sanitized_chains[data_type] = providers
+        field_chains = sanitized_chains or copy.deepcopy(DEFAULTS["field_chains"])
+    result["field_chains"] = field_chains
+
     global_market = result["global_market"]
     for section in (
         "switches",
@@ -459,6 +511,14 @@ def news_monitor_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:
 
 def social_attention_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:
     return dict(load_config(path)["social_attention"])
+
+
+def provider_health_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:
+    return dict(load_config(path)["provider_health"])
+
+
+def field_chains_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:
+    return copy.deepcopy(load_config(path)["field_chains"])
 
 
 def global_market_settings(path: Optional[str | Path] = None) -> Dict[str, Any]:

@@ -94,6 +94,16 @@
     "theme_min_attention_score": 60.0,
     "baidu_enabled": false
   },
+  "provider_health": {
+    "window_size": 200,
+    "min_samples": 10,
+    "open_threshold": 0.5,
+    "cooldown_seconds": 300,
+    "probe_ttl_seconds": 60
+  },
+  "field_chains": {
+    "capital_flow": ["eastmoney", "tencent"]
+  },
   "global_market": {
     "switches": {
       "yfinance": true,

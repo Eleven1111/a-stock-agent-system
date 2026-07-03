@@ -60,6 +60,10 @@ python scripts/expert_runner.py next --worker <hermes|openclaw>
 | thesis_builder | `experts/thesis_builder.md` | 题材/传导链/龙头论点 + 自带反证 |
 | risk_redteam | `experts/risk_redteam.md` | 攻击论点，唯一否决权 |
 
+研究窗口可用 `--role` 只认领指定角色（如 `expert_runner next --worker
+openclaw --role risk_redteam`），便于把不同角色分到不同的会话窗口；任一窗口
+宕掉时，其他窗口仍可不带 `--role` 兜底认领，租约保证同一角色不双跑。
+
 ## 人工操作
 
 ```bash

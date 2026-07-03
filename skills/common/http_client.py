@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -124,6 +125,25 @@ class HttpClient:
     def _timestamp(self) -> str:
         return self._clock().isoformat(timespec="seconds")
 
+    def _record_health(self, ok: bool, latency_ms: float) -> None:
+        """Best-effort SLO recording. Never allowed to affect request outcome.
+
+        Lazily imported so http_client.py stays dependency-free at module
+        load time (it is the lowest-level transport shared by every
+        provider adapter); a missing/broken provider_health module must
+        never break an HTTP call. Skipped inside
+        ``provider_health.suppress_transport_recording()`` so a request
+        already accounted at a higher layer (field_arbiter) is not
+        double-counted in the transport "default" bucket.
+        """
+        try:
+            from provider_health import record_result, transport_recording_suppressed
+            if transport_recording_suppressed():
+                return
+            record_result(self.source, "default", ok, latency_ms)
+        except Exception:  # noqa: BLE001 - health bookkeeping is non-critical
+            pass
+
     def request_bytes(
         self,
         request: str | urllib.request.Request,
@@ -132,10 +152,12 @@ class HttpClient:
     ) -> HttpResult[bytes]:
         request_obj = _request(request, headers)
         last_error: Optional[DataSourceError] = None
+        started = time.monotonic()
         for attempt in range(1, self.max_attempts + 1):
             try:
                 with self._opener(request_obj, timeout=self.timeout) as response:
                     payload = response.read()
+                self._record_health(True, (time.monotonic() - started) * 1000)
                 return HttpResult(payload, self._timestamp(), attempt)
             except (TimeoutError, socket.timeout) as exc:
                 last_error = DataSourceError(
@@ -198,6 +220,7 @@ class HttpClient:
                     attempts=attempt,
                     timestamp=self._timestamp(),
                 )
+        self._record_health(False, (time.monotonic() - started) * 1000)
         if last_error is None:
             raise RuntimeError("HTTP request failed without an error")
         raise last_error
