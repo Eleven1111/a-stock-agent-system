@@ -1,0 +1,128 @@
+{
+  "schema": "news_pipeline_config_v1",
+  "updated_at": "2026-07-03",
+  "source_contract": "Primary-source RSS/HTML polling for official releases and wire copy only. Social/secondary sources are out of scope for this pipeline; use agent-reach style tooling separately for sentiment evidence.",
+  "sources": [
+    {
+      "id": "gov_yaowen_rss",
+      "name": "中国政府网要闻",
+      "url": "https://www.gov.cn/yaowen/index_2.htm",
+      "kind": "html",
+      "source_rank": "S5",
+      "source_type": "central_news"
+    },
+    {
+      "id": "gov_policy_rss",
+      "name": "中国政府网政策",
+      "url": "https://www.gov.cn/zhengce/zuixin.htm",
+      "kind": "html",
+      "source_rank": "S5",
+      "source_type": "central_policy"
+    },
+    {
+      "id": "ndrc_news",
+      "name": "国家发展改革委新闻发布",
+      "url": "https://www.ndrc.gov.cn/xwdt/xwfb/",
+      "kind": "html",
+      "source_rank": "S4",
+      "source_type": "macro_industry_planner"
+    },
+    {
+      "id": "csrc_news",
+      "name": "中国证监会新闻发布",
+      "url": "https://www.csrc.gov.cn/csrc/c100028/common_list.shtml",
+      "kind": "html",
+      "source_rank": "S4",
+      "source_type": "capital_market_regulator"
+    },
+    {
+      "id": "pbc_news",
+      "name": "中国人民银行沟通交流",
+      "url": "http://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+      "kind": "html",
+      "source_rank": "S4",
+      "source_type": "monetary_authority"
+    },
+    {
+      "id": "xinhua_politics_rss",
+      "name": "新华社时政",
+      "url": "http://www.xinhuanet.com/politics/news_politics.xml",
+      "kind": "rss",
+      "source_rank": "S3",
+      "source_type": "official_wire"
+    },
+    {
+      "id": "people_rss",
+      "name": "人民网要闻",
+      "url": "http://www.people.com.cn/rss/politics.xml",
+      "kind": "rss",
+      "source_rank": "S3",
+      "source_type": "official_wire"
+    },
+    {
+      "id": "sse_news",
+      "name": "上海证券交易所新闻",
+      "url": "https://www.sse.com.cn/aboutus/mediacenter/hotandd/",
+      "kind": "html",
+      "source_rank": "S2",
+      "source_type": "exchange"
+    },
+    {
+      "id": "szse_news",
+      "name": "深圳证券交易所新闻",
+      "url": "https://www.szse.cn/aboutus/trends/news/index.html",
+      "kind": "html",
+      "source_rank": "S2",
+      "source_type": "exchange"
+    }
+  ],
+  "source_notes": {
+    "cninfo": "Per-stock cninfo announcement scans are already covered by skills/common/announcement_risk.py; this pipeline does not duplicate that machinery and only tracks market-wide official releases/wire copy."
+  },
+  "l1": {
+    "rank_weight": {
+      "S5": 5,
+      "S4": 4,
+      "S3": 3,
+      "S2": 2,
+      "S1": 1,
+      "S0": 0
+    },
+    "materiality_keywords": {
+      "critical": [
+        "政治局", "中央经济工作会议", "国务院常务会议", "国常会",
+        "降准", "降息", "特别国债", "重大改革", "紧急", "战争", "制裁"
+      ],
+      "high": [
+        "政策", "监管", "证监会", "人民银行", "发改委", "财政部",
+        "工业和信息化部", "金融监管总局", "问询函", "监管函", "警示函",
+        "重组", "定增", "减持", "解禁", "回购", "退市", "停牌",
+        "专项整治", "依法查处", "反内卷"
+      ],
+      "medium": [
+        "新能源", "半导体", "人工智能", "机器人", "储能", "光伏",
+        "数据要素", "国产替代", "供应链", "并购", "业绩预告"
+      ]
+    },
+    "min_title_len": 4,
+    "generic_titles": [
+      "更多", "加载更多", "公告通知", "新闻发布", "工作动态", "意见征集"
+    ],
+    "pass_threshold_score": 3,
+    "queue_max_entries": 2000,
+    "excerpt_max_chars": 200
+  },
+  "l2": {
+    "claim_ttl_minutes": 30,
+    "max_attempts_per_batch": 2,
+    "batch_size": 20,
+    "materiality_range": [0, 3],
+    "breaking_materiality": 3,
+    "profile": "skills/research-committee/experts/news_grader.md"
+  },
+  "breaking": {
+    "research_task_kind": "anomaly_review",
+    "suggested_new_kind": "event_review",
+    "delivery_max_chars": 800
+  }
+}

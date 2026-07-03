@@ -922,6 +922,48 @@
       "external_note": "按持仓、有效建议、主动监控和候选池优先级把到期的Serenity刷新目标作为serenity_refresh任务入队research bus（一套队列/租约/预算）；研究执行由Hermes/OpenClaw在研究窗口内通过expert_runner领取。旧的独立队列claim/complete路径（serenity_refresh_queue.py）已弃用，仅用于排空历史积压"
     },
     {
+      "id": "theme-strength-daily",
+      "name": "主题强度日评与生命周期",
+      "schedule": "45 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py theme-strength-daily --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 3000,
+      "context_from": [
+        "closing-triage",
+        "candidate-discovery"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 120,
+        "optional_jobs": [
+          "closing-triage",
+          "candidate-discovery"
+        ]
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/theme_registry.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/theme_strength_history.json",
+        "$A_STOCK_STATE_HOME/skills/research-committee/data/",
+        "$A_STOCK_STATE_HOME/cron/output/theme-strength-daily/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/theme_strength_daily.py --json",
+        "cwd": ".",
+        "timeout_seconds": 90
+      },
+      "external_note": "读取 candidate-discovery-input 快照(全A行情+连板梯队+资金流)计算主题广度/资金/RS/持续性，跑生命周期状态机；主题进入 mainline 时入队一次 theme_review；纯确定性代码，零模型调用"
+    },
+    {
       "id": "research-dispatch",
       "name": "研究任务确定性调度",
       "schedule": "50 15 * * 1-5",

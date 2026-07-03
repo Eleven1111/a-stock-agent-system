@@ -52,5 +52,22 @@
       "watching_stale_days": 5,
       "confirmed_stall_days": 3
     }
+  },
+  "theme_weighting": {
+    "enabled": true,
+    "stage_deltas": {
+      "mainline": 3.0,
+      "diverging": -3.0,
+      "fading": -6.0,
+      "emerging": 0.0
+    },
+    "lifecycle": {
+      "mainline_ladder_height": 3,
+      "mainline_rs_window": 5,
+      "diverging_ladder_drop_frac": 0.5,
+      "fading_weak_days": 2,
+      "mainline_min_persistence": 2,
+      "archive_after_fading_days": 3
+    }
   }
 }
