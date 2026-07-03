@@ -32,11 +32,20 @@ def config():
                 "pack_jobs": ["capital-flow"],
                 "required_sections": [],
             },
+            "serenity_refresh": {
+                "experts": ["deep_researcher"],
+                "priority": 75,
+                "cooldown_days": 90,
+                "pack_budget_chars": 4000,
+                "pack_jobs": [],
+                "required_sections": [],
+            },
         },
         "experts": {
             "evidence_auditor": {"max_output_chars": 4000},
             "thesis_builder": {"max_output_chars": 5000},
             "risk_redteam": {"max_output_chars": 5000},
+            "deep_researcher": {"max_output_chars": 3000},
         },
         "finding": {"max_summary_chars": 600, "max_finding_chars": 10000},
         "synthesis": {
@@ -246,3 +255,158 @@ def test_estimate_includes_pack_and_all_roles(config):
     estimate = bus.estimate_task_chars("candidate_deep_dive", config)
     assert estimate == 24000 + (3000 + 4000) + (3000 + 5000) + (3000 + 5000)
     assert os.path.basename(bus.queue_file()) == "research_tasks.json"
+
+
+def test_serenity_refresh_enqueues_single_role_task(config):
+    result = bus.enqueue_task(
+        "serenity_refresh",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="missing_cache",
+        trading_date="2026-07-02",
+        config=config,
+    )
+    assert result["enqueued"] is True
+    task = result["task"]
+    assert task["expert_plan"] == ["deep_researcher"]
+    assert task["priority"] == 75
+
+
+def test_serenity_refresh_dedupes_same_code(config):
+    first = bus.enqueue_task(
+        "serenity_refresh",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="missing_cache",
+        trading_date="2026-07-02",
+        config=config,
+    )
+    assert first["enqueued"] is True
+    repeat = bus.enqueue_task(
+        "serenity_refresh",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="demand_pulled",
+        trading_date="2026-07-02",
+        config=config,
+    )
+    assert repeat["enqueued"] is False
+    assert repeat["reason"] == "already_active"
+
+
+def _write_fresh_cache(monkeypatch, tmp_path, code, asof):
+    import deep_research_cache
+
+    monkeypatch.setattr(
+        deep_research_cache, "cache_file",
+        lambda c: str(tmp_path / f"cache-{c}.json"),
+    )
+    deep_research_cache.write_deep_research(
+        code, "贵州茅台", {"total": 80, "rating": "buy"}, asof=asof,
+    )
+    return deep_research_cache
+
+
+def test_submit_serenity_refresh_requires_fresh_cache(config, monkeypatch, tmp_path):
+    import deep_research_cache
+
+    monkeypatch.setattr(
+        deep_research_cache, "cache_file",
+        lambda c: str(tmp_path / f"cache-{c}.json"),
+    )
+    created = bus.enqueue_task(
+        "serenity_refresh",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="missing_cache",
+        trading_date="2026-07-02",
+        config=config,
+    )
+    task_id = created["task"]["id"]
+    work = bus.claim_next_work("openclaw", config=config)
+    finding = {
+        "schema": "research_finding_v1",
+        "task_id": task_id,
+        "role": "deep_researcher",
+        "stance": "neutral",
+        "confidence": 0.8,
+        "summary": "深研已完成但未写缓存",
+        "evidence_refs": ["deep_research_cache:600519:2026-07-02"],
+    }
+    result = bus.submit_finding(task_id, "deep_researcher", finding, config=config)
+    assert result["ok"] is False
+    assert any("cache" in error for error in result["errors"])
+    assert work["task"]["roles"]["deep_researcher"]["status"] != "done"
+
+
+def test_submit_serenity_refresh_accepts_after_fresh_cache_write(
+    config, monkeypatch, tmp_path,
+):
+    _write_fresh_cache(monkeypatch, tmp_path, "600519", "2026-07-02")
+    created = bus.enqueue_task(
+        "serenity_refresh",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="missing_cache",
+        trading_date="2026-07-02",
+        config=config,
+    )
+    task_id = created["task"]["id"]
+    bus.claim_next_work("openclaw", config=config)
+    finding = {
+        "schema": "research_finding_v1",
+        "task_id": task_id,
+        "role": "deep_researcher",
+        "stance": "neutral",
+        "confidence": 0.8,
+        "summary": "深研完成，缓存已写入",
+        "evidence_refs": ["deep_research_cache:600519:2026-07-02"],
+    }
+    result = bus.submit_finding(task_id, "deep_researcher", finding, config=config)
+    assert result["ok"] is True
+    assert result["all_roles_done"] is True
+
+
+def test_submit_serenity_refresh_rejects_cache_older_than_trading_date(
+    config, monkeypatch, tmp_path,
+):
+    _write_fresh_cache(monkeypatch, tmp_path, "600519", "2026-06-30")
+    created = bus.enqueue_task(
+        "serenity_refresh",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="missing_cache",
+        trading_date="2026-07-02",
+        config=config,
+    )
+    task_id = created["task"]["id"]
+    bus.claim_next_work("openclaw", config=config)
+    finding = {
+        "schema": "research_finding_v1",
+        "task_id": task_id,
+        "role": "deep_researcher",
+        "stance": "neutral",
+        "confidence": 0.8,
+        "summary": "深研完成但缓存过期于交易日之前",
+        "evidence_refs": ["deep_research_cache:600519:2026-06-30"],
+    }
+    result = bus.submit_finding(task_id, "deep_researcher", finding, config=config)
+    assert result["ok"] is False
+    assert any("predates" in error for error in result["errors"])
+
+
+def test_submit_serenity_refresh_abstain_bypasses_cache_check(config):
+    created = bus.enqueue_task(
+        "serenity_refresh",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="missing_cache",
+        trading_date="2026-07-02",
+        config=config,
+    )
+    task_id = created["task"]["id"]
+    bus.claim_next_work("openclaw", config=config)
+    finding = {
+        "schema": "research_finding_v1",
+        "task_id": task_id,
+        "role": "deep_researcher",
+        "stance": "abstain",
+        "confidence": 1.0,
+        "summary": "标的停牌，无法深研",
+        "abstain_reason": "标的停牌",
+    }
+    result = bus.submit_finding(task_id, "deep_researcher", finding, config=config)
+    assert result["ok"] is True

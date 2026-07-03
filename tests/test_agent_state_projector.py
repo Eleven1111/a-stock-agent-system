@@ -1,5 +1,6 @@
+import research_bus as bus
 import signal_ledger
-from scripts.agent_state_projector import build_agent_state
+from scripts.agent_state_projector import build_agent_state, default_serenity_refresh_requests
 
 
 def test_projector_exposes_one_runtime_neutral_decision_surface(tmp_path):
@@ -85,3 +86,62 @@ def test_projector_reads_legacy_recommendation_with_unknown_evidence_source(tmp_
     assert state["recommendations"][0]["evidence_sources"] == [
         {"source": "unknown", "artifact": "unknown", "weight_hint": "context"}
     ]
+
+
+def test_default_serenity_requests_reads_pending_bus_tasks(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    config = {
+        "task_kinds": {
+            "serenity_refresh": {
+                "experts": ["deep_researcher"],
+                "priority": 75,
+                "cooldown_days": 90,
+                "pack_budget_chars": 4000,
+                "pack_jobs": [],
+                "required_sections": [],
+            },
+        },
+        "experts": {"deep_researcher": {"max_output_chars": 3000}},
+    }
+    bus.enqueue_task(
+        "serenity_refresh",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="missing_cache",
+        trading_date="2026-07-02",
+        config=config,
+    )
+
+    requests = default_serenity_refresh_requests()
+
+    assert len(requests) == 1
+    assert requests[0]["code"] == "600519"
+    assert requests[0]["status"] == "pending"
+
+
+def test_default_serenity_requests_excludes_done_bus_tasks(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    config = {
+        "task_kinds": {
+            "serenity_refresh": {
+                "experts": ["deep_researcher"],
+                "priority": 75,
+                "cooldown_days": 90,
+                "pack_budget_chars": 4000,
+                "pack_jobs": [],
+                "required_sections": [],
+            },
+        },
+        "experts": {"deep_researcher": {"max_output_chars": 3000}},
+    }
+    created = bus.enqueue_task(
+        "serenity_refresh",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="missing_cache",
+        trading_date="2026-07-02",
+        config=config,
+    )
+    bus.update_task(created["task"]["id"], {"status": "done"})
+
+    requests = default_serenity_refresh_requests()
+
+    assert requests == []

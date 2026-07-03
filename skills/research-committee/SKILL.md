@@ -47,7 +47,12 @@ python scripts/expert_runner.py next --worker <hermes|openclaw>
 ## 硬边界
 
 - 专家只读 evidence pack；禁止读 ledger/portfolio 原始文件，禁止网络检索。
+  **例外：`deep_researcher` 角色**——它的职责就是执行 Serenity 深研，天然需要
+  网络检索与外部文件读写，见 `experts/deep_researcher.md`。
 - 本平面唯一可写区：`$A_STOCK_STATE_HOME/skills/research-committee/data/`。
+  **例外：`deep_researcher` 角色**额外允许写
+  `$A_STOCK_STATE_HOME/skills/stock-triage/cache/deep_research/`（深研缓存，
+  `skills/common/deep_research_cache.py`），这是它完成任务的必要产出。
 - verdict=advance 只产生 proposal，`policy_gate_required=true`；进入实盘排序
   必须先过 strategy registry / OOS / decision policy，与本平面无捷径。
 - 每日字符预算写在 `config/research_committee.json`；预算耗尽任务自动顺延。
@@ -59,6 +64,27 @@ python scripts/expert_runner.py next --worker <hermes|openclaw>
 | evidence_auditor | `experts/evidence_auditor.md` | 证据链完整性、时点一致性 |
 | thesis_builder | `experts/thesis_builder.md` | 题材/传导链/龙头论点 + 自带反证 |
 | risk_redteam | `experts/risk_redteam.md` | 攻击论点，唯一否决权 |
+| deep_researcher | `experts/deep_researcher.md` | 执行 Serenity 深研，回流深研缓存（`kind=serenity_refresh` 单角色任务） |
+
+## Serenity 深研并入研究平面（§6）
+
+`serenity_refresh` 是普通的研究任务类型，走同一条总线/租约/预算：
+
+```text
+serenity-refresh-plan (cron, 确定性)      ← 复用 serenity_refresh_queue 的
+  -> research_bus.enqueue_task(            due 判定(collect_targets/plan_refreshes)
+       kind=serenity_refresh)
+候选深研工单构建证据包时发现 deep_research 缺失/过期
+  -> 同样 enqueue_task(kind=serenity_refresh)（需求牵引，见 evidence_pack.py）
+expert_runner next --role deep_researcher  ← claim 工单
+  -> 执行 Serenity skill → 写 deep_research_cache
+  -> submit finding（fail-closed：没有 asof >= 任务交易日的新鲜缓存条目，
+     submit 会被拒收，语义与旧 serenity_refresh_queue.complete_request 一致）
+```
+
+旧的独立队列 `serenity_refresh_queue.py` 的 `plan_and_save`/`claim_next`/
+`complete_request`/`fail_request` 已弃用（仅用于排空历史积压），新的调度入口
+是 `serenity_refresh_queue.plan_bus_refreshes`。
 
 研究窗口可用 `--role` 只认领指定角色（如 `expert_runner next --worker
 openclaw --role risk_redteam`），便于把不同角色分到不同的会话窗口；任一窗口

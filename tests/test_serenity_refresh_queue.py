@@ -1,6 +1,32 @@
 from datetime import date
 
+import research_bus as bus
 import serenity_refresh_queue as queue
+
+
+BUS_CONFIG = {
+    "claim_ttl_minutes": 120,
+    "max_attempts_per_role": 2,
+    "budget": {"daily_char_budget": 400000, "instructions_chars_estimate": 3000},
+    "task_kinds": {
+        "serenity_refresh": {
+            "experts": ["deep_researcher"],
+            "priority": 75,
+            "cooldown_days": 90,
+            "pack_budget_chars": 4000,
+            "pack_jobs": [],
+            "required_sections": [],
+        },
+    },
+    "experts": {"deep_researcher": {"max_output_chars": 3000}},
+    "finding": {"max_summary_chars": 600, "max_finding_chars": 10000},
+    "synthesis": {
+        "veto_confidence": 0.7,
+        "conflict_confidence": 0.6,
+        "advance_min_support_confidence": 0.6,
+        "escalation": {"enabled": False, "max_rounds": 1},
+    },
+}
 
 
 def test_plan_refreshes_missing_and_stale_high_priority_targets():
@@ -191,3 +217,48 @@ def test_expired_claim_is_recovered_by_another_runtime(tmp_path, monkeypatch):
 
     assert claimed["claimed_by"] == "openclaw"
     assert claimed["attempts"] == 1
+
+
+def test_plan_bus_refreshes_enqueues_due_targets_on_the_research_bus(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        queue, "collect_targets",
+        lambda **kwargs: [
+            {"code": "600001", "name": "持仓股", "priority": 100, "source": "portfolio"},
+            {"code": "000002", "name": "候选股", "priority": 50, "source": "candidate_pool"},
+        ],
+    )
+    monkeypatch.setattr(queue, "read_deep_research", lambda code, today=None: None)
+
+    result = queue.plan_bus_refreshes(
+        trading_date="2026-07-02", config=BUS_CONFIG,
+    )
+
+    assert result["schema"] == "serenity_bus_plan_v1"
+    assert result["enqueued"] == 2
+    codes = {item["code"] for item in result["results"] if item["enqueued"]}
+    assert codes == {"600001", "000002"}
+    tasks = bus.load_tasks()
+    assert {task["kind"] for task in tasks} == {"serenity_refresh"}
+    assert {task["subject"]["code"] for task in tasks} == {"600001", "000002"}
+
+
+def test_plan_bus_refreshes_is_idempotent_for_active_bus_tasks(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        queue, "collect_targets",
+        lambda **kwargs: [
+            {"code": "600001", "name": "持仓股", "priority": 100, "source": "portfolio"},
+        ],
+    )
+    monkeypatch.setattr(queue, "read_deep_research", lambda code, today=None: None)
+
+    first = queue.plan_bus_refreshes(trading_date="2026-07-02", config=BUS_CONFIG)
+    second = queue.plan_bus_refreshes(trading_date="2026-07-02", config=BUS_CONFIG)
+
+    assert first["enqueued"] == 1
+    assert second["enqueued"] == 0
+    assert second["results"][0]["skip_reason"] == "already_active"
+    assert len(bus.load_tasks()) == 1

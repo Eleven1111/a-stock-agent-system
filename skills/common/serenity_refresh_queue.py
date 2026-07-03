@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
-"""Deterministic refresh queue for agent-executed Serenity research.
+"""Deterministic due-target planning for Serenity research (bus-backed).
 
-The scheduler decides what is due; Hermes/OpenClaw claims a request, runs the
-Serenity skill, writes a real deep-research cache entry, then completes the
-request. Completion fails closed when no fresh cache exists.
+``collect_targets``/``plan_refreshes``/``_due_reason`` decide *what is due*
+for a Serenity deep-research refresh (portfolio, live recommendations, active
+monitors, top candidates) and remain the single source of truth for that
+judgement. ``plan_bus_refreshes`` is the current entry point: it reuses that
+due-target logic and enqueues each due target as a ``serenity_refresh`` task
+on the shared research bus (``research_bus.enqueue_task``), so the refresh
+work shares one queue, one lease, and one budget with every other research
+task kind. Idempotent dedup and cooldown come from the bus itself.
+
+``plan_and_save``/``claim_next``/``complete_request``/``fail_request`` and
+the standalone ``QUEUE_FILE`` below are the pre-bus queue and are DEPRECATED:
+kept only because a deployed host may still have a historical backlog in
+``serenity_refresh_queue.json`` to drain. New scheduling must go through
+``plan_bus_refreshes``; do not write new callers against the deprecated
+functions.
 """
 
 from __future__ import annotations
@@ -225,12 +237,92 @@ def collect_targets(
     return targets
 
 
+def _enqueue_bus_refresh(
+    request: dict[str, Any],
+    *,
+    day: str,
+    config: dict[str, Any],
+    research_bus: Any,
+) -> dict[str, Any]:
+    subject = {"code": request["code"], "name": request.get("name")}
+    reason = str(request.get("reason") or "serenity_due")
+    outcome = research_bus.enqueue_task(
+        "serenity_refresh",
+        subject,
+        reason=reason,
+        trigger={
+            "source": "serenity_refresh_queue.plan_bus_refreshes",
+            "sources": request.get("sources"),
+        },
+        trading_date=day,
+        priority=int(request.get("priority") or 0) or None,
+        config=config,
+    )
+    entry = {
+        "code": request["code"],
+        "reason": reason,
+        "enqueued": outcome.get("enqueued", False),
+    }
+    if outcome.get("enqueued"):
+        entry["task_id"] = outcome["task"]["id"]
+        research_bus.append_ledger_event({
+            "event_type": "research.enqueued",
+            "task_id": outcome["task"]["id"],
+            "kind": "serenity_refresh",
+            "reason": reason,
+            "trading_date": day,
+        })
+    else:
+        entry["skip_reason"] = outcome.get("reason")
+    return entry
+
+
+def plan_bus_refreshes(
+    *,
+    trading_date: str | None = None,
+    limit: int = DEFAULT_LIMIT,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Enqueue due Serenity targets as ``serenity_refresh`` research tasks.
+
+    This is the current scheduling entry point (§6a): it reuses
+    ``collect_targets``/``plan_refreshes`` to decide who is due, then calls
+    ``research_bus.enqueue_task`` per due target instead of writing the
+    deprecated standalone queue file. Bus dedup/cooldown makes repeated calls
+    on the same trading day a no-op for targets already queued or recently
+    completed.
+    """
+    import research_bus
+
+    config = config or research_bus.load_config()
+    day = str(trading_date or date.today().isoformat())[:10]
+    targets = collect_targets(asof=date.fromisoformat(day))
+    planned = plan_refreshes(targets, asof=day, existing=[], limit=limit)
+
+    results = [
+        _enqueue_bus_refresh(request, day=day, config=config, research_bus=research_bus)
+        for request in planned["created_requests"]
+    ]
+    return {
+        "schema": "serenity_bus_plan_v1",
+        "asof": day,
+        "scanned": len(planned["created_requests"]),
+        "enqueued": len([item for item in results if item["enqueued"]]),
+        "results": results,
+    }
+
+
 def plan_and_save(
     *,
     asof: str | None = None,
     limit: int = DEFAULT_LIMIT,
     path: str | None = None,
 ) -> dict[str, Any]:
+    """DEPRECATED: writes the standalone queue file. Use plan_bus_refreshes.
+
+    Kept only to drain a deployed host's historical backlog in
+    ``serenity_refresh_queue.json``.
+    """
     queue_file = path or QUEUE_FILE
     target_date = date.fromisoformat(str(asof)[:10]) if asof else None
     targets = collect_targets(asof=target_date)
@@ -265,6 +357,11 @@ def claim_next(
     now: str | None = None,
     claim_ttl_minutes: int = 120,
 ) -> dict[str, Any] | None:
+    """DEPRECATED: claims from the standalone queue file.
+
+    New work is claimed through ``expert_runner.py next`` against the
+    research bus. Kept only to drain a deployed host's historical backlog.
+    """
     queue_file = path or QUEUE_FILE
     claimed: dict[str, Any] = {}
     current_time = datetime.fromisoformat(now) if now else datetime.now()
@@ -311,6 +408,12 @@ def complete_request(
     request_id: str,
     path: str | None = None,
 ) -> dict[str, Any]:
+    """DEPRECATED: completes a standalone-queue request.
+
+    New work completes through ``expert_runner.py submit``, whose fail-closed
+    fresh-cache check (see ``research_bus._validate_kind_specific``) mirrors
+    the two checks below. Kept only to drain a historical backlog.
+    """
     queue_file = path or QUEUE_FILE
     current = next(
         (item for item in load_queue(queue_file) if item.get("id") == request_id),
@@ -355,6 +458,11 @@ def fail_request(
     retry: bool = True,
     path: str | None = None,
 ) -> dict[str, Any]:
+    """DEPRECATED: fails a standalone-queue request.
+
+    New work fails through ``expert_runner.py fail``. Kept only to drain a
+    historical backlog.
+    """
     queue_file = path or QUEUE_FILE
     failed: dict[str, Any] = {}
 
@@ -381,7 +489,12 @@ def fail_request(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Serenity 深研刷新队列")
     sub = parser.add_subparsers(dest="command", required=True)
-    plan = sub.add_parser("plan")
+    plan_bus = sub.add_parser(
+        "plan-bus", help="把到期目标入队 research bus（当前调度入口）",
+    )
+    plan_bus.add_argument("--trading-date")
+    plan_bus.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
+    plan = sub.add_parser("plan", help="[deprecated] 写独立队列文件")
     plan.add_argument("--asof")
     plan.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     sub.add_parser("list")
@@ -396,7 +509,11 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    if args.command == "plan":
+    if args.command == "plan-bus":
+        result = plan_bus_refreshes(
+            trading_date=args.trading_date, limit=args.limit,
+        )
+    elif args.command == "plan":
         result = plan_and_save(asof=args.asof, limit=args.limit)
     elif args.command == "list":
         result = {"requests": load_queue(), "pending": pending_requests()}

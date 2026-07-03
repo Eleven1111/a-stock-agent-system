@@ -42,5 +42,15 @@
     "quote_min_coverage": 0.9,
     "kline_min_coverage": 0.7,
     "request_retries": 2
+  },
+  "candidate_fsm": {
+    "review_gate": {
+      "mode": "advisory",
+      "task_kind": "candidate_deep_dive"
+    },
+    "timeouts": {
+      "watching_stale_days": 5,
+      "confirmed_stall_days": 3
+    }
   }
 }

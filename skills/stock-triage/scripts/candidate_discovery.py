@@ -29,6 +29,7 @@ ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
 sys.path.insert(0, COMMON)
 
+import candidate_fsm  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
@@ -381,6 +382,32 @@ def fetch_candidate_klines(candidates: Sequence[Mapping[str, Any]]) -> Dict[str,
     return result
 
 
+def _advance_fsm_to_watching(asof: str, selected_codes: Iterable[str]) -> None:
+    """Route newly-selected watch-pool codes through the FSM's single entry
+    point: screened -> watching. Bounded to the selected watch pool (a few
+    hundred codes), not the full scanned universe, to keep the daily
+    transition log small. Idempotent: codes already at watching/candidate/
+    confirmed are left alone so re-running discovery the same day (e.g. the
+    candidate-preopen bootstrap job) does not spam rejected transitions.
+    Best-effort: an FSM write failure must never fail discovery, which is
+    the authoritative watch-pool producer."""
+    config = candidate_fsm.load_fsm_config()
+    for code in selected_codes:
+        try:
+            state = candidate_fsm.current_state(code)
+            if state is not None and state.get("to_state") != "screened":
+                continue
+            if state is None:
+                candidate_fsm.transition(
+                    code, "screened", "score_above_threshold", asof=asof, config=config,
+                )
+            candidate_fsm.transition(
+                code, "watching", "score_above_threshold", asof=asof, config=config,
+            )
+        except Exception:  # noqa: BLE001
+            continue
+
+
 def _reason_counts(rejected: Mapping[str, Sequence[str]]) -> Dict[str, int]:
     counts: Dict[str, int] = {}
     for reasons in rejected.values():
@@ -717,6 +744,7 @@ def run_discovery(
             "base_rejection_counts": _reason_counts(base_rejected),
         },
     )
+    _advance_fsm_to_watching(asof, selected_codes)
     return result
 
 

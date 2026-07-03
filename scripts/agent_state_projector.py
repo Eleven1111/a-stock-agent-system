@@ -18,6 +18,7 @@ import monitor_registry  # noqa: E402
 import behavior_risk  # noqa: E402
 from agent_state import agent_state_path  # noqa: E402
 from paths import data_file  # noqa: E402
+import research_bus  # noqa: E402
 import signal_ledger  # noqa: E402
 import serenity_refresh_queue  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
@@ -76,6 +77,39 @@ def project_recommendation_lite(rec: dict[str, Any]) -> dict[str, Any]:
 
 def project_monitor_lite(monitor: dict[str, Any]) -> dict[str, Any]:
     return {key: monitor[key] for key in LITE_MONITOR_FIELDS if key in monitor}
+
+
+def _bus_serenity_requests() -> list[dict[str, Any]]:
+    """Pending serenity_refresh research-bus tasks, projected into the same
+    shape the legacy standalone-queue pending_requests() returned (id, code,
+    name, status, priority) so downstream readers of
+    ``serenity_refresh_requests`` stay compatible after the §6a bus merge."""
+    requests = []
+    for task in research_bus.load_tasks():
+        if task.get("kind") != "serenity_refresh":
+            continue
+        if task.get("status") not in research_bus.ACTIVE_STATUSES:
+            continue
+        subject = task.get("subject") or {}
+        requests.append({
+            "id": task.get("id"),
+            "code": subject.get("code"),
+            "name": subject.get("name"),
+            "status": task.get("status"),
+            "priority": task.get("priority"),
+            "reason": task.get("reason"),
+        })
+    return requests
+
+
+def default_serenity_refresh_requests() -> list[dict[str, Any]]:
+    """Bus-sourced pending serenity_refresh tasks, plus any pending/claimed
+    items still sitting in the deprecated standalone queue file (a deployed
+    host may have a historical backlog to drain — see
+    serenity_refresh_queue.py's module docstring)."""
+    return _bus_serenity_requests() + serenity_refresh_queue.pending_requests(
+        data_file("stock-triage", "serenity_refresh_queue.json")
+    )
 
 
 def project_state_lite(state: dict[str, Any]) -> dict[str, Any]:
@@ -146,9 +180,7 @@ def build_agent_state(
         "serenity_refresh_requests": (
             serenity_requests
             if serenity_requests is not None
-            else serenity_refresh_queue.pending_requests(
-                data_file("stock-triage", "serenity_refresh_queue.json")
-            )
+            else default_serenity_refresh_requests()
         ),
     }
 

@@ -24,6 +24,7 @@ from a_stock_http import DataSourceError  # noqa: E402
 from market_adapters import fetch_tencent_snapshot  # noqa: E402
 from announcement_risk import scan_many  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
+import candidate_fsm  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
@@ -63,6 +64,30 @@ POSITIVE_ACTIONS = {"buy", "add", "conditional_buy"}
 
 def _naked_code(code: str) -> str:
     return code[2:] if code.startswith(("sh", "sz")) else code
+
+
+def _advance_fsm_to_candidate(asof: str, signals: Sequence[Mapping[str, Any]]) -> None:
+    """Route 09:35 open-confirmed signals through the FSM: watching -> candidate
+    for anything with a buy-side decision. Idempotent: codes already at
+    candidate/confirmed are left alone so re-runs don't spam rejected events.
+    Best-effort: never blocks the open-confirmation output, which is the
+    authoritative confirmation surface."""
+    config = candidate_fsm.load_fsm_config()
+    for item in signals:
+        if _recommendation_action(item) not in POSITIVE_ACTIONS:
+            continue
+        code = _naked_code(str(item.get("code") or ""))
+        if not code:
+            continue
+        try:
+            state = candidate_fsm.current_state(code)
+            if state is not None and state.get("to_state") != "watching":
+                continue
+            candidate_fsm.transition(
+                code, "candidate", "score_above_threshold", asof=asof, config=config,
+            )
+        except Exception:  # noqa: BLE001
+            continue
 
 
 def _recommendation_action(item: Mapping[str, Any]) -> str:
@@ -743,6 +768,7 @@ def build_confirmation(
                 for item in signals
             },
         )
+    _advance_fsm_to_candidate(asof, signals)
     return result
 
 
