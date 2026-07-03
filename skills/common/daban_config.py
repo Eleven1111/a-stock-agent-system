@@ -40,6 +40,27 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "week_trades_max": 3, "day_loss_pct_stop": -2.0, "week_loss_pct_freeze": -5.0,
         "consecutive_losses_max": 3, "position_time_stop_trading_days": 2,
     },
+    # §7b 三项调整机制，默认全部关闭；启用必须引用打板归因报告数据
+    # （scripts/strategy_attribution_report.py），杠杆实现见 daban_adjustments.py。
+    "adjustments": {
+        "regime_gate": {
+            "enabled": False,
+            "blocked_theme_stages": ["diverging", "fading"],
+            "min_temperature_score": 40.0,
+        },
+        "entry_mode_weights": {
+            "enabled": False,
+            "weights": {
+                "first_board_reseal": 1.0,
+                "second_board_weak_to_strong": 1.0,
+            },
+        },
+        "auction_premium_exit": {
+            "enabled": False,
+            "min_premium_pct": 3.0,
+            "full_exit_premium_pct": 6.0,
+        },
+    },
 }
 
 

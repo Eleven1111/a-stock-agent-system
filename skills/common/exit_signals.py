@@ -206,6 +206,7 @@ def evaluate_all_exit_signals(
     consecutive_outflow_days: int = 0,
     catalyst_events: list[Mapping[str, Any]] | None = None,
     asof: date | None = None,
+    auction_open_premium_pct: float | None = None,
 ) -> dict[str, Any]:
     """综合评估所有退出信号，返回最高优先级的行动建议。"""
     checks = [
@@ -217,6 +218,16 @@ def evaluate_all_exit_signals(
         check_catalyst_negated(catalyst_events),
         check_time_stop(entry_date, horizon_days, current_pnl_pct, asof),
     ]
+    try:
+        from daban_adjustments import check_auction_premium_exit
+
+        checks.append(check_auction_premium_exit(
+            entry_date=entry_date,
+            open_premium_pct=auction_open_premium_pct,
+            asof=asof,
+        ))
+    except ImportError:  # pragma: no cover - flat sys.path imports
+        pass
 
     triggered = [c for c in checks if c.get("triggered")]
     severity_order = {"critical": 0, "warning": 1, "info": 2}
