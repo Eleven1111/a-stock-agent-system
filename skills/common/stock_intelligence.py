@@ -17,6 +17,8 @@ from eastmoney_intelligence import (
     fetch_reports,
     source_metadata,
 )
+from interactive_qa import DEFAULT_RETENTION as DEFAULT_INTERACTIVE_QA_RETENTION
+from interactive_qa import fetch_interactive_qa
 from paths import cache_dir
 from state_store import atomic_write_json, read_json
 
@@ -24,6 +26,15 @@ from state_store import atomic_write_json, read_json
 SCHEMA = "stock_intelligence_v2"
 LEGACY_SCHEMAS = {"stock_intelligence_v1"}
 DEFAULT_MAX_AGE_DAYS = 7
+DATASET_PROVIDERS = {
+    "lockups": "eastmoney",
+    "margin_trading": "eastmoney",
+    "holder_changes": "eastmoney",
+    "dragon_tiger": "eastmoney",
+    "block_trades": "eastmoney",
+    "reports": "eastmoney",
+    "interactive_qa": "cninfo_sse",
+}
 DATASET_POLICIES = {
     "lockups": {
         "required": True,
@@ -59,6 +70,12 @@ DATASET_POLICIES = {
         "required": False,
         "max_query_age_days": 7,
         "max_record_age_days": 365,
+        "allow_future_record": False,
+    },
+    "interactive_qa": {
+        "required": False,
+        "max_query_age_days": 7,
+        "max_record_age_days": 180,
         "allow_future_record": False,
     },
 }
@@ -115,6 +132,9 @@ def _dataset_rows(dataset: str, value: Any) -> list[dict[str, Any]]:
         return [
             row for row in (value.get("records") or []) if isinstance(row, dict)
         ]
+    if dataset == "interactive_qa":
+        value = value if isinstance(value, dict) else {}
+        return [row for row in (value.get("rows") or []) if isinstance(row, dict)]
     return [row for row in (value or []) if isinstance(row, dict)]
 
 
@@ -133,12 +153,14 @@ def _dataset_status(
     *,
     queried_asof: date,
     error: dict[str, str] | None = None,
+    status_override: str | None = None,
 ) -> dict[str, Any]:
     policy = DATASET_POLICIES[dataset]
     rows = _dataset_rows(dataset, value)
+    status = status_override or ("error" if error else ("ok" if rows else "empty"))
     return {
-        "provider": "eastmoney",
-        "status": "error" if error else ("ok" if rows else "empty"),
+        "provider": DATASET_PROVIDERS.get(dataset, "eastmoney"),
+        "status": status,
         "required": bool(policy["required"]),
         "queried_asof": queried_asof.isoformat(),
         "latest_record_date": _latest_record_date(dataset, value),
@@ -321,6 +343,7 @@ def collect(
     *,
     name: str = "",
     asof: date | str | None = None,
+    interactive_qa_retention: int = DEFAULT_INTERACTIVE_QA_RETENTION,
 ) -> dict[str, Any]:
     current = _current(asof)
     normalized = str(code)[-6:].zfill(6)
@@ -348,6 +371,46 @@ def collect(
             dataset,
             value,
             queried_asof=current,
+        )
+        return value
+
+    def fetch_interactive_qa_dataset():
+        """Fail-closed for Shenzhen (raises), best-effort for Shanghai.
+
+        ``interactive_qa.fetch_interactive_qa`` already turns a Shanghai
+        (SSE) failure into a normal ``status="sse_unavailable"`` return value
+        instead of raising, so that degrade path must not be recorded as a
+        provider ``error`` here. A Shenzhen (SZSE) failure still propagates
+        as an exception and is handled by the same explicit error path as
+        every other dataset.
+        """
+        fallback = {"market": None, "status": "empty", "rows": []}
+        try:
+            value = fetch_interactive_qa(
+                normalized,
+                asof=current,
+                retention=interactive_qa_retention,
+            )
+        except Exception as exc:  # noqa: BLE001 - partial evidence is explicit
+            error = {
+                "dataset": "interactive_qa",
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            }
+            errors.append(error)
+            statuses["interactive_qa"] = _dataset_status(
+                "interactive_qa",
+                fallback,
+                queried_asof=current,
+                error=error,
+            )
+            return fallback
+        override = "sse_unavailable" if value.get("status") == "sse_unavailable" else None
+        statuses["interactive_qa"] = _dataset_status(
+            "interactive_qa",
+            value,
+            queried_asof=current,
+            status_override=override,
         )
         return value
 
@@ -387,6 +450,7 @@ def collect(
             [],
         ),
         "reports": fetch("reports", lambda: fetch_reports(normalized), []),
+        "interactive_qa": fetch_interactive_qa_dataset(),
     }
     payload["dataset_status"] = statuses
     payload["data_quality"] = _quality_from_statuses(
@@ -550,6 +614,45 @@ def read_cache(
                 ))
                 return fallback_view
     return view
+
+
+def read_interactive_qa(
+    code: str,
+    *,
+    retention: int = DEFAULT_INTERACTIVE_QA_RETENTION,
+) -> dict[str, Any]:
+    """Raw investor Q&A rows for evidence-pack/Serenity consumption.
+
+    Unlike ``read_cache``, this returns the underlying question/reply rows
+    (with dates and URLs) rather than a risk-summary view, since downstream
+    consumers need the actual content to cite as evidence. Falls back to the
+    last-known-good snapshot when the live cache is missing the section, and
+    never fabricates rows: an unavailable cache or an unavailable section
+    returns an explicit ``status`` instead of an empty list standing in for
+    "no Q&A".
+    """
+    def _section(candidate: Any) -> dict[str, Any] | None:
+        if not isinstance(candidate, dict) or candidate.get("schema") != SCHEMA:
+            return None
+        section = candidate.get("interactive_qa")
+        return section if isinstance(section, dict) else None
+
+    record = read_json(cache_file(code), None)
+    section = _section(record)
+    if section is None:
+        record = read_json(last_good_file(code), None)
+        section = _section(record)
+    if section is None:
+        return {"available": False, "status": "missing", "market": None, "rows": []}
+    status_entry = (record.get("dataset_status") or {}).get("interactive_qa") or {}
+    rows = [row for row in (section.get("rows") or []) if isinstance(row, dict)]
+    return {
+        "available": True,
+        "status": status_entry.get("status") or section.get("status") or "empty",
+        "market": section.get("market"),
+        "asof": record.get("asof"),
+        "rows": rows[: max(0, int(retention))],
+    }
 
 
 def main() -> int:

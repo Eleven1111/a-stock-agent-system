@@ -30,6 +30,7 @@ DEFAULTS: Dict[str, Any] = {
             "coordination_stale_seconds": 90,
         },
         "cninfo": {"timeout_seconds": 8, "max_attempts": 2},
+        "sse": {"timeout_seconds": 8, "max_attempts": 2},
         "xueqiu": {"timeout_seconds": 10, "max_attempts": 2},
         "baidu_attention": {"timeout_seconds": 10, "max_attempts": 1},
     },

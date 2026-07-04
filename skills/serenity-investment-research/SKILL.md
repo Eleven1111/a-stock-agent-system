@@ -87,6 +87,11 @@ replacement for filings:
 - `dragon_tiger`: recent billboard records and institutional-seat net flow.
 - `block_trades`: negotiated-trade discounts and counterparties.
 - `reports`: broker report metadata and the traceable EPS consensus sample.
+- `interactive_qa`: recent investor interactive Q&A (互动易/上证e互动),
+  retained per stock (default last 10). Company replies are grade B
+  supporting evidence; the investor question alone is an attention/lead
+  signal only, never a citable fact. Shanghai coverage is best-effort and
+  may report `sse_unavailable`.
 
 Record the snapshot reference and upstream source in `evidence.json`. Broker
 reports and consensus estimates are grade B supporting evidence; company
