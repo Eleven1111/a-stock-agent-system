@@ -5,11 +5,18 @@ from datetime import date
 
 import portfolio_manager as pm
 import signal_ledger
-from a_share_rules import previous_trading_day
+from a_share_rules import is_trading_day, previous_trading_day
 
 
 def _n_trading_days_ago(n: int) -> str:
+    """回退 n 个交易日，语义与 pm._trading_days_elapsed 的 (start, end] 区间对齐。
+
+    非交易日（周末/节假日）先锚定到最近一个交易日再回退，
+    否则区间内只剩 n-1 个交易日，测试随日历漂移失败。
+    """
     cursor = date.today()
+    if not is_trading_day(cursor):
+        cursor = previous_trading_day(cursor)
     for _ in range(n):
         cursor = previous_trading_day(cursor)
     return cursor.isoformat()
