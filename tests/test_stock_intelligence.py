@@ -152,6 +152,13 @@ def test_collect_discloses_partial_provider_failures(monkeypatch):
     )
     monkeypatch.setattr(stock_intelligence, "fetch_block_trades", lambda code: [])
     monkeypatch.setattr(stock_intelligence, "fetch_reports", lambda code: [])
+    monkeypatch.setattr(
+        stock_intelligence,
+        "fetch_interactive_qa",
+        lambda code, asof=None, retention=10: {
+            "market": "szse", "status": "empty", "rows": [],
+        },
+    )
 
     payload = stock_intelligence.collect("002156", asof="2026-06-15")
 
@@ -253,3 +260,163 @@ def test_fresh_lockup_hard_risk_survives_unrelated_stale_dataset(
     assert "holder_changes" in cached["stale_datasets"]
     assert "major_lockup_within_30d" in cached["hard_risks"]
     assert cached["fallback_used"] is False
+
+
+def _stub_required_fetches(monkeypatch):
+    monkeypatch.setattr(stock_intelligence, "fetch_lockups", lambda *a, **k: {"history": [], "upcoming": []})
+    monkeypatch.setattr(stock_intelligence, "fetch_margin_trading", lambda code: [])
+    monkeypatch.setattr(stock_intelligence, "fetch_holder_changes", lambda code: [])
+    monkeypatch.setattr(
+        stock_intelligence,
+        "fetch_dragon_tiger",
+        lambda code, asof=None: {
+            "records": [], "seats": {"buy": [], "sell": []},
+            "institution": {"net_amount_wan": 0},
+        },
+    )
+    monkeypatch.setattr(stock_intelligence, "fetch_block_trades", lambda code: [])
+    monkeypatch.setattr(stock_intelligence, "fetch_reports", lambda code: [])
+
+
+def test_collect_enters_szse_interactive_qa_rows_into_cache(monkeypatch):
+    _stub_required_fetches(monkeypatch)
+    rows = [{
+        "date": "2026-06-10",
+        "question_date": "2026-06-09",
+        "reply_date": "2026-06-10",
+        "question": "公司订单情况如何？",
+        "reply": "在手订单饱满。",
+        "has_reply": True,
+        "platform": "szse_irm",
+        "company": "通富微电",
+        "url": "https://irm.cninfo.com.cn/mobile/rmDetail?questionId=1",
+    }]
+    monkeypatch.setattr(
+        stock_intelligence,
+        "fetch_interactive_qa",
+        lambda code, asof=None, retention=10: {
+            "market": "szse", "status": "ok", "rows": rows,
+        },
+    )
+
+    payload = stock_intelligence.collect("002156", asof="2026-06-15")
+
+    assert payload["interactive_qa"]["status"] == "ok"
+    assert payload["interactive_qa"]["rows"] == rows
+    assert payload["dataset_status"]["interactive_qa"]["status"] == "ok"
+    assert payload["dataset_status"]["interactive_qa"]["provider"] == "cninfo_sse"
+    assert payload["dataset_status"]["interactive_qa"]["required"] is False
+    assert payload["dataset_status"]["interactive_qa"]["latest_record_date"] == "2026-06-10"
+
+
+def test_collect_fails_closed_when_szse_interactive_qa_errors(monkeypatch):
+    _stub_required_fetches(monkeypatch)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("irm unreachable")
+
+    monkeypatch.setattr(stock_intelligence, "fetch_interactive_qa", fail)
+
+    payload = stock_intelligence.collect("002156", asof="2026-06-15")
+
+    assert payload["interactive_qa"] == {"market": None, "status": "empty", "rows": []}
+    assert payload["dataset_status"]["interactive_qa"]["status"] == "error"
+    assert "interactive_qa" in payload["data_quality"]["missing_datasets"]
+    # optional dataset: a failure never blocks directional readiness.
+    assert "interactive_qa" not in payload["data_quality"]["missing_required_datasets"]
+    assert payload["data_quality"]["directional_ready"] is True
+
+
+def test_collect_marks_sse_unavailable_without_recording_hard_error(monkeypatch):
+    _stub_required_fetches(monkeypatch)
+    monkeypatch.setattr(
+        stock_intelligence,
+        "fetch_interactive_qa",
+        lambda code, asof=None, retention=10: {
+            "market": "sse",
+            "status": "sse_unavailable",
+            "rows": [],
+            "error": {"source": "sse", "error": "uid not found"},
+        },
+    )
+
+    payload = stock_intelligence.collect("600519", asof="2026-06-15")
+
+    assert payload["interactive_qa"]["status"] == "sse_unavailable"
+    assert payload["dataset_status"]["interactive_qa"]["status"] == "sse_unavailable"
+    # sse_unavailable is a documented best-effort degrade, not a provider
+    # error entry in data_quality.errors.
+    assert payload["data_quality"]["errors"] == []
+    assert "interactive_qa" in payload["data_quality"]["missing_datasets"]
+
+
+def test_collect_retention_forwarded_to_interactive_qa_fetch(monkeypatch):
+    _stub_required_fetches(monkeypatch)
+    captured = {}
+
+    def fake_fetch(code, asof=None, retention=10):
+        captured["retention"] = retention
+        return {"market": "szse", "status": "empty", "rows": []}
+
+    monkeypatch.setattr(stock_intelligence, "fetch_interactive_qa", fake_fetch)
+
+    stock_intelligence.collect("002156", asof="2026-06-15", interactive_qa_retention=3)
+
+    assert captured["retention"] == 3
+
+
+def test_read_interactive_qa_returns_missing_when_cache_absent(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+
+    result = stock_intelligence.read_interactive_qa("002156")
+
+    assert result == {"available": False, "status": "missing", "market": None, "rows": []}
+
+
+def test_read_interactive_qa_returns_rows_from_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    payload = _payload()
+    rows = [
+        {"date": f"2026-06-{10 + i:02d}", "question": f"q{i}", "reply": f"a{i}", "has_reply": True}
+        for i in range(15)
+    ]
+    payload["interactive_qa"] = {"market": "szse", "status": "ok", "rows": rows}
+    payload["dataset_status"]["interactive_qa"] = {
+        "provider": "cninfo_sse", "status": "ok", "required": False,
+        "queried_asof": "2026-06-15", "latest_record_date": "2026-06-24",
+        "max_query_age_days": 7, "max_record_age_days": 180, "error": None,
+    }
+    payload["risk_summary"] = stock_intelligence.assess_risks(payload)
+    stock_intelligence.write_cache(payload)
+
+    result = stock_intelligence.read_interactive_qa("002156", retention=10)
+
+    assert result["available"] is True
+    assert result["status"] == "ok"
+    assert result["market"] == "szse"
+    assert len(result["rows"]) == 10
+
+
+def test_read_interactive_qa_falls_back_to_last_good_when_live_missing_section(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    good = _payload()
+    good["interactive_qa"] = {
+        "market": "szse", "status": "ok",
+        "rows": [{"date": "2026-06-10", "question": "q", "reply": "a", "has_reply": True}],
+    }
+    good["risk_summary"] = stock_intelligence.assess_risks(good)
+    stock_intelligence.write_cache(good)
+
+    live = _payload()
+    live["asof"] = "2026-06-16"
+    live.pop("interactive_qa", None)
+    live["risk_summary"] = stock_intelligence.assess_risks(live)
+    from state_store import atomic_write_json
+    atomic_write_json(stock_intelligence.cache_file("002156"), live)
+
+    result = stock_intelligence.read_interactive_qa("002156")
+
+    assert result["available"] is True
+    assert len(result["rows"]) == 1

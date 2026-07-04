@@ -5,6 +5,7 @@ import pytest
 
 import evidence_pack
 import research_bus as bus
+import stock_intelligence
 from paths import cron_output_dir, data_file, hermes_home
 
 
@@ -101,6 +102,44 @@ def _write_candidate_pool():
     }
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(pool, handle, ensure_ascii=False)
+
+
+def _write_stock_intelligence(code, *, interactive_qa):
+    payload = {
+        "schema": stock_intelligence.SCHEMA,
+        "code": code,
+        "asof": "2026-07-02",
+        "fetched_at": "2026-07-02T08:00:00+00:00",
+        "lockups": {"history": [], "upcoming": []},
+        "margin_trading": [],
+        "holder_changes": [],
+        "dragon_tiger": {
+            "records": [], "seats": {"buy": [], "sell": []},
+            "institution": {"net_amount_wan": 0.0},
+        },
+        "block_trades": [],
+        "reports": [],
+        "interactive_qa": interactive_qa,
+        "dataset_status": {
+            "lockups": {"status": "ok", "queried_asof": "2026-07-02", "latest_record_date": None},
+            "margin_trading": {"status": "empty", "queried_asof": "2026-07-02", "latest_record_date": None},
+            "holder_changes": {"status": "empty", "queried_asof": "2026-07-02", "latest_record_date": None},
+            "dragon_tiger": {"status": "empty", "queried_asof": "2026-07-02", "latest_record_date": None},
+            "block_trades": {"status": "empty", "queried_asof": "2026-07-02", "latest_record_date": None},
+            "reports": {"status": "empty", "queried_asof": "2026-07-02", "latest_record_date": None},
+            "interactive_qa": {
+                "status": interactive_qa.get("status"),
+                "queried_asof": "2026-07-02",
+                "latest_record_date": None,
+            },
+        },
+        "data_quality": {
+            "status": "complete", "missing_datasets": [], "stale_datasets": [],
+            "directional_ready": True, "errors": [],
+        },
+    }
+    payload["risk_summary"] = stock_intelligence.assess_risks(payload)
+    stock_intelligence.write_cache(payload)
 
 
 def test_full_pack_is_ok_and_subject_scoped():
@@ -278,3 +317,74 @@ def test_repeated_pack_builds_do_not_duplicate_serenity_refresh_enqueue():
         t for t in bus.load_tasks() if t["kind"] == "serenity_refresh"
     ]
     assert len(serenity_tasks) == 1
+
+
+def test_pack_surfaces_interactive_qa_with_reply_graded_b_and_question_lead_only():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+    _write_stock_intelligence("600519", interactive_qa={
+        "market": "szse",
+        "status": "ok",
+        "rows": [
+            {
+                "date": "2026-07-01",
+                "question": "公司产能利用率如何？",
+                "reply": "目前产能利用率维持高位。",
+                "has_reply": True,
+                "platform": "szse_irm",
+                "url": "https://irm.cninfo.com.cn/mobile/rmDetail?questionId=1",
+            },
+            {
+                "date": "2026-06-28",
+                "question": "股价为什么跌？",
+                "reply": None,
+                "has_reply": False,
+                "platform": "szse_irm",
+                "url": "https://irm.cninfo.com.cn/mobile/rmDetail?questionId=2",
+            },
+        ],
+    })
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    items = result["payload"]["subject_data"]["interactive_qa"]["items"]
+    assert result["payload"]["subject_data"]["interactive_qa"]["status"] == "ok"
+    replied = next(item for item in items if item["has_reply"])
+    unanswered = next(item for item in items if not item["has_reply"])
+    assert replied["grade"] == "B"
+    assert unanswered["grade"] == "attention_only"
+    assert replied["url"].startswith("https://irm.cninfo.com.cn")
+
+
+def test_pack_marks_interactive_qa_missing_when_cache_absent():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    subject_data = result["payload"]["subject_data"]
+    assert subject_data["interactive_qa"]["status"] == "missing"
+    assert subject_data["interactive_qa"]["items"] == []
+
+
+def test_pack_surfaces_sse_unavailable_status_without_fabricating_rows():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+    _write_stock_intelligence("600519", interactive_qa={
+        "market": "sse",
+        "status": "sse_unavailable",
+        "rows": [],
+        "error": {"source": "sse", "error": "uid not found"},
+    })
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    interactive_qa = result["payload"]["subject_data"]["interactive_qa"]
+    assert interactive_qa["status"] == "sse_unavailable"
+    assert interactive_qa["items"] == []

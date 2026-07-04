@@ -202,6 +202,38 @@ def _maybe_pull_serenity_refresh(
     return reason
 
 
+_QA_FIELDS = ("date", "question", "reply", "has_reply", "platform", "url")
+
+
+def _interactive_qa_evidence(subject_code: str) -> dict[str, Any] | None:
+    """投资者关注热点: recent investor Q&A, graded per source_grading.md.
+
+    A company reply is a traceable official statement (grade B supporting
+    evidence); the investor question alone is only an attention/lead signal
+    and must never be cited as a fact. ``status`` surfaces the adapter's
+    fail-closed/best-effort outcome (e.g. ``sse_unavailable``) so a missing
+    section reads as "not fetched", never as "no investor attention".
+    """
+    try:
+        from stock_intelligence import read_interactive_qa
+    except Exception:  # noqa: BLE001 - optional section, never blocks a pack
+        return None
+    result = read_interactive_qa(subject_code)
+    if not result.get("available"):
+        return {"status": result.get("status") or "missing", "items": []}
+    items = []
+    for row in result.get("rows") or []:
+        picked = {key: row[key] for key in _QA_FIELDS if row.get(key) is not None}
+        picked["grade"] = "B" if row.get("has_reply") else "attention_only"
+        items.append(picked)
+    return {
+        "status": result.get("status"),
+        "market": result.get("market"),
+        "asof": result.get("asof"),
+        "items": items,
+    }
+
+
 def _subject_data(
     subject_code: str,
     trading_date: str,
@@ -238,6 +270,9 @@ def _subject_data(
         theme_stage = None
     if theme_stage:
         data["theme_stage"] = theme_stage
+    interactive_qa = _interactive_qa_evidence(subject_code)
+    if interactive_qa is not None:
+        data["interactive_qa"] = interactive_qa
     gap_reason = _deep_research_gap(cache)
     if gap_reason and task is not None:
         pulled_reason = _maybe_pull_serenity_refresh(
