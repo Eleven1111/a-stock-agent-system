@@ -28,7 +28,7 @@ DEFAULT_SECTION_LIMITS = {
     "agent_state_chars": 6000,
     "artifact_chars": 1500,
     "artifact_excerpt_chars": 1200,
-    "subject_data_chars": 4000,
+    "subject_data_chars": 6000,
     "max_artifacts": 6,
     "recent_recommendations": 3,
     "recent_signals": 3,
@@ -335,11 +335,30 @@ def _strategy_pack_hints(
         return None
     if not hints:
         return None
+    # Compact projection: full interpretation/explanation text lives in the
+    # pack files; the evidence pack ships only ids, hit/miss and miss reasons
+    # so three subject_data sections keep fitting the shared char budget.
+    compact_packs = [
+        {
+            "pack": hint["pack"],
+            "display_name": hint["display_name"],
+            "category": hint["category"],
+            "hit_count": hint["hit_count"],
+            "condition_count": hint["condition_count"],
+            "advisory_delta": hint["advisory_delta"],
+            "influences_live_ranking": False,
+            "conditions": [
+                {key: cond[key] for key in ("id", "hit", "reason") if key in cond}
+                for cond in hint["conditions"]
+            ],
+        }
+        for hint in hints
+    ]
     return {
         "regime": _current_regime(trading_date),
         "influences_live_ranking": False,
         "note": "解释性策略假设，不影响实盘排序/评分/信号；升级需过 research_gate",
-        "packs": hints,
+        "packs": compact_packs,
     }
 
 
