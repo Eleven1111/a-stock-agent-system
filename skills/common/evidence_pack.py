@@ -202,6 +202,64 @@ def _maybe_pull_serenity_refresh(
     return reason
 
 
+_NEWS_FIELDS = (
+    "title", "url", "source_name", "source_rank", "materiality",
+    "time_window", "graded_at",
+)
+DEFAULT_NEWS_LOOKBACK_DAYS = 7
+DEFAULT_NEWS_MAX_ITEMS = 8
+
+
+def _news_sectors_for_subject(subject_code: str) -> list[str]:
+    """Sector labels for the subject, read from the already-loaded candidate pool.
+
+    Reuses the candidate pool's own ``sector``/``industry`` fields (already
+    resolved by ``sector_taxonomy``/``industry_map`` upstream) instead of
+    re-deriving sector membership here, so this stays a thin read.
+    """
+    pool = read_json(data_file("stock-triage", "candidate_pool_latest.json"), {})
+    sectors: list[str] = []
+    for candidate in (pool or {}).get("candidates") or []:
+        if _norm_code((candidate or {}).get("code")) != subject_code:
+            continue
+        for key in ("sector", "industry"):
+            value = str((candidate or {}).get(key) or "").strip()
+            if value:
+                sectors.append(value)
+        break
+    return sectors
+
+
+def _news_evidence(subject_code: str) -> dict[str, Any] | None:
+    """近 N 天 L2 已评级资讯：直接点名该股 或 命中其所属板块。
+
+    fail-open: 资讯池为空/不可达时证据包仍照常生成，但 ``status`` 必须显式
+    标注（``empty``/``unavailable``），绝不静默缺席这一段；资讯只作为证据
+    附加，不改变候选排序或信号（news_pipeline.read_graded_news 是纯读取，
+    评级本身不参与打分）。
+    """
+    if not subject_code:
+        return None
+    sectors = _news_sectors_for_subject(subject_code)
+    try:
+        import news_pipeline
+
+        result = news_pipeline.read_graded_news(
+            code=subject_code,
+            sectors=sectors,
+            days=DEFAULT_NEWS_LOOKBACK_DAYS,
+            limit=DEFAULT_NEWS_MAX_ITEMS,
+        )
+    except Exception:  # noqa: BLE001 - news pool must never block a pack
+        return {"status": "unavailable", "items": []}
+    items = [
+        _pick(item, _NEWS_FIELDS)
+        for item in (result.get("items") or [])
+        if isinstance(item, dict)
+    ]
+    return {"status": result.get("status") or "unavailable", "items": items}
+
+
 _QA_FIELDS = ("date", "question", "reply", "has_reply", "platform", "url")
 
 
@@ -273,6 +331,9 @@ def _subject_data(
     interactive_qa = _interactive_qa_evidence(subject_code)
     if interactive_qa is not None:
         data["interactive_qa"] = interactive_qa
+    news_evidence = _news_evidence(subject_code)
+    if news_evidence is not None:
+        data["news_evidence"] = news_evidence
     gap_reason = _deep_research_gap(cache)
     if gap_reason and task is not None:
         pulled_reason = _maybe_pull_serenity_refresh(

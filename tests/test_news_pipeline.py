@@ -148,3 +148,198 @@ def test_run_l1_scan_splits_passed_and_rejected():
     assert result["scored"] == 2
     assert len(result["passed"]) == 1
     assert result["rejected_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# read_graded_news: L2-graded news queried by code / sector for evidence packs
+# ---------------------------------------------------------------------------
+
+def _grade_batch(entries, grades_by_fp, *, now):
+    """Claim then submit grades for a set of already-enqueued entries."""
+    claimed = news_pipeline.claim_l1_batch(
+        "openclaw", batch_size=len(grades_by_fp), now=now,
+    )
+    grades = []
+    for entry in claimed:
+        fp = entry["fingerprint"]
+        grade = dict(grades_by_fp[entry["title"]])
+        grade["fingerprint"] = fp
+        grades.append(grade)
+    return news_pipeline.submit_l2_grades(grades, now=now)
+
+
+def test_submit_l2_grades_persists_affected_codes_field():
+    _enqueue_one("央行宣布全面降准0.5个百分点")
+    batch = news_pipeline.claim_l1_batch(
+        "openclaw", now="2026-07-03T09:05:00+08:00",
+    )
+    news_pipeline.submit_l2_grades([
+        {"fingerprint": batch[0]["fingerprint"], "materiality": 2,
+         "affected_sectors": ["银行"], "affected_codes": ["600519", "000001"],
+         "time_window": "1-3d", "needs_deep_review": False},
+    ])
+    queue = news_pipeline.read_json(news_pipeline.l1_queue_path(), [])
+    graded = [e for e in queue if e["status"] == "graded"][0]
+    assert graded["grade"]["affected_codes"] == ["600519", "000001"]
+
+
+def test_submit_l2_grades_defaults_affected_codes_to_empty_list_for_backward_compat():
+    _enqueue_one("央行宣布全面降准0.5个百分点")
+    batch = news_pipeline.claim_l1_batch(
+        "openclaw", now="2026-07-03T09:05:00+08:00",
+    )
+    news_pipeline.submit_l2_grades([
+        {"fingerprint": batch[0]["fingerprint"], "materiality": 1,
+         "affected_sectors": [], "time_window": "unknown",
+         "needs_deep_review": False},
+    ])
+    queue = news_pipeline.read_json(news_pipeline.l1_queue_path(), [])
+    graded = [e for e in queue if e["status"] == "graded"][0]
+    assert graded["grade"]["affected_codes"] == []
+
+
+def test_read_graded_news_matches_by_code():
+    _enqueue_one("贵州茅台发布重大合作公告")
+    _enqueue_one("某无关公司发布公告")
+    result = _grade_batch(
+        None,
+        {
+            "贵州茅台发布重大合作公告": {
+                "materiality": 2, "affected_sectors": ["白酒"],
+                "affected_codes": ["600519"], "time_window": "1-3d",
+                "needs_deep_review": False,
+            },
+            "某无关公司发布公告": {
+                "materiality": 1, "affected_sectors": [], "affected_codes": [],
+                "time_window": "unknown", "needs_deep_review": False,
+            },
+        },
+        now="2026-07-03T09:05:00+08:00",
+    )
+    assert result["graded"] == 2
+
+    found = news_pipeline.read_graded_news(
+        code="600519", now="2026-07-03T09:10:00+08:00",
+    )
+    assert found["status"] == "ok"
+    assert len(found["items"]) == 1
+    assert found["items"][0]["title"] == "贵州茅台发布重大合作公告"
+
+
+def test_read_graded_news_matches_by_sector():
+    _enqueue_one("白酒板块景气度上行")
+    result = _grade_batch(
+        None,
+        {
+            "白酒板块景气度上行": {
+                "materiality": 2, "affected_sectors": ["白酒", "食品饮料"],
+                "affected_codes": [], "time_window": "1-2w",
+                "needs_deep_review": False,
+            },
+        },
+        now="2026-07-03T09:05:00+08:00",
+    )
+    assert result["graded"] == 1
+
+    found = news_pipeline.read_graded_news(
+        sectors=["白酒"], now="2026-07-03T09:10:00+08:00",
+    )
+    assert found["status"] == "ok"
+    assert len(found["items"]) == 1
+
+    empty = news_pipeline.read_graded_news(
+        sectors=["半导体"], now="2026-07-03T09:10:00+08:00",
+    )
+    assert empty["status"] == "empty"
+    assert empty["items"] == []
+
+
+def test_read_graded_news_returns_titles_urls_ranks_and_grading_fields():
+    _enqueue_one("贵州茅台发布重大合作公告")
+    _grade_batch(
+        None,
+        {
+            "贵州茅台发布重大合作公告": {
+                "materiality": 2, "affected_sectors": ["白酒"],
+                "affected_codes": ["600519"], "time_window": "1-3d",
+                "needs_deep_review": True,
+            },
+        },
+        now="2026-07-03T09:05:00+08:00",
+    )
+    found = news_pipeline.read_graded_news(
+        code="600519", now="2026-07-03T09:10:00+08:00",
+    )
+    item = found["items"][0]
+    assert item["title"] == "贵州茅台发布重大合作公告"
+    assert item["url"] == "https://example.gov.cn/a"
+    assert item["source_rank"] == "S5"
+    assert item["materiality"] == 2
+    assert item["time_window"] == "1-3d"
+    assert "graded_at" in item
+
+
+def test_read_graded_news_excludes_entries_outside_day_window():
+    _enqueue_one("贵州茅台发布重大合作公告")
+    _grade_batch(
+        None,
+        {
+            "贵州茅台发布重大合作公告": {
+                "materiality": 2, "affected_sectors": [],
+                "affected_codes": ["600519"], "time_window": "1-3d",
+                "needs_deep_review": False,
+            },
+        },
+        now="2026-06-20T09:05:00+08:00",
+    )
+    found = news_pipeline.read_graded_news(
+        code="600519", days=7, now="2026-07-03T09:10:00+08:00",
+    )
+    assert found["status"] == "empty"
+    assert found["items"] == []
+
+
+def test_read_graded_news_sorts_by_materiality_desc_and_truncates():
+    titles = [f"贵州茅台公告{i}" for i in range(10)]
+    for title in titles:
+        _enqueue_one(title)
+    grades = {
+        title: {
+            "materiality": idx % 3,
+            "affected_sectors": [], "affected_codes": ["600519"],
+            "time_window": "unknown", "needs_deep_review": False,
+        }
+        for idx, title in enumerate(titles)
+    }
+    result = _grade_batch(None, grades, now="2026-07-03T09:05:00+08:00")
+    assert result["graded"] == 10
+
+    found = news_pipeline.read_graded_news(
+        code="600519", limit=8, now="2026-07-03T09:10:00+08:00",
+    )
+    assert len(found["items"]) == 8
+    materialities = [item["materiality"] for item in found["items"]]
+    assert materialities == sorted(materialities, reverse=True)
+
+
+def test_read_graded_news_empty_pool_reports_empty_status():
+    found = news_pipeline.read_graded_news(
+        code="600519", now="2026-07-03T09:10:00+08:00",
+    )
+    assert found["status"] == "empty"
+    assert found["items"] == []
+
+
+def test_read_graded_news_unavailable_when_queue_read_fails(monkeypatch):
+    def _boom(*_args, **_kwargs):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(news_pipeline, "read_json", _boom)
+    found = news_pipeline.read_graded_news(code="600519")
+    assert found["status"] == "unavailable"
+    assert found["items"] == []
+
+
+def test_read_graded_news_requires_code_or_sectors():
+    with pytest.raises(ValueError):
+        news_pipeline.read_graded_news()

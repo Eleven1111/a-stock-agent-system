@@ -348,6 +348,7 @@ def submit_l2_grades(
             entry["grade"] = {
                 "materiality": grade.get("materiality"),
                 "affected_sectors": grade.get("affected_sectors") or [],
+                "affected_codes": grade.get("affected_codes") or [],
                 "time_window": grade.get("time_window"),
                 "needs_deep_review": bool(grade.get("needs_deep_review")),
             }
@@ -367,3 +368,104 @@ def queue_summary() -> dict[str, Any]:
         status = str(entry.get("status") or "unknown")
         by_status[status] = by_status.get(status, 0) + 1
     return {"total": len(queue), "by_status": by_status}
+
+
+# ---------------------------------------------------------------------------
+# Graded-news read side (evidence-pack consumption)
+# ---------------------------------------------------------------------------
+
+def _norm_code(value: Any) -> str:
+    text = str(value or "").strip()
+    return text.zfill(6) if text.isdigit() and text else text
+
+
+def _norm_sector(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def read_graded_news(
+    *,
+    code: str | None = None,
+    sectors: list[str] | None = None,
+    days: int = 7,
+    limit: int = 8,
+    now: str | None = None,
+) -> dict[str, Any]:
+    """Read L2-graded news items relevant to a stock code and/or its sectors.
+
+    Scoped read over the bounded L1/L2 queue (already capped by
+    ``queue_max_entries``); this never scans anything unbounded. An item
+    matches when its grade's ``affected_codes`` contains ``code`` or its
+    ``affected_sectors`` intersects ``sectors`` (case/whitespace-insensitive).
+    Only entries graded within the last ``days`` days are returned, sorted by
+    materiality descending (ties broken by most-recent grading time) and
+    truncated to ``limit``.
+
+    Returns ``status`` of ``ok`` (items found), ``empty`` (pool reachable, no
+    match), or ``unavailable`` (queue read failed) — the section must never
+    silently disappear; evidence_pack surfaces this status verbatim so a
+    reader can tell "no relevant news" from "news pool unreachable" apart.
+    """
+    if not code and not sectors:
+        raise ValueError("read_graded_news requires code and/or sectors")
+
+    norm_code = _norm_code(code) if code else ""
+    norm_sectors = {_norm_sector(s) for s in (sectors or []) if _norm_sector(s)}
+
+    try:
+        queue = read_json(l1_queue_path(), [])
+    except Exception:  # noqa: BLE001 - any read/parse failure is "unavailable"
+        return {"status": "unavailable", "items": []}
+    if not isinstance(queue, list):
+        return {"status": "unavailable", "items": []}
+
+    stamp = now or now_bj_iso()
+    try:
+        current = datetime.fromisoformat(stamp)
+    except (TypeError, ValueError):
+        current = datetime.now(BJ)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=BJ)
+    cutoff = current - timedelta(days=max(0, int(days)))
+
+    matched: list[dict[str, Any]] = []
+    for entry in queue:
+        if not isinstance(entry, dict) or entry.get("status") != "graded":
+            continue
+        grade = entry.get("grade") or {}
+        if not isinstance(grade, dict):
+            continue
+        entry_codes = {_norm_code(c) for c in (grade.get("affected_codes") or [])}
+        entry_sectors = {_norm_sector(s) for s in (grade.get("affected_sectors") or [])}
+        code_hit = bool(norm_code) and norm_code in entry_codes
+        sector_hit = bool(norm_sectors) and bool(entry_sectors & norm_sectors)
+        if not (code_hit or sector_hit):
+            continue
+        graded_at = str(entry.get("graded_at") or "")
+        try:
+            graded_dt = datetime.fromisoformat(graded_at)
+        except (TypeError, ValueError):
+            continue
+        if graded_dt.tzinfo is None:
+            graded_dt = graded_dt.replace(tzinfo=BJ)
+        if graded_dt < cutoff:
+            continue
+        matched.append({
+            "title": entry.get("title"),
+            "url": entry.get("url"),
+            "source_name": entry.get("source_name"),
+            "source_rank": entry.get("source_rank"),
+            "materiality": grade.get("materiality"),
+            "time_window": grade.get("time_window"),
+            "affected_codes": grade.get("affected_codes") or [],
+            "affected_sectors": grade.get("affected_sectors") or [],
+            "graded_at": entry.get("graded_at"),
+            "_graded_dt": graded_dt,
+        })
+
+    matched.sort(key=lambda item: (item["materiality"] or 0, item["_graded_dt"]), reverse=True)
+    for item in matched:
+        item.pop("_graded_dt", None)
+
+    items = matched[: max(0, int(limit))]
+    return {"status": "ok" if items else "empty", "items": items}

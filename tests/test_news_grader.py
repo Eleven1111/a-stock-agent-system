@@ -85,6 +85,7 @@ def test_next_emits_bounded_work_order(monkeypatch, capsys):
     assert order["schema"] == "news_grade_work_order_v1"
     assert [item["fingerprint"] for item in order["items"]] == [fp]
     assert order["output_contract"]["materiality_range"] == [0, 3]
+    assert order["output_contract"]["grade_optional"] == ["affected_codes"]
     assert order["instructions"].strip()
 
 
@@ -169,6 +170,62 @@ def test_submit_grades_and_breaking_bypass(
     assert len(quiet_feishu) == 1
     assert "[重大]" in quiet_feishu[0][1]
     assert news_pipeline.queue_summary()["by_status"] == {"graded": 1}
+
+
+def test_submit_grades_with_affected_codes_field(
+    monkeypatch, capsys, tmp_path, quiet_feishu,
+):
+    fp = _seed_queue()
+    _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
+
+    grades = tmp_path / "grades.json"
+    grades.write_text(json.dumps({
+        "schema": "news_grade_batch_v1",
+        "grades": [{
+            "fingerprint": fp,
+            "materiality": 2,
+            "affected_sectors": ["银行"],
+            "affected_codes": ["600519"],
+            "time_window": "1-3d",
+            "needs_deep_review": False,
+        }],
+    }), encoding="utf-8")
+    code, result = _run_cli(monkeypatch, capsys, "submit", "--file", str(grades))
+
+    assert code == 0
+    assert result["ok"] is True
+    queue = news_pipeline.read_json(news_pipeline.l1_queue_path(), [])
+    graded = [e for e in queue if e["status"] == "graded"][0]
+    assert graded["grade"]["affected_codes"] == ["600519"]
+
+
+def test_validate_grades_rejects_non_list_affected_codes():
+    errors = news_grader._validate_grades({
+        "schema": "news_grade_batch_v1",
+        "grades": [{"fingerprint": "fp1", "materiality": 1,
+                    "affected_codes": "600519", "time_window": "unknown"}],
+    }, {"fp1"})
+    assert any("affected_codes must be a list" in e for e in errors)
+
+
+def test_submit_without_affected_codes_field_remains_backward_compatible(
+    monkeypatch, capsys, tmp_path,
+):
+    fp = _seed_queue()
+    _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
+    grades = tmp_path / "grades.json"
+    grades.write_text(json.dumps({
+        "schema": "news_grade_batch_v1",
+        "grades": [{"fingerprint": fp, "materiality": 1,
+                    "affected_sectors": [], "time_window": "unknown",
+                    "needs_deep_review": False}],
+    }), encoding="utf-8")
+    code, result = _run_cli(monkeypatch, capsys, "submit", "--file", str(grades))
+    assert code == 0
+    assert result["ok"] is True
+    queue = news_pipeline.read_json(news_pipeline.l1_queue_path(), [])
+    graded = [e for e in queue if e["status"] == "graded"][0]
+    assert graded["grade"]["affected_codes"] == []
 
 
 def test_submit_low_materiality_skips_bypass(
