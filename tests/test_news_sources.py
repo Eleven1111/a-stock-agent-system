@@ -99,3 +99,140 @@ def test_repo_catalog_is_loadable_and_ranked():
     assert ranks <= {"S5", "S4", "S3", "S2", "S1", "S0"}
     ids = [src["id"] for src in catalog["sources"]]
     assert len(ids) == len(set(ids))
+
+
+NEWSNOW_SOURCE = {
+    "id": "cls_hot_newsnow",
+    "name": "财联社热门",
+    "url": "https://newsnow.busiyi.world/api/s?id=cls-hot",
+    "kind": "newsnow",
+    "source_rank": "S2",
+    "source_type": "financial_hotlist",
+}
+
+NEWSNOW_DOC = json.dumps({
+    "status": "success",
+    "id": "cls-hot",
+    "items": [
+        {
+            "title": "两部门发布新能源产业支持政策",
+            "url": "https://www.cls.cn/detail/100001",
+            "pubDate": 1783123200000,
+        },
+        {
+            "title": "某上市公司公告重大资产重组",
+            "mobileUrl": "https://m.cls.cn/detail/100002",
+            "extra": {"date": "2026-07-03T09:30:00+08:00"},
+        },
+        {
+            "title": "缺少链接的条目应被跳过",
+            "pubDate": 1783123200000,
+        },
+        {
+            "title": "没有任何时间字段的条目",
+            "url": "https://www.cls.cn/detail/100003",
+        },
+    ],
+})
+
+
+def test_parse_newsnow_extracts_items_with_source_fields():
+    items = news_sources.parse_newsnow(NEWSNOW_DOC, NEWSNOW_SOURCE)
+    assert len(items) == 3
+    first = items[0]
+    assert first["title"] == "两部门发布新能源产业支持政策"
+    assert first["url"] == "https://www.cls.cn/detail/100001"
+    assert first["published_hint"] == "2026-07-04"
+    assert first["source_id"] == "cls_hot_newsnow"
+    assert first["source_rank"] == "S2"
+    assert first["source_type"] == "financial_hotlist"
+
+
+def test_parse_newsnow_mobile_url_and_extra_date_fallback():
+    items = news_sources.parse_newsnow(NEWSNOW_DOC, NEWSNOW_SOURCE)
+    second = items[1]
+    assert second["url"] == "https://m.cls.cn/detail/100002"
+    assert second["published_hint"] == "2026-07-03"
+
+
+def test_parse_newsnow_missing_date_yields_none_hint():
+    items = news_sources.parse_newsnow(NEWSNOW_DOC, NEWSNOW_SOURCE)
+    assert items[2]["published_hint"] is None
+
+
+def test_parse_newsnow_invalid_json_raises_data_source_error():
+    with pytest.raises(DataSourceError):
+        news_sources.parse_newsnow("<html>not json</html>", NEWSNOW_SOURCE)
+
+
+def test_parse_newsnow_missing_items_list_raises_data_source_error():
+    with pytest.raises(DataSourceError):
+        news_sources.parse_newsnow(json.dumps({"status": "success"}), NEWSNOW_SOURCE)
+
+
+class _FakeResult:
+    def __init__(self, data):
+        self.data = data
+        self.fetched_at = "2026-07-04T10:00:00+08:00"
+
+
+def test_fetch_source_dispatches_newsnow_kind(monkeypatch):
+    captured = {}
+
+    def fake_request_text(url, **kwargs):
+        captured["url"] = url
+        return _FakeResult(NEWSNOW_DOC)
+
+    monkeypatch.setattr(news_sources, "request_text", fake_request_text)
+    result = news_sources.fetch_source(NEWSNOW_SOURCE)
+    assert result["status"] == "ok"
+    assert len(result["items"]) == 3
+    assert captured["url"] == NEWSNOW_SOURCE["url"]
+
+
+def test_fetch_source_newsnow_env_base_override(monkeypatch):
+    captured = {}
+
+    def fake_request_text(url, **kwargs):
+        captured["url"] = url
+        return _FakeResult(NEWSNOW_DOC)
+
+    monkeypatch.setattr(news_sources, "request_text", fake_request_text)
+    monkeypatch.setenv("NEWSNOW_BASE_URL", "https://self-hosted.example.com")
+    news_sources.fetch_source(NEWSNOW_SOURCE)
+    assert captured["url"] == "https://self-hosted.example.com/api/s?id=cls-hot"
+
+    monkeypatch.setattr(news_sources, "request_text", fake_request_text)
+    news_sources.fetch_source(SOURCE)
+    assert captured["url"] == SOURCE["url"]
+
+
+def test_fetch_source_newsnow_bad_payload_is_isolated_error(monkeypatch):
+    def fake_request_text(url, **kwargs):
+        return _FakeResult("not json at all")
+
+    monkeypatch.setattr(news_sources, "request_text", fake_request_text)
+    result = news_sources.fetch_source(NEWSNOW_SOURCE)
+    assert result["status"] == "error"
+    assert result["items"] == []
+    assert result["error"]["error_type"] == "decode"
+
+
+def test_repo_catalog_includes_newsnow_defaults():
+    catalog = news_sources.load_catalog()
+    newsnow = {
+        src["id"]: src for src in catalog["sources"] if src.get("kind") == "newsnow"
+    }
+    expected = {
+        "newsnow_cls_hot",
+        "newsnow_xueqiu_hotstock",
+        "newsnow_wallstreetcn_quick",
+        "newsnow_jin10",
+        "newsnow_gelonghui",
+    }
+    assert set(newsnow) == expected
+    assert newsnow["newsnow_xueqiu_hotstock"]["source_rank"] == "S1"
+    for sid in expected - {"newsnow_xueqiu_hotstock"}:
+        assert newsnow[sid]["source_rank"] == "S2"
+    for src in newsnow.values():
+        assert "/api/s?id=" in src["url"]
