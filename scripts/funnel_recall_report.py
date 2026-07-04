@@ -47,6 +47,11 @@ def build_report(
         outcome_key=outcome_key,
         big_mover_threshold=big_mover_threshold,
     )
+    recall_source_breakdown = la.recall_source_breakdown(
+        records,
+        outcome_key=outcome_key,
+        big_mover_threshold=big_mover_threshold,
+    )
     settled_day_count = len(per_day)
     return {
         "schema": "a_stock_funnel_recall_report_v1",
@@ -63,6 +68,7 @@ def build_report(
         "settled_days": sorted(per_day),
         "pooled": pooled,
         "per_day": per_day,
+        "recall_source_breakdown": recall_source_breakdown,
     }
 
 

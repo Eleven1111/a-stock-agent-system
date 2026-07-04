@@ -17,6 +17,7 @@ def test_repository_configs_pass_registry_validation():
         "candidate_selection",
         "daban_thresholds",
         "data_access",
+        "nl_screening",
         "scoring",
     }
 

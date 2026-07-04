@@ -53,6 +53,27 @@ def test_funnel_report_shape_and_regret(tmp_path, monkeypatch):
     assert disc["big_movers_wrongly_rejected"] == 1
 
 
+def test_funnel_report_breaks_down_by_recall_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    full_market = _rec(
+        "000001", stage_events=[("discovery", True)], current_stage="watch_pool", t3=2.0, mg=3.0,
+    )
+    full_market["recall_source"] = "full_market_enumeration"
+    nl_recalled = _rec(
+        "300777", stage_events=[("discovery", True)], current_stage="watch_pool", t3=15.0, mg=16.0,
+    )
+    nl_recalled["recall_source"] = "nl_screening_eastmoney"
+    _write_day(tmp_path, "2026-06-25", [full_market, nl_recalled])
+
+    report = frr.build_report(days=["2026-06-25"], outcome_key="t3_close_ret")
+
+    breakdown = report["recall_source_breakdown"]["sources"]
+    assert set(breakdown) == {"full_market_enumeration", "nl_screening_eastmoney"}
+    assert breakdown["nl_screening_eastmoney"]["sample_size"] == 1
+    assert breakdown["nl_screening_eastmoney"]["big_movers"] == 1
+    assert breakdown["full_market_enumeration"]["sample_size"] == 1
+
+
 def test_funnel_report_insufficient_when_no_settled_data(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     _write_day(tmp_path, "2026-06-25", [

@@ -34,6 +34,7 @@ import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
 import industry_map  # noqa: E402
+import nl_screening  # noqa: E402
 import stage_intelligence  # noqa: E402
 import monitor_registry  # noqa: E402
 from config_registry import config_path  # noqa: E402
@@ -527,6 +528,62 @@ def load_cached_industry(asof: str) -> Mapping[str, str]:
     )
 
 
+def fetch_nl_screening_recall() -> Dict[str, Any]:
+    """Second candidate-recall channel: natural-language screener backends.
+
+    Read-only, additive: it only ever contributes extra candidate *codes* for
+    the full-market enumeration to price, filter, and rank exactly like every
+    other code — it never sets or influences a score directly. A configured
+    but failing channel is reported "blocked" by nl_screening.recall_candidates
+    and simply contributes zero extra codes this run; it must never be
+    conflated with "no natural-language candidates exist".
+    """
+    return nl_screening.recall_candidates()
+
+
+def merge_nl_screening_recall(
+    universe: List[Dict[str, Any]],
+    recall: Mapping[str, Any],
+) -> List[Dict[str, Any]]:
+    """Tag every universe row with its recall source and append any
+    NL-screening code missing from the full-market enumeration.
+
+    Existing full-market rows are tagged ``full_market_enumeration`` (never
+    overwritten by a narrower channel) so `funnel_recall_report.py` can always
+    attribute every candidate to exactly one recall_source. Codes recalled by
+    NL screening but already present in the full-market universe keep the
+    ``full_market_enumeration`` tag — they were always reachable by the
+    primary channel, so counting them again as an NL-exclusive recall would
+    overstate the second channel's incremental contribution.
+
+    A net-new code carries only ``code``/``name``/``recall_source`` here; it
+    still has to clear the same `candidate_pipeline.filter_universe` gates
+    (listing age, price, liquidity) as every other row once quotes are
+    fetched. If the exchange listing snapshot has no record of it (e.g. a
+    fresh IPO not yet in the cached SSE/SZSE universe), it fails closed via
+    the existing "listed date missing" rejection reason rather than being
+    special-cased into the watch pool — the second recall channel adds
+    candidates to consider, it does not add a bypass around the existing
+    tradeability gates.
+    """
+    merged = [
+        {**item, "recall_source": item.get("recall_source") or "full_market_enumeration"}
+        for item in universe
+    ]
+    known_codes = {candidate_pipeline.naked_code(item.get("code")) for item in merged}
+    for item in recall.get("candidates", []) if isinstance(recall, Mapping) else []:
+        code = candidate_pipeline.naked_code(item.get("code"))
+        if not code or code in known_codes:
+            continue
+        merged.append({
+            "code": code,
+            "name": item.get("name") or code,
+            "recall_source": item.get("recall_source") or "nl_screening",
+        })
+        known_codes.add(code)
+    return merged
+
+
 def run_discovery(
     asof: str,
     watch_limit: int | None = None,
@@ -537,11 +594,13 @@ def run_discovery(
     kline_fetcher: Callable[[Sequence[Mapping[str, Any]]], Mapping[str, Sequence[Mapping[str, Any]]]]
     = fetch_candidate_klines,
     industry_provider: Callable[[str], Mapping[str, str]] = load_cached_industry,
+    nl_screening_recall_provider: Callable[[], Mapping[str, Any]] = fetch_nl_screening_recall,
     settle_previous: bool = True,
 ) -> Dict[str, Any]:
     config = load_config()
     universe_config = config["universe"]
     pipeline_config = config["pipeline"]
+    nl_screening_config = dict(config.get("nl_screening_recall") or {})
     watch_limit = int(watch_limit or pipeline_config["watch_limit"])
     prefilter_limit = int(prefilter_limit or universe_config["prefilter_limit"])
 
@@ -549,6 +608,20 @@ def run_discovery(
     industry_by_code = dict(industry_provider(asof) or {})
     if industry_by_code:
         universe = industry_map.enrich_records(universe, industry_by_code)
+
+    nl_recall_report: Dict[str, Any] | None = None
+    if nl_screening_config.get("enabled", True):
+        try:
+            nl_recall_report = dict(nl_screening_recall_provider())
+        except Exception as exc:  # noqa: BLE001 - second recall channel must never block discovery
+            nl_recall_report = {
+                "schema": "nl_screening_recall_v1",
+                "channels": [],
+                "candidate_count": 0,
+                "candidates": [],
+                "error": str(exc),
+            }
+    universe = merge_nl_screening_recall(universe, nl_recall_report or {})
     quote_map = dict(quote_fetcher(universe))
 
     # 游资因子只能消费当日收盘缓存，避免历史梯队污染新的候选排名。
@@ -669,6 +742,11 @@ def run_discovery(
         "market_temperature": temperature,
         "hot_money_selection": selection_state,
         "input_snapshot": compact_ref(input_snapshot),
+        "nl_screening_recall": {
+            "channels": (nl_recall_report or {}).get("channels", []),
+            "candidate_count": (nl_recall_report or {}).get("candidate_count", 0),
+            "error": (nl_recall_report or {}).get("error"),
+        },
         "auction_scan_codes": [
             candidate_pipeline.market_code(item.get("code"))
             for item in evaluated
