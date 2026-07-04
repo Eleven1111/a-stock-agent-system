@@ -1,7 +1,7 @@
 {
   "schema": "news_pipeline_config_v1",
-  "updated_at": "2026-07-03",
-  "source_contract": "Primary-source RSS/HTML polling for official releases and wire copy only. Social/secondary sources are out of scope for this pipeline; use agent-reach style tooling separately for sentiment evidence.",
+  "updated_at": "2026-07-04",
+  "source_contract": "Primary-source RSS/HTML polling for official releases and wire copy, plus mid/low-rank NewsNow aggregator hotlists (financial wire hot items and attention signals). Aggregator items are recall/attention leads, never authority-grade evidence: their source_rank stays at S2 or below so L1 requires keyword materiality before they pass. Social/secondary sources beyond these hotlists remain out of scope; use agent-reach style tooling separately for sentiment evidence.",
   "sources": [
     {
       "id": "gov_yaowen_rss",
@@ -74,10 +74,51 @@
       "kind": "html",
       "source_rank": "S2",
       "source_type": "exchange"
+    },
+    {
+      "id": "newsnow_cls_hot",
+      "name": "财联社热门（NewsNow）",
+      "url": "https://newsnow.busiyi.world/api/s?id=cls-hot",
+      "kind": "newsnow",
+      "source_rank": "S2",
+      "source_type": "financial_hotlist"
+    },
+    {
+      "id": "newsnow_xueqiu_hotstock",
+      "name": "雪球热门股票（NewsNow）",
+      "url": "https://newsnow.busiyi.world/api/s?id=xueqiu-hotstock",
+      "kind": "newsnow",
+      "source_rank": "S1",
+      "source_type": "social_attention_hotlist"
+    },
+    {
+      "id": "newsnow_wallstreetcn_quick",
+      "name": "华尔街见闻快讯（NewsNow）",
+      "url": "https://newsnow.busiyi.world/api/s?id=wallstreetcn-quick",
+      "kind": "newsnow",
+      "source_rank": "S2",
+      "source_type": "global_macro_wire"
+    },
+    {
+      "id": "newsnow_jin10",
+      "name": "金十数据（NewsNow）",
+      "url": "https://newsnow.busiyi.world/api/s?id=jin10",
+      "kind": "newsnow",
+      "source_rank": "S2",
+      "source_type": "global_macro_wire"
+    },
+    {
+      "id": "newsnow_gelonghui",
+      "name": "格隆汇事件（NewsNow）",
+      "url": "https://newsnow.busiyi.world/api/s?id=gelonghui",
+      "kind": "newsnow",
+      "source_rank": "S2",
+      "source_type": "hk_cn_events"
     }
   ],
   "source_notes": {
-    "cninfo": "Per-stock cninfo announcement scans are already covered by skills/common/announcement_risk.py; this pipeline does not duplicate that machinery and only tracks market-wide official releases/wire copy."
+    "cninfo": "Per-stock cninfo announcement scans are already covered by skills/common/announcement_risk.py; this pipeline does not duplicate that machinery and only tracks market-wide official releases/wire copy.",
+    "newsnow": "NewsNow entries hit GET {base}/api/s?id=<source>. The default base https://newsnow.busiyi.world is a PUBLIC DEMO instance (upstream: https://github.com/ourongxing/newsnow) with no availability or rate-limit guarantees; production deployments should self-host and set the NEWSNOW_BASE_URL environment variable, which rewrites the origin of every kind=newsnow source at fetch time without config edits. Hotlist items are attention/recall leads (S2 and below), not authority-grade evidence."
   },
   "l1": {
     "rank_weight": {

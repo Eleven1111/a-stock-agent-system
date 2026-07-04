@@ -5,8 +5,12 @@ path), fetches each source through ``http_client`` (so every request is
 recorded by the provider-health ledger), and normalizes results into a flat
 list of ``{title, url, published_hint, source_id, source_name, source_rank,
 source_type}`` items. Parsing is stdlib-only: ``xml.etree.ElementTree`` for
-RSS/Atom, and a small regex-based anchor scan (matching the technique already
-used by ``watch_official_policy.py``) for plain HTML listing pages.
+RSS/Atom, a small regex-based anchor scan (matching the technique already
+used by ``watch_official_policy.py``) for plain HTML listing pages, and
+``json`` for NewsNow aggregator payloads (``GET {base}/api/s?id=<source>``).
+NewsNow sources honor the ``NEWSNOW_BASE_URL`` environment override so a
+self-hosted instance can replace the public demo instance without config
+edits.
 
 Per-source isolation: a single source failing (network error, malformed XML,
 unexpected HTML) never aborts the scan of other sources. Each source result
@@ -214,6 +218,88 @@ def parse_html_anchors(
     return items
 
 
+def _newsnow_date(value: Any) -> str | None:
+    """Date hint from a NewsNow field: epoch (s or ms), ISO string, or regex."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) or (
+        isinstance(value, str) and value.strip().isdigit()
+    ):
+        stamp = float(value)
+        if stamp > 1e12:
+            stamp /= 1000.0
+        try:
+            return datetime.fromtimestamp(stamp, BJ).date().isoformat()
+        except (OSError, OverflowError, ValueError):
+            return None
+    text = str(value).strip()
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return _parse_date_hint(text)
+
+
+def parse_newsnow(document: str, source: dict[str, Any]) -> list[dict[str, Any]]:
+    """Parse a NewsNow aggregator JSON payload.
+
+    Field tolerance mirrors the deployed API: item links arrive as ``url`` or
+    ``mobileUrl``, timestamps as ``pubDate`` (epoch ms/s or ISO) or
+    ``extra.date``. Entries without a usable title+link are dropped; a missing
+    timestamp yields ``published_hint=None`` (downstream L1 already treats
+    that as "date unknown", same as HTML anchor sources).
+    """
+    try:
+        payload = json.loads(document)
+    except json.JSONDecodeError as exc:
+        raise DataSourceError(
+            str(source.get("id")), f"NewsNow JSON parse failed: {exc}", exc,
+            error_type="decode",
+        ) from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise DataSourceError(
+            str(source.get("id")), "NewsNow payload missing items list",
+            error_type="decode",
+        )
+    items: list[dict[str, Any]] = []
+    for entry in payload["items"]:
+        if not isinstance(entry, dict):
+            continue
+        title = _normalize_text(str(entry.get("title") or ""))
+        link = str(entry.get("url") or entry.get("mobileUrl") or "").strip()
+        if not title or not link:
+            continue
+        extra = entry.get("extra") if isinstance(entry.get("extra"), dict) else {}
+        published_hint = _newsnow_date(entry.get("pubDate")) or _newsnow_date(
+            extra.get("date")
+        )
+        items.append({
+            "title": title,
+            "url": _canonical_url(urljoin(str(source["url"]), link)),
+            "published_hint": published_hint,
+            "source_id": source["id"],
+            "source_name": source["name"],
+            "source_rank": source["source_rank"],
+            "source_type": source.get("source_type"),
+        })
+    return items
+
+
+def _resolve_fetch_url(source: dict[str, Any], kind: str) -> str:
+    url = str(source["url"])
+    if kind != "newsnow":
+        return url
+    base = os.environ.get("NEWSNOW_BASE_URL", "").strip()
+    if not base:
+        return url
+    parts = urlsplit(url)
+    base_parts = urlsplit(base)
+    if not base_parts.scheme or not base_parts.netloc:
+        return url
+    return urlunsplit(
+        (base_parts.scheme, base_parts.netloc, parts.path, parts.query, "")
+    )
+
+
 def fetch_source(
     source: dict[str, Any],
     *,
@@ -225,13 +311,15 @@ def fetch_source(
     kind = str(source.get("kind") or "html")
     try:
         result = request_text(
-            source["url"],
+            _resolve_fetch_url(source, kind),
             source=source["id"],
             timeout=timeout,
             headers=UA_HEADERS,
         )
         if kind == "rss":
             items = parse_rss(result.data, source)
+        elif kind == "newsnow":
+            items = parse_newsnow(result.data, source)
         else:
             items = parse_html_anchors(result.data, source)
         return {
