@@ -200,6 +200,30 @@ def live_weight(strategy_id: str, registry_file: Optional[str] = None) -> float:
     return 1.0 if is_allowed_in_live(strategy_id, registry_file) else 0.0
 
 
+def strategy_pack_hypotheses() -> Dict[str, Any]:
+    """声明式策略包（config/strategy_packs/*.yaml）在本注册表语义下的定位。
+
+    策略包是"解释与研究假设层"：它们从不写入本注册表的 allowed_in_live_agent，
+    因此 is_allowed_in_live(pack_name) 恒为 False——与"未注册的 strategy_id"完全
+    同义。这保证策略包永远不会绕过 research gate 影响实盘计权/排序（AGENTS.md 红线）。
+
+    升级路径（想让某个包影响实盘）：
+      1. 锁定该包的判定规则；
+      2. 运行 skills/chanlun-backtest/scripts/research_gate.py 做样本外验证；
+      3. 通过 OOS 墙后，用 register_gate_result 把带 sha256 证据的门禁结论登记进本表。
+    在此之前，策略包只能通过 evidence_pack 的 strategy_pack_hints 段做解释性引用。
+
+    返回 strategy_packs.registry_records()（未过门禁视图），加载失败时返回空表，
+    绝不伪造任何"已允许"记录。
+    """
+    try:
+        import strategy_packs
+
+        return strategy_packs.registry_records()
+    except Exception:  # noqa: BLE001 - 解释性视图，缺失时不得伪造门禁结论
+        return {}
+
+
 if __name__ == "__main__":
     import argparse
     import json

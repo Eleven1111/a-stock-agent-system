@@ -292,6 +292,57 @@ def _interactive_qa_evidence(subject_code: str) -> dict[str, Any] | None:
     }
 
 
+def _current_regime(trading_date: str) -> str | None:
+    """Best-effort current emotion-temperature tier for pack regime filtering.
+
+    Never raises and never blocks a pack: any failure (missing context, stale
+    date) yields ``None`` which means "show all applicable packs", not "no
+    signal". This is read-only and does not influence ranking.
+    """
+    try:
+        from market_temperature import read_temperature
+
+        tier = str((read_temperature(event_asof=trading_date or None) or {}).get("tier") or "")
+    except Exception:  # noqa: BLE001 - optional, explanation-only section
+        return None
+    # "neutral" means the temperature calculator has no usable signal — treat it
+    # as "no regime filter" (show all applicable packs), not as its own regime.
+    if not tier or tier == "neutral":
+        return None
+    return tier
+
+
+def _strategy_pack_hints(
+    candidate_entry: Any,
+    trading_date: str,
+) -> dict[str, Any] | None:
+    """Interpretation-only ``strategy_pack_hints`` section.
+
+    Reports which declarative strategy packs' judgement criteria the candidate
+    hits (with per-condition hit/miss reasons). PURELY EXPLANATORY: it never
+    changes ranking, scoring, or signals — the ``advisory_delta`` values are
+    surfaced for narration and must not be folded into any live score. Returns
+    ``None`` when there is no candidate evidence to interpret.
+    """
+    if not isinstance(candidate_entry, dict):
+        return None
+    try:
+        import strategy_packs
+
+        regime = _current_regime(trading_date)
+        hints = strategy_packs.evaluate_pack_hints(candidate_entry, regime=regime)
+    except Exception:  # noqa: BLE001 - explanation-only, never blocks a pack build
+        return None
+    if not hints:
+        return None
+    return {
+        "regime": _current_regime(trading_date),
+        "influences_live_ranking": False,
+        "note": "解释性策略假设，不影响实盘排序/评分/信号；升级需过 research_gate",
+        "packs": hints,
+    }
+
+
 def _subject_data(
     subject_code: str,
     trading_date: str,
@@ -334,6 +385,9 @@ def _subject_data(
     news_evidence = _news_evidence(subject_code)
     if news_evidence is not None:
         data["news_evidence"] = news_evidence
+    pack_hints = _strategy_pack_hints(data.get("candidate_entry"), trading_date)
+    if pack_hints is not None:
+        data["strategy_pack_hints"] = pack_hints
     gap_reason = _deep_research_gap(cache)
     if gap_reason and task is not None:
         pulled_reason = _maybe_pull_serenity_refresh(
