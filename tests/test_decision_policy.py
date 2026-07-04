@@ -321,3 +321,115 @@ def test_discipline_freeze_does_not_apply_to_trend_lane():
 
     assert result["decision"] == "buy"
     assert "day_loss_stop" not in result["reasons"]
+
+
+# --- guardrail: structured raw_action vs final_action divergence explanation ---
+
+
+def test_guardrail_present_when_raw_action_diverges_from_final_decision():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        portfolio_risk={"allowed": False, "reasons": ["single_position_limit"]},
+    )
+
+    assert result["decision"] == "avoid"
+    guardrail = result["guardrail"]
+    assert guardrail["raw_action"] == "buy"
+    assert guardrail["final_action"] == "avoid"
+    codes = [r["code"] for r in guardrail["reasons"]]
+    assert "concentration" in codes
+    concentration = next(r for r in guardrail["reasons"] if r["code"] == "concentration")
+    assert "single_position_limit" in concentration["detail"]
+
+
+def test_guardrail_absent_when_action_matches_decision():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+    )
+
+    assert result["decision"] == "buy"
+    assert result["guardrail"] is None
+
+
+def test_guardrail_classifies_announcement_and_quality_reasons():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "rejected"},
+    )
+
+    guardrail = result["guardrail"]
+    assert guardrail is not None
+    codes = {r["code"] for r in guardrail["reasons"]}
+    assert "strategy_gate" in codes
+
+
+def test_guardrail_classifies_temperature_and_market_state_reasons():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_regime={"regime": "risk_off"},
+    )
+
+    guardrail = result["guardrail"]
+    assert guardrail is not None
+    codes = {r["code"] for r in guardrail["reasons"]}
+    assert "temperature_gate" in codes
+
+
+def test_guardrail_classifies_discipline_reasons():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        strategy_lane="daban",
+        discipline_state={"blocked": True, "reasons": ["day_loss_stop"]},
+    )
+
+    guardrail = result["guardrail"]
+    assert guardrail is not None
+    codes = {r["code"] for r in guardrail["reasons"]}
+    assert "discipline_gate" in codes
+
+
+def test_guardrail_classifies_t1_lock():
+    result = decision_policy.evaluate_decision(
+        requested_action="sell",
+        quality_report={"status": "passed"},
+        t1_block={"error": "A股T+1限制：当日买入/加仓股份不能当日卖出", "code": "T1_LOCKED"},
+    )
+
+    assert result["decision"] == "hold_locked"
+    guardrail = result["guardrail"]
+    assert guardrail is not None
+    assert guardrail["raw_action"] == "sell"
+    assert guardrail["final_action"] == "hold_locked"
+    codes = {r["code"] for r in guardrail["reasons"]}
+    assert "t_plus_1" in codes
+
+
+def test_guardrail_includes_raw_score_when_provided():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        portfolio_risk={"allowed": False, "reasons": ["sector_exposure_limit"]},
+        raw_score=87.5,
+    )
+
+    assert result["guardrail"]["raw_score"] == 87.5
+
+
+def test_guardrail_unknown_reason_falls_back_to_other_code():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        portfolio_risk={"allowed": False, "reasons": ["some_new_未知原因"]},
+    )
+
+    guardrail = result["guardrail"]
+    assert guardrail is not None
+    codes = {r["code"] for r in guardrail["reasons"]}
+    assert "other" in codes

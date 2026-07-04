@@ -309,6 +309,7 @@ def record_recommendation(
     selection_context: Optional[Dict[str, Any]] = None,
     discipline_state: Optional[Dict[str, Any]] = None,
     evidence_sources: Optional[List[Dict[str, Any]]] = None,
+    raw_score: Optional[float] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -387,6 +388,7 @@ def record_recommendation(
         research_evidence=evidence,
         strategy_lane=lane,
         discipline_state=discipline,
+        raw_score=raw_score,
     )
     effective_action = (
         "avoid"
@@ -395,6 +397,8 @@ def record_recommendation(
         if policy["decision"] == "watch"
         else action
     )
+    if policy.get("guardrail") is not None:
+        policy["guardrail"] = {**policy["guardrail"], "final_action": effective_action}
     if policy["position_multiplier"] == 0:
         sizing.update({
             "recommended_position_pct": 0.0,
@@ -488,6 +492,36 @@ def record_recommendation(
     signal_ledger.append_events(ledger_events, ledger_file=LEDGER_FILE)
     update_json_list(RECOMMENDATIONS_FILE, record, unique_key="id")
     return {"ok": True, "record": record}
+
+
+def audit_guardrail_gaps(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """标记原始动作与最终动作背离但缺 guardrail 结构化解释的推荐记录。
+
+    背离 = requested_action != action。旧事件没有 policy_decision 字段时视为一致
+    （无法判断即不误报），保持向后兼容。
+    """
+    violations: List[Dict[str, Any]] = []
+    for record in records:
+        requested = record.get("requested_action")
+        final = record.get("action")
+        if requested is None or final is None or requested == final:
+            continue
+        policy_decision = record.get("policy_decision")
+        guardrail = (
+            policy_decision.get("guardrail")
+            if isinstance(policy_decision, dict)
+            else None
+        )
+        if guardrail is not None:
+            continue
+        violations.append({
+            "id": record.get("id"),
+            "code": record.get("code"),
+            "requested_action": requested,
+            "action": final,
+            "violation": "missing_guardrail_for_diverging_action",
+        })
+    return violations
 
 
 def query_recommendations(code: Optional[str] = None, outcome: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -624,10 +658,17 @@ if __name__ == "__main__":
     parser.add_argument("--pnl", type=float, help="更新结果时记录收益率")
     parser.add_argument("--note", help="更新结果备注")
     parser.add_argument("--example", action="store_true", help="输出示例记录，不写入文件")
+    parser.add_argument(
+        "--audit-violations",
+        action="store_true",
+        help="列出原始动作与最终动作背离但缺 guardrail 结构化解释的记录",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    if args.example:
+    if args.audit_violations:
+        output = audit_guardrail_gaps(load_recommendations())
+    elif args.example:
         output = {"schema": "recommendation_audit_example_v1", "record": example_record()}
     elif args.update:
         rec_id, outcome = args.update

@@ -387,6 +387,139 @@ def test_position_guidance_blocks_new_daban_when_temperature_disallows(monkeypat
     assert sizing["temperature"]["allow_new_daban"] is False
 
 
+def test_guardrail_recorded_when_concentration_downgrades_buy_to_avoid(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+
+    result = ra.record_recommendation(
+        **_passed_buy(
+            portfolio_risk={"allowed": False, "reasons": ["single_position_limit"]},
+        )
+    )
+
+    record = result["record"]
+    assert record["action"] == "avoid"
+    guardrail = record["policy_decision"]["guardrail"]
+    assert guardrail is not None
+    assert guardrail["raw_action"] == "buy"
+    assert guardrail["final_action"] == "avoid"
+    codes = {r["code"] for r in guardrail["reasons"]}
+    assert "concentration" in codes
+
+
+def test_guardrail_absent_when_buy_passes_cleanly(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+
+    result = ra.record_recommendation(**_passed_buy())
+
+    assert result["record"]["policy_decision"]["guardrail"] is None
+
+
+def test_guardrail_carries_raw_score_when_supplied(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+
+    result = ra.record_recommendation(
+        **_passed_buy(
+            portfolio_risk={"allowed": False, "reasons": ["sector_exposure_limit"]},
+            raw_score=91.0,
+        )
+    )
+
+    assert result["record"]["policy_decision"]["guardrail"]["raw_score"] == 91.0
+
+
+def test_guardrail_final_action_matches_recorded_effective_action_for_avoid(tmp_path, monkeypatch):
+    """avoid 决策下 guardrail.final_action 要与记录里真正落地的 action 字段一致，不能残留内部 decision 口径。"""
+    _wire(tmp_path, monkeypatch)
+
+    result = ra.record_recommendation(
+        **_passed_buy(discipline_state={"blocked": True, "reasons": ["week_trade_cap"]})
+    )
+
+    record = result["record"]
+    guardrail = record["policy_decision"]["guardrail"]
+    assert record["action"] == "avoid"
+    assert guardrail["final_action"] == record["action"]
+
+
+def test_audit_guardrail_gaps_flags_divergence_without_guardrail(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    diverging = {
+        "id": "rec-bad",
+        "code": "002156",
+        "name": "通富微电",
+        "requested_action": "buy",
+        "action": "avoid",
+        "policy_decision": {"decision": "avoid", "reasons": ["single_position_limit"]},
+    }
+
+    violations = ra.audit_guardrail_gaps([diverging])
+
+    assert len(violations) == 1
+    assert violations[0]["id"] == "rec-bad"
+    assert violations[0]["violation"] == "missing_guardrail_for_diverging_action"
+
+
+def test_audit_guardrail_gaps_ignores_records_with_guardrail(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    explained = {
+        "id": "rec-ok",
+        "code": "002156",
+        "requested_action": "buy",
+        "action": "avoid",
+        "policy_decision": {
+            "decision": "avoid",
+            "guardrail": {
+                "raw_action": "buy",
+                "final_action": "avoid",
+                "reasons": [{"code": "concentration", "detail": "single_position_limit"}],
+            },
+        },
+    }
+
+    assert ra.audit_guardrail_gaps([explained]) == []
+
+
+def test_audit_guardrail_gaps_ignores_consistent_records(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch)
+    consistent = {
+        "id": "rec-consistent",
+        "code": "002156",
+        "requested_action": "buy",
+        "action": "buy",
+        "policy_decision": {"decision": "buy"},
+    }
+
+    assert ra.audit_guardrail_gaps([consistent]) == []
+
+
+def test_audit_guardrail_gaps_tolerates_legacy_records_without_requested_action(tmp_path, monkeypatch):
+    """旧事件没有 requested_action 字段（早于该字段引入）时不应崩溃或误报违规。"""
+    _wire(tmp_path, monkeypatch)
+    legacy = {
+        "id": "rec-legacy",
+        "code": "002156",
+        "action": "buy",
+    }
+
+    assert ra.audit_guardrail_gaps([legacy]) == []
+
+
+def test_audit_guardrail_gaps_flags_divergence_even_without_policy_decision(tmp_path, monkeypatch):
+    """背离但连 policy_decision 都没写的记录同样是违规（不能用缺字段绕过审计）。"""
+    _wire(tmp_path, monkeypatch)
+    bare = {
+        "id": "rec-bare",
+        "code": "002156",
+        "requested_action": "buy",
+        "action": "avoid",
+    }
+
+    violations = ra.audit_guardrail_gaps([bare])
+
+    assert len(violations) == 1
+    assert violations[0]["id"] == "rec-bare"
+
+
 def test_sell_recommendation_is_blocked_for_same_day_buy(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch)
     atomic_write_json(
