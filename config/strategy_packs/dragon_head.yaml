@@ -1,0 +1,60 @@
+# 龙头策略包 — 解释与研究假设层（NON-LIVE）
+# =============================================================================
+# 本文件是"声明式策略包"，只用于 agent 解释推荐时引用的判断标准，以及作为研究
+# 假设。它绝不影响实盘排序 / 评分 / 信号（AGENTS.md 红线：任何策略未过 research
+# gate 不得影响实盘排序）。想让本包影响实盘 → 走 research_gate 样本外验证并在
+# strategy_registry 登记 allowed_in_live_agent=true。
+#
+# 通用模板：不含任何具体股票代码 / 股票名称 / 具体板块名称。条件均引用系统已有的
+# 通用证据字段（candidate_pipeline / auction shortlist 产出）。
+
+name: dragon_head
+display_name: 龙头策略
+description: >-
+  在情绪扩散到加速的市场里，识别板块内领涨地位明确、量能与换手放大、相对板块产生
+  超额、并有板块级催化配合的候选，作为"龙头"研究假设。用于解释为何某标的可能是
+  当前主线的领涨核心，不构成买入指令。
+category: trend
+
+# 适用市场状态：对接情绪温度五档（market_temperature.py）与 S0-S6 市场状态机。
+# 龙头逻辑在情绪发酵~加速、点火~主升阶段最有解释力；冰点/退潮期不适用。
+market_regimes:
+  - 发酵
+  - 加速
+  - S2   # 点火
+  - S3   # 扩散/主升
+
+# 需要的证据字段（缺失即无法判定，对应条件记为"未命中"并注明原因）。
+evidence_requirements:
+  - turnover                 # 换手率 (%)
+  - volume_ratio_5d          # 量比（近5日均量倍数）
+  - auction_sector_delta     # 相对板块领头分差（竞价短名单产出，龙头应为 0 附近或领先）
+  - auction_sector_rank      # 板块内竞价排名
+  - sector_source            # 板块归属来源（用于板块级证据可信度）
+  - hot_money_notes          # 游资/涨停梯队与板块赚钱效应线索
+
+# 自然语言判断标准：供 agent 解释推荐时引用。
+interpretation: >-
+  龙头假设成立需要四条同时可见：其一，板块内领涨地位——竞价板块排名靠前且相对板块
+  龙头分差不落后；其二，换手率显著放大（活跃筹码换手，超短口径通常在 5% 以上）；
+  其三，量比放大（量能确认，通常在 1.5 倍以上）；其四，相对板块产生超额（领先板块
+  内其他个体约 2 个百分点以上）并有板块级催化线索（板块赚钱效应或梯队联动）。四条
+  越齐，"当前主线领涨核心"的解释越强；缺项越多，越应回退为普通跟随而非龙头。
+
+# 建议性加减分 —— 仅供解释，不进实盘评分（score_hints 永不写回排序）。
+score_hints:
+  - when: turnover_ge_5
+    delta: 3
+    reason: 换手率≥5%，活跃筹码充分换手，符合龙头活跃度
+  - when: volume_ratio_ge_1_5
+    delta: 2
+    reason: 量比≥1.5，量能放大确认资金进场
+  - when: sector_excess_ge_2
+    delta: 3
+    reason: 相对板块超额≥2个百分点，领涨地位明确
+  - when: sector_catalyst_present
+    delta: 2
+    reason: 存在板块级催化/赚钱效应线索，龙头联动逻辑成立
+  - when: sector_rank_top
+    delta: 2
+    reason: 竞价板块内排名居前，具备板块内领头身份

@@ -166,6 +166,59 @@ def test_full_pack_is_ok_and_subject_scoped():
     assert result["size_chars"] <= 24000
 
 
+def _write_candidate_pool_with_evidence():
+    path = data_file("stock-triage", "candidate_pool_latest.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    pool = {
+        "status": "ready",
+        "trading_date": "2026-07-02",
+        "candidates": [
+            {
+                "code": "600519", "name": "贵州茅台", "score": 82.5,
+                "turnover": 6.5, "volume_ratio_5d": 1.8,
+                "auction_sector_delta": 2.5, "auction_sector_rank": 1,
+                "hot_money_notes": ["板块赚钱效应(白酒涨停5家)"],
+                "daban_score": 60.0, "trend_score": 55.0,
+            },
+        ],
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(pool, handle, ensure_ascii=False)
+
+
+def test_pack_surfaces_strategy_pack_hints_as_non_influential_explanation():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool_with_evidence()
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    subject = result["payload"]["subject_data"]
+    hints = subject["strategy_pack_hints"]
+    # Interpretation-only: explicitly flagged as not influencing ranking.
+    assert hints["influences_live_ranking"] is False
+    assert "research_gate" in hints["note"]
+    names = {p["pack"] for p in hints["packs"]}
+    assert "dragon_head" in names
+    dragon = next(p for p in hints["packs"] if p["pack"] == "dragon_head")
+    assert dragon["influences_live_ranking"] is False
+    assert dragon["hit_count"] >= 1
+    # The candidate's own live scores must be untouched by hint evaluation.
+    assert subject["candidate_entry"]["daban_score"] == 60.0
+    assert subject["candidate_entry"]["trend_score"] == 55.0
+
+
+def test_pack_hints_absent_when_no_candidate_evidence():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    # No candidate pool -> no candidate_entry -> no hints section.
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+    subject = result["payload"].get("subject_data") or {}
+    assert "strategy_pack_hints" not in subject
+
+
 def test_pack_is_content_addressed_and_cached():
     _write_agent_state()
     _write_artifact("closing-triage")
