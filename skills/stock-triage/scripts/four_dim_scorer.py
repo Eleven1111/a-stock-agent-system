@@ -59,6 +59,11 @@ from indicators import (
     calc_volume_ratio, calc_chip_concentration,
 )
 
+# 情绪周期确定性特征（研究信号，过 research_gate 才计权，否则 display-only 0权重）
+from emotion_cycle_features import compute_emotion_features as _compute_emotion_features
+
+_EMOTION_CYCLE_STRATEGY_ID = "emotion_cycle:v1"
+
 # 大盘 context overlay（外围环境回流个股评分；无缓存则 no-op）
 from market_context import read_market_context, apply_market_overlay
 
@@ -321,6 +326,13 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
     score += chan_delta
     signals.extend(chan_notes)
 
+    # 情绪周期确定性特征（研究信号，display-only，0权重直到过 research_gate）。
+    # 过闸后的 delta 数值本次不实现——TODO(research_gate): 待 emotion_cycle:v1
+    # 通过离线研究闸门并写入 strategy_registry 后，再设计计权规则，不得看实盘回拟合。
+    emotion_features = _compute_emotion_features(klines)
+    if not _chan_allowed(_EMOTION_CYCLE_STRATEGY_ID):
+        signals.append("[研究假设]情绪周期(未过闸·0权重)")
+
     score = max(-3, min(10, score))
     if chan_lock is not None:
         score = min(score, chan_lock)
@@ -338,6 +350,7 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
         "price": rt.get("price"),
         "change_pct": rt.get("change_pct"),
         "detail": "; ".join(signals) if signals else "无明确信号",
+        "emotion_cycle": emotion_features,
     }
 
 

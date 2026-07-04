@@ -37,3 +37,28 @@ risk:
   max_single_position_pct: 25
   max_sector_exposure_pct: 40
   max_chase_pct: 7.0
+
+# 情绪周期确定性特征（研究信号，未过 research_gate 前 0 权重，不得影响实盘评分）。
+# 阈值变更须走 research_gate 纪律，禁止看实盘回拟合。
+emotion_cycle:
+  strategy_id: "emotion_cycle:v1"
+  volume_percentile:
+    window: 60
+    min_samples: 20
+    buckets: {cold: 0.20, active: 0.70, hot: 0.90, extreme: 0.98}
+  volume_spike:
+    window: 20
+    distribution_suspect: 5.0
+    heavy: 2.5
+    shrink: 0.5
+  ma_coil:
+    periods: [5, 10, 20]
+    coil_threshold: 0.02
+  atr_contraction:
+    period: 14
+    min_atr_points: 10
+    contracting_pct: 0.20
+    expanding_pct: 0.90
+  synthesis:
+    bottom_min: 3
+    top_min: 2
