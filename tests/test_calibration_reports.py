@@ -1,7 +1,41 @@
 import json
 
+import signal_ledger
 from scripts import funnel_recall_report as frr
 from scripts import score_calibration_report as scr
+
+
+def _open_signal(ledger_file, signal_id, *, strategy_id, source, code="002156"):
+    links = signal_ledger.make_links(f"rec-{signal_id}", signal_id=signal_id)
+    event = signal_ledger.signal_opened_event(
+        {
+            "code": code,
+            "name": "示例",
+            "signal_date": "2026-06-25",
+            "entry_price": 10.0,
+            "grade": "A",
+            "strategy_id": strategy_id,
+            "action": "buy",
+            "source": source,
+        },
+        links,
+    )
+    signal_ledger.append_events([event], ledger_file=ledger_file)
+
+
+def _feedback_event(ledger_file, signal_id, verdict, *, strategy_id="default", source="recommendation"):
+    signal_ledger.append_event(
+        "recommendation.feedback",
+        signal_ledger.make_links(f"rec-{signal_id}", signal_id=signal_id),
+        {
+            "verdict": verdict,
+            "code": "002156",
+            "strategy_id": strategy_id,
+            "source": source,
+        },
+        idempotency_key=f"fb:{signal_id}:{verdict}",
+        ledger_file=ledger_file,
+    )
 
 
 def _write_day(tmp_path, asof, records):
@@ -126,3 +160,100 @@ def test_calibration_four_dim_join_reports_ok_once_paired(tmp_path, monkeypatch)
     assert fd["status"] == "ok"
     assert fd["paired_rows"] == 12
     assert fd["ic_by_dimension"]["technical"]["t3_close_ret"]["ic"] == 1.0
+
+
+def test_feedback_stats_absent_signal_ledger_is_insufficient_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    ledger_file = str(tmp_path / "no_such_ledger.jsonl")
+
+    stats = scr.build_feedback_stats(ledger_file=ledger_file)
+
+    assert stats["status"] == "insufficient_data"
+    assert stats["total_feedback"] == 0
+
+
+def test_feedback_stats_reports_overall_useful_rate(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    ledger_file = str(tmp_path / "signal_ledger.jsonl")
+    _open_signal(ledger_file, "sig-1", strategy_id="daban:first_board_reseal", source="recommendation")
+    _open_signal(ledger_file, "sig-2", strategy_id="daban:first_board_reseal", source="recommendation")
+    _open_signal(ledger_file, "sig-3", strategy_id="trend_pullback", source="hot_money_afternoon")
+    _feedback_event(ledger_file, "sig-1", "useful", strategy_id="daban:first_board_reseal", source="recommendation")
+    _feedback_event(ledger_file, "sig-2", "not_useful", strategy_id="daban:first_board_reseal", source="recommendation")
+    _feedback_event(ledger_file, "sig-3", "useful", strategy_id="trend_pullback", source="hot_money_afternoon")
+
+    stats = scr.build_feedback_stats(ledger_file=ledger_file)
+
+    assert stats["status"] == "ok"
+    assert stats["total_feedback"] == 3
+    assert stats["overall_useful_rate"] == round(2 / 3, 4)
+
+
+def test_feedback_stats_breaks_down_by_strategy_and_source(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    ledger_file = str(tmp_path / "signal_ledger.jsonl")
+    _open_signal(ledger_file, "sig-1", strategy_id="daban:first_board_reseal", source="recommendation")
+    _open_signal(ledger_file, "sig-2", strategy_id="daban:first_board_reseal", source="recommendation")
+    _open_signal(ledger_file, "sig-3", strategy_id="trend_pullback", source="hot_money_afternoon")
+    _feedback_event(ledger_file, "sig-1", "useful", strategy_id="daban:first_board_reseal", source="recommendation")
+    _feedback_event(ledger_file, "sig-2", "not_useful", strategy_id="daban:first_board_reseal", source="recommendation")
+    _feedback_event(ledger_file, "sig-3", "useful", strategy_id="trend_pullback", source="hot_money_afternoon")
+
+    stats = scr.build_feedback_stats(ledger_file=ledger_file)
+
+    by_strategy = stats["by_strategy"]
+    assert by_strategy["daban:first_board_reseal"]["total"] == 2
+    assert by_strategy["daban:first_board_reseal"]["useful_rate"] == 0.5
+    assert by_strategy["trend_pullback"]["total"] == 1
+    assert by_strategy["trend_pullback"]["useful_rate"] == 1.0
+
+    by_source = stats["by_source"]
+    assert by_source["recommendation"]["total"] == 2
+    assert by_source["hot_money_afternoon"]["total"] == 1
+
+
+def test_feedback_stats_uses_latest_feedback_when_signal_corrected(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    ledger_file = str(tmp_path / "signal_ledger.jsonl")
+    _open_signal(ledger_file, "sig-1", strategy_id="daban:first_board_reseal", source="recommendation")
+    _feedback_event(ledger_file, "sig-1", "useful", strategy_id="daban:first_board_reseal", source="recommendation")
+    _feedback_event(ledger_file, "sig-1", "not_useful", strategy_id="daban:first_board_reseal", source="recommendation")
+
+    stats = scr.build_feedback_stats(ledger_file=ledger_file)
+
+    assert stats["total_feedback"] == 1
+    assert stats["overall_useful_rate"] == 0.0
+
+
+def test_build_report_includes_feedback_stats_section(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    ledger_file = str(tmp_path / "signal_ledger.jsonl")
+    records = [
+        _rec(f"{i:06d}", stage_events=[("discovery", i % 2 == 0)],
+             current_stage="watch_pool" if i % 2 == 0 else "discovery_rejected",
+             t3=float(i), mg=float(i), daban=float(i), momentum=float(i))
+        for i in range(20)
+    ]
+    _write_day(tmp_path, "2026-06-25", records)
+    _open_signal(ledger_file, "sig-1", strategy_id="daban:first_board_reseal", source="recommendation")
+    _feedback_event(ledger_file, "sig-1", "useful", strategy_id="daban:first_board_reseal", source="recommendation")
+
+    report = scr.build_report(days=["2026-06-25"], feedback_ledger_path=ledger_file)
+
+    assert report["feedback"]["status"] == "ok"
+    assert report["feedback"]["total_feedback"] == 1
+
+
+def test_build_report_feedback_section_backward_compatible_without_ledger(tmp_path, monkeypatch):
+    """旧调用不传 feedback_ledger_path 时报告仍然正常生成（无反馈数据即可）。"""
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    records = [
+        _rec(f"{i:06d}", stage_events=[("discovery", True)], current_stage="watch_pool", t3=float(i), mg=float(i))
+        for i in range(3)
+    ]
+    _write_day(tmp_path, "2026-06-25", records)
+
+    report = scr.build_report(days=["2026-06-25"])
+
+    assert report["status"] == "ok"
+    assert report["feedback"]["status"] == "insufficient_data"

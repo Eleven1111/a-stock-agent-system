@@ -31,6 +31,8 @@ sys.path.insert(0, ROOT)
 
 import lifecycle_analytics as la  # noqa: E402
 import four_dim_score_log as fdl  # noqa: E402
+import signal_ledger  # noqa: E402
+from scripts import recommendation_feedback as rf  # noqa: E402
 
 # Persisted raw feature -> its current hardcoded weight in candidate_pipeline.py.
 # Mirror only; keep in sync with the score formulas there.
@@ -121,7 +123,70 @@ def _four_dim_join(records, outcomes, log_path=None):
     return {"status": "ok", "paired_rows": len(joined), "ic_by_dimension": ic}
 
 
-def build_report(*, days=None, outcomes=DEFAULT_OUTCOMES, four_dim_log_path=None) -> dict:
+def _useful_rate(rows: list[dict]) -> float:
+    useful = sum(1 for row in rows if row.get("verdict") == "useful")
+    return round(useful / len(rows), 4) if rows else 0.0
+
+
+def _group_stats(rows: list[dict], key: str) -> dict[str, dict]:
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        group_key = str(row.get(key) or "unknown")
+        groups.setdefault(group_key, []).append(row)
+    return {
+        group_key: {
+            "total": len(group_rows),
+            "useful_rate": _useful_rate(group_rows),
+        }
+        for group_key, group_rows in groups.items()
+    }
+
+
+def build_feedback_stats(ledger_file: str | None = None) -> dict:
+    """人工反馈统计：整体 useful 率 + 按策略/通道分组。
+
+    每个 signal_id 只取最新一条反馈（允许人工更正认知）。没有反馈事件时返回
+    insufficient_data，不影响报告其余部分（向后兼容旧调用不传 ledger_file）。
+    """
+    path = ledger_file or signal_ledger.LEDGER_FILE
+    events = signal_ledger.read_events(path)
+    latest_by_signal = rf.latest_feedback_by_signal(events)
+    rows = [
+        {
+            "signal_id": signal_id,
+            "verdict": payload.get("verdict"),
+            "strategy_id": payload.get("strategy_id") or "default",
+            "source": payload.get("source") or "unknown",
+        }
+        for signal_id, payload in latest_by_signal.items()
+        if payload.get("verdict") in {"useful", "not_useful"}
+    ]
+    if not rows:
+        return {
+            "schema": "a_stock_recommendation_feedback_stats_v1",
+            "status": "insufficient_data",
+            "total_feedback": 0,
+            "overall_useful_rate": None,
+            "by_strategy": {},
+            "by_source": {},
+        }
+    return {
+        "schema": "a_stock_recommendation_feedback_stats_v1",
+        "status": "ok",
+        "total_feedback": len(rows),
+        "overall_useful_rate": _useful_rate(rows),
+        "by_strategy": _group_stats(rows, "strategy_id"),
+        "by_source": _group_stats(rows, "source"),
+    }
+
+
+def build_report(
+    *,
+    days=None,
+    outcomes=DEFAULT_OUTCOMES,
+    four_dim_log_path=None,
+    feedback_ledger_path=None,
+) -> dict:
     records = la.load_settled_records(days)
     composite = {}
     for score_key in COMPOSITE_SCORES:
@@ -150,6 +215,7 @@ def build_report(*, days=None, outcomes=DEFAULT_OUTCOMES, four_dim_log_path=None
         "daban_features": _feature_table(records, DABAN_FEATURE_WEIGHTS, outcomes),
         "trend_features": _feature_table(records, TREND_FEATURE_WEIGHTS, outcomes),
         "four_dim_calibration": _four_dim_join(records, outcomes, four_dim_log_path),
+        "feedback": build_feedback_stats(feedback_ledger_path),
     }
 
 
