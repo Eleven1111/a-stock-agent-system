@@ -109,12 +109,14 @@ def cmd_next(args: argparse.Namespace, config: dict[str, Any]) -> int:
                 "fingerprint", "materiality", "affected_sectors",
                 "time_window", "needs_deep_review",
             ],
+            "grade_optional": ["affected_codes"],
             "materiality_range": l2_cfg["materiality_range"],
             "time_window_values": sorted(VALID_TIME_WINDOWS),
             "rules": [
                 "grades 必须覆盖工单里的每一个 fingerprint，且不得新增未知 fingerprint",
                 "materiality 必须是整数且落在 materiality_range 内，越界拒收整批",
                 "affected_sectors 证据不足留空数组，禁止编造",
+                "affected_codes 可选：条目明确点名个股代码时填写，证据不足留空数组，禁止编造",
             ],
         },
         "submit_command": "python scripts/news_grader.py submit --file <grades.json>",
@@ -154,6 +156,9 @@ def _validate_grades(payload: Any, expected_fingerprints: set[str]) -> list[str]
         sectors = grade.get("affected_sectors")
         if sectors is not None and not isinstance(sectors, list):
             errors.append(f"{prefix}.affected_sectors must be a list")
+        codes = grade.get("affected_codes")
+        if codes is not None and not isinstance(codes, list):
+            errors.append(f"{prefix}.affected_codes must be a list")
         time_window = grade.get("time_window")
         if time_window is not None and time_window not in VALID_TIME_WINDOWS:
             errors.append(f"{prefix}.time_window must be one of {sorted(VALID_TIME_WINDOWS)}")

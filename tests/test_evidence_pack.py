@@ -4,6 +4,7 @@ import os
 import pytest
 
 import evidence_pack
+import news_pipeline
 import research_bus as bus
 import stock_intelligence
 from paths import cron_output_dir, data_file, hermes_home
@@ -89,14 +90,17 @@ def _write_artifact(job_id, trading_date="2026-07-02", stdout_tail="signal ok"):
         json.dump(artifact, handle, ensure_ascii=False)
 
 
-def _write_candidate_pool():
+def _write_candidate_pool(*, sector=None):
     path = data_file("stock-triage", "candidate_pool_latest.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    entry = {"code": "600519", "name": "贵州茅台", "score": 82.5}
+    if sector:
+        entry["sector"] = sector
     pool = {
         "status": "ready",
         "trading_date": "2026-07-02",
         "candidates": [
-            {"code": "600519", "name": "贵州茅台", "score": 82.5},
+            entry,
             {"code": "000001", "name": "平安银行", "score": 71.0},
         ],
     }
@@ -388,3 +392,132 @@ def test_pack_surfaces_sse_unavailable_status_without_fabricating_rows():
     interactive_qa = result["payload"]["subject_data"]["interactive_qa"]
     assert interactive_qa["status"] == "sse_unavailable"
     assert interactive_qa["items"] == []
+
+
+# ---------------------------------------------------------------------------
+# news_evidence: L2-graded news attached by code/sector for the subject stock
+# ---------------------------------------------------------------------------
+
+def _grade_news(title, *, materiality, affected_codes=None, affected_sectors=None,
+                 now="2026-07-02T09:00:00+08:00"):
+    l1_config = {
+        "rank_weight": {"S5": 5},
+        "materiality_keywords": {"critical": ["合作"]},
+        "min_title_len": 4,
+        "pass_threshold_score": 5,
+    }
+    scored = news_pipeline.score_item({
+        "title": title,
+        "url": "https://example.gov.cn/a",
+        "source_id": "gov_test",
+        "source_name": "测试官方源",
+        "source_rank": "S5",
+    }, l1_config)
+    fresh, _ = news_pipeline.dedupe_items([scored])
+    news_pipeline.enqueue_l1_items(fresh, now=now)
+    batch = news_pipeline.claim_l1_batch("openclaw", now=now)
+    fp = next(e["fingerprint"] for e in batch if e["title"] == title)
+    news_pipeline.submit_l2_grades([{
+        "fingerprint": fp,
+        "materiality": materiality,
+        "affected_sectors": affected_sectors or [],
+        "affected_codes": affected_codes or [],
+        "time_window": "1-3d",
+        "needs_deep_review": False,
+    }], now=now)
+
+
+def test_pack_attaches_news_evidence_matched_by_code():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+    _grade_news("贵州茅台重大合作公告", materiality=2, affected_codes=["600519"])
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    news_evidence = result["payload"]["subject_data"]["news_evidence"]
+    assert news_evidence["status"] == "ok"
+    assert len(news_evidence["items"]) == 1
+    item = news_evidence["items"][0]
+    assert item["title"] == "贵州茅台重大合作公告"
+    assert item["url"] == "https://example.gov.cn/a"
+    assert item["materiality"] == 2
+
+
+def test_pack_attaches_news_evidence_matched_by_sector():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool(sector="白酒")
+    _grade_news("白酒板块景气度合作上行", materiality=1, affected_sectors=["白酒"])
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    news_evidence = result["payload"]["subject_data"]["news_evidence"]
+    assert news_evidence["status"] == "ok"
+    assert len(news_evidence["items"]) == 1
+
+
+def test_pack_news_evidence_status_empty_when_no_match():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    news_evidence = result["payload"]["subject_data"]["news_evidence"]
+    assert news_evidence["status"] == "empty"
+    assert news_evidence["items"] == []
+
+
+def test_pack_news_evidence_status_unavailable_on_read_failure(monkeypatch):
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+
+    def _boom(**_kwargs):
+        raise OSError("queue unreadable")
+
+    monkeypatch.setattr("news_pipeline.read_graded_news", _boom)
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    news_evidence = result["payload"]["subject_data"]["news_evidence"]
+    assert news_evidence["status"] == "unavailable"
+    assert news_evidence["items"] == []
+
+
+def test_pack_news_evidence_sorted_by_materiality_and_capped_at_eight():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+    for i in range(10):
+        _grade_news(
+            f"贵州茅台公告合作{i}", materiality=i % 4,
+            affected_codes=["600519"],
+            now=f"2026-07-02T09:{i:02d}:00+08:00",
+        )
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    news_evidence = result["payload"]["subject_data"]["news_evidence"]
+    assert news_evidence["status"] == "ok"
+    assert len(news_evidence["items"]) == 8
+    materialities = [item["materiality"] for item in news_evidence["items"]]
+    assert materialities == sorted(materialities, reverse=True)
+
+
+def test_pack_news_evidence_does_not_change_candidate_ranking_or_signals():
+    _write_agent_state()
+    _write_artifact("closing-triage")
+    _write_artifact("capital-flow")
+    _write_candidate_pool()
+    _grade_news("贵州茅台重大合作公告", materiality=3, affected_codes=["600519"])
+
+    result = evidence_pack.build_pack(TASK, config=CONFIG)
+
+    assert result["payload"]["subject_data"]["candidate_entry"]["score"] == 82.5
