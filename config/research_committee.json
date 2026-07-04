@@ -50,6 +50,19 @@
       "pack_jobs": [],
       "required_sections": []
     },
+    "theme_review": {
+      "experts": ["evidence_auditor", "thesis_builder", "risk_redteam"],
+      "priority": 65,
+      "cooldown_days": 7,
+      "pack_budget_chars": 20000,
+      "pack_jobs": [
+        "theme-strength-daily",
+        "hot-money-context",
+        "candidate-discovery",
+        "closing-triage"
+      ],
+      "required_sections": ["fact_artifacts"]
+    },
     "user_request": {
       "experts": ["evidence_auditor", "thesis_builder", "risk_redteam"],
       "priority": 95,

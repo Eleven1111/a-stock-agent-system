@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 from tradeability import assess_tradeability, limit_pct
+from daban_adjustments import entry_mode_multiplier
 import daban_config as _cfg
 
 # 阈值走单一事实源 config/daban_thresholds.yaml（回退默认与历史硬编码一致），
@@ -268,6 +269,9 @@ def _score_candidate(
         score += 5.0
     if _bool(candidate.get("is_front_runner"), False):
         score += 3.0
+    score *= entry_mode_multiplier(
+        candidate.get("pattern") or candidate.get("signal_type")
+    )
     score = max(0.0, min(100.0, score))
     if score >= 85:
         grade = "S"

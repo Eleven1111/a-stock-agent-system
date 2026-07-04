@@ -230,6 +230,14 @@ def _subject_data(
             for key in ("asof", "stale", "age_days", "scores", "summary")
             if cache.get(key) is not None
         }
+    try:
+        import theme_registry
+
+        theme_stage = theme_registry.theme_stage_for_code(subject_code, asof=trading_date)
+    except Exception:  # noqa: BLE001 - theme lookup must never block a pack
+        theme_stage = None
+    if theme_stage:
+        data["theme_stage"] = theme_stage
     gap_reason = _deep_research_gap(cache)
     if gap_reason and task is not None:
         pulled_reason = _maybe_pull_serenity_refresh(
