@@ -112,6 +112,53 @@ def test_ordered_stages_sorts_known_then_unknown():
     assert stages[-1] == "mystery_stage"  # unknown sorts last
 
 
+def test_recall_source_defaults_to_full_market_enumeration_when_untagged():
+    assert la.recall_source({"code": "600000"}) == "full_market_enumeration"
+    assert la.recall_source({"code": "600000", "recall_source": ""}) == "full_market_enumeration"
+    assert la.recall_source({"code": "300777", "recall_source": "nl_screening_eastmoney"}) == (
+        "nl_screening_eastmoney"
+    )
+
+
+def test_recall_source_breakdown_separates_channels_and_computes_stats():
+    records = [
+        _rec(
+            "600000", stage_events=[("discovery", True)], current_stage="watch_pool",
+            outcome={"resolved": True, "t3_close_ret": 12.0},
+            recall_source="full_market_enumeration",
+        ),
+        _rec(
+            "600001", stage_events=[("discovery", False)], current_stage="discovery_rejected",
+            outcome={"resolved": True, "t3_close_ret": -2.0},
+            recall_source="full_market_enumeration",
+        ),
+        _rec(
+            "300777", stage_events=[("discovery", True)], current_stage="watch_pool",
+            outcome={"resolved": True, "t3_close_ret": 15.0},
+            recall_source="nl_screening_eastmoney",
+        ),
+    ]
+
+    breakdown = la.recall_source_breakdown(records, outcome_key="t3_close_ret", big_mover_threshold=9.9)
+    sources = breakdown["sources"]
+
+    assert set(sources) == {"full_market_enumeration", "nl_screening_eastmoney"}
+    assert sources["full_market_enumeration"]["sample_size"] == 2
+    assert sources["nl_screening_eastmoney"]["sample_size"] == 1
+    assert sources["nl_screening_eastmoney"]["big_movers"] == 1
+    assert sources["nl_screening_eastmoney"]["mean_outcome"] == 15.0
+    assert sources["full_market_enumeration"]["funnel"]["gates"][0]["stage"] == "discovery"
+
+
+def test_recall_source_breakdown_untagged_records_group_into_full_market_default():
+    records = [
+        _rec("600000", stage_events=[("discovery", True)], current_stage="watch_pool",
+             outcome={"resolved": True, "t3_close_ret": 1.0}),
+    ]
+    breakdown = la.recall_source_breakdown(records)
+    assert list(breakdown["sources"]) == ["full_market_enumeration"]
+
+
 def test_load_settled_records_filters_and_tags_day(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     day_dir = tmp_path / "skills" / "stock-triage" / "data" / "candidate_lifecycle"

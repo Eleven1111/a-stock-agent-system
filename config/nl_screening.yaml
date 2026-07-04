@@ -1,0 +1,33 @@
+# 自然语言选股召回通道 — 通用条件模板（单一事实源）
+# ===================================================
+# 本文件只允许出现通用、可复用的筛选条件模板，绝不允许出现具体股票代码/
+# 股票名称/具体板块名称（红线，见 AGENTS.md）。模板是候选发现的第二召回
+# 来源，产出的候选带 recall_source 标记，照常走候选 FSM 与后续 policy，
+# 不直接影响实盘排序。
+
+version: 1
+
+# 东方财富智能选股（主通道，免费）。fingerprint 必须来自环境变量
+# EASTMONEY_QGQP_B_ID（浏览器 cookie 中的 qgqp_b_id），未配置时整个
+# 通道 fail-closed 报告 disabled，不静默跳过。
+eastmoney:
+  enabled: true
+  base_url: "https://np-tjxg-g.eastmoney.com/api/smart-tag/stock/v3/pw/search-code"
+  origin: "https://xuangu.eastmoney.com"
+  referer: "https://xuangu.eastmoney.com/"
+  page_size: 200
+  timeout_seconds: 10
+  max_attempts: 2
+
+# 同花顺问财 OpenAPI（可选增强）。仅当配置了 WENCAI_API_KEY 才启用。
+wencai:
+  enabled: true
+  base_url: "https://openapi.iwencai.com/v1/query2data"
+  limit: 200
+  timeout_seconds: 10
+  max_attempts: 2
+
+# 通用筛选条件模板：换手率/量比/涨停历史/市值/ST 过滤，均为通用规则，
+# 不含任何具体标的或板块名称。
+queries:
+  - "换手率大于3%小于25%；量比大于1；10日内有过涨停；流通市值小于100亿；非ST"

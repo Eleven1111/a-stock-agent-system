@@ -236,6 +236,60 @@ def funnel_analysis(
     }
 
 
+DEFAULT_RECALL_SOURCE = "full_market_enumeration"
+
+
+def recall_source(record: Mapping[str, Any]) -> str:
+    """The candidate-discovery channel that surfaced this record.
+
+    Records written before the recall_source field existed (or any record
+    from a channel that never tags itself) default to the historical
+    full-market enumeration channel rather than an unlabelled bucket, so
+    older lifecycle days remain attributable without a schema migration.
+    """
+    value = record.get("recall_source")
+    return str(value) if isinstance(value, str) and value else DEFAULT_RECALL_SOURCE
+
+
+def recall_source_breakdown(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    outcome_key: str = "t3_close_ret",
+    big_mover_threshold: float = 9.9,
+) -> dict[str, Any]:
+    """Per-recall_source recall/regret funnel, so a second recall channel's
+    contribution (e.g. nl_screening_eastmoney) can be compared against the
+    primary full-market enumeration channel without changing any gate or
+    weight. Research-only: read-only over settled lifecycle records.
+    """
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for record in records:
+        grouped.setdefault(recall_source(record), []).append(record)
+
+    per_source: dict[str, Any] = {}
+    for source, source_records in grouped.items():
+        funnel = funnel_analysis(
+            source_records,
+            outcome_key=outcome_key,
+            big_mover_threshold=big_mover_threshold,
+        )
+        settled_outcomes = [
+            v for r in source_records if (v := outcome_value(r, outcome_key)) is not None
+        ]
+        per_source[source] = {
+            "sample_size": len(source_records),
+            "settled_count": len(settled_outcomes),
+            "mean_outcome": round(mean(settled_outcomes), 3) if settled_outcomes else None,
+            "big_movers": sum(1 for v in settled_outcomes if v >= big_mover_threshold),
+            "funnel": funnel,
+        }
+    return {
+        "outcome_key": outcome_key,
+        "big_mover_threshold": big_mover_threshold,
+        "sources": per_source,
+    }
+
+
 def quantile_buckets(
     records: Sequence[Mapping[str, Any]],
     score_key: str,

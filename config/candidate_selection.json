@@ -69,5 +69,8 @@
       "mainline_min_persistence": 2,
       "archive_after_fading_days": 3
     }
+  },
+  "nl_screening_recall": {
+    "enabled": true
   }
 }

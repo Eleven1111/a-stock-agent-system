@@ -31,6 +31,11 @@ SPECS: dict[str, dict[str, Any]] = {
         "format": "json",
         "required_roots": {"providers", "risk", "storage"},
     },
+    "nl_screening": {
+        "filename": "nl_screening.yaml",
+        "format": "yaml",
+        "required_roots": {"version", "eastmoney", "wencai", "queries"},
+    },
     "scoring": {
         "filename": "scoring.yaml",
         "format": "yaml",
