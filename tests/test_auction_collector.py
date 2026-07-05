@@ -104,6 +104,10 @@ def test_build_result_shape():
 
 
 def test_load_watch_pool_rejects_stale_state(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试
+    # 状态无条件设置了它；这里要用 HERMES_HOME 驱动每个用例独立的
+    # tmp_path，必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     atomic_write_json(
         ac._pool_path(),
@@ -178,6 +182,10 @@ def test_append_snapshot_consumes_immutable_input_snapshot(tmp_path, monkeypatch
 
 
 def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试
+    # 状态无条件设置了它；这里要用 HERMES_HOME 驱动每个用例独立的
+    # tmp_path，必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
@@ -236,6 +244,10 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
 
 
 def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试
+    # 状态无条件设置了它；这里要用 HERMES_HOME 驱动每个用例独立的
+    # tmp_path，必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
@@ -294,6 +306,10 @@ def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch)
 
 
 def test_finalize_passes_selection_market_risk_to_policy(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试
+    # 状态无条件设置了它；这里要用 HERMES_HOME 驱动每个用例独立的
+    # tmp_path，必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
@@ -355,6 +371,10 @@ def test_finalize_passes_selection_market_risk_to_policy(tmp_path, monkeypatch):
 def test_finalize_computes_real_discipline_state_from_ledger(tmp_path, monkeypatch):
     """market_gate 阈值(config/daban_thresholds.yaml)必须对照真实交易记录，
     而不是永远为0的默认值——否则'连续错单3次冻结交易'从未真正生效过。"""
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试
+    # 状态无条件设置了它；这里要用 HERMES_HOME 驱动每个用例独立的
+    # tmp_path，必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))

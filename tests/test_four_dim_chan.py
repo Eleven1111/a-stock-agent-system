@@ -68,6 +68,10 @@ def test_score_technical_missing_klines_keeps_output_schema(monkeypatch):
 def test_score_technical_gates_chan_signal(monkeypatch, tmp_path, verified_gate_factory):
     if fds._chan is None:
         pytest.skip("chan_structure unavailable")
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     klines = [{"close": 10.0, "high": 10.2, "low": 9.8, "volume": 1000} for _ in range(60)]
     monkeypatch.setattr(fds, "fetch_tencent_realtime",

@@ -28,6 +28,10 @@ def load_module(name: str, relpath: str):
 
 
 def test_runtime_scripts_honor_hermes_home_for_paths(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME（见 paths.hermes_home()），
+    # conftest 为隔离测试状态无条件设置了它，这里要测的是 HERMES_HOME 回退
+    # 路径，必须显式清掉 A_STOCK_STATE_HOME 才能观察到 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.delenv("HERMES_PYTHON", raising=False)
 

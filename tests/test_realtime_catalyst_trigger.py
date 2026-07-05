@@ -48,6 +48,10 @@ def test_realtime_catalyst_trigger_reads_candidate_pool_dict_and_writes_matched_
     tmp_path,
     monkeypatch,
 ):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     trigger = load_module("realtime_catalyst_trigger_test", "scripts/realtime_catalyst_trigger.py")
     pool = tmp_path / "skills" / "stock-triage" / "data" / "candidate_pool_latest.json"
@@ -91,6 +95,10 @@ def test_realtime_catalyst_trigger_adds_coded_new_stock_to_monitor_registry(
     tmp_path,
     monkeypatch,
 ):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     trigger = load_module("realtime_catalyst_trigger_new_stock_test", "scripts/realtime_catalyst_trigger.py")
     pool = tmp_path / "skills" / "stock-triage" / "data" / "candidate_pool_latest.json"
