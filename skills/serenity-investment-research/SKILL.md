@@ -75,7 +75,13 @@ For A-share work, use or adapt:
 python scripts/cninfo_fetch.py --stock-code 002050 --query "年年度报告" --out outputs/sanhua/sources
 python scripts/pdf_extract.py outputs/sanhua/sources/report.pdf --out outputs/sanhua/sources/report.txt
 python ../common/stock_intelligence.py read --code 002050 --json
+python ../common/web_search.py "<公司名> 产能扩张 公告" --max-results 8 --freshness-days 30 --json
 ```
+
+`web_search.py` runs the tavily -> bocha -> searxng degrade chain (env:
+`TAVILY_API_KEYS` / `BOCHA_API_KEYS` / `SEARXNG_BASE_URLS`); use it instead of
+session browsing for fresh-source recall, and treat `status=all_failed` or
+`disabled` as "no evidence collected", never as a clean zero-result search.
 
 The shared stock-intelligence cache is refreshed for all holdings and only the
 top five dynamic candidates. Treat it as supporting evidence, not as a

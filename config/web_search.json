@@ -1,0 +1,10 @@
+{
+  "schema": "web_search_config_v1",
+  "provider_order": ["tavily", "bocha", "searxng"],
+  "max_results": 8,
+  "providers": {
+    "tavily": {"timeout_seconds": 10},
+    "bocha": {"timeout_seconds": 10},
+    "searxng": {"timeout_seconds": 10}
+  }
+}
