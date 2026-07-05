@@ -29,7 +29,9 @@ def _wire(tmp_path, monkeypatch, initial=None):
     monkeypatch.setattr(pm, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(pm.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
     monkeypatch.setattr(pm, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
-    monkeypatch.setattr(pm.monitor_registry, "LEDGER_FILE", pm.LEDGER_FILE)
+    monkeypatch.setattr(
+        pm.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl")
+    )
     if initial is not None:
         pm.save_portfolio(initial)
 
@@ -142,8 +144,15 @@ def test_add_then_close_cash_roundtrip(tmp_path, monkeypatch):
     events = signal_ledger.read_events(pm.LEDGER_FILE)
     event_types = [event["event_type"] for event in events]
     assert event_types.count("trade.executed") == 2
-    assert "monitor.activated" in event_types
-    assert "monitor.closed" in event_types
+    assert all(not event_type.startswith("monitor.") for event_type in event_types)
+    monitor_event_types = [
+        event["event_type"]
+        for event in pm.monitor_registry.monitor_ledger.read_events(
+            pm.monitor_registry.LEDGER_FILE
+        )
+    ]
+    assert "monitor.activated" in monitor_event_types
+    assert "monitor.closed" in monitor_event_types
     buy_event = next(
         event for event in events
         if event["event_type"] == "trade.executed" and event["payload"]["side"] == "buy"

@@ -7,11 +7,12 @@ from typing import Any, Iterable, Mapping
 
 from paths import data_file
 from state_store import mutate_json, read_json
+import monitor_ledger
 import signal_ledger
 
 
 REGISTRY_FILE = data_file("stock-triage", "monitor_registry.json")
-LEDGER_FILE = signal_ledger.LEDGER_FILE
+LEDGER_FILE = monitor_ledger.LEDGER_FILE
 VALID_KINDS = {"stock", "sector", "theme"}
 PORTFOLIO_SOURCES = {"portfolio_buy", "portfolio_sync"}
 MANUAL_SOURCE = "manual"
@@ -73,7 +74,7 @@ def _resolved_source_group(
 
 
 def _record_monitor_event(event_type: str, entry: Mapping[str, Any]) -> None:
-    signal_ledger.append_event(
+    monitor_ledger.append_event(
         event_type,
         _ledger_links(entry),
         {
@@ -89,12 +90,6 @@ def _record_monitor_event(event_type: str, entry: Mapping[str, Any]) -> None:
             "last_seen_batch_id": entry.get("last_seen_batch_id"),
             "manual_cancelled": entry.get("manual_cancelled", False),
         },
-        idempotency_key=":".join([
-            event_type,
-            str(entry.get("id")),
-            str(entry.get("updated_at")),
-            str(entry.get("status")),
-        ]),
         ledger_file=LEDGER_FILE,
     )
 

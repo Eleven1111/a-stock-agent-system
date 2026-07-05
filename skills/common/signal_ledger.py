@@ -140,6 +140,11 @@ def _payload_with_evidence_sources(event_type: str, payload: Mapping[str, Any]) 
 
 def _normalize_event(raw: Mapping[str, Any]) -> dict[str, Any]:
     event_type = str(raw["event_type"]).strip()
+    if event_type.startswith("monitor."):
+        raise ValueError(
+            "monitor lifecycle events must be written to monitor_ledger, "
+            f"not the signal ledger (rejected event_type={event_type!r})"
+        )
     links = dict(raw.get("links") or {})
     if not links.get("correlation_id"):
         raise ValueError("signal ledger event requires correlation_id")
