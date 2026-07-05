@@ -309,6 +309,10 @@ def test_runner_local_delivery_suppresses_stdout_but_keeps_artifact(tmp_path):
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
     env = os.environ.copy()
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它并会被 os.environ.copy() 继承下来；子进程要测的是
+    # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
+    env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
     result = subprocess.run(
         [sys.executable, os.path.join(ROOT, "scripts", "hermes_job_runner.py"), "local-demo", "--manifest", str(manifest)],
@@ -334,6 +338,10 @@ def test_runner_feishu_direct_delivery_suppresses_stdout_and_never_calls_lark_cl
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
     env = os.environ.copy()
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它并会被 os.environ.copy() 继承下来；子进程要测的是
+    # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
+    env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
     env.pop("A_STOCK_FEISHU_CHAT_ID", None)
     result = subprocess.run(
@@ -362,6 +370,10 @@ def test_no_signal_detection_keeps_open_confirmations_visible():
 
 
 def test_dependency_gate_requires_successful_same_day_artifact(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     output = tmp_path / "hermes" / "cron" / "output" / "upstream"
     output.mkdir(parents=True)
@@ -389,6 +401,10 @@ def test_dependency_gate_requires_successful_same_day_artifact(tmp_path, monkeyp
 
 
 def test_dependency_gate_rejects_failed_or_stale_artifact(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     output = tmp_path / "hermes" / "cron" / "output" / "upstream"
     output.mkdir(parents=True)
@@ -417,6 +433,10 @@ def test_dependency_gate_rejects_failed_or_stale_artifact(tmp_path, monkeypatch)
 
 
 def test_dependency_gate_selects_matching_artifact_instead_of_newer_other_batch(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     output = tmp_path / "hermes" / "cron" / "output" / "upstream"
     output.mkdir(parents=True)
@@ -473,6 +493,10 @@ def test_runner_maps_business_block_returncode_to_blocked_artifact(tmp_path):
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
     env = os.environ.copy()
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它并会被 os.environ.copy() 继承下来；子进程要测的是
+    # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
+    env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
     result = subprocess.run(
         [
@@ -511,6 +535,10 @@ def test_runner_blocks_without_starting_worker_when_required_dependency_missing(
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
     env = os.environ.copy()
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它并会被 os.environ.copy() 继承下来；子进程要测的是
+    # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
+    env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
     result = subprocess.run(
         [

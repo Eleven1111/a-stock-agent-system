@@ -10,6 +10,10 @@ def _impact(score_map=None, alerts=None):
 
 
 def test_write_read_roundtrip(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     mc.write_market_context(_impact({"半导体": -3}))
     ctx = mc.read_market_context()
@@ -18,6 +22,10 @@ def test_write_read_roundtrip(tmp_path, monkeypatch):
 
 
 def test_read_expired_returns_none(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     mc.write_market_context(_impact({"半导体": -3}))
     future = datetime.now() + timedelta(hours=30)
@@ -25,6 +33,10 @@ def test_read_expired_returns_none(tmp_path, monkeypatch):
 
 
 def test_read_missing_returns_none(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     assert mc.read_market_context() is None
 
