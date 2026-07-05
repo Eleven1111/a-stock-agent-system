@@ -384,7 +384,7 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
     monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
-    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
@@ -472,7 +472,7 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
     monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
-    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
@@ -591,7 +591,11 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
         ("auction-finalize", "supporting"),
     }
     assert oc.signal_ledger.project_signals(events)[0]["evidence_sources"] == evidence_sources
-    assert sum(event["event_type"] == "monitor.activated" for event in events) == 3
+    assert all(not event["event_type"].startswith("monitor.") for event in events)
+    monitor_events = oc.monitor_registry.monitor_ledger.read_events(
+        oc.monitor_registry.LEDGER_FILE
+    )
+    assert sum(event["event_type"] == "monitor.activated" for event in monitor_events) == 3
     monitors = oc.monitor_registry.active_entries("stock", asof=event_asof)
     assert len(monitors) == 3
     assert {item["source_group"] for item in monitors} == {"open_confirmation"}
@@ -661,7 +665,7 @@ def test_build_confirmation_computes_real_discipline_state_from_ledger(tmp_path,
     monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
-    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))

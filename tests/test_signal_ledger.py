@@ -240,3 +240,18 @@ def test_opened_signal_preserves_social_attention_attribution():
 
     assert event["payload"]["social_attention"]["candidate_bonus"] == 3.0
     assert event["payload"]["social_attention"]["record"]["cross_source_count"] == 2
+
+
+def test_signal_ledger_rejects_monitor_events(tmp_path):
+    import pytest
+
+    path = str(tmp_path / "signal_ledger.jsonl")
+    with pytest.raises(ValueError, match="monitor_ledger"):
+        ledger.append_event(
+            "monitor.activated",
+            ledger.make_links("rec-x", monitor_id="stock:600011"),
+            {"kind": "stock", "key": "600011"},
+            ledger_file=path,
+        )
+    # Fail-closed: the rejected write must not have created a ledger file.
+    assert ledger.read_events(path) == []
