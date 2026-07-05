@@ -24,31 +24,53 @@
 {value_chain_map}
 ```
 
-## 4. Chokepoint 排名
+## 4. 产业链层级排序（Chokepoint 排名）
 
-| 排名 | 节点 | 瓶颈原因 | 证据 | 反证 | 拥挤度 |
+层级拆细，不许混桶（算力芯片、EDA/IP、存储互连、设备、材料、测试封装、光链路、
+PCB/CCL、电源散热分开）。每层给出稀缺度论证：供应商数量 / 认证周期 / 扩产难度 /
+专用设备与 know-how / 预付款与产能预订。
+
+| 排名 | 层级/节点 | 稀缺度论证（谁是真扩产约束） | 证据 | 反证 | 拥挤度 |
 |---:|---|---|---|---|---|
-| 1 | {node} | {reason} | {evidence} | {bear} | {crowding} |
+| 1 | {node} | {scarcity_reason} | {evidence} | {bear} | {crowding} |
 
-## 5. 标的池
+## 5. 公司排序（标的池）
 
-| 公司 | 市场/代码 | 节点 | 暴露强度 | 证据质量 | 估值拥挤 | 关键催化剂 | 主要风险 |
+每个最终候选回答五问：卡住哪个环节 / 链上位置 / 为什么排这里 / 证据 / 什么情况推翻。
+
+| 公司 | 市场/代码 | 层级/节点 | 卡住哪个环节 | 为什么排这里 | 证据(ID) | 什么情况推翻 | 主要风险 |
 |---|---|---|---|---|---|---|---|
-| {company} | {ticker} | {node} | {exposure} | {grade} | {valuation} | {catalyst} | {risk} |
+| {company} | {ticker} | {node} | {constraint} | {rank_reason} | {evidence_ids} | {invalidation} | {risk} |
 
-## 6. 催化剂日历
+## 6. 被降级的热门方向
+
+至少点名一个市场热门但排序靠后的方向，并解释原因（强制反共识检查）。
+
+| 热门方向 | 市场共识 | 为什么降级 | 什么情况恢复 |
+|---|---|---|---|
+| {direction} | {consensus} | {downgrade_reason} | {restore_condition} |
+
+## 7. 催化剂日历
 
 | 时间 | 事件 | 影响节点 | 验证标准 | 失败信号 |
 |---|---|---|---|---|
 | {date} | {event} | {node} | {standard} | {failure} |
 
-## 7. What Would Prove This Theme Is Overhyped
+## 8. What Would Prove This Theme Is Overhyped
 
 | 反证 | 触发信号 | 监控来源 | 影响 |
 |---|---|---|---|
 | {bear} | {trigger} | {source} | {impact} |
 
-## 8. Serenity 评分
+## 9. 红旗清单
+
+ledger 中全部 `red_flag` 条目逐条披露；无红旗时写明「本次扫描未命中红旗清单」。
+
+| 红旗 | 涉及公司/层级 | 证据(ID) | 对评分的影响 |
+|---|---|---|---|
+| {red_flag} | {target} | {evidence_id} | {score_impact} |
+
+## 10. Serenity 评分
 
 | 维度 | 权重 | 分数 | 依据 |
 |---|---:|---:|---|
@@ -59,13 +81,15 @@
 | 估值赔率 | 20% | {score} | {reason} |
 | 风险控制 | 15% | {score} | {reason} |
 
-## 9. 跟踪清单
+## 11. 跟踪清单与优先研究名单
 
 | 指标 | 更新频率 | 阈值 | 来源 |
 |---|---|---|---|
 | {metric} | {frequency} | {threshold} | {source} |
 
-## 10. 资料来源
+优先研究名单：{priority_research_list}
+
+## 12. 资料来源
 
 | 来源 | 日期 | 链接/文件 | 可信度 | 支持结论 |
 |---|---|---|---|---|

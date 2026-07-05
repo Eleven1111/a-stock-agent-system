@@ -15,6 +15,7 @@ VALID_CLAIM_TYPES = {
     "source-backed inference",
     "third-party summary",
     "researcher inference",
+    "red_flag",
 }
 VALID_CONFIDENCE = {"high", "medium", "low"}
 
