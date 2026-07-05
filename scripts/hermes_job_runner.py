@@ -82,19 +82,17 @@ def _format_command(command: str, values: Dict[str, str]) -> str:
 
 
 def build_runtime_env(runtime: str) -> Dict[str, str]:
-    """Copy scheduler state; fall back to ROOT/default when env vars are missing.
+    """Copy scheduler state without fabricating a state home or identity.
 
-    OpenClaw command-cron payload env vars are not reliably injected into the
-    subprocess environment.  When A_STOCK_STATE_HOME / A_STOCK_STATE_ID are
-    absent we fall back to the repository root so that state_identity checks
-    pass instead of blocking every job.
+    Historically this injected ``A_STOCK_STATE_HOME=ROOT`` and
+    ``A_STOCK_STATE_ID=default`` when those were missing.  That silently made the
+    repository working tree a state root and minted a fresh identity there — the
+    exact split-brain failure the identity checks now guard against.  We instead
+    pass the environment through unchanged and let ``ensure_state_identity``
+    resolve the real home (``HERMES_HOME`` / ``~/.hermes`` bootstrap) or fail
+    closed when configuration is inconsistent.
     """
-    env = load_hermes_env()
-    if not env.get("A_STOCK_STATE_HOME"):
-        env["A_STOCK_STATE_HOME"] = ROOT
-    if not env.get("A_STOCK_STATE_ID"):
-        env["A_STOCK_STATE_ID"] = "default"
-    return env
+    return load_hermes_env()
 
 
 def _producer_version() -> str:
