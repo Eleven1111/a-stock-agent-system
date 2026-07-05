@@ -14,12 +14,54 @@ sys.path.insert(0, COMMON)
 
 from paths import data_file  # noqa: E402
 import signal_ledger  # noqa: E402
-from state_integrity import ensure_state_identity  # noqa: E402
+from state_integrity import _state_root, ensure_state_identity  # noqa: E402
 from state_store import CRITICAL_JSON_FILES, read_json  # noqa: E402
+
+
+def _identity_candidate_roots() -> list[str]:
+    """Well-known locations where a state_identity.json may have been minted."""
+    home = os.environ.get("HOME") or os.path.expanduser("~")
+    candidates = [
+        _state_root(os.environ),
+        os.path.join(home, ".hermes"),
+        os.path.join(home, ".a-stock-agent-cc"),
+        ROOT,
+    ]
+    seen: set[str] = set()
+    unique: list[str] = []
+    for root in candidates:
+        resolved = os.path.abspath(os.path.expanduser(root))
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
+    return unique
+
+
+def detect_split_brain() -> dict:
+    """Scan candidate roots for divergent minted identities (report only)."""
+    found = []
+    for root in _identity_candidate_roots():
+        identity_path = os.path.join(root, "state_identity.json")
+        data = read_json(identity_path, None)
+        if isinstance(data, dict) and data.get("state_id"):
+            found.append({
+                "root": root,
+                "path": identity_path,
+                "state_id": str(data.get("state_id")),
+                "created_at": data.get("created_at"),
+                "initial_root": data.get("initial_root"),
+            })
+    distinct_ids = {entry["state_id"] for entry in found}
+    return {
+        "detected": len(distinct_ids) > 1,
+        "distinct_state_ids": sorted(distinct_ids),
+        "identities": found,
+    }
 
 
 def inspect_state(runtime: str, recover: bool = False) -> dict:
     identity = ensure_state_identity(runtime)
+    split_brain = detect_split_brain()
     files = []
     for filename in sorted(CRITICAL_JSON_FILES):
         path = data_file("stock-triage", filename)
@@ -44,10 +86,15 @@ def inspect_state(runtime: str, recover: bool = False) -> dict:
         "valid_events": len(events),
         "backup_path": mirror,
     })
+    status = identity["status"]
+    if status == "ok" and split_brain["detected"]:
+        # Diagnostic tool: report the divergence, do not hard-block.
+        status = "degraded"
     return {
         "schema": "a_stock_state_doctor_v1",
-        "status": identity["status"],
+        "status": status,
         "identity": identity,
+        "split_brain": split_brain,
         "files": files,
     }
 

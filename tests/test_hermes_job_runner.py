@@ -21,7 +21,8 @@ from runtime_context import (
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
-def test_openclaw_runtime_env_preserves_default_state_fallback(tmp_path, monkeypatch):
+def test_runtime_env_does_not_fabricate_repo_state_home(tmp_path, monkeypatch):
+    """The runner must never silently make the repo a state root (split-brain)."""
     env_file = tmp_path / "empty.env"
     env_file.write_text("", encoding="utf-8")
     monkeypatch.setenv("A_STOCK_ENV_FILE", str(env_file))
@@ -30,8 +31,8 @@ def test_openclaw_runtime_env_preserves_default_state_fallback(tmp_path, monkeyp
 
     run_env = job_runner.build_runtime_env("openclaw")
 
-    assert run_env["A_STOCK_STATE_HOME"] == job_runner.ROOT
-    assert run_env["A_STOCK_STATE_ID"] == "default"
+    assert run_env.get("A_STOCK_STATE_HOME") != job_runner.ROOT
+    assert run_env.get("A_STOCK_STATE_ID") != "default"
 
 
 def test_runtime_env_loads_explicit_env_file_for_isolated_jobs(tmp_path, monkeypatch):
