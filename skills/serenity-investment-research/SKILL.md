@@ -19,17 +19,25 @@ Core idea: identify large demand shifts, map the supply chain, locate constraine
 
 Always include: `本报告仅用于研究和信息整理，不构成任何投资建议。`
 
-## Choose the Workflow
+## Request Routing (read this first)
 
-Pick the workflow before researching:
+Classify the request into one of five modes before doing anything else. Only the
+first three run the deterministic pipeline and create an outputs directory; the
+last two are light methodology-conversation modes and must not spin up the
+pipeline or write files.
 
-| User request | Workflow |
-|---|---|
-| One company, ticker, or stock | `workflows/single_stock.md` |
-| Industry chain, theme, segment, or stock pool | `workflows/industry_chain.md` |
-| Multiple companies or peers | `workflows/comparison.md` |
+| Mode | Trigger | What to do |
+|---|---|---|
+| theme scan (主题扫描) | industry chain, theme, segment, stock pool | run `workflows/industry_chain.md` at the requested `research_depth` |
+| single-company challenge (单公司挑战) | one company, ticker, "这家公司行不行" | run `workflows/single_stock.md` |
+| candidate comparison (对比) | multiple companies or peers | run `workflows/comparison.md` |
+| research partner conversation (研究伙伴对话) | method question, "怎么看", "这个逻辑成立吗", follow-up on prior report | answer from methodology; cite framework/references; do NOT build outputs or run scripts |
+| learning mode (学习模式) | "解释一下 chokepoint", "教我怎么排产业链" | explain the method using `references/`; no pipeline, no files |
 
-For sector-specific work, also read the relevant playbook under `references/sector_playbooks/`. If there is no playbook, use the generic chokepoint framework in `references/serenity_methodology_research.md`.
+For the three pipeline modes, also read the relevant playbook under
+`references/sector_playbooks/`. If there is no playbook, use the generic
+chokepoint framework in `references/serenity_methodology_research.md`. For A-share
+targets read `references/a_share_verification_paths.md`.
 
 ## Deep Report Gate
 
@@ -45,6 +53,35 @@ outputs/{target_slug}/
 ```
 
 For `quick` reports, still maintain an internal evidence table in the response, but scripts are optional.
+
+## Deep Theme-Scan Minimum Standard (hard gate)
+
+A `deep` theme scan (industry_chain) is not "complete" unless all of the
+following hold. Below the bar, label the result 「初步结论」, list the remaining
+checks, and do not present it as a finished scan.
+
+- At least 3 value-chain tiers, kept separate (compute silicon, EDA/IP, memory
+  interconnect, equipment, materials, test/packaging, optical link, PCB/CCL,
+  power/thermal — never a single mixed bucket).
+- Candidate universe >= 20 companies when the market is large enough to support it.
+- Evidence ledger >= 25 sources.
+- A 「被降级的热门方向」 chapter that names at least one market-hot direction that
+  ranks low and explains why (forced anti-consensus check).
+- Tier ranking (with a per-tier scarcity argument) is written **before** the
+  company ranking. Scarcity signals: supplier count, qualification cycle,
+  expansion difficulty, dedicated equipment/know-how, prepayments/capacity booking.
+
+`report_lint.py --report-type industry_chain` enforces the source count, the
+downgraded-direction chapter, the tier-before-company ordering, and red-flag
+disclosure. single_stock reports are exempt from these four.
+
+## Red Flags (硬约束)
+
+Maintain a red-flag checklist per `references/red_flags.md`. Record every hit in
+the evidence ledger with `--claim-type red_flag`. Any red-flag hit must lower the
+scorecard's `financial_quality` and/or `risk_control`; per the Mainline Policy
+Role a score `<= 2/5` on either is a hard negative. The report must list every
+recorded red_flag entry (报告需列出全部红旗条目).
 
 ## Pipeline
 
@@ -163,10 +200,14 @@ Use:
 Then run:
 
 ```bash
-python scripts/report_lint.py outputs/sanhua/report.md --evidence outputs/sanhua/evidence.json --out outputs/sanhua/report_lint.json
+python scripts/report_lint.py outputs/sanhua/report.md --evidence outputs/sanhua/evidence.json \
+  --report-type industry_chain --min-sources 25 --out outputs/sanhua/report_lint.json
 ```
 
-If lint fails, fix the report before presenting the final answer unless the failure is a known limitation that must be disclosed.
+`--report-type auto` infers the type from `evidence.research_type`. For a large
+market you may raise `--min-sources`; only lower it for a genuinely small universe
+and disclose that in the report. If lint fails, fix the report before presenting
+the final answer unless the failure is a known limitation that must be disclosed.
 
 ### 8. Cache the Scorecard for the Four-Dim Deep Dimension（回流四维深度面）
 
@@ -227,8 +268,14 @@ Use `references/source_grading.md`. Short version:
 
 ## Output Rules
 
-- Lead with the conclusion, then the evidence.
-- Separate `fact`, `source-backed inference`, `third-party summary`, and `researcher inference`.
+- Lead with the conclusion, then the evidence. 先给判断再给论证，不要报告腔铺垫。
+- Write direct Chinese, not translated jargon: 「产业链卡点」 not chokepoint 直译,
+  「市场可能没看清的地方」 not mispricing 直译, 「接下来可能让市场重新定价的事情」 not
+  catalyst 直译, 「什么情况说明这个判断错了」 not invalidation 直译. Close a theme
+  scan with a 「优先研究名单」.
+- Every final theme-scan candidate must answer five questions: 卡住哪个环节 /
+  链上位置 / 为什么排这里 / 证据是什么 / 什么情况推翻.
+- Separate `fact`, `source-backed inference`, `third-party summary`, `researcher inference`, and `red_flag`.
 - Prefer tables for source lists, evidence matrices, scorecards, risk registers, catalysts, and tracking indicators.
 - Do not invent identities, holdings, audited returns, private access, management commentary, customer names, target prices, or exact orders.
 - For current markets and listed securities, browse or retrieve fresh data before answering.
@@ -243,6 +290,8 @@ Use `references/source_grading.md`. Short version:
 - `workflows/comparison.md` - peer comparison workflow.
 - `references/serenity_methodology_research.md` - method abstraction and original Serenity research.
 - `references/source_grading.md` - credibility and citation rules.
+- `references/a_share_verification_paths.md` - A-share evidence-hunting paths (问询函, 互动易, 招投标, 海关, 财务交叉验证).
+- `references/red_flags.md` - red-flag checklist and scoring consequences.
 - `references/sector_playbooks/` - sector-specific chokepoint maps.
 - `templates/` - report, evidence, and bear-case templates.
 - `scripts/` - deterministic helpers for source extraction, evidence ledgers, scoring, valuation, and linting.

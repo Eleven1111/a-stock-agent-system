@@ -29,7 +29,11 @@ Collect at least:
 | Industry or customer evidence | Required for chokepoint claims |
 | Bear-case or risk evidence | Required |
 
-For A-shares, use CNINFO/SZSE/SSE/HKEX announcements before media summaries.
+For A-shares, use CNINFO/SZSE/SSE/HKEX announcements before media summaries, and
+walk the evidence paths in `references/a_share_verification_paths.md` (问询函/监管函,
+互动易 local cache first, 招投标, 环评/备案, 海关数据, 财务交叉验证, 关联交易/定增/质押).
+Record any hit from `references/red_flags.md` with `--claim-type red_flag`; red-flag
+hits must lower `financial_quality`/`risk_control` and be fully disclosed in the report.
 
 ## Step 2: Evidence Ledger
 

@@ -18,6 +18,24 @@
       "prompt": "我想找 AI 光通信产业链里市场还没充分定价的小公司，先给我一个 Serenity 风格筛选清单。",
       "expected_output": "A screening workflow and checklist covering demand confirmation, supply scarcity, market attention gap, value capture, catalysts, financial quality, dilution/liquidity risk, and follow-up data sources.",
       "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "深度扫描一下国产算力产业链，告诉我真正卡脖子的环节和值得研究的公司。",
+      "expected_output": "A deep theme scan that outputs the value-chain tier ranking with per-tier scarcity arguments BEFORE the company ranking, splits tiers fine-grained (no mixed buckets), covers >=3 tiers and >=20 candidates with >=25 evidence sources, answers the five questions (卡住哪个环节/链上位置/为什么排这里/证据/什么情况推翻) for each final candidate, and includes a 被降级的热门方向 chapter naming at least one market-hot direction that ranks low. If the minimum standard is not met, the output must be labeled 初步结论 with remaining verification items.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "这家公司说自己是机器人减速器稀缺供应商，但我看它存货涨得比营收快，帮我核一下。",
+      "expected_output": "A single-company challenge that records red-flag hits (inventory/receivables growing faster than revenue, claimed scarcity without margin expansion) as red_flag entries in the evidence ledger, lowers financial_quality/risk_control accordingly, discloses all red_flag entries in a dedicated report section, and cross-verifies via A-share paths (问询函, 互动易 cache, 招投标, 环评, 财务交叉验证).",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "不用写报告，就聊聊：为什么设备层常被排在材料层前面？教我怎么判断哪层更稀缺。",
+      "expected_output": "A light research-partner/learning-mode answer that explains tier scarcity reasoning (supplier count, qualification cycle, expansion difficulty, dedicated know-how, prepayments/capacity booking) directly from the methodology references, WITHOUT running the deep pipeline, creating an outputs directory, or invoking scripts.",
+      "files": []
     }
   ]
 }
