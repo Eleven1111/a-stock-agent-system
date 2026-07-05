@@ -11,7 +11,7 @@
 > Smoke badge reflects the latest connected validation. Offline runs may still
 > time out on `global_monitor` or `hk_a_linkage` because they depend on live market data.
 
-A multi-agent research system for China's A-share market. Thirteen repository skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management, limit-up candidate gating, policy-intent decoding, and offline strategy validation.
+A multi-agent research system for China's A-share market. Fifteen repository skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management, limit-up candidate gating, policy-intent decoding, and offline strategy validation.
 
 **Not a trading bot.** This system analyzes data and produces graded recommendations. It never places orders.
 
@@ -71,8 +71,9 @@ flowchart LR
 | **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share sector views and stock watch mappings | yfinance, USGS, GDACS |
 | **policy-intent-decoder** | Official policy source hierarchy, real-intent inference, transmission chain, beneficiary/pressure maps for stock-selection support | Official government/media sources |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
-| **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit. The weighted scorecard flows back into the four-dim deep dimension via a freshness-decayed cache | cninfo, pypdf |
-| **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(15%) × catalyst(30%) × deep(25%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals | All above |
+| **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit. Five request-routing modes (theme scan, single-company challenge, candidate comparison, research-partner dialogue, learning mode); theme-scan reports separate a supply-chain-tier ranking from the company ranking and answer five questions per finalist. Deep reports must clear a hard lint floor (`report_lint.py`: ≥3 value-chain tiers, ≥20-name candidate universe, ≥25-source evidence ledger, a mandatory "downgraded consensus picks" section). The weighted scorecard flows back into the four-dim deep dimension via a freshness-decayed cache | cninfo, pypdf, `web_search.py` |
+| **research-committee** | Multi-expert research plane: a panel of specialist experts (see `skills/research-committee/experts/`) debates a thesis before it reaches the evidence layer; orchestrated via `skills/research-committee/SKILL.md` | Internal, consumes other skills' evidence |
+| **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(15%) × catalyst(30%) × deep(25%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals and (at zero weight until gated) emotion-cycle features | All above |
 | **hk-a-linkage** | AH premium spreads, HSI divergence, key HK stock movements | Tencent, yfinance |
 | **capital-flow-monitor** | Northbound flows, institutional/retail flows, sector-level flows | Eastmoney |
 | **portfolio-manager** | Lot-level P&L, A-share T+1 enforcement, stop-loss, trailing stops, daban lane time-stop, take-profit target alerts, concentration checks | Tencent |
@@ -81,6 +82,13 @@ flowchart LR
 | **event-calendar** | Lockup expirations, dividends, policy windows | Eastmoney |
 | **performance-tracker** | Signal accuracy tracking with grade-level breakdown | Tencent |
 | **discipline-review** | Daily buy-side plan-vs-fill diff (chased entries, oversized fills, unfollowed calls) plus live exit-discipline alerts and the account circuit-breaker state | Tencent |
+| **nl-screening recall** | Natural-language stock screening as a second candidate-discovery channel: Eastmoney AI stock picker (free, gated on `EASTMONEY_QGQP_B_ID`; reports itself as disabled when unset) plus optional THS iwencai OpenAPI enhancement (`WENCAI_API_KEY`). Candidates carry a `recall_source` tag and still pass every candidate FSM/policy gate — this channel never bypasses them | Eastmoney AI picker, THS iwencai |
+| **interactive-qa evidence** | Investor-relations Q&A from 互动易 (Shenzhen, fail-closed) and 上证e互动 (Shanghai, best-effort; degrades to `sse_unavailable`) feeds an "investor attention" dimension into candidate/holding evidence packs | 互动易, 上证e互动 |
+| **NewsNow aggregator** | Low-rank attention signals (S1/S2, not authoritative evidence) from five default feeds — 财联社热门, 雪球热门股票, 华尔街见闻快讯, 金十数据, 格隆汇事件 — via a self-hostable NewsNow instance; the L1 rule engine still must match keywords before promoting anything | NewsNow (public demo or self-hosted, `NEWSNOW_BASE_URL`) |
+| **strategy-packs (declarative)** | Two built-in, regime-filtered explanatory strategy packs — `dragon_head` and `emotion_cycle` — surfaced as `strategy_pack_hints` in the evidence pack. Explanatory only: `influences_live_ranking=false`; promotion to live weight requires the `research_gate` OOS process | `config/strategy_packs/*.yaml` |
+| **emotion-cycle features** | Five deterministic, fail-closed technical features (60-day volume percentile, single-day volume-spike ≥5x flag, MA-convergence, ATR-contraction percentile, composite top/bottom detector); zero live weight until `emotion_cycle:v1` is registered in `strategy_registry` | Tencent qfq K-line |
+| **web-search adapter** | Multi-provider fallback chain (Tavily → Bocha 博查 → SearXNG) with per-provider key rotation on 401/402/429; used by Serenity's Harvest Sources step instead of ad hoc in-session browsing | Tavily, Bocha, SearXNG |
+| **recommendation feedback loop** | `scripts/recommendation_feedback.py` records `useful` / `not_useful` verdicts per signal id; guardrail divergences (raw vs. final action) carry structured machine-readable reason codes, audited by `recommendation_audit.py --audit-violations`; feedback stats feed `score_calibration_report.py` | `signal_ledger.jsonl` |
 
 ## Policy Intent in the Architecture
 
@@ -130,6 +138,29 @@ When `news-to-sector` receives policy-like news, it treats the policy decoder as
 the source-of-intent check before mapping industry impact. Broker views, social
 posts, price moves, and news rewrites are reaction-layer evidence only; they do
 not replace official sources for intent inference.
+
+## L2 News Evidence Auto-Mount
+
+`news_pipeline.read_graded_news(code=, sectors=, days=, limit=)` looks up
+already-graded news by stock code or sector, and `evidence_pack.py` attaches a
+`news_evidence` section to candidate and holding evidence packs (fail-open,
+with an explicit `ok` / `empty` / `unavailable` status — never a silent gap).
+The grading model itself decides whether a given news item names specific
+stock codes (the `affected_codes` field); nothing currently cross-checks that
+judgment against the source text, so treat `affected_codes` as a hint rather
+than ground truth for high-conviction candidates.
+
+## Second Candidate-Discovery Channel: Natural-Language Screening
+
+`skills/common/nl_screening.py` adds a second recall channel alongside the
+close-price/liquidity funnel: Eastmoney's free AI stock picker (gated on
+`EASTMONEY_QGQP_B_ID`; the channel reports itself as `disabled` with a clear
+reason when the cookie is not configured) and an optional THS iwencai OpenAPI
+enhancement (`WENCAI_API_KEY`). Candidates surfaced this way carry a
+`recall_source` tag but still pass through the same candidate FSM and policy
+gates as the close-discovery funnel — this channel never bypasses any gate.
+Screening condition templates (generic, no hardcoded stocks or sectors) live
+in [`config/nl_screening.yaml`](config/nl_screening.yaml).
 
 ## Quick Start
 
@@ -258,6 +289,18 @@ export NO_PROXY=.eastmoney.com,.gtimg.cn,.sinajs.cn
 
 # Optional: enable news search
 export SERPAPI_API_KEY=your_key
+
+# Optional: enable the natural-language screening recall channel
+export EASTMONEY_QGQP_B_ID=your_eastmoney_cookie_b_id
+export WENCAI_API_KEY=your_ths_iwencai_key
+
+# Optional: point NewsNow at a self-hosted instance instead of the public demo
+export NEWSNOW_BASE_URL=https://your-newsnow-instance
+
+# Optional: web-search fallback chain (comma-separated for multi-key rotation)
+export TAVILY_API_KEYS=key1,key2
+export BOCHA_API_KEYS=key1,key2
+export SEARXNG_BASE_URLS=https://searxng1.example.com,https://searxng2.example.com
 ```
 
 All runtime paths resolve through `skills/common/paths.py` and honor `HERMES_HOME`, so the
@@ -364,6 +407,51 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 09:40, 15:40, 16:40 | Shared agent-state projection | Workdays |
 | Sun 10:00 | Performance weekly | Weekly |
 
+## Follow-Up Items for Hermes / OpenClaw
+
+These are standing action items for whichever model is running inside Hermes
+or OpenClaw. Each entry states the trigger condition and the exact action to
+take — no extra context should be needed to act on them.
+
+1. **Activate the natural-language screening recall channel.** If the user
+   supplies an Eastmoney cookie, set `EASTMONEY_QGQP_B_ID` and the channel
+   activates automatically; otherwise leave it disabled, no action needed. If
+   the user supplies a THS iwencai key, set `WENCAI_API_KEY` to optionally
+   enable that enhancement too.
+2. **Gate-evaluation for emotion-cycle features.** `emotion_cycle:v1` carries
+   zero live weight today (display-only). Once enough historical
+   `emotion_cycle` feature output and T+1/T+3 settlement data has accumulated,
+   run the out-of-sample validation flow in
+   `skills/chanlun-backtest/scripts/research_gate.py` (IS/OOS wall, control
+   group, statistical tests). **The OOS run is one-shot** — lock the rules
+   before running it, and never adjust thresholds after seeing the result.
+   Once it passes, register it with `--register` so it is written into
+   `strategy_registry` and can earn non-zero weight.
+3. **Smoke-test the search providers before they go live in any cron job.**
+   `web_search.py`'s three providers (Tavily, Bocha 博查, SearXNG) were built
+   against official docs and are covered only by fixture-based unit tests, not
+   verified against real APIs. Before wiring it into a scheduled job, run
+   `python skills/common/web_search.py "<real query>" --json` by hand with real
+   configured keys and confirm all three providers return the expected shape.
+4. **Production reliability of the NewsNow public instance.** The default
+   public instance `newsnow.busiyi.world` carries no uptime or rate-limit
+   guarantee. If NewsNow becomes a routine intelligence source, self-host an
+   instance (upstream project: `https://github.com/ourongxing/newsnow`) and
+   point `NEWSNOW_BASE_URL` at it.
+5. **Re-run `report_lint.py` on legacy Serenity deep reports.** The Serenity
+   methodology upgrade added hard thresholds for supply-chain-style deep
+   reports (≥25 sources, a mandatory "downgraded consensus picks" section,
+   etc.). Older reports may now fail lint if re-referenced or used as a
+   refresh baseline — that is an intentional quality bar, not a regression.
+   When a report fails, do another round of research to add sources; do not
+   loosen the threshold.
+6. **Verify `affected_codes` quality on L2 news evidence.** The news-grading
+   model decides for itself whether an article names specific stock codes
+   (the `affected_codes` field), and nothing automatically checks that
+   judgment against the source text. When consuming `news_evidence` for a
+   high-conviction candidate, cross-check the original article rather than
+   trusting `affected_codes` unconditionally.
+
 ## Output Format
 
 Every scoring script returns structured JSON:
@@ -424,7 +512,10 @@ a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── config/candidate_selection.json # Dynamic-universe and funnel limits
-├── cron/hermes-cron-manifest.json  # 39 runtime-neutral scheduled jobs
+├── config/nl_screening.yaml     # NL screening condition templates (generic, no hardcoded picks)
+├── config/web_search.json      # Web-search provider order/timeout/max_results (non-secret)
+├── config/strategy_packs/       # dragon_head.yaml, emotion_cycle.yaml (explanatory only)
+├── cron/hermes-cron-manifest.json  # 42 runtime-neutral scheduled jobs
 ├── scripts/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
 │   ├── run_agent_dag.py        # Dependency ordering, retry, resume
@@ -433,12 +524,15 @@ a-stock-agent-system/
 │   ├── hermes_job_runner.py    # Backward-compatible runner implementation
 │   ├── hermes_gateway_doctor.py # Deployment-side Gateway import/schedule diagnostics
 │   ├── generate_system_crontab.py # System cron fallback generator
+│   ├── recommendation_feedback.py # useful/not_useful verdict CLI, feeds calibration report
 │   ├── smoke_test.py           # 13-test validation suite
 │   ├── snapshot_gc.py          # Snapshot/artifact retention and capacity cleanup
 │   └── validate_cron_manifest.py
 ├── tests/                      # Full regression suite
 ├── skills/
-│   ├── common/                 # Adapters, snapshots, policy, ledger, shared state
+│   ├── common/                 # Adapters, snapshots, policy, ledger, shared state,
+│   │                           # nl_screening, interactive_qa, news_sources, strategy_packs,
+│   │                           # emotion_cycle_features, web_search
 │   ├── stock-triage/           # Orchestrator hub
 │   ├── stock-analyst/          # Technical analysis engine
 │   ├── hot-money-tactics/      # Sentiment & limit-up analysis
@@ -449,6 +543,7 @@ a-stock-agent-system/
 │   ├── policy-intent-decoder/  # Official policy intent and transmission chain
 │   ├── news-to-sector/         # Supply-chain catalyst mapping
 │   ├── serenity-investment-research/  # Deep fundamental research
+│   ├── research-committee/     # Multi-expert research plane (SKILL.md + experts/)
 │   ├── a-stock-commands/       # Discord slash commands
 │   ├── a-stock-data/           # Data source reference
 │   └── a-stock-daily-report/   # Daily briefing template
@@ -467,7 +562,7 @@ a-stock-agent-system/
 keeps bounded independent backups; missing or corrupt primary files recover
 from validated snapshots instead of silently resetting to defaults.
 
-**Earn your weight.** Chan-structure signals and tuned thresholds carry **zero live weight** until they pass the offline research gate (out-of-sample walled), tracked in `strategy_registry`. Live performance can only *retire* a strategy (gating by expectancy), never *refit* its entry rules — that separation is what keeps the system from overfitting to recent noise.
+**Earn your weight.** Chan-structure signals, emotion-cycle features, tuned thresholds, and declarative strategy packs (`dragon_head`, `emotion_cycle`) all carry **zero live weight** until they pass the offline research gate (out-of-sample walled), tracked in `strategy_registry`. Strategy packs are explicitly `influences_live_ranking=false` — explanatory only — until promoted. Live performance can only *retire* a strategy (gating by expectancy), never *refit* its entry rules — that separation is what keeps the system from overfitting to recent noise.
 
 ## Two Scoring Engines — Don't Confuse Them
 
@@ -510,8 +605,13 @@ get filled on is not actionable.
 | Tencent `qt.gtimg.cn` | A-share/HK real-time quotes, K-lines | None |
 | Yahoo Finance `yfinance` | US/global indices, VIX, commodities, FX | `pip install yfinance` |
 | Eastmoney | Fund flows, institutional data, events | `NO_PROXY=.eastmoney.com` |
+| Eastmoney AI stock picker | Natural-language screening recall (free) | `EASTMONEY_QGQP_B_ID` |
+| THS iwencai (同花顺问财) | Natural-language screening enhancement (optional) | `WENCAI_API_KEY` |
+| 互动易 / 上证e互动 | Investor Q&A evidence (Shenzhen fail-closed, Shanghai best-effort) | None |
 | Sina `hq.sinajs.cn` | A-share real-time (fallback) | None |
 | SerpAPI | Global news search | `SERPAPI_API_KEY` |
+| NewsNow | Aggregated low-rank attention feeds (cls-hot, xueqiu-hotstock, wallstreetcn-quick, jin10, gelonghui) | `NEWSNOW_BASE_URL` (optional self-host) |
+| Tavily / Bocha 博查 / SearXNG | Web-search fallback chain for research (Serenity Harvest Sources) | `TAVILY_API_KEYS` / `BOCHA_API_KEYS` / `SEARXNG_BASE_URLS` |
 | USGS | Earthquake monitoring | None |
 | GDACS | Cyclone/flood/volcano alerts | None |
 
