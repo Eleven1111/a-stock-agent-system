@@ -80,6 +80,105 @@ def test_high_frequency_idle_prone_jobs_opt_into_adaptive_backoff():
         assert _manifest_job(job_id)["adaptive_backoff"] is True
 
 
+def _write_and_validate(manifest):
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(manifest, f)
+        path = f.name
+    try:
+        return validate(path)
+    finally:
+        os.unlink(path)
+
+
+def test_role_scheduled_requires_enabled_true():
+    j = dict(VALID_JOB)
+    j["enabled"] = False
+    j["role"] = "scheduled"
+    assert _write_and_validate({"jobs": [j]}) is False
+
+
+def test_role_dependency_only_requires_enabled_false():
+    j = dict(VALID_JOB)
+    j["enabled"] = True
+    j["role"] = "dependency_only"
+    assert _write_and_validate({"jobs": [j]}) is False
+
+
+def test_role_off_requires_enabled_false():
+    j = dict(VALID_JOB)
+    j["enabled"] = True
+    j["role"] = "off"
+    assert _write_and_validate({"jobs": [j]}) is False
+
+
+def test_invalid_role_value_rejected():
+    j = dict(VALID_JOB)
+    j["role"] = "sometimes"
+    assert _write_and_validate({"jobs": [j]}) is False
+
+
+def test_off_dependency_in_required_context_from_rejected():
+    upstream = dict(VALID_JOB)
+    upstream["id"] = "upstream"
+    upstream["command"] = "python scripts/run_agent_dag.py upstream --emit-target"
+    upstream["enabled"] = False
+    upstream["role"] = "off"
+    downstream = dict(VALID_JOB)
+    downstream["id"] = "downstream"
+    downstream["command"] = "python scripts/run_agent_dag.py downstream --emit-target"
+    downstream["context_from"] = ["upstream"]
+    assert _write_and_validate({"jobs": [upstream, downstream]}) is False
+
+
+def test_off_dependency_allowed_when_optional():
+    upstream = dict(VALID_JOB)
+    upstream["id"] = "upstream"
+    upstream["command"] = "python scripts/run_agent_dag.py upstream --emit-target"
+    upstream["enabled"] = False
+    upstream["role"] = "off"
+    downstream = dict(VALID_JOB)
+    downstream["id"] = "downstream"
+    downstream["command"] = "python scripts/run_agent_dag.py downstream --emit-target"
+    downstream["context_from"] = ["upstream"]
+    downstream["dependency_policy"] = {
+        "trading_date": "same_trading_date",
+        "optional_jobs": ["upstream"],
+    }
+    assert _write_and_validate({"jobs": [upstream, downstream]}) is True
+
+
+def test_dependency_only_dependency_allowed_as_required():
+    upstream = dict(VALID_JOB)
+    upstream["id"] = "upstream"
+    upstream["command"] = "python scripts/run_agent_dag.py upstream --emit-target"
+    upstream["enabled"] = False
+    upstream["role"] = "dependency_only"
+    downstream = dict(VALID_JOB)
+    downstream["id"] = "downstream"
+    downstream["command"] = "python scripts/run_agent_dag.py downstream --emit-target"
+    downstream["context_from"] = ["upstream"]
+    assert _write_and_validate({"jobs": [upstream, downstream]}) is True
+
+
+def test_repo_manifest_role_operational_decisions():
+    with open(MANIFEST_PATH, encoding="utf-8") as f:
+        jobs = {job["id"]: job for job in json.load(f)["jobs"]}
+
+    for job_id in ("provider-health", "four-dim-scorer", "ledger-projector"):
+        assert jobs[job_id]["enabled"] is True
+        assert jobs[job_id]["role"] == "scheduled"
+    for job_id in ("hk-a-linkage", "stock-intelligence-refresh"):
+        assert jobs[job_id]["enabled"] is False
+        assert jobs[job_id]["role"] == "dependency_only"
+    for job_id in ("market-pulse-1314", "market-pulse-1500"):
+        assert jobs[job_id]["enabled"] is False
+        assert jobs[job_id]["role"] == "off"
+    # Every enabled job carries an explicit scheduled role (no implicit derivation).
+    for job in jobs.values():
+        if job.get("enabled", True):
+            assert job.get("role") == "scheduled"
+
+
 def test_missing_field():
     manifest = {"jobs": [{"id": "bad", "name": "Bad"}]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:

@@ -16,6 +16,10 @@ import subprocess
 import sys
 from typing import Any, Mapping, Sequence
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skills", "common"))
+
+from cron_roles import is_scheduled  # noqa: E402
+
 
 DEFAULT_DELIVERY_CHANNEL = "discord"
 DEFAULT_DELIVERY_TO = "user:1068705928590917722"
@@ -151,7 +155,7 @@ def build_openclaw_commands(
                 installed_by_name.setdefault(name, []).append(installed_id)
     commands: list[str] = []
     for job_id, job in jobs.items():
-        if not job.get("enabled", True):
+        if not is_scheduled(job):
             continue
         name = f"{MANAGED_JOB_PREFIX}{job_id}"
         matches = installed_by_name.get(name, [])

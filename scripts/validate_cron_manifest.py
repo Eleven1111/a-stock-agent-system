@@ -12,6 +12,7 @@ REQUIRED = ["id", "name", "schedule", "timezone", "command", "cwd",
             "context_from", "artifact_path_template", "allowed_state_writes",
             "run"]
 VALID_OUTPUTS = {"json", "text", "none"}
+VALID_ROLES = {"scheduled", "dependency_only", "off"}
 VALID_EXECUTION_MODES = {"isolated_subprocess"}
 VALID_CONTEXT_SCOPES = {"cron"}
 VALID_DELIVER = {"origin", "local", "silent", "feishu_direct"}
@@ -91,6 +92,7 @@ def validate(filepath):
     ids = set()
     dependency_graph = {}
     schedule_slots = {}
+    roles = {}
     for i, job in enumerate(jobs):
         jid = job.get("id", f"#{i}")
 
@@ -108,6 +110,9 @@ def validate(filepath):
         dependency_graph[jid] = {
             "dependencies": list(job.get("context_from") or []),
             "mode": dependency_mode,
+            "optional": list(
+                (job.get("dependency_policy") or {}).get("optional_jobs") or []
+            ),
         }
 
         if job.get("schedule"):
@@ -132,6 +137,21 @@ def validate(filepath):
 
         if not isinstance(job.get("enabled"), bool):
             errors.append(f"job[{i}] ({jid}) enabled must be boolean")
+
+        enabled = job.get("enabled", True)
+        role = job.get("role")
+        if role is None:
+            resolved_role = "scheduled" if enabled else "dependency_only"
+        elif role not in VALID_ROLES:
+            errors.append(f"job[{i}] ({jid}) invalid role: {role}")
+            resolved_role = "scheduled" if enabled else "dependency_only"
+        else:
+            resolved_role = role
+            if role == "scheduled" and enabled is not True:
+                errors.append(f"job[{i}] ({jid}) role=scheduled requires enabled=true")
+            if role in {"dependency_only", "off"} and enabled is not False:
+                errors.append(f"job[{i}] ({jid}) role={role} requires enabled=false")
+        roles[jid] = resolved_role
 
         if not isinstance(job.get("external"), bool):
             errors.append(f"job[{i}] ({jid}) external must be boolean")
@@ -237,9 +257,17 @@ def validate(filepath):
             )
 
     for jid, node in dependency_graph.items():
+        optional = set(node.get("optional") or [])
         for dependency in node["dependencies"]:
             if dependency not in ids:
                 errors.append(f"job ({jid}) references unknown dependency: {dependency}")
+            elif (
+                roles.get(dependency) == "off"
+                and dependency not in optional
+            ):
+                errors.append(
+                    f"job ({jid}) requires role=off dependency: {dependency}"
+                )
 
     visiting = set()
     visited = set()

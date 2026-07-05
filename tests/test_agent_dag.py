@@ -29,6 +29,131 @@ def _job(job_id, command, dependencies=None, mode="same_trading_date"):
     }
 
 
+def test_resolve_job_role_derives_from_enabled_when_unset():
+    assert run_agent_dag.resolve_job_role({"enabled": True}) == "scheduled"
+    assert run_agent_dag.resolve_job_role({"enabled": False}) == "dependency_only"
+    assert run_agent_dag.resolve_job_role({}) == "scheduled"
+
+
+def test_resolve_job_role_honours_explicit_role():
+    assert run_agent_dag.resolve_job_role(
+        {"enabled": False, "role": "dependency_only"}
+    ) == "dependency_only"
+    assert run_agent_dag.resolve_job_role({"enabled": False, "role": "off"}) == "off"
+    assert run_agent_dag.resolve_job_role(
+        {"enabled": True, "role": "scheduled"}
+    ) == "scheduled"
+
+
+def test_dag_blocks_when_required_dependency_role_is_off(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    upstream = _job("upstream", "true")
+    upstream["enabled"] = False
+    upstream["role"] = "off"
+    downstream = _job("downstream", "true", ["upstream"])
+    manifest.write_text(json.dumps({"jobs": [upstream, downstream]}), encoding="utf-8")
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["downstream"],
+        trading_date="2026-06-12",
+        env=env,
+    )
+
+    assert result["status"] == "blocked"
+    blocked = [r for r in result["runs"] if r.get("reason") == "dependency_role_off"]
+    assert blocked and blocked[0]["job_id"] == "upstream"
+    # downstream never ran because the required off dependency fail-closed.
+    assert all(r["job_id"] != "downstream" for r in result["runs"])
+
+
+def test_dag_skips_optional_dependency_role_off_and_continues(tmp_path):
+    log = tmp_path / "order.log"
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json,sys\n"
+        "from pathlib import Path\n"
+        "p=Path(sys.argv[1]); p.write_text((p.read_text() if p.exists() else '')+sys.argv[2]+'\\n')\n"
+        "print(json.dumps({'schema':'demo_v1','job':sys.argv[2]}))\n",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "manifest.json"
+    upstream = _job("upstream", f"{sys.executable} {worker} {log} upstream")
+    upstream["enabled"] = False
+    upstream["role"] = "off"
+    downstream = _job("downstream", f"{sys.executable} {worker} {log} downstream", ["upstream"])
+    downstream["dependency_policy"]["optional_jobs"] = ["upstream"]
+    manifest.write_text(json.dumps({"jobs": [upstream, downstream]}), encoding="utf-8")
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["downstream"],
+        trading_date="2026-06-12",
+        env=env,
+    )
+
+    assert result["status"] == "ok"
+    statuses = {r["job_id"]: r["status"] for r in result["runs"]}
+    assert statuses["upstream"] == "skipped_role_off"
+    assert statuses["downstream"] == "ok"
+    assert log.read_text(encoding="utf-8").splitlines() == ["downstream"]
+
+
+def test_dag_refuses_explicit_off_target(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    target = _job("target", "true")
+    target["enabled"] = False
+    target["role"] = "off"
+    manifest.write_text(json.dumps({"jobs": [target]}), encoding="utf-8")
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["target"],
+        trading_date="2026-06-12",
+        env=env,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["runs"][0]["reason"] == "target_role_off"
+
+
+def test_dependency_only_role_runs_as_dependency(tmp_path):
+    log = tmp_path / "order.log"
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json,sys\n"
+        "from pathlib import Path\n"
+        "p=Path(sys.argv[1]); p.write_text((p.read_text() if p.exists() else '')+sys.argv[2]+'\\n')\n"
+        "print(json.dumps({'schema':'demo_v1','job':sys.argv[2]}))\n",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "manifest.json"
+    upstream = _job("upstream", f"{sys.executable} {worker} {log} upstream")
+    upstream["enabled"] = False
+    upstream["role"] = "dependency_only"
+    downstream = _job("downstream", f"{sys.executable} {worker} {log} downstream", ["upstream"])
+    manifest.write_text(json.dumps({"jobs": [upstream, downstream]}), encoding="utf-8")
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["downstream"],
+        trading_date="2026-06-12",
+        env=env,
+    )
+
+    assert result["status"] == "ok"
+    assert [item["job_id"] for item in result["runs"]] == ["upstream", "downstream"]
+    assert log.read_text(encoding="utf-8").splitlines() == ["upstream", "downstream"]
+
+
 def test_dag_reuses_dependencies_but_reruns_scheduled_target(tmp_path):
     log = tmp_path / "order.log"
     worker = tmp_path / "worker.py"

@@ -47,6 +47,42 @@ def test_system_crontab_generation_uses_runner_only(tmp_path):
     assert "15 8 * * 1-5" in joined
 
 
+def test_system_crontab_skips_dependency_only_and_off_roles():
+    manifest = {
+        "jobs": [
+            {
+                "id": "scheduled-job",
+                "schedule": "15 8 * * 1-5",
+                "enabled": True,
+                "role": "scheduled",
+                "command": "python scripts/run_agent_dag.py scheduled-job --emit-target",
+            },
+            {
+                "id": "dep-only",
+                "schedule": "20 8 * * 1-5",
+                "enabled": False,
+                "role": "dependency_only",
+                "command": "python scripts/run_agent_dag.py dep-only --emit-target",
+            },
+            {
+                "id": "off-job",
+                "schedule": "25 8 * * 1-5",
+                "enabled": False,
+                "role": "off",
+                "command": "python scripts/run_agent_dag.py off-job --emit-target",
+            },
+        ]
+    }
+
+    joined = "\n".join(
+        crontab_lines(manifest, "/repo", "/tmp/hermes", sys.executable, "/state")
+    )
+
+    assert "scheduled-job" in joined
+    assert "dep-only" not in joined
+    assert "off-job" not in joined
+
+
 def test_system_crontab_rejects_template_jobs():
     manifest = {"jobs": [{"id": "bad", "schedule": "0 9 * * 1-5", "enabled": True, "command": "python x {code}"}]}
 

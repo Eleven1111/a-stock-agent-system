@@ -13,7 +13,12 @@ import argparse
 import json
 import os
 import shlex
+import sys
 from typing import Any, Dict, List
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skills", "common"))
+
+from cron_roles import is_scheduled  # noqa: E402
 
 
 def load_manifest(path: str) -> Dict[str, Any]:
@@ -37,7 +42,7 @@ def crontab_lines(
     repo = shlex.quote(repo_dir)
     py = shlex.quote(python)
     for job in manifest.get("jobs", []):
-        if not job.get("enabled", True):
+        if not is_scheduled(job):
             continue
         if "{" in job.get("command", "") or "}" in job.get("command", ""):
             raise ValueError(f"job {job['id']} is not self-contained: {job['command']}")

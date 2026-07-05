@@ -24,6 +24,7 @@ from runtime_context import (  # noqa: E402
     resolve_trading_date,
 )
 from trading_day_gate import evaluate_job_trading_day  # noqa: E402
+from cron_roles import resolve_job_role  # noqa: E402
 from paths import hermes_home  # noqa: E402
 from state_store import file_lock  # noqa: E402
 import feishu_push  # noqa: E402
@@ -146,6 +147,29 @@ def execute_dag(
     )
     active_targets: list[str] = []
     runs: list[dict[str, Any]] = []
+    off_targets = [t for t in targets if t in jobs and resolve_job_role(jobs[t]) == "off"]
+    if off_targets:
+        for target in targets:
+            if target not in jobs:
+                raise ValueError(f"unknown DAG job: {target}")
+        result_day = str(trading_date or calendar_date)[:10]
+        return {
+            "schema": "a_stock_dag_run_v1",
+            "status": "blocked",
+            "runtime": runtime,
+            "trading_date": result_day,
+            "batch_id": batch_id or make_batch_id(result_day),
+            "targets": targets,
+            "runs": [
+                {
+                    "job_id": target,
+                    "status": "blocked",
+                    "reason": "target_role_off",
+                    "returncode": 1,
+                }
+                for target in off_targets
+            ],
+        }
     for target in targets:
         if target not in jobs:
             raise ValueError(f"unknown DAG job: {target}")
@@ -210,7 +234,45 @@ def execute_dag(
     order = execution_order(jobs, active_targets)
     target_set = set(active_targets)
 
+    order_set = set(order)
+    recorded_skips: set[str] = set()
     for job_id in order:
+        optional = set((jobs[job_id].get("dependency_policy") or {}).get("optional_jobs") or [])
+        for dependency in jobs[job_id].get("context_from") or []:
+            dep = str(dependency)
+            if (
+                dep in optional
+                and dep not in order_set
+                and dep not in recorded_skips
+                and dep in jobs
+                and resolve_job_role(jobs[dep]) == "off"
+            ):
+                recorded_skips.add(dep)
+                runs.append({
+                    "job_id": dep,
+                    "status": "skipped_role_off",
+                    "returncode": 0,
+                })
+
+    for job_id in order:
+        if resolve_job_role(jobs[job_id]) == "off":
+            # An off job only reaches the execution order as a required
+            # dependency (off targets are rejected earlier). Fail closed.
+            runs.append({
+                "job_id": job_id,
+                "status": "blocked",
+                "reason": "dependency_role_off",
+                "returncode": 1,
+            })
+            return {
+                "schema": "a_stock_dag_run_v1",
+                "status": "blocked",
+                "runtime": runtime,
+                "trading_date": day,
+                "batch_id": batch,
+                "targets": targets,
+                "runs": runs,
+            }
         existing = _load_artifact(
             job_id,
             trading_date=day,

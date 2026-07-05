@@ -247,6 +247,28 @@ def test_cli_reconcile_apply_edits_installed_job(tmp_path, monkeypatch):
     assert shlex.split(applied[0])[:4] == ["openclaw", "cron", "edit", "cron-123"]
 
 
+def test_export_skips_dependency_only_and_off_roles(tmp_path):
+    scheduled = _job("scheduled-job", 30)
+    dep_only = _job("dep-only", 30)
+    dep_only["enabled"] = False
+    dep_only["role"] = "dependency_only"
+    off_job = _job("off-job", 30)
+    off_job["enabled"] = False
+    off_job["role"] = "off"
+
+    commands = build_openclaw_commands(
+        {"jobs": [scheduled, dep_only, off_job]},
+        repo_dir=str(tmp_path),
+        python="/venv/bin/python",
+    )
+
+    joined = "\n".join(commands)
+    assert len(commands) == 1
+    assert "scheduled-job" in joined
+    assert "dep-only" not in joined
+    assert "off-job" not in joined
+
+
 def test_repo_manifest_exports_every_enabled_job_as_command_cron():
     manifest = json.loads((ROOT / "cron" / "hermes-cron-manifest.json").read_text())
     commands = build_openclaw_commands(
