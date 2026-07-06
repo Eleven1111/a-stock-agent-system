@@ -1497,6 +1497,30 @@
         "timeout_seconds": 120
       },
       "external_note": "08:30 刷新全市场行业映射缓存；仅写本地缓存，供候选发现阶段读取"
+    },
+    {
+      "id": "candidate-freshness-check",
+      "name": "候选池新鲜度检查",
+      "schedule": "15 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python skills/stock-triage/scripts/candidate_discovery.py --check-freshness --json",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2000,
+      "timeout_seconds": 60,
+      "accepted_statuses": [
+        "ok"
+      ],
+      "success_exit_codes": [
+        0
+      ],
+      "description": "检查候选池是否健康（存在、有候选、新鲜），异常时告警"
     }
   ],
   "external_dependencies": {
