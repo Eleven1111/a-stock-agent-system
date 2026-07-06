@@ -158,16 +158,18 @@ def test_open_daban_lane_rejects_candidate_outside_mainline_leader_gate():
     assert [item["code"] for item in ranked] == ["sz300001"]
 
 
-def test_open_confirmation_reads_nested_selection_qualified_gate():
+def test_open_confirmation_blocks_daban_candidate_without_hot_money_qualified():
+    # 游资门禁走 hot_money_qualified（lane 成员判定），而非通用 selection_context.qualified：
+    # 缺乏游资资格的打板候选不得占用打板名额，也不因通用质量门禁误伤趋势车道。
     shortlist = [
         {
             "code": "sh600001",
-            "name": "嵌套不合格",
+            "name": "打板不合格",
             "auction_score": 99,
             "auction_daban_score": 99,
             "auction_trend_score": 10,
             "auction_selected_by": {"daban": True, "trend": False},
-            "selection_context": {"qualified": False},
+            "hot_money_qualified": False,
         },
         {
             "code": "sz300001",
