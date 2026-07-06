@@ -908,6 +908,10 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
                 "breadth": timing.get("breadth"),
                 "previous_ladder_premium": timing.get("previous_ladder_premium"),
                 "tier": (timing.get("temperature") or {}).get("tier"),
+                "reasons": timing.get("reasons"),
+                "context_asof": timing.get("context_asof"),
+                "context_fresh": (timing.get("temperature") or {}).get("context_fresh"),
+                "temperature_notes": (timing.get("temperature") or {}).get("notes"),
             },
             "mainline_sectors": [
                 {

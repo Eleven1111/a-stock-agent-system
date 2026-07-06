@@ -114,6 +114,9 @@ def test_run_discovery_persists_pool_and_lifecycle(tmp_path, monkeypatch):
     assert report["hot_money_selection"]["status"] == "insufficient_data"
     assert "sector_rank" in report["top_candidates"][0]
     assert "leader_rank" in report["top_candidates"][0]
+    report_timing = report["hot_money_selection"]["market_timing"]
+    for key in ("reasons", "context_asof", "context_fresh", "temperature_notes"):
+        assert key in report_timing
 
 
 def test_merge_nl_screening_recall_tags_full_market_rows_and_adds_new_codes():
