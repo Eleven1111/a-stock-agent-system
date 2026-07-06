@@ -294,6 +294,35 @@
       "external_note": "15:02 缓存当日涨停梯队和板块热度；仅归档，供候选发现和次日开盘温度闸门读取"
     },
     {
+      "id": "hot-money-context-backfill",
+      "name": "盘前涨停梯队自愈回填",
+      "schedule": "40 8 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py hot-money-context-backfill --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1200,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/signal_context.json",
+        "$A_STOCK_STATE_HOME/cron/output/hot-money-context-backfill/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/hot-money-tactics/scripts/analyze.py --ensure-fresh",
+        "cwd": ".",
+        "timeout_seconds": 120
+      },
+      "external_note": "08:40 盘前校验上一交易日涨停梯队是否在册（candidate-preopen 08:45 之前）；收盘 hot-money-context 缺档时回填，防止 update_signal_context 把更旧梯队错滚成 prev 导致溢价基准用错日期；已在册时静默 no-op 不投递"
+    },
+    {
       "id": "candidate-discovery",
       "name": "全市场动态候选发现",
       "schedule": "7 15 * * 1-5",
