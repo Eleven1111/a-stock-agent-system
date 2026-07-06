@@ -3,6 +3,11 @@
 The gate decides whether a candidate is safe to publish as a deliverable watch
 target. It deliberately keeps research-only candidates out of recommendation
 surfaces without discarding their analytical evidence from upstream artifacts.
+
+顶层 ``qualified`` 是显式的通用质量 kill-switch（当前无生产写入方，仅留作未来
+扩展）；游资 ``hot_money_qualified`` 是 daban lane 专用的择时/龙头门禁语义，二者
+不再混用。daban lane 的游资门禁由 candidate_pipeline 的 lane 成员判定执行，不属于
+本 gate 的通用质量语义——因此 daban 关闭时不会误伤 trend lane 与 balanced fill。
 """
 
 from __future__ import annotations
@@ -171,16 +176,24 @@ def _extract_candidate_fields(item: Mapping[str, Any]) -> dict[str, Any]:
     )
     if theme_confirmed is None and isinstance(context, Mapping):
         theme_confirmed = context.get("sector_theme_confirmed")
+    # 通用质量门禁只认顶层显式字段，不再从 leader/context 回填游资语义。
     qualified = item.get("qualified")
-    if qualified is None and isinstance(leader_context, Mapping):
-        qualified = leader_context.get("qualified")
-    if qualified is None and isinstance(context, Mapping):
-        qualified = context.get("qualified")
+    # 游资门禁（tri-state，None=未知）：顶层缺 key 时读 leader_context，兼容旧
+    # artifact 里 leader.qualified 承载游资语义的历史结构。
+    if "hot_money_qualified" in item:
+        hot_money_qualified = item.get("hot_money_qualified")
+    elif isinstance(leader_context, Mapping) and "hot_money_qualified" in leader_context:
+        hot_money_qualified = leader_context.get("hot_money_qualified")
+    elif isinstance(leader_context, Mapping) and "qualified" in leader_context:
+        hot_money_qualified = leader_context.get("qualified")
+    else:
+        hot_money_qualified = None
     return {
         "sector": sector,
         "sector_rank": sector_rank,
         "leader_rank": leader_rank,
         "qualified": qualified,
+        "hot_money_qualified": hot_money_qualified,
         "sector_evidence_count": evidence_count,
         "sector_evidence_types": list(evidence_types)
         if isinstance(evidence_types, list)
@@ -270,6 +283,8 @@ def assess_delivery_quality(
     evidence_count = fields.get("sector_evidence_count")
 
     if qualified is False:
+        # 仅对显式顶层 qualified 生效——通用质量 kill-switch。daban lane 的游资门禁
+        # 走 candidate_pipeline lane 成员判定，不在此处收缩 trend/balanced 车道。
         status = "reject"
         reasons.append("候选质量门槛 qualified=False")
     if leader_rank is not None and leader_rank > 150:
@@ -283,7 +298,7 @@ def assess_delivery_quality(
     broad_sector = is_broad_sector_label(sector)
     capacity_core = _has_capacity_core_evidence(item, fields)
     main_board = is_main_board_10cm(item.get("code"), str(item.get("name") or ""))
-    hot_money_qualified = bool(item.get("hot_money_qualified"))
+    hot_money_qualified = fields.get("hot_money_qualified") is True
 
     if status != "reject" and weak_regime:
         reasons.extend(str(reason) for reason in regime.get("reasons") or [])

@@ -510,3 +510,64 @@ def test_auction_social_attention_is_current_bounded_tiebreaker():
     assert boosted["auction_social_attention_delta"] == 1.5
     assert boosted["auction_score"] - base["auction_score"] <= 1.5
     assert boosted["auction_score"] <= 100
+
+
+def test_ladder_stale_leader_qualified_false_still_delivers_trend_shortlist():
+    """复现 07-06 P0：梯队缺档 → leader.qualified=False + hot_money_qualified=False，
+    但正常市场竞价因子健康时，trend lane 短名单仍非空，daban lane 无人入选，
+    且拒绝理由不含通用质量门槛 qualified=False。"""
+    normal_timing = {
+        "status": "ready",
+        "breadth": {
+            "advancers": 3100,
+            "decliners": 1300,
+            "flat": 90,
+            "limitup_count": 88,
+            "limitdown_count": 9,
+        },
+        "previous_ladder_premium": 3.2,
+        "temperature": {"tier": "warm", "context_fresh": True},
+    }
+    pool = {
+        "asof": "2026-07-06",
+        "candidates": [
+            {
+                "code": f"sz300{i:03d}",
+                "name": f"趋势{i}",
+                "daban_score": 5,
+                "trend_score": 95 - i,
+                "hot_money_qualified": False,
+                "selected_by": {"daban": False, "trend": True, "balanced_fill": False},
+                "selection_context": {
+                    "window": "D0_close",
+                    "market_timing": normal_timing,
+                    "sector": {"name": "半导体", "rank": 2},
+                    "leader": {"rank": 20 + i, "qualified": False},
+                },
+            }
+            for i in range(3)
+        ],
+    }
+    factors = [
+        {
+            "code": item["code"],
+            "auction_gap_pct": 2.0,
+            "auction_amount": 30_000_000,
+            "auction_bid_ask_ratio": 2.0,
+            "auction_net_bid_delta": 10_000,
+            "is_yiziban": False,
+        }
+        for item in pool["candidates"]
+    ]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=6)
+
+    assert result["shortlist"], "trend lane 短名单不应为空"
+    assert all(
+        not item["auction_selected_by"]["daban"] for item in result["shortlist"]
+    )
+    for rejected in result.get("rejected", []):
+        assert all(
+            "候选质量门槛 qualified=False" not in reason
+            for reason in rejected.get("rejection_reasons", [])
+        )
