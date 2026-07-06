@@ -78,7 +78,10 @@ def reusable_pool(
     event_asof: str,
     max_age_days: int = MAX_BOOTSTRAP_POOL_AGE_DAYS,
 ) -> bool:
-    if pool.get("status") != "ready" or not pool.get("candidates"):
+    if pool.get("status") not in ("ready", "degraded") or not pool.get("candidates"):
+        return False
+    # Reject pools that claim ready but have zero candidates (stale data artifact)
+    if pool.get("candidate_count", 0) == 0:
         return False
     scan_codes = pool.get("auction_scan_codes")
     if not isinstance(scan_codes, list) or len(scan_codes) < int(pool.get("eligible_count") or 1):
@@ -754,6 +757,18 @@ def run_discovery(
         ],
         "auction_scan_count": len(evaluated),
     })
+    # --- candidate_count > 0 assertion ---
+    # If discovery ran successfully but produced zero candidates, this is an
+    # upstream data failure (stale quotes, broken provider, etc.) — not a
+    # normal "no opportunities" situation.  Flag it as an error so downstream
+    # DAG jobs and alerts can react.
+    if result.get("status") == "ready" and result.get("candidate_count", 0) == 0:
+        result["status"] = "error"
+        result["error"] = (
+            "candidate_count=0 after successful discovery — "
+            "likely stale quotes, broken provider, or universe filter too tight"
+        )
+
     _persist_pool(asof, result)
     atomic_write_json(hot_money_selection_file(), selection_state)
     monitor_registry.reconcile_automatic(
@@ -952,6 +967,67 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
     return report
 
 
+def _check_pool_freshness(asof: str, as_json: bool = False) -> None:
+    """Heartbeat check: verify the latest candidate pool exists, is fresh, and has candidates.
+
+    Exit codes:
+      0 — pool is healthy
+      1 — pool is stale, empty, or missing
+    """
+    pool = read_json(latest_pool_file(), {})
+    issues: List[str] = []
+
+    # 1. Pool exists?
+    if not pool:
+        issues.append("no_pool_file")
+    else:
+        # 2. Status OK?
+        status = pool.get("status")
+        if status not in ("ready", "degraded"):
+            issues.append(f"status={status}")
+
+        # 3. Has candidates?
+        candidate_count = pool.get("candidate_count", 0)
+        if candidate_count == 0:
+            issues.append("candidate_count=0")
+
+        # 4. Fresh? (generated within last 2 trading days)
+        try:
+            generated = datetime.fromisoformat(str(pool.get("generated_at")))
+            age_hours = (datetime.now() - generated).total_seconds() / 3600
+            if age_hours > 48:  # 48 hours = ~2 trading days
+                issues.append(f"stale:{age_hours:.0f}h_old")
+        except (TypeError, ValueError):
+            issues.append("invalid_generated_at")
+
+        # 5. Asof matches today?
+        pool_asof = str(pool.get("asof", ""))
+        if pool_asof != asof:
+            issues.append(f"asof_mismatch:pool={pool_asof},expected={asof}")
+
+    healthy = len(issues) == 0
+    report = {
+        "schema": "candidate_pool_freshness_v1",
+        "healthy": healthy,
+        "asof": asof,
+        "candidate_count": pool.get("candidate_count", 0) if pool else 0,
+        "pool_status": pool.get("status") if pool else None,
+        "pool_asof": pool.get("asof") if pool else None,
+        "generated_at": pool.get("generated_at") if pool else None,
+        "issues": issues,
+    }
+
+    if as_json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        if healthy:
+            print(f"✅ 候选池健康: {report['candidate_count']} 只候选, asof={report['pool_asof']}")
+        else:
+            print(f"❌ 候选池异常: {', '.join(issues)}")
+
+    raise SystemExit(0 if healthy else 1)
+
+
 def main() -> None:
     config = load_config()
     parser = argparse.ArgumentParser(description="A股全市场动态候选发现")
@@ -969,7 +1045,17 @@ def main() -> None:
         help="Reuse a recent closing pool and scan only for cold start or expiry",
     )
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--check-freshness",
+        action="store_true",
+        help="Check if the latest candidate pool is fresh and has candidates; exit non-zero if stale or empty",
+    )
     args = parser.parse_args()
+
+    # --- freshness heartbeat mode ---
+    if args.check_freshness:
+        _check_pool_freshness(asof=args.asof, as_json=args.json)
+        return
 
     try:
         existing = read_json(latest_pool_file(), {})
@@ -1004,6 +1090,10 @@ def main() -> None:
         print(json.dumps(json_report(result), ensure_ascii=False, default=str))
     else:
         print(format_report(result))
+
+    # Exit non-zero if discovery produced an error (e.g. candidate_count=0 assertion)
+    if result.get("status") == "error":
+        raise SystemExit(75)
 
 
 if __name__ == "__main__":
