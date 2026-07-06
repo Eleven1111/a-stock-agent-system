@@ -9,6 +9,7 @@
   python3 analyze.py 20260601            # 指定日期
   python3 analyze.py --all               # 今日完整报告
   python3 analyze.py --cache-only        # 仅刷新共享情绪上下文并输出 JSON
+  python3 analyze.py --ensure-fresh      # 盘前校验上一交易日梯队在册，缺档回填
 """
 
 import json
@@ -29,6 +30,9 @@ from market_adapters import (
     fetch_tencent_index_overview,
 )
 from market_snapshot import compact_ref, materialize_input_snapshot
+import a_share_rules
+import signal_context
+import state_store
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 320)
@@ -380,10 +384,11 @@ def analyze_rotation(days=5):
 
 def cache_signal_context(df_zt, date_str=None):
     """把涨停池提炼为情绪上下文（板块涨停数 + 连板梯队 + 封板质量），
-    落入共享缓存供 four_dim 情绪面消费。失败不阻塞主输出。"""
+    落入共享缓存供 four_dim 情绪面消费。失败不阻塞主输出。
+
+    成功返回统计 dict（input_snapshot ref + lianban_count/sector_count/ladder_asof），
+    失败返回 False。"""
     try:
-        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                        '..', '..', 'common'))
         from signal_context import update_signal_context
 
         sector_limitups = df_zt.groupby('所属行业').size().to_dict() \
@@ -429,10 +434,80 @@ def cache_signal_context(df_zt, date_str=None):
         context["input_snapshot"] = compact_ref(input_snapshot)
         update_signal_context(context)
         print(f"✅ 情绪上下文已缓存：{len(ladder)}只涨停 / {len(sector_limitups)}个板块", file=sys.stderr)
-        return context["input_snapshot"]
+        return {
+            "input_snapshot": context["input_snapshot"],
+            "lianban_count": len(ladder),
+            "sector_count": len(sector_limitups),
+            "ladder_asof": asof,
+        }
     except Exception as e:
         print(f"signal_context 写入失败: {e}", file=sys.stderr)
         return False
+
+
+def _is_trading_day_failclosed(date_value) -> bool:
+    """日历可用时判断交易日；日历缺覆盖/不可用一律按交易日处理（fail-closed）。"""
+    try:
+        return a_share_rules.is_trading_day(date_value)
+    except a_share_rules.CalendarCoverageError:
+        return True
+    except Exception:
+        return True
+
+
+def ensure_fresh():
+    """盘前梯队自愈：校验 signal_context 是否含上一交易日 ladder，缺档则回填。
+
+    防止 update_signal_context 在缺档日把更旧的梯队错滚成 prev（溢价基准用错日期）。
+    """
+    trading_date = os.environ.get("A_STOCK_TRADING_DATE") \
+        or datetime.now().strftime('%Y-%m-%d')
+    try:
+        expected = a_share_rules.previous_trading_day(trading_date).isoformat()
+    except a_share_rules.CalendarCoverageError as exc:
+        print(json.dumps({
+            "status": "error",
+            "reason": f"日历不覆盖 {trading_date}: {exc}",
+        }, ensure_ascii=False))
+        raise SystemExit(1)
+
+    # 直接读原始文件，绕开 read_signal_context 的 24h max_age（否则旧缓存被判 None）。
+    record = state_store.read_json(signal_context.context_file(), None)
+    current_asof = record.get("ladder_asof") if isinstance(record, dict) else None
+    # 迟到补跑（休眠唤醒 catch-up 晚于 15:02 收盘写入）时当日梯队可能已在册；
+    # 在册 asof 不早于 expected 即 fresh，否则回填旧梯队会把更新梯队错滚成 prev。
+    if current_asof and str(current_asof) >= expected:
+        print(json.dumps({"status": "fresh", "ladder_asof": current_asof},
+                         ensure_ascii=False))
+        return
+
+    date_str = expected.replace('-', '')
+    df = get_zt_pool(date_str)
+    if df.empty:
+        status = "error" if _is_trading_day_failclosed(expected) else "insufficient_data"
+        print(json.dumps({
+            "status": status,
+            "expected_asof": expected,
+            "reason": "上一交易日无涨停梯队可回填",
+        }, ensure_ascii=False))
+        if status == "error":
+            raise SystemExit(1)
+        return
+
+    result = cache_signal_context(df, date_str)
+    if not result:
+        print(json.dumps({
+            "status": "error",
+            "expected_asof": expected,
+            "reason": "梯队回填写入失败",
+        }, ensure_ascii=False))
+        raise SystemExit(1)
+    print(json.dumps({
+        "status": "backfilled",
+        "ladder_asof": result["ladder_asof"],
+        "lianban_count": result["lianban_count"],
+        "sector_count": result["sector_count"],
+    }, ensure_ascii=False))
 
 
 def main():
@@ -441,6 +516,7 @@ def main():
     full_mode = False
     do_cache = False
     cache_only = False
+    do_ensure_fresh = False
     for a in sys.argv[1:]:
         if a == '--all':
             full_mode = True
@@ -451,8 +527,14 @@ def main():
         elif a == '--cache-only':
             do_cache = True
             cache_only = True
+        elif a == '--ensure-fresh':
+            do_ensure_fresh = True
         elif a.isdigit() and len(a) == 8:
             date_str = a
+
+    if do_ensure_fresh:
+        ensure_fresh()
+        return
 
     if do_rotation:
         print(analyze_rotation())
@@ -467,10 +549,19 @@ def main():
     df_zt = get_zt_pool(date_str)
     if df_zt.empty:
         if cache_only:
+            # 交易日空池 = 采集失败（静默 exit 0 会让 cron 误判成功，梯队缺档）；
+            # 只有非交易日才是正常的 insufficient_data。日历不可用 fail-closed 按交易日处理。
+            if _is_trading_day_failclosed(date_str):
+                print(json.dumps({
+                    "status": "error",
+                    "asof": date_str,
+                    "reason": "交易日无涨停板数据，采集失败",
+                }, ensure_ascii=False))
+                raise SystemExit(1)
             print(json.dumps({
                 "status": "insufficient_data",
                 "asof": date_str,
-                "reason": "无涨停板数据（可能非交易日）",
+                "reason": "无涨停板数据（非交易日）",
             }, ensure_ascii=False))
         else:
             print("⚠️ 无涨停板数据（可能非交易日）")
@@ -479,12 +570,18 @@ def main():
     if do_cache:
         cache_result = cache_signal_context(df_zt, date_str)
         if cache_only:
-            print(json.dumps({
+            payload = {
                 "status": "ready" if cache_result else "error",
                 "asof": f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}",
                 "limitup_total": len(df_zt),
-                "input_snapshot": cache_result or None,
-            }, ensure_ascii=False))
+                "input_snapshot": (cache_result or {}).get("input_snapshot")
+                if cache_result else None,
+            }
+            if cache_result:
+                payload["ladder_asof"] = cache_result["ladder_asof"]
+                payload["lianban_count"] = cache_result["lianban_count"]
+                payload["sector_count"] = cache_result["sector_count"]
+            print(json.dumps(payload, ensure_ascii=False))
             if not cache_result:
                 raise SystemExit(1)
             return

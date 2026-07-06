@@ -15,8 +15,11 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
 sys.path.insert(0, COMMON)
 
+import glob  # noqa: E402
+
 from a_share_rules import previous_trading_day  # noqa: E402
 from a_stock_http import load_hermes_env  # noqa: E402
+from paths import cron_output_dir  # noqa: E402
 from data_provider import (  # noqa: E402
     _next_serper_key,
     fetch_public_finance_news,
@@ -136,6 +139,46 @@ def _run_probe(
         }
 
 
+ORPHAN_LOCK_MIN_AGE_SECONDS = 10 * 60
+
+
+def _scan_orphan_locks(
+    output_dir: str | None = None,
+    *,
+    now: float | None = None,
+) -> dict[str, Any]:
+    """扫描 cron 输出目录，找出有 X.json.lock 但无 X.json 且 lock 陈旧的孤儿锁。
+
+    对应被杀死的 cron job：只留下空 .lock 无 artifact（07-03 hot-money-context 事故）。
+    """
+    root = output_dir or cron_output_dir()
+    ref = now if now is not None else time.time()
+    orphans: list[dict[str, Any]] = []
+    for lock_path in glob.glob(os.path.join(root, "*", "*.json.lock")):
+        artifact_path = lock_path[: -len(".lock")]
+        if os.path.exists(artifact_path):
+            continue
+        try:
+            mtime = os.path.getmtime(lock_path)
+        except OSError:
+            continue
+        if ref - mtime <= ORPHAN_LOCK_MIN_AGE_SECONDS:
+            continue
+        orphans.append({
+            "job": os.path.basename(os.path.dirname(lock_path)),
+            "run_file": os.path.basename(artifact_path),
+            "mtime": round(mtime, 3),
+            "age_seconds": round(ref - mtime, 1),
+        })
+    orphans.sort(key=lambda item: item["mtime"])
+    return {
+        "check": "artifact_integrity",
+        "status": "error" if orphans else "ok",
+        "orphan_lock_count": len(orphans),
+        "orphan_locks": orphans,
+    }
+
+
 def run_probes() -> dict[str, Any]:
     datasets = {
         name: _run_probe(
@@ -146,15 +189,24 @@ def run_probes() -> dict[str, Any]:
         )
         for name, spec in PROBES.items()
     }
+    artifact_integrity = _scan_orphan_locks()
     required_failed = any(
         item["required"] and item["status"] != "ok"
         for item in datasets.values()
     )
     optional_failed = any(item["status"] != "ok" for item in datasets.values())
+    integrity_failed = artifact_integrity["status"] != "ok"
     return {
         "schema": "a_stock_provider_health_v1",
-        "status": "error" if required_failed else "degraded" if optional_failed else "ok",
+        "status": (
+            "error"
+            if required_failed or integrity_failed
+            else "degraded"
+            if optional_failed
+            else "ok"
+        ),
         "datasets": datasets,
+        "artifact_integrity": artifact_integrity,
         "slo_ledger": _slo_ledger_summary(),
     }
 

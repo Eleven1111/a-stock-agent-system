@@ -316,3 +316,60 @@ def test_leader_ablation_flags_isolated_single_core():
     assert abl["structural_leader"] is False
     assert abl["breadth_without_leader"] == 0
     assert abl["leader_amount_share"] == 0.9
+
+
+def test_selection_context_emits_hot_money_qualified_alongside_legacy_qualified():
+    """selection_context_for 同时暴露 leader.hot_money_qualified 与旧 leader.qualified，
+    且 sector.qualified_for_daban 与旧 sector.qualified 值一致。"""
+    candidate = {
+        "code": "600001",
+        "sector": "半导体",
+        "leader_rank": 1,
+        "hot_money_qualified": True,
+    }
+    selection_state = {
+        "status": "ready",
+        "sectors": [
+            {"sector": "半导体", "rank": 1, "qualified_for_daban": True},
+        ],
+    }
+
+    context = hms.selection_context_for(candidate, selection_state, window="D0_close")
+
+    leader = context["leader"]
+    assert leader["hot_money_qualified"] is True
+    assert leader["qualified"] == leader["hot_money_qualified"]
+    sector = context["sector"]
+    assert sector["qualified_for_daban"] is True
+    assert sector["qualified"] == sector["qualified_for_daban"]
+
+
+def test_selection_context_marks_non_qualified_candidate_on_both_keys():
+    candidate = {"code": "600002", "sector": "银行", "hot_money_qualified": False}
+    selection_state = {
+        "status": "ready",
+        "sectors": [{"sector": "银行", "rank": 5, "qualified_for_daban": False}],
+    }
+
+    context = hms.selection_context_for(candidate, selection_state, window="D0_close")
+
+    assert context["leader"]["hot_money_qualified"] is False
+    assert context["leader"]["qualified"] is False
+    assert context["sector"]["qualified_for_daban"] is False
+    assert context["sector"]["qualified"] is False
+
+
+def test_compact_selection_context_carries_hot_money_qualified():
+    context = hms.selection_context_for(
+        {"code": "600001", "sector": "半导体", "hot_money_qualified": True},
+        {
+            "status": "ready",
+            "sectors": [{"sector": "半导体", "rank": 1, "qualified_for_daban": True}],
+        },
+        window="D0_close",
+    )
+
+    compact = hms.compact_selection_context(context)
+
+    assert compact["hot_money_qualified"] is True
+    assert compact["qualified"] is True
