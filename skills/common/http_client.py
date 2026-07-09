@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -14,6 +16,56 @@ from typing import Any, Callable, Dict, Generic, Optional, TypeVar
 
 
 T = TypeVar("T")
+
+# Ensure NO_PROXY covers Eastmoney domains so urllib never routes them through
+# a system proxy (e.g. Clash Verge).  Must run before any urllib.request call
+# because urllib caches proxy settings at first use.
+_DIRECT_MARKET_DATA_HOSTS = (
+    "push2.eastmoney.com,push2his.eastmoney.com,"
+    "datacenter-web.eastmoney.com,reportapi.eastmoney.com,mxapi.eastmoney.com,"
+    ".gtimg.cn,.sinajs.cn,.10jqka.com.cn,.hexun.com"
+)
+_no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy", "")
+if not _no_proxy:
+    os.environ["NO_PROXY"] = _DIRECT_MARKET_DATA_HOSTS
+    os.environ["no_proxy"] = _DIRECT_MARKET_DATA_HOSTS
+elif "eastmoney.com" not in _no_proxy or "gtimg.cn" not in _no_proxy:
+    os.environ["NO_PROXY"] = f"{_no_proxy},{_DIRECT_MARKET_DATA_HOSTS}"
+    os.environ["no_proxy"] = os.environ["NO_PROXY"]
+
+
+def _build_no_proxy_opener() -> Any:
+    """Return a callable opener that bypasses all system proxies.
+
+    ``OpenerDirector`` is not directly callable, so we return its ``open``
+    method — the same signature as ``urllib.request.urlopen``.
+    """
+    director = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    return director.open
+
+
+# ── Process-level throttle ──────────────────────────────────────────────
+# Ensures a minimum interval between consecutive requests to the same
+# source within this process.  Prevents burst traffic that can trigger
+# server-side rate limits (e.g. Eastmoney push2 429s).
+# The half-open probe-limiting is handled by ``provider_health.allow_request``
+# which grants exactly one probe slot per cooldown window; the throttle here
+# complements that by spacing out requests even when the circuit is closed.
+_THROTTLE_INTERVAL: float = 2.0  # seconds
+_last_request_ts: Dict[str, float] = {}
+_throttle_lock = threading.Lock()
+
+
+def _throttle_wait(source: str) -> None:
+    """Block until at least ``_THROTTLE_INTERVAL`` seconds have elapsed since
+    the last request to *source* in this process."""
+    with _throttle_lock:
+        last = _last_request_ts.get(source, 0.0)
+        elapsed = time.monotonic() - last
+        if elapsed < _THROTTLE_INTERVAL:
+            time.sleep(_THROTTLE_INTERVAL - elapsed)
+        _last_request_ts[source] = time.monotonic()
+
 
 __all__ = [
     "DataSourceError",
@@ -119,7 +171,7 @@ class HttpClient:
         self.source = source
         self.timeout = float(timeout)
         self.max_attempts = min(max(int(max_attempts), 1), 2)
-        self._opener = opener or urllib.request.urlopen
+        self._opener = opener or _build_no_proxy_opener()
         self._clock = clock
 
     def _timestamp(self) -> str:
@@ -150,6 +202,7 @@ class HttpClient:
         *,
         headers: Optional[Dict[str, str]] = None,
     ) -> HttpResult[bytes]:
+        _throttle_wait(self.source)
         request_obj = _request(request, headers)
         last_error: Optional[DataSourceError] = None
         started = time.monotonic()

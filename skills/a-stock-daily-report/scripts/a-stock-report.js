@@ -1,91 +1,51 @@
 #!/usr/bin/env node
 /**
  * A股日报自动生成器（Node.js版本）
- * 功能：抓取东方财富板块数据，生成日报
+ * 功能：抓取多源板块数据，生成日报
  */
 
-const https = require('https');
-const http = require('http');
 const path = require('path');
-
-// 配置
-const CONFIG = {
-  eastmoneyBoardApi: 'http://push2.eastmoney.com/api/qt/clist/get',
-  eastmoneyStockApi: 'http://push2.eastmoney.com/api/qt/stock/get',
-};
+const { execFileSync } = require('child_process');
+const ROOT = path.resolve(__dirname, '..', '..', '..');
+const PYTHON = path.join(ROOT, '.venv', 'bin', 'python3');
+const COMMON = path.join(ROOT, 'skills', 'common');
 
 /**
- * HTTP请求封装
+ * Python 数据适配器调用。日报脚本不再直连 Eastmoney push2 被封路径。
  */
-function httpGet(url, options = {}) {
-  return new Promise((resolve, reject) => {
-    const client = url.startsWith('https') ? https : http;
-    const req = client.get(url, options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
-
-    req.on('error', reject);
-    req.setTimeout(10000, () => {
-      req.destroy();
-      reject(new Error('Request timeout'));
-    });
+function pythonJson(code) {
+  const output = execFileSync(PYTHON, ['-c', code], {
+    cwd: ROOT,
+    env: { ...process.env, PYTHONPATH: `${COMMON}:${process.env.PYTHONPATH || ''}` },
+    timeout: 30000,
+    encoding: 'utf8',
   });
+  return JSON.parse(output);
 }
 
 /**
  * 获取板块数据
  */
 async function fetchBoardData() {
-  const params = new URLSearchParams({
-    pn: '1',
-    pz: '50',
-    po: '1',
-    np: '1',
-    ut: 'bd1d9ddb04089700cf9c27f6f7426281',
-    fltt: '2',
-    invt: '2',
-    fid: 'f3',
-    fs: 'm:90+t:2',
-    fields: 'f1,f2,f3,f4,f5,f6,f7,f12,f14',
-  });
-
-  const url = `${CONFIG.eastmoneyBoardApi}?${params.toString()}`;
-  const options = {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-      'Referer': 'http://quote.eastmoney.com/',
-    },
-  };
-
   try {
-    const data = await httpGet(url, options);
-    const boards = [];
-
-    if (data?.data?.diff) {
-      data.data.diff.forEach((item) => {
-        const changeVal = item.f3 || 0;
-        const changeStr = changeVal > 0 ? `+${changeVal.toFixed(2)}%` : `${changeVal.toFixed(2)}%`;
-
-        boards.push({
-          code: item.f12 || '',
-          name: item.f14 || '',
-          change: changeStr,
-          amount: item.f6 || 0,
-        });
-      });
-    }
-
-    return boards;
+    return pythonJson(`
+import json, sys
+sys.path.insert(0, ${JSON.stringify(COMMON)})
+from market_adapters import fetch_board_quotes
+rows = []
+for item in fetch_board_quotes():
+    change = item.get("f3")
+    change = 0 if change is None else float(change)
+    rows.append({
+        "code": str(item.get("f12") or ""),
+        "name": str(item.get("f14") or ""),
+        "change": ("+" if change > 0 else "") + f"{change:.2f}%",
+        "amount": item.get("f6") or item.get("f62") or 0,
+    })
+print(json.dumps(rows, ensure_ascii=False))
+`);
   } catch (e) {
-    console.error(`[ERROR] API 获取板块数据失败: ${e.message}`);
+    console.error(`[ERROR] 获取板块数据失败: ${e.message}`);
     return [];
   }
 }
@@ -94,48 +54,26 @@ async function fetchBoardData() {
  * 获取大盘指数数据
  */
 async function fetchIndexData() {
-  const indicesConfig = [
-    { secid: '1.000001', key: 'sh_index', name: '上证指数' },
-    { secid: '0.399001', key: 'sz_index', name: '深证成指' },
-    { secid: '0.399006', key: 'cy_index', name: '创业板指' },
-    { secid: '1.000688', key: 'kc_index', name: '科创板指' },
-  ];
-
-  const result = { failed: [], success: [] };
-
-  for (const { secid, key, name } of indicesConfig) {
-    const params = new URLSearchParams({
-      secid: secid,
-      fields: 'f43,f44,f45,f46,f47,f48,f49,f50,f51,f52,f55,f57,f58,f60,f170,f171',
-    });
-
-    const url = `${CONFIG.eastmoneyStockApi}?${params.toString()}`;
-    const options = {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-        'Referer': 'http://quote.eastmoney.com/',
-      },
-    };
-
-    try {
-      const data = await httpGet(url, options);
-      if (data?.data) {
-        const d = data.data;
-        result[key] = (d.f43 / 100).toFixed(2);
-        result[`${key}_change`] = `${(d.f170 / 100).toFixed(2)}%`;
-        result.success.push(name);
-      } else {
-        throw new Error('数据为空');
-      }
-    } catch (e) {
-      console.error(`[ERROR] 获取 ${name} 失败: ${e.message}`);
-      result[key] = '--';
-      result[`${key}_change`] = '--';
-      result.failed.push(name);
-    }
+  try {
+    return pythonJson(`
+import json, sys
+sys.path.insert(0, ${JSON.stringify(COMMON)})
+from market_adapters import fetch_tencent_index_overview
+mapping = {"上证综指": "sh_index", "深证成指": "sz_index", "创业板指": "cy_index"}
+result = {"failed": [], "success": []}
+for row in fetch_tencent_index_overview().to_dict("records"):
+    key = mapping.get(row.get("名称"))
+    if not key:
+        continue
+    result[key] = f"{float(row.get('最新价') or 0):.2f}"
+    result[f"{key}_change"] = f"{float(row.get('涨跌幅') or 0):.2f}%"
+    result["success"].append(row.get("名称"))
+print(json.dumps(result, ensure_ascii=False))
+`);
+  } catch (e) {
+    console.error(`[ERROR] 获取指数数据失败: ${e.message}`);
+    return { failed: ['指数'], success: [], sh_index: '--', sh_index_change: '--' };
   }
-
-  return result;
 }
 
 /**

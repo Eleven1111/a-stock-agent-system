@@ -9,7 +9,6 @@
 import os
 import sys
 import argparse
-import urllib.parse
 from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -18,31 +17,16 @@ COMMON_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", "common"))
 if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
-from eastmoney_intelligence import eastmoney_json
-from http_client import DataSourceError
+from market_adapters import fetch_board_quotes
 from news_parser import parse_news
 from industry_chain import find_matching_chains
 
 
-# ====== 东方财富实时数据 ======
+# ====== 板块实时数据 ======
 
 def _dfcf_req(params, retries=2):
-    """通过统一东财适配器获取板块行情。"""
-    url = "https://push2.eastmoney.com/api/qt/clist/get"
-    params.setdefault("ut", "bd1d9ddb04089700cf9c27f6f7426281")
-    params.setdefault("fltt", "2")
-    params.setdefault("invt", "2")
-
-    qs = urllib.parse.urlencode(params)
-    full_url = f"{url}?{qs}"
-    try:
-        return eastmoney_json(
-            full_url,
-            required_path=("data", "diff"),
-            required_type=list,
-        )
-    except DataSourceError:
-        return {"data": {"diff": []}}
+    """Compatibility facade now backed by the resilient board quote chain."""
+    return {"data": {"diff": fetch_board_quotes()}}
 
 
 def _fetch_board_map():

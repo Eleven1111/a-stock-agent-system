@@ -30,7 +30,7 @@ from paths import env_file as _env_file
 
 
 def load_hermes_env() -> Dict[str, str]:
-    """加载 $HERMES_HOME/.env（默认 ~/.hermes/.env）到 os.environ"""
+    """加载 $HERMES_HOME/.env（默认 ~/.hermes/.env）到 os.environ，并确保代理绕过生效"""
     env_file = _env_file()
     if os.path.exists(env_file):
         with open(env_file) as f:
@@ -42,6 +42,12 @@ def load_hermes_env() -> Dict[str, str]:
                     v = v.strip().strip('"').strip("'")
                     if k not in os.environ:
                         os.environ[k] = v
+    # 确保 NO_PROXY 生效（urllib 在 import 时缓存代理设置，http_client.py
+    # 模块加载时已处理；这里再兜底一次，防止 .env 中有 NO_PROXY 覆盖）
+    no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy", "")
+    if no_proxy:
+        os.environ["NO_PROXY"] = no_proxy
+        os.environ["no_proxy"] = no_proxy
     return dict(os.environ)
 
 

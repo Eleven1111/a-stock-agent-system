@@ -836,11 +836,11 @@ def fetch_research_visits(code: str, page_size: int = 5) -> list[dict[str, Any]]
         "RPT_ORG_SURVEY",
         filter_str=f'(SECUCODE="{normalized}.{market}")',
         page_size=page_size,
-        sort_columns="NOTICEDATE",
+        sort_columns="NOTICE_DATE",
         sort_types="-1",
     )
     return [{
-        "date": _day(item.get("NOTICEDATE")),
+        "date": _day(item.get("NOTICE_DATE")),
         "org_count": _number(item.get("RECEPTIONAMOUNT")),
         "summary": str(item.get("MAINPOINT") or "")[:80],
     } for item in rows[:page_size]]
@@ -849,15 +849,22 @@ def fetch_research_visits(code: str, page_size: int = 5) -> list[dict[str, Any]]
 def fetch_insider_trades(code: str, page_size: int = 5) -> list[dict[str, Any]]:
     normalized = _code(code)
     market = _market_suffix(normalized)
-    rows = datacenter_query(
-        "RPT_HOLDER_TRADE_STOCK",
-        filter_str=f'(SECUCODE="{normalized}.{market}")',
-        page_size=page_size,
-        sort_columns="NOTICEDATE",
-        sort_types="-1",
-    )
+    # RPT_HOLDER_TRADE_STOCK was removed by Eastmoney (2026-06).
+    # Gracefully return empty instead of letting the error trigger circuit breaker.
+    try:
+        rows = datacenter_query(
+            "RPT_HOLDER_TRADE_STOCK",
+            filter_str=f'(SECUCODE="{normalized}.{market}")',
+            page_size=page_size,
+            sort_columns="NOTICE_DATE",
+            sort_types="-1",
+        )
+    except DataSourceError as exc:
+        if exc.status_code == 9501:
+            return []
+        raise
     return [{
-        "date": _day(item.get("NOTICEDATE")),
+        "date": _day(item.get("NOTICE_DATE")),
         "name": str(item.get("PARTICIPANTNAME") or ""),
         "direction": "增持" if str(item.get("TRADETYPE") or "") == "1" else "减持",
         "shares": _number(item.get("TRADENUM")),

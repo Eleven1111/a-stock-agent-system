@@ -40,7 +40,7 @@ import monitor_registry  # noqa: E402
 from config_registry import config_path  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
-from market_adapters import fetch_eastmoney_kline, fetch_tencent_kline, fetch_tencent_quote  # noqa: E402
+from market_adapters import fetch_a_share_daily_kline, fetch_tencent_quote  # noqa: E402
 from http_client import request_bytes  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot, write_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -360,17 +360,11 @@ def fetch_candidate_klines(candidates: Sequence[Mapping[str, Any]]) -> Dict[str,
         market = "sh" if code.startswith("6") else "sz"
         attempts = min(retries + 1, 2)
         for attempt in range(attempts):
-            bars = fetch_tencent_kline(code, market=market, days=70)
+            bars = fetch_a_share_daily_kline(code, market=market, days=70)
             if bars:
                 return code, bars
             if attempt + 1 < attempts:
                 time.sleep(0.25 * (2 ** attempt))
-        try:
-            bars = fetch_eastmoney_kline(code, market=market, days=70)
-            if bars:
-                return code, bars
-        except DataSourceError:
-            pass
         return code, []
 
     result: Dict[str, List[Dict[str, Any]]] = {}
