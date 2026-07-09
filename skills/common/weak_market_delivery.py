@@ -54,9 +54,6 @@ def naked_code(code: Any) -> str:
 
 def is_main_board_10cm(code: Any, name: str = "") -> bool:
     bare = naked_code(code)
-    upper_name = str(name or "").upper()
-    if "ST" in upper_name or "退" in upper_name:
-        return False
     return bare.startswith(("000", "001", "002", "003", "600", "601", "603", "605"))
 
 
@@ -85,7 +82,7 @@ def derive_weak_market_regime(market_timing: Mapping[str, Any] | None) -> dict[s
         reasons.append(f"上涨家数占比过低: {up_ratio:.1%}")
     if lu_ld_ratio is not None and lu_ld_ratio < 2.0:
         reasons.append(f"涨跌停比不足: {lu_ld_ratio:.2f}")
-    if isinstance(premium, (int, float)) and float(premium) <= 0.5:
+    if isinstance(premium, (int, float)) and float(premium) <= -1.0:
         reasons.append(f"昨日涨停溢价不足: {float(premium):.2f}%")
     if data_stale and reasons:
         reasons.append("弱市择时数据缺失或过期，交付口径收缩")
@@ -96,7 +93,7 @@ def derive_weak_market_regime(market_timing: Mapping[str, Any] | None) -> dict[s
         and (
             (up_ratio is not None and up_ratio < 0.20)
             or (limitdowns >= 50 and (lu_ld_ratio is None or lu_ld_ratio <= 1.5))
-            or (limitups <= 35 and (lu_ld_ratio is None or lu_ld_ratio < 2.0))
+            or (limitups <= 20 and (lu_ld_ratio is None or lu_ld_ratio < 2.0))
         )
     )
     rebound_window = bool(market.get("rebound_window"))

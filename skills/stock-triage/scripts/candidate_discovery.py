@@ -40,7 +40,7 @@ import monitor_registry  # noqa: E402
 from config_registry import config_path  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
-from market_adapters import fetch_tencent_kline, fetch_tencent_quote  # noqa: E402
+from market_adapters import fetch_eastmoney_kline, fetch_tencent_kline, fetch_tencent_quote  # noqa: E402
 from http_client import request_bytes  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot, write_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -365,6 +365,12 @@ def fetch_candidate_klines(candidates: Sequence[Mapping[str, Any]]) -> Dict[str,
                 return code, bars
             if attempt + 1 < attempts:
                 time.sleep(0.25 * (2 ** attempt))
+        try:
+            bars = fetch_eastmoney_kline(code, market=market, days=70)
+            if bars:
+                return code, bars
+        except DataSourceError:
+            pass
         return code, []
 
     result: Dict[str, List[Dict[str, Any]]] = {}
@@ -460,7 +466,7 @@ def load_signal_context_for_discovery(
         temperature = temperature_from_context(
             signal_ctx,
             event_asof=asof,
-            max_age_days=0,
+            max_age_days=1,
         )
         ranking_ctx = dict(signal_ctx) if temperature.get("context_fresh") else {}
         if not temperature.get("context_fresh"):
@@ -531,6 +537,22 @@ def load_cached_industry(asof: str) -> Mapping[str, str]:
     )
 
 
+def universe_sector_fallback(universe: Sequence[Mapping[str, Any]]) -> Dict[str, str]:
+    """Use exchange/universe sector fields when the external industry cache is missing."""
+    sectors: Dict[str, str] = {}
+    for item in universe:
+        code = candidate_pipeline.naked_code(item.get("code"))
+        sector = str(
+            item.get("sector")
+            or item.get("industry")
+            or item.get("sw_industry")
+            or ""
+        ).strip()
+        if code and sector:
+            sectors[code] = sector
+    return sectors
+
+
 def fetch_nl_screening_recall() -> Dict[str, Any]:
     """Second candidate-recall channel: natural-language screener backends.
 
@@ -599,6 +621,7 @@ def run_discovery(
     industry_provider: Callable[[str], Mapping[str, str]] = load_cached_industry,
     nl_screening_recall_provider: Callable[[], Mapping[str, Any]] = fetch_nl_screening_recall,
     settle_previous: bool = True,
+    max_ladder_age_days: int | None = None,
 ) -> Dict[str, Any]:
     config = load_config()
     universe_config = config["universe"]
@@ -611,6 +634,8 @@ def run_discovery(
     industry_by_code = dict(industry_provider(asof) or {})
     if industry_by_code:
         universe = industry_map.enrich_records(universe, industry_by_code)
+    else:
+        industry_by_code = universe_sector_fallback(universe)
 
     nl_recall_report: Dict[str, Any] | None = None
     if nl_screening_config.get("enabled", True):
@@ -675,6 +700,8 @@ def run_discovery(
         observe_recent_candidates(asof, quote_map)
     quotes = list(quote_map.values())
     selection_config = dict(config.get("hot_money_selection") or {})
+    if max_ladder_age_days is not None:
+        selection_config["max_ladder_age_days"] = int(max_ladder_age_days)
     prior_selection = read_json(hot_money_selection_file(), {})
     if str(prior_selection.get("asof") or "") >= asof:
         prior_selection = {}
@@ -736,6 +763,72 @@ def run_discovery(
             asof=asof,
             bars=list(kline_by_code.get(code) or []),
         )
+    # --- Extreme weak-market rescue: keep top-N candidates ---
+    # When the weak-market delivery gate downgrades ALL candidates to
+    # research_only, the brief output is completely blank.  Rescue the
+    # highest-scored candidates so the brief has at least a few actionable
+    # targets to display.
+    _RESCUE_TOP_N = 5
+    if result.get("candidate_count", 0) == 0:
+        market_timing = (
+            (selection_state or {}).get("market_timing") or {}
+        )
+        weak_market = market_timing.get("weak_market") or {}
+        extreme_weak = bool(weak_market.get("extreme_weak"))
+        if extreme_weak and result.get("evaluated_candidates"):
+            from weak_market_delivery import assess_delivery_quality
+
+            scored = sorted(
+                result["evaluated_candidates"],
+                key=lambda row: (
+                    -max(
+                        float(row.get("daban_score") or 0),
+                        float(row.get("trend_score") or 0),
+                    ),
+                    row.get("code") or "",
+                ),
+            )
+            rescued: list[dict] = []
+            for item in scored[:_RESCUE_TOP_N]:
+                selected_by = item.get("selected_by") or {}
+                lane = "daban" if selected_by.get("daban") else "trend"
+                quality = assess_delivery_quality(
+                    item,
+                    lane=lane,
+                    stage="D0_close_rescue",
+                    selection_state=selection_state,
+                )
+                override_quality = {
+                    **quality,
+                    "status": "deliverable_watch",
+                    "reasons": quality.get("reasons", [])
+                    + ["extreme_weak_market_rescue_top_n"],
+                }
+                rescued_item = dict(item)
+                rescued_item["delivery_quality"] = override_quality
+                rescued_item["rescued"] = True
+                strategy_id = hot_money_selection.selection_strategy_id(
+                    rescued_item, lane,
+                )
+                rescued_item["strategy_id"] = strategy_id
+                rescued_item["selection_context"] = hot_money_selection.selection_context_for(
+                    rescued_item, selection_state, window="D0_close",
+                )
+                code = candidate_pipeline.naked_code(rescued_item.get("code"))
+                rescued_item["research_evidence"] = build_research_evidence(
+                    code,
+                    strategy_id=strategy_id,
+                    asof=asof,
+                    bars=list(kline_by_code.get(code) or []),
+                )
+                rescued.append(rescued_item)
+            if rescued:
+                result["candidates"] = rescued
+                result["candidate_count"] = len(rescued)
+                result["warnings"] = list(result.get("warnings") or []) + [
+                    f"extreme_weak_market_rescued_top_{len(rescued)}"
+                ]
+
     evaluated = result.pop("evaluated_candidates")
     result.update({
         "asof": asof,
@@ -758,16 +851,26 @@ def run_discovery(
         "auction_scan_count": len(evaluated),
     })
     # --- candidate_count > 0 assertion ---
-    # If discovery ran successfully but produced zero candidates, this is an
-    # upstream data failure (stale quotes, broken provider, etc.) — not a
-    # normal "no opportunities" situation.  Flag it as an error so downstream
-    # DAG jobs and alerts can react.
+    # Zero deliverable candidates used to mean an upstream data failure. After
+    # the weak-market delivery gate, it can also be a valid "research-only"
+    # outcome: we still have ranked scan codes for auction intelligence, but no
+    # stock should be surfaced as an actionable watch target.
     if result.get("status") == "ready" and result.get("candidate_count", 0) == 0:
-        result["status"] = "error"
-        result["error"] = (
-            "candidate_count=0 after successful discovery — "
-            "likely stale quotes, broken provider, or universe filter too tight"
+        has_scan_universe = bool(result.get("auction_scan_codes"))
+        weak_regime = bool(
+            (((selection_state or {}).get("market_timing") or {}).get("weak_market") or {}).get("weak_regime")
         )
+        if has_scan_universe and weak_regime:
+            result["research_only"] = True
+            result["warnings"] = list(result.get("warnings") or []) + [
+                "candidate_count=0_after_weak_market_delivery_gate"
+            ]
+        else:
+            result["status"] = "error"
+            result["error"] = (
+                "candidate_count=0 after successful discovery — "
+                "likely stale quotes, broken provider, or universe filter too tight"
+            )
 
     _persist_pool(asof, result)
     atomic_write_json(hot_money_selection_file(), selection_state)
@@ -967,7 +1070,11 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
     return report
 
 
-def _check_pool_freshness(asof: str, as_json: bool = False) -> None:
+def _check_pool_freshness(
+    asof: str,
+    as_json: bool = False,
+    alert_mode: bool = False,
+) -> None:
     """Heartbeat check: verify the latest candidate pool exists, is fresh, and has candidates.
 
     Exit codes:
@@ -1006,8 +1113,16 @@ def _check_pool_freshness(asof: str, as_json: bool = False) -> None:
             issues.append(f"asof_mismatch:pool={pool_asof},expected={asof}")
 
     healthy = len(issues) == 0
+    alerts = []
+    if not healthy:
+        alerts.append({
+            "severity": "error",
+            "message": "候选池异常",
+            "issues": issues,
+        })
     report = {
         "schema": "candidate_pool_freshness_v1",
+        "status": "ok" if healthy else "error",
         "healthy": healthy,
         "asof": asof,
         "candidate_count": pool.get("candidate_count", 0) if pool else 0,
@@ -1015,6 +1130,7 @@ def _check_pool_freshness(asof: str, as_json: bool = False) -> None:
         "pool_asof": pool.get("asof") if pool else None,
         "generated_at": pool.get("generated_at") if pool else None,
         "issues": issues,
+        "alerts": alerts,
     }
 
     if as_json:
@@ -1025,7 +1141,7 @@ def _check_pool_freshness(asof: str, as_json: bool = False) -> None:
         else:
             print(f"❌ 候选池异常: {', '.join(issues)}")
 
-    raise SystemExit(0 if healthy else 1)
+    raise SystemExit(0 if (healthy or alert_mode) else 1)
 
 
 def main() -> None:
@@ -1045,16 +1161,22 @@ def main() -> None:
         help="Reuse a recent closing pool and scan only for cold start or expiry",
     )
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--max-ladder-age-days", type=int)
     parser.add_argument(
         "--check-freshness",
         action="store_true",
         help="Check if the latest candidate pool is fresh and has candidates; exit non-zero if stale or empty",
     )
+    parser.add_argument(
+        "--alert-mode",
+        action="store_true",
+        help="In freshness mode, report unhealthy pools as alert payloads and exit 0 for delivery",
+    )
     args = parser.parse_args()
 
     # --- freshness heartbeat mode ---
     if args.check_freshness:
-        _check_pool_freshness(asof=args.asof, as_json=args.json)
+        _check_pool_freshness(asof=args.asof, as_json=args.json, alert_mode=args.alert_mode)
         return
 
     try:
@@ -1067,6 +1189,7 @@ def main() -> None:
                 watch_limit=args.watch_limit,
                 prefilter_limit=args.prefilter_limit,
                 settle_previous=not args.no_settle,
+                max_ladder_age_days=args.max_ladder_age_days,
             )
             if args.bootstrap_if_missing:
                 result["bootstrap_status"] = "generated_missing_or_stale"
