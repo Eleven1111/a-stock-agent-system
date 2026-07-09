@@ -27,6 +27,15 @@ wencai:
   timeout_seconds: 10
   max_attempts: 2
 
+# 妙想 MCP（东方财富智能数据服务）。通过 MCP streamable-http 协议调用，
+# 使用 em_api_key 认证。当配置了 MIAOXIANG_API_KEY 时启用。
+miaoxiang:
+  enabled: true
+  base_url: "https://mxapi.eastmoney.com/mxds/mcp"
+  tool_name: "mx_stocks_screener"
+  timeout_seconds: 30
+  max_attempts: 2
+
 # 通用筛选条件模板：换手率/量比/涨停历史/市值/ST 过滤，均为通用规则，
 # 不含任何具体标的或板块名称。
 queries:

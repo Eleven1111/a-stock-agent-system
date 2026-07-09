@@ -38,10 +38,12 @@ except ImportError:  # pragma: no cover - script-style sys.path imports
 
 EASTMONEY_PROVIDER = "nl_screening_eastmoney"
 WENCAI_PROVIDER = "nl_screening_wencai"
+MIAOXIANG_PROVIDER = "nl_screening_miaoxiang"
 ENDPOINT_CLASS = "search"
 
 RECALL_SOURCE_EASTMONEY = "nl_screening_eastmoney"
 RECALL_SOURCE_WENCAI = "nl_screening_wencai"
+RECALL_SOURCE_MIAOXIANG = "nl_screening_miaoxiang"
 
 STATUS_OK = "ok"
 STATUS_DISABLED = "disabled"
@@ -303,6 +305,154 @@ def wencai_search(query: str, *, limit: int | None = None) -> list[dict[str, Any
     return candidates
 
 
+# ─── 妙想 MCP (东方财富智能数据服务) ───
+
+
+def miaoxiang_api_key() -> str:
+    return (os.environ.get("MIAOXIANG_API_KEY") or "").strip()
+
+
+def _parse_miaoxiang_response(payload: Any, query: str) -> list[dict[str, Any]]:
+    """Parse MCP JSON-RPC response for mx_stocks_screener tool."""
+    if not isinstance(payload, Mapping):
+        raise DataSourceError(
+            MIAOXIANG_PROVIDER,
+            "response root is not an object",
+            error_type=ErrorType.INVALID_RESPONSE,
+        )
+    result = payload.get("result")
+    if not isinstance(result, Mapping):
+        raise DataSourceError(
+            MIAOXIANG_PROVIDER,
+            "response missing result object",
+            error_type=ErrorType.INVALID_RESPONSE,
+        )
+    content_list = result.get("content")
+    if not isinstance(content_list, list) or not content_list:
+        raise DataSourceError(
+            MIAOXIANG_PROVIDER,
+            "result missing content array",
+            error_type=ErrorType.INVALID_RESPONSE,
+        )
+    # MCP returns [{"type": "text", "text": "{...json...}"}]
+    text_block = content_list[0]
+    if not isinstance(text_block, Mapping) or text_block.get("type") != "text":
+        raise DataSourceError(
+            MIAOXIANG_PROVIDER,
+            "content[0] is not a text block",
+            error_type=ErrorType.INVALID_RESPONSE,
+        )
+    try:
+        inner = json.loads(text_block["text"])
+    except (json.JSONDecodeError, KeyError) as exc:
+        raise DataSourceError(
+            MIAOXIANG_PROVIDER,
+            f"failed to parse inner JSON: {exc}",
+            error_type=ErrorType.INVALID_RESPONSE,
+        )
+    data = inner.get("data")
+    # data can be a list of sheet objects [{columns, items, sheetName}] or a dict
+    if isinstance(data, list) and data:
+        sheet = data[0]
+    elif isinstance(data, Mapping):
+        sheet = data
+    else:
+        raise DataSourceError(
+            MIAOXIANG_PROVIDER,
+            "inner JSON missing data object",
+            error_type=ErrorType.INVALID_RESPONSE,
+        )
+    if not isinstance(sheet, Mapping):
+        raise DataSourceError(
+            MIAOXIANG_PROVIDER,
+            "data sheet is not an object",
+            error_type=ErrorType.INVALID_RESPONSE,
+        )
+    columns = sheet.get("columns") or []
+    items = sheet.get("items") or []
+    # Find the code and name column indices
+    code_idx = -1
+    name_idx = -1
+    for i, col in enumerate(columns):
+        col_str = str(col)
+        if "代码" in col_str:
+            code_idx = i
+        elif "名称" in col_str:
+            name_idx = i
+    if code_idx < 0:
+        raise DataSourceError(
+            MIAOXIANG_PROVIDER,
+            "cannot find code column in response",
+            error_type=ErrorType.INVALID_RESPONSE,
+        )
+    candidates: list[dict[str, Any]] = []
+    for row in items:
+        if not isinstance(row, list) or len(row) <= code_idx:
+            continue
+        code = _code(row[code_idx])
+        name = str(row[name_idx]) if name_idx >= 0 and len(row) > name_idx else code
+        if not code:
+            continue
+        candidates.append({
+            "code": code,
+            "name": name,
+            "recall_source": RECALL_SOURCE_MIAOXIANG,
+            "recall_query": query,
+        })
+    return candidates
+
+
+def miaoxiang_search(query: str) -> list[dict[str, Any]]:
+    """Query the 妙想 MCP stock screener via direct HTTP.
+
+    Raises DataSourceError when not configured or on any failure.
+    """
+    api_key = miaoxiang_api_key()
+    if not api_key:
+        raise DataSourceError(
+            MIAOXIANG_PROVIDER,
+            "MIAOXIANG_API_KEY not configured",
+            error_type=ErrorType.UNKNOWN,
+            attempts=0,
+            timestamp="",
+        )
+    config = load_config()["miaoxiang"]
+    # MCP JSON-RPC 2.0 request
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": str(config.get("tool_name") or "mx_stocks_screener"),
+            "arguments": {"query": query},
+        },
+    }
+    request = build_request(
+        str(config["base_url"]),
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "em_api_key": api_key,
+        },
+        method="POST",
+    )
+    started = time.monotonic()
+    try:
+        result = request_json(
+            request,
+            source=MIAOXIANG_PROVIDER,
+            timeout=float(config["timeout_seconds"]),
+            max_attempts=int(config["max_attempts"]),
+        )
+    except DataSourceError:
+        _record_health(MIAOXIANG_PROVIDER, False, (time.monotonic() - started) * 1000)
+        raise
+    candidates = _parse_miaoxiang_response(result.data, query)
+    _record_health(MIAOXIANG_PROVIDER, True, (time.monotonic() - started) * 1000)
+    return candidates
+
+
 # ─── Orchestration ───
 
 
@@ -343,6 +493,7 @@ def recall_candidates(
     queries: Sequence[str] | None = None,
     eastmoney_fetcher=eastmoney_search,
     wencai_fetcher=wencai_search,
+    miaoxiang_fetcher=miaoxiang_search,
 ) -> dict[str, Any]:
     """Run every configured NL-screening backend over the generic query
     templates and return a per-channel status plus the union of candidates.
@@ -389,6 +540,22 @@ def recall_candidates(
         enabled=wencai_enabled and bool(wencai_api_key()),
         disabled_reason=wencai_disabled_reason,
         fetcher=wencai_fetcher,
+        all_candidates=all_candidates,
+    )
+
+    miaoxiang_cfg = config.get("miaoxiang") or {}
+    miaoxiang_enabled = bool(miaoxiang_cfg.get("enabled", True))
+    miaoxiang_disabled_reason = (
+        "channel disabled in config" if not miaoxiang_enabled
+        else None if miaoxiang_api_key()
+        else "MIAOXIANG_API_KEY not configured"
+    )
+    channels += _run_channel(
+        source=RECALL_SOURCE_MIAOXIANG,
+        template_queries=template_queries,
+        enabled=miaoxiang_enabled and bool(miaoxiang_api_key()),
+        disabled_reason=miaoxiang_disabled_reason,
+        fetcher=miaoxiang_fetcher,
         all_candidates=all_candidates,
     )
 

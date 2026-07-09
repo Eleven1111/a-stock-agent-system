@@ -214,6 +214,10 @@ def build_openclaw_commands(
             parts.extend(["--command-env", f"A_STOCK_STATE_ID={state_id}"])
         if env_file:
             parts.extend(["--command-env", f"A_STOCK_ENV_FILE={env_file}"])
+        # Pass API keys from environment
+        miaoxiang_key = os.environ.get("MIAOXIANG_API_KEY", "")
+        if miaoxiang_key:
+            parts.extend(["--command-env", f"MIAOXIANG_API_KEY={miaoxiang_key}"])
         parts.extend(_delivery_args(job))
         commands.append(" ".join(shlex.quote(value) for value in parts))
     return commands
