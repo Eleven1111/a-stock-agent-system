@@ -158,8 +158,8 @@ def validate(filepath):
             errors.append(f"job[{i}] ({jid}) invalid deliver: {job.get('deliver')}")
 
         max_chars = job.get("max_output_chars")
-        if not isinstance(max_chars, int) or not (1 <= max_chars <= 50000):
-            errors.append(f"job[{i}] ({jid}) max_output_chars must be int in 1..50000")
+        if not isinstance(max_chars, int) or not (1 <= max_chars <= 8000):
+            errors.append(f"job[{i}] ({jid}) max_output_chars must be int in 1..8000")
 
         if not isinstance(job.get("context_from"), list):
             errors.append(f"job[{i}] ({jid}) context_from must be list")

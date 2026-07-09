@@ -55,6 +55,7 @@ def test_scheduled_news_monitor_fails_closed_without_serper(tmp_path, monkeypatc
 
 def test_scheduled_news_monitor_all_provider_errors_are_not_no_signal(monkeypatch):
     monitor = load_module("scheduled_news_monitor_all_fail_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: "test-key")
     monkeypatch.setattr(
         monitor,
         "fetch_news",
@@ -75,11 +76,7 @@ def test_scheduled_news_monitor_all_provider_errors_are_not_no_signal(monkeypatc
 
 def test_scheduled_news_monitor_uses_public_fallback_as_descriptive_only(monkeypatch):
     monitor = load_module("scheduled_news_monitor_fallback_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
-    monkeypatch.setattr(
-        monitor,
-        "fetch_news",
-        lambda *args, **kwargs: (_ for _ in ()).throw(monitor.DataSourceError("serper", "down")),
-    )
+    monkeypatch.setattr(monitor, "_serper_key", lambda: None)
     monkeypatch.setattr(
         monitor,
         "fetch_fallback_news",
@@ -104,11 +101,7 @@ def test_scheduled_news_monitor_uses_public_fallback_as_descriptive_only(monkeyp
 
 def test_scheduled_news_monitor_filters_irrelevant_public_fallback(monkeypatch):
     monitor = load_module("scheduled_news_monitor_fallback_filter_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
-    monkeypatch.setattr(
-        monitor,
-        "fetch_news",
-        lambda *args, **kwargs: (_ for _ in ()).throw(monitor.DataSourceError("serper", "down")),
-    )
+    monkeypatch.setattr(monitor, "_serper_key", lambda: None)
     monkeypatch.setattr(
         monitor,
         "fetch_fallback_news",
@@ -209,6 +202,7 @@ def test_scheduled_news_monitor_keeps_abnormal_volatility_as_warning_only():
 def test_scheduled_news_monitor_parses_event_time_and_latency(monkeypatch):
     monitor = load_module("scheduled_news_monitor_freshness_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
     now = datetime(2026, 6, 17, 10, 0)
+    monkeypatch.setattr(monitor, "_serper_key", lambda: "test-key")
     monkeypatch.setattr(
         monitor,
         "fetch_news",
@@ -239,6 +233,7 @@ def test_scheduled_news_monitor_parses_event_time_and_latency(monkeypatch):
 
 def test_scheduled_news_monitor_fails_closed_on_stale_news(monkeypatch):
     monitor = load_module("scheduled_news_monitor_stale_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: "test-key")
     monkeypatch.setattr(
         monitor,
         "fetch_news",
@@ -263,34 +258,6 @@ def test_scheduled_news_monitor_fails_closed_on_stale_news(monkeypatch):
     assert result["freshness"]["status"] == "stale"
     assert result["events"][0]["latency_minutes"] == 180
     assert result["signals"] == []
-
-
-def test_scheduled_news_monitor_drops_news_older_than_24_hours(monkeypatch):
-    monitor = load_module("scheduled_news_monitor_24h_filter_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
-    monkeypatch.setattr(
-        monitor,
-        "fetch_news",
-        lambda *args, **kwargs: [{
-            "title": "公司两天前获得订单",
-            "snippet": "订单金额显著",
-            "source": "测试源",
-            "date": "2 days ago",
-            "link": "https://example.com/news/old",
-        }],
-    )
-    monkeypatch.setattr(monitor, "update_catalyst_context", lambda events: {})
-
-    result = monitor.run_monitor(
-        ["测试股 600001 公告"],
-        limit=1,
-        freshness_sla_minutes=30,
-        now=datetime(2026, 6, 17, 10, 0),
-    )
-
-    assert result["status"] == "no_signal"
-    assert result["event_count"] == 0
-    assert result["signal_count"] == 0
-    assert result["age_filter"]["dropped_stale_count"] == 1
 
 
 def test_intraday_news_mode_uses_high_risk_stock_queries(monkeypatch):

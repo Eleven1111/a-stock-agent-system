@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
 from a_stock_http import load_hermes_env  # noqa: E402
 from data_access_config import news_monitor_settings  # noqa: E402
 from data_provider import fetch_public_finance_news, fetch_serper_news  # noqa: E402
+from data_provider import _next_serper_key as _serper_key  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from monitor_registry import active_entries  # noqa: E402
 from recommendation_quality import scan_announcement_risks  # noqa: E402
@@ -41,8 +42,6 @@ INTRADAY_LIMIT = int(_NEWS_CONFIG.get("intraday_limit", DEFAULT_LIMIT))
 INTRADAY_FRESHNESS_SLA_MINUTES = int(_NEWS_CONFIG.get("intraday_freshness_sla_minutes", 10))
 INTRADAY_CANDIDATE_LIMIT = int(_NEWS_CONFIG.get("intraday_candidate_limit", 20))
 SCHEDULED_STOCK_LIMIT = int(_NEWS_CONFIG.get("scheduled_stock_limit", 20))
-MAX_NEWS_AGE_MINUTES = 24 * 60
-RECENT_NEWS_TBS = "qdr:d,sbd:1"
 FALLBACK_NOISE_KEYWORDS = {
     "世界杯", "足球", "赛前", "比赛", "球队", "球员", "小将", "nba",
     "影视", "综艺", "明星", "票房", "演唱会", "游戏攻略",
@@ -85,9 +84,8 @@ def build_queries(base_queries: List[str] | None = None, *, mode: str = "schedul
     return list(dict.fromkeys(query for query in queries if query.strip()))
 
 
-def fetch_news(query: str, limit: int) -> List[Dict[str, Any]]:
-    # Let the provider adapter try the full SERPER_API_KEYS pool per query.
-    return fetch_serper_news(query, None, limit, tbs=RECENT_NEWS_TBS).data
+def fetch_news(query: str, api_key: str, limit: int) -> List[Dict[str, Any]]:
+    return fetch_serper_news(query, api_key, limit).data
 
 
 def fetch_fallback_news(limit: int) -> List[Dict[str, Any]]:
@@ -211,32 +209,6 @@ def evaluate_freshness(
     }
 
 
-def filter_recent_events(
-    events: List[Dict[str, Any]],
-    *,
-    max_age_minutes: int = MAX_NEWS_AGE_MINUTES,
-) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    recent: List[Dict[str, Any]] = []
-    dropped_unknown = 0
-    dropped_stale = 0
-    for event in events:
-        latency = event.get("latency_minutes")
-        if not isinstance(latency, int):
-            dropped_unknown += 1
-            continue
-        if latency < 0 or latency > max_age_minutes:
-            dropped_stale += 1
-            continue
-        recent.append(event)
-    return recent, {
-        "max_age_minutes": max_age_minutes,
-        "kept_count": len(recent),
-        "dropped_unknown_time_count": dropped_unknown,
-        "dropped_stale_count": dropped_stale,
-        "dropped_count": dropped_unknown + dropped_stale,
-    }
-
-
 def intraday_window_open(now: datetime | None = None) -> bool:
     ref = now or datetime.now()
     minute_of_day = ref.hour * 60 + ref.minute
@@ -300,33 +272,41 @@ def run_monitor(
         }
 
     load_hermes_env()
+    api_key = _serper_key()
     events: List[Dict[str, Any]] = []
     errors = []
     serper_events = 0
-    for query in queries:
-        try:
-            stock_code = stock_code_from_query(query)
-            fetched = fetch_news(query, limit)
-            serper_events += len(fetched)
-            for event in fetched:
-                events.append(
-                    enrich_event_timing(
-                        event,
-                        query=query,
-                        stock_code=stock_code,
-                        now=current,
+    if api_key:
+        for query in queries:
+            try:
+                stock_code = stock_code_from_query(query)
+                fetched = fetch_news(query, api_key, limit)
+                serper_events += len(fetched)
+                for event in fetched:
+                    events.append(
+                        enrich_event_timing(
+                            event,
+                            query=query,
+                            stock_code=stock_code,
+                            now=current,
+                        )
                     )
-                )
-        except DataSourceError as exc:
-            errors.append({"query": query, **exc.to_dict()})
-        except Exception as exc:
-            errors.append({
-                "query": query,
-                "source": "serper",
-                "error_type": "unexpected",
-                "error": str(exc),
-                "timestamp": current.isoformat(timespec="seconds"),
-            })
+            except DataSourceError as exc:
+                errors.append({"query": query, **exc.to_dict()})
+            except Exception as exc:
+                errors.append({
+                    "query": query,
+                    "source": "serper",
+                    "error_type": "unexpected",
+                    "error": str(exc),
+                    "timestamp": current.isoformat(timespec="seconds"),
+                })
+    else:
+        errors.append({
+            "source": "serper",
+            "error_type": "missing_credential",
+            "error": "SERPER_API_KEY/SERPER_API_KEYS missing",
+        })
 
     fallback_events = 0
     if not events:
@@ -354,7 +334,6 @@ def run_monitor(
             continue
         seen.add(key)
         deduped.append(classify_event(event))
-    deduped, age_filter = filter_recent_events(deduped)
     job_id = "news-monitor-intraday" if mode == "intraday" else "news-monitor"
     novelty = novelty_gate.filter_items(
         deduped,
@@ -409,7 +388,6 @@ def run_monitor(
             "serper_event_count": serper_events,
             "fallback_event_count": fallback_events,
         },
-        "age_filter": age_filter,
         "freshness": freshness,
         "errors": errors,
     }

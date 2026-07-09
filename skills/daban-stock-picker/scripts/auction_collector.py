@@ -153,9 +153,7 @@ def _shortlist_latest_path() -> str:
 
 def load_watch_pool(event_asof: str | None = None) -> Dict[str, Any]:
     pool = read_json(_pool_path(), {})
-    has_candidates = bool((pool or {}).get("candidates"))
-    has_scan_universe = bool((pool or {}).get("auction_scan_codes"))
-    if not isinstance(pool, dict) or pool.get("status") != "ready" or not (has_candidates or has_scan_universe):
+    if not isinstance(pool, dict) or pool.get("status") != "ready" or not pool.get("candidates"):
         raise DataSourceError("candidate_pool", "动态观察池缺失或不可用，请先运行 candidate-discovery")
     if event_asof:
         try:
@@ -184,7 +182,7 @@ def auction_scan_codes(
     full_universe: bool,
 ) -> List[str]:
     """Return deep-pool codes or the full eligible one-shot scan universe."""
-    source = pool.get("auction_scan_codes") if full_universe or not pool.get("candidates") else None
+    source = pool.get("auction_scan_codes") if full_universe else None
     if not source:
         return watch_pool_codes(pool)
     return list(dict.fromkeys(

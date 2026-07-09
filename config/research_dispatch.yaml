@@ -1,6 +1,0 @@
-schema: research_dispatch_config_v1
-triggers:
-  event_review:
-    enabled: true
-    min_expected_value_pct: 5.0
-    max_per_day: 5

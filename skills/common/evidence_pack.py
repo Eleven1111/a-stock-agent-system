@@ -16,7 +16,7 @@ import os
 from typing import Any
 
 from agent_state import load_agent_state
-from paths import cache_dir, data_file
+from paths import data_file
 from runtime_context import load_latest_artifact
 from state_store import atomic_write_json, read_json
 
@@ -124,30 +124,6 @@ def _artifact_entry(
     trading_date: str,
     limits: dict[str, Any],
 ) -> dict[str, Any]:
-    if job_id in {"company_event_opportunities", "company-event-opportunities"}:
-        event = _company_event_evidence("")
-        entry = {
-            "job_id": job_id,
-            "status": (event or {}).get("status"),
-            "trading_date": (event or {}).get("trading_date"),
-            "summary": (event or {}).get("summary") or {},
-            "artifact": (event or {}).get("artifact"),
-        }
-        if event and event.get("trading_date") not in (None, trading_date):
-            entry["stale"] = True
-        return _fit(entry, int(limits.get("artifact_chars") or 1500))
-    if job_id == "behavioral_finance_context":
-        behavior = _behavioral_finance_evidence()
-        entry = {
-            "job_id": job_id,
-            "status": (behavior or {}).get("status"),
-            "trading_date": (behavior or {}).get("trading_date"),
-            "summary": (behavior or {}).get("summary") or {},
-            "artifact": (behavior or {}).get("artifact"),
-        }
-        if behavior and behavior.get("trading_date") not in (None, trading_date):
-            entry["stale"] = True
-        return _fit(entry, int(limits.get("artifact_chars") or 1500))
     artifact = load_latest_artifact(job_id)
     if not artifact:
         return {"job_id": job_id, "missing": True}
@@ -232,68 +208,6 @@ _NEWS_FIELDS = (
 )
 DEFAULT_NEWS_LOOKBACK_DAYS = 7
 DEFAULT_NEWS_MAX_ITEMS = 8
-_EVENT_RESEARCH_KINDS = {"event_review", "anomaly_review"}
-
-
-def _company_event_evidence(subject_code: str) -> dict[str, Any] | None:
-    """Company-event opportunity context for event/anomaly reviews.
-
-    Reads the latest deterministic artifact only. Missing data is surfaced as a
-    status instead of being interpreted as no event risk/opportunity.
-    """
-    path = data_file("company-event-opportunities", "latest.json")
-    payload = read_json(path, None)
-    if not isinstance(payload, dict):
-        return {"status": "missing", "artifact": path, "items": []}
-    items: list[dict[str, Any]] = []
-    for item in payload.get("opportunities") or payload.get("events") or []:
-        if not isinstance(item, dict):
-            continue
-        code = _norm_code(item.get("code") or item.get("stock_code"))
-        if subject_code and code != subject_code:
-            continue
-        items.append({
-            key: item.get(key)
-            for key in (
-                "code", "name", "event_type", "event_label", "event_status",
-                "source_rank", "announced_at", "milestones", "upside_pct",
-                "downside_pct", "success_probability", "expected_value_pct",
-                "time_horizon_days", "risk_level", "risk_flags", "suggestion",
-                "directional_ready", "evidence",
-            )
-            if item.get(key) is not None
-        })
-    return {
-        "status": payload.get("status") or "ready",
-        "artifact": path,
-        "generated_at": payload.get("generated_at"),
-        "trading_date": payload.get("trading_date"),
-        "items": items[:8],
-        "matched_count": len(items),
-        "summary": payload.get("summary") or {},
-    }
-
-
-def _behavioral_finance_evidence() -> dict[str, Any] | None:
-    """Latest behavioral-finance context; explanation/research only."""
-    path = os.path.join(cache_dir("stock-triage"), "behavioral_finance_context.json")
-    payload = read_json(path, None)
-    if not isinstance(payload, dict):
-        return {"status": "missing", "artifact": path}
-    return {
-        "status": payload.get("status") or "ready",
-        "artifact": path,
-        "generated_at": payload.get("generated_at"),
-        "trading_date": payload.get("trading_date"),
-        "sentiment_phase": payload.get("sentiment_phase"),
-        "sentiment_score": payload.get("sentiment_score"),
-        "overreaction": payload.get("overreaction"),
-        "underreaction": payload.get("underreaction"),
-        "strategy_adjustments": payload.get("strategy_adjustments"),
-        "debiasing_checklist": (payload.get("debiasing_checklist") or [])[:5],
-        "summary": payload.get("summary") or {},
-        "unavailable": payload.get("unavailable") or [],
-    }
 
 
 def _news_sectors_for_subject(subject_code: str) -> list[str]:
@@ -455,56 +369,44 @@ def _subject_data(
     *,
     task: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    kind = str((task or {}).get("kind") or "")
-    include_event_context = kind in _EVENT_RESEARCH_KINDS
-    if not subject_code and not include_event_context:
+    if not subject_code:
         return None
     data: dict[str, Any] = {}
-    if subject_code:
-        pool = read_json(data_file("stock-triage", "candidate_pool_latest.json"), {})
-        for candidate in (pool or {}).get("candidates") or []:
-            if _norm_code((candidate or {}).get("code")) == subject_code:
-                data["candidate_entry"] = candidate
-                data["candidate_pool_date"] = (pool or {}).get("trading_date")
-                break
-    cache = None
-    if subject_code:
-        try:
-            from deep_research_cache import read_deep_research
+    pool = read_json(data_file("stock-triage", "candidate_pool_latest.json"), {})
+    for candidate in (pool or {}).get("candidates") or []:
+        if _norm_code((candidate or {}).get("code")) == subject_code:
+            data["candidate_entry"] = candidate
+            data["candidate_pool_date"] = (pool or {}).get("trading_date")
+            break
+    try:
+        from deep_research_cache import read_deep_research
 
-            cache = read_deep_research(subject_code, today=trading_date)
-        except Exception:
-            cache = None
-        if isinstance(cache, dict):
-            data["deep_research"] = {
-                key: cache.get(key)
-                for key in ("asof", "stale", "age_days", "scores", "summary")
-                if cache.get(key) is not None
-            }
-        try:
-            import theme_registry
+        cache = read_deep_research(subject_code, today=trading_date)
+    except Exception:
+        cache = None
+    if isinstance(cache, dict):
+        data["deep_research"] = {
+            key: cache.get(key)
+            for key in ("asof", "stale", "age_days", "scores", "summary")
+            if cache.get(key) is not None
+        }
+    try:
+        import theme_registry
 
-            theme_stage = theme_registry.theme_stage_for_code(subject_code, asof=trading_date)
-        except Exception:  # noqa: BLE001 - theme lookup must never block a pack
-            theme_stage = None
-        if theme_stage:
-            data["theme_stage"] = theme_stage
-        interactive_qa = _interactive_qa_evidence(subject_code)
-        if interactive_qa is not None:
-            data["interactive_qa"] = interactive_qa
-        news_evidence = _news_evidence(subject_code)
-        if news_evidence is not None:
-            data["news_evidence"] = news_evidence
-        pack_hints = _strategy_pack_hints(data.get("candidate_entry"), trading_date)
-        if pack_hints is not None:
-            data["strategy_pack_hints"] = pack_hints
-    if include_event_context:
-        company_event = _company_event_evidence(subject_code)
-        if company_event is not None:
-            data["company_event_evidence"] = company_event
-        behavioral = _behavioral_finance_evidence()
-        if behavioral is not None:
-            data["behavioral_finance_evidence"] = behavioral
+        theme_stage = theme_registry.theme_stage_for_code(subject_code, asof=trading_date)
+    except Exception:  # noqa: BLE001 - theme lookup must never block a pack
+        theme_stage = None
+    if theme_stage:
+        data["theme_stage"] = theme_stage
+    interactive_qa = _interactive_qa_evidence(subject_code)
+    if interactive_qa is not None:
+        data["interactive_qa"] = interactive_qa
+    news_evidence = _news_evidence(subject_code)
+    if news_evidence is not None:
+        data["news_evidence"] = news_evidence
+    pack_hints = _strategy_pack_hints(data.get("candidate_entry"), trading_date)
+    if pack_hints is not None:
+        data["strategy_pack_hints"] = pack_hints
     gap_reason = _deep_research_gap(cache)
     if gap_reason and task is not None:
         pulled_reason = _maybe_pull_serenity_refresh(

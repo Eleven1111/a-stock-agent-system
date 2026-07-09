@@ -134,23 +134,6 @@ def test_auction_scan_codes_prefer_full_eligible_universe():
     ]
 
 
-def test_auction_scan_codes_fall_back_to_scan_universe_when_delivery_pool_empty(tmp_path, monkeypatch):
-    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    pool = {
-        "status": "ready",
-        "asof": "2026-07-08",
-        "candidates": [],
-        "auction_scan_codes": ["600001", "sz000811", "sh600003"],
-    }
-    atomic_write_json(ac._pool_path(), pool)
-
-    assert ac.load_watch_pool("2026-07-08")["auction_scan_codes"] == pool["auction_scan_codes"]
-    assert ac.auction_scan_codes(pool, full_universe=False) == [
-        "sh600001", "sz000811", "sh600003",
-    ]
-
-
 def test_full_universe_single_snapshot_keeps_pool_outsider_for_research(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(

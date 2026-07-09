@@ -5,9 +5,6 @@ from __future__ import annotations
 import os
 from typing import Any, Mapping, Optional
 
-from paths import cache_dir
-from state_store import read_json
-
 
 POSITIVE_ACTIONS = {"buy", "add", "conditional_buy"}
 EXIT_ACTIONS = {"sell", "reduce"}
@@ -56,9 +53,6 @@ GUARDRAIL_REASON_CODES: dict[str, str] = {
     "market_state_ebbing_reduced": "temperature_gate",
     "crowding_climax_reduced": "temperature_gate",
     "crowding_climax_observed": "temperature_gate",
-    "behavioral_euphoria_tighten": "behavioral_finance_gate",
-    "behavioral_panic_research_only": "behavioral_finance_gate",
-    "behavioral_finance_context_missing": "behavioral_finance_gate",
     # 打板纪律熔断
     "day_loss_stop": "discipline_gate",
     "week_trade_cap": "discipline_gate",
@@ -112,24 +106,6 @@ def _score(value: Any) -> Optional[float]:
         return None
 
 
-def _read_behavioral_finance_context() -> dict[str, Any]:
-    path = os.path.join(cache_dir("stock-triage"), "behavioral_finance_context.json")
-    value = read_json(path, {})
-    if not isinstance(value, dict) or not value:
-        return {"status": "missing", "artifact": path}
-    return {**value, "artifact": path}
-
-
-def _behavioral_extreme(context: Mapping[str, Any]) -> str | None:
-    phase = str(context.get("sentiment_phase") or "").lower()
-    score = _score(context.get("sentiment_score"))
-    if phase == "euphoria" or (score is not None and score > 85):
-        return "euphoria"
-    if phase == "panic" or (score is not None and score < 20):
-        return "panic"
-    return None
-
-
 # 市场状态 → (continue, constructive_divergence, collapse) 情景基准概率(报告 7.3)。
 # 启发式映射, 非校准模型; 高脆弱时向 collapse 倾斜。
 SCENARIO_BASE = {
@@ -179,8 +155,6 @@ def evaluate_decision(
     reasons: list[str] = []
     decision = action
     multiplier = 1.0
-    behavioral_context = _read_behavioral_finance_context()
-    behavioral_state = _behavioral_extreme(behavioral_context)
 
     if action in EXIT_ACTIONS and t1_block:
         decision = "hold_locked"
@@ -280,14 +254,6 @@ def evaluate_decision(
                 else:
                     reasons.append("crowding_climax_observed")
 
-        if behavioral_state == "euphoria" and decision in POSITIVE_ACTIONS:
-            multiplier = min(multiplier, 0.5)
-            reasons.append("behavioral_euphoria_tighten")
-        elif behavioral_state == "panic":
-            reasons.append("behavioral_panic_research_only")
-        elif behavioral_context.get("status") == "missing":
-            reasons.append("behavioral_finance_context_missing")
-
     return {
         "schema": "a_share_decision_policy_v1",
         "requested_action": action,
@@ -300,22 +266,6 @@ def evaluate_decision(
         "discipline_state": dict(discipline_state or {}),
         "research_evidence": dict(research_evidence or {}),
         "market_crowding": dict(market_crowding or {}),
-        "behavioral_finance_policy": {
-            "status": behavioral_context.get("status"),
-            "artifact": behavioral_context.get("artifact"),
-            "sentiment_phase": behavioral_context.get("sentiment_phase"),
-            "sentiment_score": behavioral_context.get("sentiment_score"),
-            "extreme_state": behavioral_state,
-            "reason_code": (
-                "behavioral_euphoria_tighten"
-                if behavioral_state == "euphoria"
-                else "behavioral_panic_research_only"
-                if behavioral_state == "panic"
-                else "behavioral_finance_context_missing"
-                if behavioral_context.get("status") == "missing"
-                else None
-            ),
-        },
         "expected_paths": _expected_paths(market_crowding),
         "expected_paths_calibrated": False,
         "abstain": decision == "watch",

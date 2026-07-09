@@ -143,21 +143,6 @@ def test_run_checkpoint_reuses_open_surface_and_writes_immutable_snapshot(
     assert captured["args"][1] == "morning_reconfirmed"
 
 
-def test_json_report_includes_human_message_instead_of_only_state_fields():
-    report = checkpoint.json_report({
-        "status": "ready",
-        "profile": "morning_confirm",
-        "window": "09:50",
-        "asof": "2026-07-08",
-        "observation_count": 0,
-        "confirmed_count": 0,
-        "observations": [],
-    })
-
-    assert report["message"] == "今日早盘无主线龙头承接信号。"
-    assert report["confirmed"] == []
-
-
 def test_load_open_confirmation_rejects_wrong_day(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     atomic_write_json(

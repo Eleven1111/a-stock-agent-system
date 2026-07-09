@@ -20,6 +20,7 @@ sys.path.insert(0, COMMON)
 
 from a_stock_http import load_hermes_env  # noqa: E402
 from data_provider import fetch_serper_news  # noqa: E402
+from data_provider import _next_serper_key as _serper_key  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 
 
@@ -73,8 +74,20 @@ def run_pulse(
             "signals": [],
         }
 
+    api_key = _serper_key()
+    if not api_key:
+        return {
+            "schema": "market_pulse_digest_v1",
+            "status": "insufficient_data",
+            "profile": profile,
+            "generated_at": current.isoformat(timespec="seconds"),
+            "message": "SERPER_API_KEY missing; no market pulse judgement",
+            "events": [],
+            "signals": [],
+        }
+
     try:
-        result = fetch_serper_news(selected["query"], None, max(1, int(limit)))
+        result = fetch_serper_news(selected["query"], api_key, max(1, int(limit)))
         events = result.data if hasattr(result, "data") else []
     except DataSourceError as exc:
         return {

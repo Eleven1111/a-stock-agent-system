@@ -6,34 +6,6 @@
   "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
   "jobs": [
     {
-      "id": "morning-note",
-      "name": "07点晨会纪要",
-      "schedule": "0 7 * * 1-5",
-      "timezone": "Asia/Shanghai",
-      "command": "python scripts/run_agent_dag.py morning-note --emit-target",
-      "cwd": ".",
-      "enabled": true,
-      "external": true,
-      "expected_output": "text",
-      "silent_when_no_signal": false,
-      "execution_mode": "isolated_subprocess",
-      "context_scope": "cron",
-      "deliver": "feishu_direct",
-      "max_output_chars": 4500,
-      "context_from": [],
-      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
-      "allowed_state_writes": [
-        "$A_STOCK_STATE_HOME/cron/output/morning-note/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
-      ],
-      "run": {
-        "command": "python scripts/morning_note.py --json-lines-safe",
-        "cwd": ".",
-        "timeout_seconds": 30
-      },
-      "external_note": "07:00 聚合最新可用隔夜/新闻/公司事件/日历/行为金融上下文，输出飞书直读晨会纪要"
-    },
-    {
       "id": "provider-health",
       "name": "外部数据源健康探针",
       "schedule": "5 8 * * 1-5",
@@ -74,8 +46,8 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "feishu_direct",
-      "max_output_chars": 30000,
+      "deliver": "origin",
+      "max_output_chars": 4000,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -85,7 +57,7 @@
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/market_context.json"
       ],
       "run": {
-        "command": "python skills/global-market-monitor/scripts/monitor.py --json --cache",
+        "command": "python skills/global-market-monitor/scripts/monitor.py --json --cache --delivery-job-id global-preopen",
         "cwd": ".",
         "timeout_seconds": 120
       },
@@ -94,7 +66,7 @@
     {
       "id": "global-evening",
       "name": "全球市场晚间扫描",
-      "schedule": "30 22 * * 0",
+      "schedule": "30 22 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py global-evening --emit-target",
       "cwd": ".",
@@ -127,42 +99,13 @@
       "external_note": "需 Hermes Agent cron 运行时；默认仅归档，避免晚间例行输出污染主线"
     },
     {
-      "id": "company-event-opportunity-scan",
-      "name": "公司事件机会扫描",
-      "schedule": "35 8 * * 1-5",
-      "timezone": "Asia/Shanghai",
-      "command": "python scripts/run_agent_dag.py company-event-opportunity-scan --emit-target",
-      "cwd": ".",
-      "enabled": true,
-      "external": true,
-      "expected_output": "json",
-      "silent_when_no_signal": true,
-      "execution_mode": "isolated_subprocess",
-      "context_scope": "cron",
-      "deliver": "local",
-      "max_output_chars": 3000,
-      "context_from": [],
-      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
-      "allowed_state_writes": [
-        "$A_STOCK_STATE_HOME/skills/company-event-opportunities/data/",
-        "$A_STOCK_STATE_HOME/cron/output/company-event-opportunity-scan/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
-      ],
-      "run": {
-        "command": "python skills/company-event-opportunities/scripts/scan.py --scope runtime --json",
-        "cwd": ".",
-        "timeout_seconds": 180
-      },
-      "external_note": "08:35 扫描运行态标的的重组、资产注入、回购增持、分拆、指数调整、解禁减持、管理层变更；只产出 watch/review/avoid"
-    },
-    {
       "id": "social-attention-preopen",
       "name": "社会关注度盘前快照",
       "schedule": "42 8 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py social-attention-preopen --emit-target",
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": false,
@@ -185,44 +128,6 @@
         "timeout_seconds": 60
       },
       "external_note": "08:42 多源采集东方财富/雪球社会关注度；单源仅展示，失败不阻断交易主链路"
-    },
-    {
-      "id": "behavioral-finance-preopen",
-      "name": "行为金融盘前上下文",
-      "schedule": "43 8 * * 1-5",
-      "timezone": "Asia/Shanghai",
-      "command": "python scripts/run_agent_dag.py behavioral-finance-preopen --emit-target",
-      "cwd": ".",
-      "enabled": true,
-      "external": true,
-      "expected_output": "json",
-      "silent_when_no_signal": true,
-      "execution_mode": "isolated_subprocess",
-      "context_scope": "cron",
-      "deliver": "local",
-      "max_output_chars": 3000,
-      "context_from": [
-        "social-attention-preopen"
-      ],
-      "dependency_policy": {
-        "trading_date": "same_trading_date",
-        "max_age_minutes": 90,
-        "optional_jobs": [
-          "social-attention-preopen"
-        ]
-      },
-      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
-      "allowed_state_writes": [
-        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/behavioral_finance_context.json",
-        "$A_STOCK_STATE_HOME/cron/output/behavioral-finance-preopen/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
-      ],
-      "run": {
-        "command": "python scripts/behavioral_finance_digest.py --stage preopen --json",
-        "cwd": ".",
-        "timeout_seconds": 60
-      },
-      "external_note": "08:43 聚合关注度、拥挤脆弱性与 Agent 行为风险；首期只做解释和风控提示"
     },
     {
       "id": "candidate-preopen",
@@ -263,7 +168,7 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python skills/stock-triage/scripts/candidate_discovery.py --bootstrap-if-missing --no-settle --json --max-ladder-age-days 1",
+        "command": "python skills/stock-triage/scripts/candidate_discovery.py --bootstrap-if-missing --no-settle --json",
         "cwd": ".",
         "timeout_seconds": 420
       },
@@ -304,7 +209,7 @@
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py social-attention-midday --emit-target",
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": false,
@@ -335,7 +240,7 @@
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py social-attention-close --emit-target",
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": false,
@@ -442,7 +347,6 @@
         "trading_date": "same_trading_date",
         "max_age_minutes": 180,
         "optional_jobs": [
-          "hk-a-linkage",
           "social-attention-close"
         ]
       },
@@ -464,45 +368,6 @@
         "timeout_seconds": 420
       },
       "external_note": "15:07 全市场扫描并生成约500只双策略深度观察池；社会关注度仅作可选弱证据"
-    },
-    {
-      "id": "behavioral-finance-close",
-      "name": "行为金融收盘诊断",
-      "schedule": "12 15 * * 1-5",
-      "timezone": "Asia/Shanghai",
-      "command": "python scripts/run_agent_dag.py behavioral-finance-close --emit-target",
-      "cwd": ".",
-      "enabled": true,
-      "external": true,
-      "expected_output": "json",
-      "silent_when_no_signal": true,
-      "execution_mode": "isolated_subprocess",
-      "context_scope": "cron",
-      "deliver": "local",
-      "max_output_chars": 3000,
-      "context_from": [
-        "hot-money-context",
-        "social-attention-close"
-      ],
-      "dependency_policy": {
-        "trading_date": "same_trading_date",
-        "max_age_minutes": 90,
-        "optional_jobs": [
-          "social-attention-close"
-        ]
-      },
-      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
-      "allowed_state_writes": [
-        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/behavioral_finance_context.json",
-        "$A_STOCK_STATE_HOME/cron/output/behavioral-finance-close/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
-      ],
-      "run": {
-        "command": "python scripts/behavioral_finance_digest.py --stage close --json",
-        "cwd": ".",
-        "timeout_seconds": 90
-      },
-      "external_note": "15:12 收盘行为金融诊断，位于热钱/社会关注之后，四维评分之前"
     },
     {
       "id": "auction-snapshot",
@@ -795,7 +660,7 @@
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py intraday-alert --emit-target",
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": true,
@@ -844,6 +709,7 @@
       "deliver": "feishu_direct",
       "max_output_chars": 3500,
       "context_from": [
+        "intraday-alert",
         "open-confirmation"
       ],
       "dependency_policy": {
@@ -957,10 +823,7 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 30,
-        "optional_jobs": [
-          "four-dim-scorer"
-        ]
+        "max_age_minutes": 30
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -996,10 +859,7 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 90,
-        "optional_jobs": [
-          "four-dim-scorer"
-        ]
+        "max_age_minutes": 90
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -1017,7 +877,7 @@
     {
       "id": "stock-intelligence-refresh",
       "name": "候选筹码与机构证据刷新",
-      "schedule": "40 15 * * 0",
+      "schedule": "40 15 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py stock-intelligence-refresh --emit-target",
       "cwd": ".",
@@ -1058,7 +918,7 @@
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py serenity-refresh-plan --emit-target",
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": true,
@@ -1250,7 +1110,7 @@
     {
       "id": "official-policy-watch",
       "name": "官方政策源分钟级监控",
-      "schedule": "3,33 9-11,13-14 * * 1-5",
+      "schedule": "3,13,23,33,43,53 8-22 * * *",
       "timezone": "Asia/Shanghai",
       "trading_day_policy": "calendar_day",
       "command": "python scripts/run_agent_dag.py official-policy-watch --emit-target",
@@ -1277,40 +1137,7 @@
         "cwd": ".",
         "timeout_seconds": 120
       },
-      "external_note": "工作日盘中每30分钟轮询国务院/部委/交易所/新华社等一手官方源；只在出现未见过的政策信号时推送",
-      "adaptive_backoff": true
-    },
-    {
-      "id": "official-policy-watch-evening",
-      "name": "官方政策源晚间监控",
-      "schedule": "3 22 * * 1-5",
-      "timezone": "Asia/Shanghai",
-      "trading_day_policy": "calendar_day",
-      "command": "python scripts/run_agent_dag.py official-policy-watch-evening --emit-target",
-      "cwd": ".",
-      "enabled": true,
-      "external": true,
-      "expected_output": "json",
-      "silent_when_no_signal": true,
-      "execution_mode": "isolated_subprocess",
-      "context_scope": "cron",
-      "deliver": "feishu_direct",
-      "max_output_chars": 3000,
-      "context_from": [],
-      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
-      "allowed_state_writes": [
-        "$A_STOCK_STATE_HOME/skills/policy-intent-decoder/data/",
-        "$A_STOCK_STATE_HOME/cron/output/official-policy-watch-evening/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
-        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
-        "$A_STOCK_STATE_HOME/delivery/"
-      ],
-      "run": {
-        "command": "python skills/policy-intent-decoder/scripts/watch_official_policy.py --json",
-        "cwd": ".",
-        "timeout_seconds": 120
-      },
-      "external_note": "工作日22:03补充一次晚间官方政策源轮询；只在出现未见过的政策信号时推送",
+      "external_note": "08:00-22:00 每10分钟轮询国务院/部委/交易所/新华社等一手官方源；只在出现未见过的政策信号时推送",
       "adaptive_backoff": true
     },
     {
@@ -1372,7 +1199,7 @@
     {
       "id": "news-monitor-intraday",
       "name": "盘中资讯快扫 — 持仓/候选/关注标的",
-      "schedule": "2,32 9-11,13-14 * * 1-5",
+      "schedule": "2,17,32,47 9-11,13-14 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command": "python scripts/run_agent_dag.py news-monitor-intraday --emit-target",
       "cwd": ".",
@@ -1676,27 +1503,17 @@
       "name": "候选池新鲜度检查",
       "schedule": "15 15 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/run_agent_dag.py candidate-freshness-check --emit-target",
+      "command": "python skills/stock-triage/scripts/candidate_discovery.py --check-freshness --json",
       "cwd": ".",
       "enabled": true,
       "external": true,
       "expected_output": "json",
-      "silent_when_no_signal": true,
+      "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "feishu_direct",
+      "deliver": "local",
       "max_output_chars": 2000,
-      "context_from": [],
-      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
-      "allowed_state_writes": [
-        "$A_STOCK_STATE_HOME/cron/output/candidate-freshness-check/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
-      ],
-      "run": {
-        "command": "python skills/stock-triage/scripts/candidate_discovery.py --check-freshness --json --alert-mode",
-        "cwd": ".",
-        "timeout_seconds": 60
-      },
+      "timeout_seconds": 60,
       "accepted_statuses": [
         "ok"
       ],

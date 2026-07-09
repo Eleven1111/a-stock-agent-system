@@ -114,7 +114,9 @@ def _hard_pool_rejections(candidate: Dict[str, Any]) -> List[str]:
     rejections = []
 
     if limit_pct(code, name) != 10.0 or not code.startswith(("00", "60")):
-        rejections.append("仅支持A股主板10cm打板，排除创业板/科创板/北交所")
+        rejections.append("仅支持A股主板10cm打板，排除创业板/科创板/北交所/ST")
+    if _bool(candidate.get("is_st"), False):
+        rejections.append("ST/*ST股票一票否决")
     if _num(candidate.get("listed_days"), 9999) < _UNI["listed_days_min"]:
         rejections.append("上市未满60天")
 

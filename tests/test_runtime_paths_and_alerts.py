@@ -74,7 +74,7 @@ def test_runtime_scripts_honor_env_file_under_hermes_home(tmp_path, monkeypatch)
     )
 
     assert os.environ["SERPER_API_KEYS"] == "key1,key2"
-    assert news._fetch_serper_news.__module__ == "data_provider"
+    assert news._next_serper_key() in {"key1", "key2"}
     assert os.environ["NO_PROXY"] == ".eastmoney.com"
 
 

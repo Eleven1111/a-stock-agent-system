@@ -71,6 +71,9 @@ def market_code(code: Any) -> str:
 
 def is_main_board_10cm(code: Any, name: str = "") -> bool:
     bare = naked_code(code)
+    upper_name = str(name or "").upper()
+    if "ST" in upper_name or "退" in upper_name:
+        return False
     return bare.startswith(("000", "001", "002", "003", "600", "601", "603", "605"))
 
 
@@ -120,6 +123,8 @@ def filter_universe(
 
         if not code.startswith(("0", "3", "6")):
             reasons.append("仅纳入沪深A股")
+        if "ST" in name.upper() or "退" in name:
+            reasons.append("ST/*ST/退市整理股票")
         if price <= 0 or volume <= 0:
             reasons.append("停牌或缺少有效成交")
         elif price < min_price:

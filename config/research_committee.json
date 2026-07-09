@@ -34,20 +34,6 @@
       ],
       "required_sections": ["fact_artifacts"]
     },
-    "event_review": {
-      "experts": ["evidence_auditor", "thesis_builder", "risk_redteam"],
-      "priority": 80,
-      "cooldown_days": 2,
-      "pack_budget_chars": 20000,
-      "pack_jobs": [
-        "company_event_opportunities",
-        "behavioral_finance_context",
-        "news-monitor",
-        "closing-triage",
-        "four-dim-scorer"
-      ],
-      "required_sections": ["fact_artifacts"]
-    },
     "postmortem": {
       "experts": ["evidence_auditor", "risk_redteam"],
       "priority": 60,
@@ -135,11 +121,6 @@
     "anomaly_review": {
       "enabled": true,
       "behavior_risk_levels": ["high", "critical"]
-    },
-    "event_review": {
-      "enabled": true,
-      "min_expected_value_pct": 5.0,
-      "max_per_day": 5
     }
   }
 }

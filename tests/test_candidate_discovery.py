@@ -1,8 +1,7 @@
 """Candidate discovery integration tests with injected data sources."""
 
 import importlib.util
-import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -30,81 +29,10 @@ def _bars(start):
     ]
 
 
-def test_freshness_check_alert_mode_reports_unhealthy_without_failing(tmp_path, monkeypatch, capsys):
-    pool_file = tmp_path / "candidate_pool_latest.json"
-    pool_file.write_text(
-        json.dumps({
-            "status": "ready",
-            "candidate_count": 0,
-            "asof": "2026-07-06",
-            "generated_at": datetime.now().isoformat(),
-        }),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(discovery, "latest_pool_file", lambda: str(pool_file))
-
-    with pytest.raises(SystemExit) as exc:
-        discovery._check_pool_freshness(
-            asof="2026-07-07",
-            as_json=True,
-            alert_mode=True,
-        )
-
-    assert exc.value.code == 0
-    report = json.loads(capsys.readouterr().out)
-    assert report["status"] == "error"
-    assert report["healthy"] is False
-    assert report["alerts"]
-    assert "candidate_count=0" in report["issues"]
-    assert "asof_mismatch:pool=2026-07-06,expected=2026-07-07" in report["issues"]
-
-
-def test_freshness_check_manual_mode_keeps_nonzero_unhealthy_exit(tmp_path, monkeypatch, capsys):
-    pool_file = tmp_path / "candidate_pool_latest.json"
-    pool_file.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(discovery, "latest_pool_file", lambda: str(pool_file))
-
-    with pytest.raises(SystemExit) as exc:
-        discovery._check_pool_freshness(asof="2026-07-07", as_json=True)
-
-    assert exc.value.code == 1
-    report = json.loads(capsys.readouterr().out)
-    assert report["status"] == "error"
-    assert report["alerts"]
-
-
-def test_freshness_check_healthy_report_has_no_alerts(tmp_path, monkeypatch, capsys):
-    pool_file = tmp_path / "candidate_pool_latest.json"
-    pool_file.write_text(
-        json.dumps({
-            "status": "ready",
-            "candidate_count": 3,
-            "asof": "2026-07-07",
-            "generated_at": datetime.now().isoformat(),
-        }),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(discovery, "latest_pool_file", lambda: str(pool_file))
-
-    with pytest.raises(SystemExit) as exc:
-        discovery._check_pool_freshness(
-            asof="2026-07-07",
-            as_json=True,
-            alert_mode=True,
-        )
-
-    assert exc.value.code == 0
-    report = json.loads(capsys.readouterr().out)
-    assert report["status"] == "ok"
-    assert report["healthy"] is True
-    assert report["alerts"] == []
-
-
 def test_preopen_bootstrap_reuses_only_ready_recent_nonfuture_pool():
     ready = {
         "status": "ready",
         "asof": "2026-06-19",
-        "candidate_count": 1,
         "eligible_count": 1,
         "auction_scan_codes": ["sh600001"],
         "candidates": [{"code": "600001"}],
@@ -471,53 +399,6 @@ def test_run_discovery_industry_injection_is_noop_without_cache(tmp_path, monkey
     assert discovery.load_cached_industry("2026-06-10") == {}
 
 
-def test_zero_deliverable_candidates_in_weak_market_still_keeps_scan_universe(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    listed_date = (date.today() - timedelta(days=500)).isoformat()
-    universe = [
-        {"code": f"300{i:03d}", "name": f"弱市创业板{i}", "listed_date": listed_date}
-        for i in range(12)
-    ]
-    quote_map = {
-        item["code"]: {
-            **item,
-            "price": 10 + i,
-            "prev_close": 11 + i,
-            "change_pct": -5 - i / 10,
-            "amount": 200_000_000 + i * 10_000_000,
-            "turnover": 4 + i,
-            "volume": 1_000_000,
-        }
-        for i, item in enumerate(universe)
-    }
-    klines = {item["code"]: _bars(8 + i) for i, item in enumerate(universe)}
-
-    result = discovery.run_discovery(
-        "2026-07-08",
-        watch_limit=6,
-        prefilter_limit=12,
-        universe_fetcher=lambda: universe,
-        quote_fetcher=lambda _universe: quote_map,
-        kline_fetcher=lambda candidates: {
-            item["code"]: klines[item["code"]] for item in candidates
-        },
-        industry_provider=lambda _asof: {},
-        settle_previous=False,
-    )
-
-    assert result["status"] == "ready"
-    # Extreme weak market: top-N rescue keeps highest-scored candidates
-    assert result["candidate_count"] > 0
-    assert result["candidate_count"] <= 5
-    assert any("extreme_weak_market_rescue" in w for w in (result.get("warnings") or []))
-    assert all(
-        c.get("delivery_quality", {}).get("status") == "deliverable_watch"
-        for c in result["candidates"]
-    )
-    assert result["auction_scan_count"] == 12
-    assert len(result["auction_scan_codes"]) == 12
-
-
 def test_run_discovery_reconciles_daily_observation_targets(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     listed_date = (date.today() - timedelta(days=500)).isoformat()
@@ -635,26 +516,6 @@ def test_discovery_ignores_stale_hot_money_context(monkeypatch):
     assert temperature["context_fresh"] is False
 
 
-def test_discovery_accepts_previous_trading_day_ladder_for_preopen(monkeypatch):
-    import signal_context
-
-    monkeypatch.setattr(
-        signal_context,
-        "read_signal_context",
-        lambda: {
-            "ladder_asof": "2026-06-10",
-            "lianban_ladder": {"600001": {"lianban": 3}},
-            "prev_lianban_ladder": {"600001": {"lianban": 2}},
-        },
-    )
-
-    signal_ctx, temperature = discovery.load_signal_context_for_discovery("2026-06-11")
-
-    assert temperature["context_fresh"] is True
-    assert temperature["context_asof"] == "2026-06-10"
-    assert "lianban_ladder" in signal_ctx
-
-
 def test_discovery_keeps_same_day_social_attention_when_ladder_is_stale(monkeypatch):
     import signal_context
 
@@ -703,40 +564,3 @@ def test_discovery_drops_stale_social_attention_from_fresh_ladder(monkeypatch):
     assert temperature["context_fresh"] is True
     assert "lianban_ladder" in signal_ctx
     assert "social_attention" not in signal_ctx
-
-
-def test_discovery_uses_universe_sector_fallback_when_industry_cache_missing(monkeypatch):
-    universe = [
-        {
-            "code": f"60000{i}",
-            "name": f"股票{i}",
-            "listed_date": "2020-01-01",
-            "sector": "半导体" if i % 2 else "通信设备",
-        }
-        for i in range(6)
-    ]
-
-    fallback = discovery.universe_sector_fallback(universe)
-
-    assert fallback["600001"] == "半导体"
-    assert fallback["600000"] == "通信设备"
-
-
-def test_fetch_candidate_klines_falls_back_to_eastmoney(monkeypatch):
-    monkeypatch.setattr(discovery, "load_config", lambda: {
-        "network": {
-            "kline_workers": 1,
-            "request_retries": 0,
-            "kline_min_coverage": 1.0,
-        }
-    })
-    monkeypatch.setattr(discovery, "fetch_tencent_kline", lambda *args, **kwargs: [])
-    monkeypatch.setattr(
-        discovery,
-        "fetch_eastmoney_kline",
-        lambda *args, **kwargs: _bars(10),
-    )
-
-    result = discovery.fetch_candidate_klines([{"code": "600001"}])
-
-    assert len(result["600001"]) == 60

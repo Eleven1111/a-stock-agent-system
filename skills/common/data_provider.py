@@ -80,20 +80,9 @@ _SERPER_KEY_LOCK = threading.Lock()
 
 
 def _serper_keys() -> List[str]:
-    """Load all serper.dev API keys from env, preserving order and uniqueness."""
-    raw_values = [
-        os.environ.get("SERPER_API_KEY") or "",
-        os.environ.get("SERPER_API_KEYS") or "",
-    ]
-    keys: List[str] = []
-    seen = set()
-    for raw in raw_values:
-        for key in raw.split(","):
-            cleaned = key.strip()
-            if cleaned and cleaned not in seen:
-                keys.append(cleaned)
-                seen.add(cleaned)
-    return keys
+    """Load all serper.dev API keys from env (comma-separated or single)."""
+    raw = os.environ.get("SERPER_API_KEYS") or os.environ.get("SERPER_API_KEY") or ""
+    return [k.strip() for k in raw.split(",") if k.strip()]
 
 
 def _next_serper_key() -> str:
@@ -114,15 +103,12 @@ def fetch_serper_news(
     limit: int = 5,
     *,
     client: Optional[HttpClient] = None,
-    tbs: Optional[str] = None,
 ) -> HttpResult[List[Dict[str, Any]]]:
     """Fetch news via serper.dev with automatic multi-key rotation.
 
     If *api_key* is provided, uses it directly. Otherwise picks the next key
     from the round-robin pool (SERPER_API_KEYS / SERPER_API_KEY env var).
-    On key-level failures, retries with the next available key.  Serper reports
-    quota exhaustion as HTTP 400 ("Not enough credits"), so 400 is treated as
-    key-rotatable here even though most providers reserve it for bad requests.
+    On 429/403 errors, retries with the next available key.
     """
     keys = [api_key] if api_key else _serper_keys()
     if not keys:
@@ -136,12 +122,9 @@ def fetch_serper_news(
 
     last_error: Optional[Exception] = None
     for attempt, key in enumerate(keys):
-        payload: Dict[str, Any] = {"q": query, "gl": "cn", "hl": "zh-cn", "num": max(1, int(limit))}
-        if tbs:
-            payload["tbs"] = tbs
         request = build_request(
             "https://google.serper.dev/news",
-            data=json.dumps(payload).encode("utf-8"),
+            data=json.dumps({"q": query, "gl": "cn", "hl": "zh-cn", "num": max(1, int(limit))}).encode("utf-8"),
             headers={
                 "X-API-KEY": key,
                 "Content-Type": "application/json",
@@ -152,9 +135,8 @@ def fetch_serper_news(
             response = (client or provider_client("serper")).request_json(request)
         except DataSourceError as exc:
             last_error = exc
-            # 400 = Serper quota exhausted ("Not enough credits"), 402/429 =
-            # quota/rate limit, 401/403 = bad or disabled credential.
-            if exc.status_code in {400, 401, 402, 403, 429} and attempt < len(keys) - 1:
+            # 429 = rate limit, 403 = invalid key → try next key
+            if attempt < len(keys) - 1:
                 continue
             raise
         if not isinstance(response.data, dict):

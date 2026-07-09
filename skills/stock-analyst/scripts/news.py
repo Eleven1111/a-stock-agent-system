@@ -1,6 +1,6 @@
 """
 股票新闻模块
-数据源：serper.dev Google News（多 key 轮换，由 data_provider.fetch_serper_news 管理）
+数据源：serper.dev Google News（多 key 轮换，由 data_provider._next_serper_key 管理）
 """
 
 import os
@@ -12,7 +12,7 @@ _COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
 if _COMMON_DIR not in sys.path:
     sys.path.insert(0, os.path.abspath(_COMMON_DIR))
 from a_stock_http import load_hermes_env
-from data_provider import fetch_serper_news as _fetch_serper_news
+from data_provider import fetch_serper_news as _fetch_serper_news, _next_serper_key
 from http_client import DataSourceError
 
 load_hermes_env()
@@ -20,9 +20,12 @@ load_hermes_env()
 
 def _serper_request(params: dict) -> Optional[List[Dict]]:
     """通用 serper.dev 请求（多 key 轮换）"""
+    api_key = _next_serper_key()
+    if not api_key:
+        return None
     try:
         limit = int(params.get("num", 10))
-        result = _fetch_serper_news(str(params.get("q", "")), None, limit)
+        result = _fetch_serper_news(str(params.get("q", "")), api_key, limit)
         return [dict(item) for item in result.data]
     except (DataSourceError, AttributeError, TypeError, ValueError) as e:
         return None
