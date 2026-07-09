@@ -62,6 +62,9 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
             f"- {_label(item)}：{_score(item, 'trend_score')}"
             for item in digest["top_trend"]
         )
+        if not digest["top_daban"] and not digest["top_trend"]:
+            lines.append("")
+            lines.append("⚠️ 极端弱市，所有候选已降级为 research_only，无可操作标的")
     elif stage == "auction":
         digest = stage_intelligence.auction_digest(result)
         lines.extend([

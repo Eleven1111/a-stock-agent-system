@@ -23,6 +23,52 @@ def _normal_timing():
     }
 
 
+def test_positive_previous_ladder_premium_does_not_trigger_weak_regime():
+    timing = _normal_timing()
+    timing["previous_ladder_premium"] = 0.3
+
+    regime = wmd.derive_weak_market_regime(timing)
+
+    assert regime["weak_regime"] is False
+    assert regime["status"] == "normal"
+    assert not any("昨日涨停溢价不足" in reason for reason in regime["reasons"])
+
+
+def test_negative_previous_ladder_premium_triggers_weak_regime():
+    timing = _normal_timing()
+    timing["previous_ladder_premium"] = -1.0
+
+    regime = wmd.derive_weak_market_regime(timing)
+
+    assert regime["weak_regime"] is True
+    assert regime["status"] == "weak"
+    assert "昨日涨停溢价不足: -1.00%" in regime["reasons"]
+
+
+def test_low_limitups_extreme_weak_threshold_is_twenty_not_thirty_five():
+    timing = _normal_timing()
+    timing["breadth"] = {
+        "advancers": 1600,
+        "decliners": 3200,
+        "flat": 200,
+        "limitup_count": 35,
+        "limitdown_count": 20,
+    }
+
+    regime = wmd.derive_weak_market_regime(timing)
+
+    assert regime["weak_regime"] is True
+    assert regime["extreme_weak"] is False
+    assert regime["status"] == "weak"
+
+    timing["breadth"]["limitup_count"] = 20
+    regime = wmd.derive_weak_market_regime(timing)
+
+    assert regime["weak_regime"] is True
+    assert regime["extreme_weak"] is True
+    assert regime["status"] == "extreme_weak"
+
+
 def _candidate_with_leader_qualified_false():
     """07-06 结构：无顶层 qualified、hot_money_qualified，仅 leader.qualified=False。"""
     return {
