@@ -21,7 +21,8 @@ from runtime_context import (
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
-def test_openclaw_runtime_env_preserves_default_state_fallback(tmp_path, monkeypatch):
+def test_runtime_env_does_not_fabricate_repo_state_home(tmp_path, monkeypatch):
+    """The runner must never silently make the repo a state root (split-brain)."""
     env_file = tmp_path / "empty.env"
     env_file.write_text("", encoding="utf-8")
     monkeypatch.setenv("A_STOCK_ENV_FILE", str(env_file))
@@ -30,8 +31,8 @@ def test_openclaw_runtime_env_preserves_default_state_fallback(tmp_path, monkeyp
 
     run_env = job_runner.build_runtime_env("openclaw")
 
-    assert run_env["A_STOCK_STATE_HOME"] == job_runner.ROOT
-    assert run_env["A_STOCK_STATE_ID"] == "default"
+    assert run_env.get("A_STOCK_STATE_HOME") != job_runner.ROOT
+    assert run_env.get("A_STOCK_STATE_ID") != "default"
 
 
 def test_runtime_env_loads_explicit_env_file_for_isolated_jobs(tmp_path, monkeypatch):
@@ -136,6 +137,103 @@ def test_dry_run_replaces_bare_python_with_current_interpreter(
     assert payload["command"].startswith(sys.executable + " ")
 
 
+def _seed_adaptive_state(state_home, job_id, *, miss_streak, ticks_since_run):
+    path = state_home / "runtime" / "adaptive_schedule.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "schema": "adaptive_schedule_v1",
+            "jobs": {
+                job_id: {
+                    "miss_streak": miss_streak,
+                    "ticks_since_run": ticks_since_run,
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_adaptive_backoff_enforce_mode_skips_when_not_due(tmp_path, monkeypatch):
+    marker = tmp_path / "worker-ran"
+    worker = tmp_path / "worker.py"
+    worker.write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n", encoding="utf-8")
+    job = _base_job("official-policy-watch")
+    job["adaptive_backoff"] = True
+    job["run"]["command"] = f"{sys.executable} {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    # streak=21 -> interval=8; ticks_since_run starts at 5, should_run bumps to 6 < 8 -> not due.
+    _seed_adaptive_state(state_home, "official-policy-watch", miss_streak=21, ticks_since_run=5)
+    monkeypatch.setattr(
+        job_runner.delivery_policy,
+        "load_policy",
+        lambda *a, **k: {"adaptive_backoff": {"enabled": True, "mode": "enforce"}},
+    )
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args(["official-policy-watch", "--manifest", str(manifest)])
+    )
+
+    assert result == 0
+    assert not marker.exists()
+    ledger = read_json(str(state_home / "cron" / "output" / "job_runs.json"), [])
+    artifact = read_json(ledger[0]["artifact_path"], {})
+    assert artifact["status"] == "skipped_adaptive_backoff"
+    assert artifact["adaptive_schedule"]["would_skip"] is True
+
+
+def test_adaptive_backoff_shadow_mode_still_runs_when_not_due(tmp_path, monkeypatch):
+    marker = tmp_path / "worker-ran"
+    worker = tmp_path / "worker.py"
+    worker.write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n", encoding="utf-8")
+    job = _base_job("news-monitor")
+    job["adaptive_backoff"] = True
+    job["run"]["command"] = f"{sys.executable} {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    _seed_adaptive_state(state_home, "news-monitor", miss_streak=21, ticks_since_run=5)
+    # Real shipped default is shadow -- no monkeypatch of delivery_policy here.
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args(["news-monitor", "--manifest", str(manifest)])
+    )
+
+    assert result == 0
+    assert marker.exists()
+
+
+def test_adaptive_backoff_records_outcome_after_successful_run(tmp_path, monkeypatch):
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json\nprint(json.dumps({'schema':'demo_v1','alerts':[{'x':1}]}))\n",
+        encoding="utf-8",
+    )
+    job = _base_job("news-monitor-intraday")
+    job["adaptive_backoff"] = True
+    job["run"]["command"] = f"{sys.executable} {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    _seed_adaptive_state(state_home, "news-monitor-intraday", miss_streak=5, ticks_since_run=0)
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args(["news-monitor-intraday", "--manifest", str(manifest)])
+    )
+
+    assert result == 0
+    state = read_json(str(state_home / "runtime" / "adaptive_schedule.json"), {})
+    entry = state["jobs"]["news-monitor-intraday"]
+    assert entry["miss_streak"] == 0
+    assert entry["ticks_since_run"] == 0
+
+
 def _base_job(job_id, deliver="origin"):
     return {
         "id": job_id,
@@ -212,9 +310,43 @@ def test_runner_local_delivery_suppresses_stdout_but_keeps_artifact(tmp_path):
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
     env = os.environ.copy()
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它并会被 os.environ.copy() 继承下来；子进程要测的是
+    # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
+    env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
     result = subprocess.run(
         [sys.executable, os.path.join(ROOT, "scripts", "hermes_job_runner.py"), "local-demo", "--manifest", str(manifest)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    ledger = read_json(str(tmp_path / "hermes" / "cron" / "output" / "job_runs.json"), [])
+    assert len(ledger) == 1
+    assert os.path.exists(ledger[0]["artifact_path"])
+
+
+def test_runner_feishu_direct_delivery_suppresses_stdout_and_never_calls_lark_cli(tmp_path, monkeypatch):
+    worker = tmp_path / "worker.py"
+    worker.write_text("print('{\"schema\":\"demo_v1\",\"message\":\"routine\"}')\n", encoding="utf-8")
+    job = _base_job("feishu-demo", deliver="feishu_direct")
+    job["run"]["command"] = f"{sys.executable} {worker}"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+
+    env = os.environ.copy()
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它并会被 os.environ.copy() 继承下来；子进程要测的是
+    # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
+    env.pop("A_STOCK_STATE_HOME", None)
+    env["HERMES_HOME"] = str(tmp_path / "hermes")
+    env.pop("A_STOCK_FEISHU_CHAT_ID", None)
+    result = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "scripts", "hermes_job_runner.py"), "feishu-demo", "--manifest", str(manifest)],
         env=env,
         capture_output=True,
         text=True,
@@ -239,6 +371,10 @@ def test_no_signal_detection_keeps_open_confirmations_visible():
 
 
 def test_dependency_gate_requires_successful_same_day_artifact(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     output = tmp_path / "hermes" / "cron" / "output" / "upstream"
     output.mkdir(parents=True)
@@ -266,6 +402,10 @@ def test_dependency_gate_requires_successful_same_day_artifact(tmp_path, monkeyp
 
 
 def test_dependency_gate_rejects_failed_or_stale_artifact(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     output = tmp_path / "hermes" / "cron" / "output" / "upstream"
     output.mkdir(parents=True)
@@ -294,6 +434,10 @@ def test_dependency_gate_rejects_failed_or_stale_artifact(tmp_path, monkeypatch)
 
 
 def test_dependency_gate_selects_matching_artifact_instead_of_newer_other_batch(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     output = tmp_path / "hermes" / "cron" / "output" / "upstream"
     output.mkdir(parents=True)
@@ -350,6 +494,10 @@ def test_runner_maps_business_block_returncode_to_blocked_artifact(tmp_path):
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
     env = os.environ.copy()
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它并会被 os.environ.copy() 继承下来；子进程要测的是
+    # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
+    env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
     result = subprocess.run(
         [
@@ -388,6 +536,10 @@ def test_runner_blocks_without_starting_worker_when_required_dependency_missing(
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
     env = os.environ.copy()
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它并会被 os.environ.copy() 继承下来；子进程要测的是
+    # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
+    env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
     result = subprocess.run(
         [

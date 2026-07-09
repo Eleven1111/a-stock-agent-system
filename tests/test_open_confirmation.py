@@ -158,16 +158,18 @@ def test_open_daban_lane_rejects_candidate_outside_mainline_leader_gate():
     assert [item["code"] for item in ranked] == ["sz300001"]
 
 
-def test_open_confirmation_reads_nested_selection_qualified_gate():
+def test_open_confirmation_blocks_daban_candidate_without_hot_money_qualified():
+    # 游资门禁走 hot_money_qualified（lane 成员判定），而非通用 selection_context.qualified：
+    # 缺乏游资资格的打板候选不得占用打板名额，也不因通用质量门禁误伤趋势车道。
     shortlist = [
         {
             "code": "sh600001",
-            "name": "嵌套不合格",
+            "name": "打板不合格",
             "auction_score": 99,
             "auction_daban_score": 99,
             "auction_trend_score": 10,
             "auction_selected_by": {"daban": True, "trend": False},
-            "selection_context": {"qualified": False},
+            "hot_money_qualified": False,
         },
         {
             "code": "sz300001",
@@ -378,9 +380,13 @@ def test_rank_confirmations_enforces_temperature_daban_gate():
 
 
 def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
-    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
@@ -462,9 +468,13 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
 
 
 def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
-    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
@@ -566,7 +576,28 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
     assert all(item["ledger_links"]["correlation_id"] for item in result["signals"])
     events = oc.signal_ledger.read_events(oc.recommendation_audit.LEDGER_FILE)
     assert sum(event["event_type"] == "signal.opened" for event in events) == 3
-    assert sum(event["event_type"] == "monitor.activated" for event in events) == 3
+    recommendation_events = [
+        event for event in events
+        if event["event_type"] == "recommendation.created"
+    ]
+    assert len(recommendation_events) == 3
+    evidence_sources = recommendation_events[0]["payload"]["evidence_sources"]
+    assert evidence_sources[0]["source"] == "open-confirmation"
+    assert evidence_sources[0]["weight_hint"] == "primary"
+    assert evidence_sources[0]["artifact"]["snapshot_id"].startswith("snap-")
+    assert evidence_sources[0]["artifact"]["consumed_from_snapshot"] is True
+    assert {
+        (item["source"], item["weight_hint"])
+        for item in evidence_sources
+    } >= {
+        ("auction-finalize", "supporting"),
+    }
+    assert oc.signal_ledger.project_signals(events)[0]["evidence_sources"] == evidence_sources
+    assert all(not event["event_type"].startswith("monitor.") for event in events)
+    monitor_events = oc.monitor_registry.monitor_ledger.read_events(
+        oc.monitor_registry.LEDGER_FILE
+    )
+    assert sum(event["event_type"] == "monitor.activated" for event in monitor_events) == 3
     monitors = oc.monitor_registry.active_entries("stock", asof=event_asof)
     assert len(monitors) == 3
     assert {item["source_group"] for item in monitors} == {"open_confirmation"}
@@ -579,3 +610,90 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
     assert "selection_context" in report["signals"][0]
     lifecycle = candidate_lifecycle.load_day(source_asof)
     assert sum(record["current_stage"] == "open_confirmed" for record in lifecycle["records"]) == 3
+
+
+def test_apply_policy_blocks_daban_lane_when_discipline_gate_trips(monkeypatch):
+    """09:35 是最终写 recommendations.json 的关口；日周止损/连续错单必须在这里也生效，
+    不能只在09:26竞价收口生效，否则一个已被熔断的账户仍会在开盘确认阶段拿到buy。"""
+    monkeypatch.setattr(
+        oc.strategy_registry,
+        "live_record",
+        lambda strategy_id: {
+            "strategy_id": strategy_id,
+            "allowed_in_live_agent": True,
+            "gating_status": "enabled",
+            "runtime_allowed": True,
+        },
+    )
+    monkeypatch.setattr(
+        oc,
+        "build_research_evidence",
+        lambda code, strategy_id, asof: {
+            "schema": "research_evidence_v1",
+            "chanlun": {"status": "no_signal", "live_bullish_signals": [], "live_bearish_signals": []},
+            "serenity": {"available": False, "stale": None, "hard_risks": []},
+            "market_intelligence": {
+                "available": True, "stale": False, "directional_ready": True,
+                "hard_risks": [], "warnings": [],
+            },
+        },
+    )
+    item = {
+        "code": "sh600001",
+        "hot_money_qualified": True,
+        "open_selected_by": {"daban": True, "trend": False},
+        "execution_plan": {"decision": "buy", "position_pct": 4.0},
+        "quality_report": {"status": "passed"},
+    }
+    kwargs = dict(asof="2026-06-12", portfolio={"cash": 20000, "positions": []})
+
+    clean = oc._apply_policy(item, discipline_state={"blocked": False, "reasons": []}, **kwargs)
+    blocked = oc._apply_policy(
+        item,
+        discipline_state={"blocked": True, "reasons": ["consecutive_losses_freeze"]},
+        **kwargs,
+    )
+
+    assert clean["policy_decision"]["decision"] == "buy"
+    assert blocked["decision"] == "avoid"
+    assert blocked["policy_decision"]["decision"] == "avoid"
+    assert "consecutive_losses_freeze" in blocked["policy_decision"]["reasons"]
+
+
+def test_build_confirmation_computes_real_discipline_state_from_ledger(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
+    # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
+    # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
+    monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
+        {"cash": 100000, "positions": [], "cash_reconciled": True},
+    )
+    for trade_date in ["2026-06-08", "2026-06-09", "2026-06-10"]:
+        oc.signal_ledger.append_event(
+            "trade.executed",
+            oc.signal_ledger.make_links(f"loss-{trade_date}"),
+            {"code": "600099", "action": "close", "trade_date": trade_date, "pnl": -100, "pnl_pct": -3.0},
+        )
+    monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    event_asof = "2026-06-11"
+    atomic_write_json(
+        oc._shortlist_path(event_asof),
+        {"schema": "auction_finalize_v2", "asof": event_asof, "source_asof": "2026-06-10", "shortlist": []},
+    )
+
+    result = oc.build_confirmation([], event_asof, limit=1)
+
+    assert result["discipline_state"]["consecutive_losses"] == 3
+    assert result["discipline_state"]["blocked"] is True
+    assert "consecutive_losses_freeze" in result["discipline_state"]["reasons"]
+    report = oc.json_report(result)
+    assert report["discipline_state"]["blocked"] is True

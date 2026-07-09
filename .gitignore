@@ -1,6 +1,12 @@
 # 运行时数据
 data/
 cache/
+docs_private/
+reports/
+agent_state/
+state_identity.json*
+market/snapshots/
+cron/output/
 *.pyc
 __pycache__/
 
@@ -23,3 +29,4 @@ Thumbs.db
 *.egg-info/
 docs/superpowers/
 .venv/
+.omx/
