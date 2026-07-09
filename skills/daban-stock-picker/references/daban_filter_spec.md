@@ -7,7 +7,7 @@
 | 条件 | 规则 |
 |------|------|
 | 市场 | 仅 A 股主板 10cm，排除创业板、科创板、北交所 |
-| ST | `is_st == false`，名称含 ST/*ST 也排除 |
+| ST | `is_st` 标记（ST股限制已解除） |
 | 上市时间 | `listed_days >= 60` |
 | 流通市值 | `15亿 <= float_market_cap <= 120亿` |
 | 成交活度 | `avg_turnover_amount_20d >= 2亿` |

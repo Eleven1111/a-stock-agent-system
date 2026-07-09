@@ -1,11 +1,12 @@
 """Tencent and Serper provider adapters share the generic HTTP client."""
 
+import json
 from datetime import datetime, timezone
 
 import data_provider
 from a_stock_http import _TENCENT_FIELDS
 from data_provider import fetch_serper_news, fetch_tencent_quote, fetch_tencent_quotes
-from http_client import HttpClient, HttpResult
+from http_client import DataSourceError, ErrorType, HttpClient, HttpResult
 
 
 FIXED_TIME = datetime(2026, 6, 12, 5, 45, tzinfo=timezone.utc)
@@ -92,3 +93,56 @@ def test_serper_news_has_provider_timestamp_and_limit():
     assert result.data[0]["source"] == "来源一"
     assert result.data[0]["provider"] == "serper"
     assert result.data[0]["fetched_at"] == "2026-06-12T05:45:00+00:00"
+
+
+def test_serper_news_passes_time_filter_to_provider():
+    payload = (
+        '{"news":['
+        '{"title":"新闻一","snippet":"摘要一","source":"来源一","link":"https://a","date":"1h ago"}'
+        "]}"
+    ).encode()
+    bodies = []
+
+    def opener(request, timeout):
+        bodies.append(json.loads(request.data.decode("utf-8")))
+        return FakeResponse(payload)
+
+    client = HttpClient(
+        "serper",
+        timeout=3,
+        max_attempts=2,
+        opener=opener,
+        clock=lambda: FIXED_TIME,
+    )
+
+    fetch_serper_news("半导体 A股", "secret", 1, client=client, tbs="qdr:d,sbd:1")
+
+    assert bodies[0]["tbs"] == "qdr:d,sbd:1"
+
+
+def test_serper_news_rotates_on_quota_http_400(monkeypatch):
+    payload = (
+        '{"news":['
+        '{"title":"新闻二","snippet":"摘要二","source":"来源二","link":"https://b","date":"2h ago"}'
+        "]}"
+    )
+    calls = []
+
+    class _Client:
+        def request_json(self, request):
+            calls.append(request.headers.get("X-api-key") or request.headers.get("X-API-KEY"))
+            if len(calls) == 1:
+                raise DataSourceError(
+                    "serper",
+                    "HTTP 400: Bad Request",
+                    error_type=ErrorType.HTTP,
+                    status_code=400,
+                )
+            return HttpResult(__import__("json").loads(payload), "2026-06-12T05:45:00+00:00", 1)
+
+    monkeypatch.setenv("SERPER_API_KEYS", "creditless-key,working-key")
+
+    result = fetch_serper_news("A股 最新", None, 1, client=_Client())
+
+    assert calls == ["creditless-key", "working-key"]
+    assert result.data[0]["title"] == "新闻二"

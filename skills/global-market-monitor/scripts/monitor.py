@@ -26,7 +26,6 @@ from typing import Optional, Dict, Any, List
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from a_stock_http import load_hermes_env
 from data_provider import (
-    _next_serper_key,
     fetch_serper_news as _fetch_serper_news,
     provider_client,
 )
@@ -243,11 +242,8 @@ def fetch_sina_us_indices() -> Dict[str, Dict]:
 
 def fetch_serper_news(query: str = "global market breaking news financial", num: int = 5) -> List[Dict]:
     """通过 serper.dev 抓取重大新闻"""
-    api_key = _next_serper_key()
-    if not api_key:
-        return [{"error": "SERPER_API_KEY not set"}]
     try:
-        result = _fetch_serper_news(query, api_key, num)
+        result = _fetch_serper_news(query, None, num)
         return [
             {
                 "title": item.get("title"),
@@ -894,8 +890,6 @@ def collect_all_data(include_news: bool = False) -> Dict[str, Any]:
             )
             if news_ok:
                 source_health["serper"] = {"status": "ok"}
-            elif not _next_serper_key():
-                source_health["serper"] = {"status": "failed", "error": "SERPER_API_KEY not set"}
             else:
                 source_health["serper"] = {"status": "failed", "error": "no news results"}
         except Exception as exc:

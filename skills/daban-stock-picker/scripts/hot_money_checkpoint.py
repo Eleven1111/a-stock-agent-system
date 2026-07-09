@@ -321,26 +321,37 @@ def _advance_fsm_to_confirmed(asof: str, confirmed: Sequence[Mapping[str, Any]])
 
 
 def json_report(result: Mapping[str, Any]) -> dict[str, Any]:
+    confirmed = [
+        {
+            "code": item.get("code"),
+            "name": item.get("name"),
+            "sector": item.get("sector"),
+            "sector_rank": item.get("checkpoint_sector_rank"),
+            "change_pct": item.get("change_pct"),
+            "research_state": item.get("research_state"),
+        }
+        for item in result.get("observations") or []
+        if item.get("research_state") == "confirmed"
+    ]
+    profile = str(result.get("profile") or "")
+    window = str(result.get("window") or "")
+    if confirmed:
+        names = "、".join(str(item.get("name") or item.get("code")) for item in confirmed[:5])
+        message = f"{window}主线龙头承接确认：{len(confirmed)}只研究确认，{names}"
+    elif profile == "morning_confirm":
+        message = "今日早盘无主线龙头承接信号。"
+    else:
+        message = "今日午后无主线龙头回流信号。"
     return {
         "status": result.get("status"),
         "profile": result.get("profile"),
         "window": result.get("window"),
         "asof": result.get("asof"),
+        "message": message,
         "research_only": True,
         "observation_count": result.get("observation_count"),
         "confirmed_count": result.get("confirmed_count"),
-        "confirmed": [
-            {
-                "code": item.get("code"),
-                "name": item.get("name"),
-                "sector": item.get("sector"),
-                "sector_rank": item.get("checkpoint_sector_rank"),
-                "change_pct": item.get("change_pct"),
-                "research_state": item.get("research_state"),
-            }
-            for item in result.get("observations") or []
-            if item.get("research_state") == "confirmed"
-        ],
+        "confirmed": confirmed,
     }
 
 

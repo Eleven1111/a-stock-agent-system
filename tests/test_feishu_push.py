@@ -3,6 +3,8 @@ from skills.common import feishu_push
 
 def test_not_configured_when_chat_id_unset(monkeypatch):
     monkeypatch.delenv(feishu_push.CHAT_ID_ENV, raising=False)
+    monkeypatch.delenv(feishu_push.USER_ID_ENV, raising=False)
+    monkeypatch.setattr(feishu_push, "DEFAULT_USER_ID", "")
 
     result = feishu_push.push_text("capital-flow", "北向净流入 12.3 亿")
 
@@ -11,6 +13,7 @@ def test_not_configured_when_chat_id_unset(monkeypatch):
 
 def test_empty_text_is_skipped(monkeypatch):
     monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
+    monkeypatch.delenv(feishu_push.USER_ID_ENV, raising=False)
 
     result = feishu_push.push_text("event-calendar", "   ")
 
@@ -19,6 +22,7 @@ def test_empty_text_is_skipped(monkeypatch):
 
 def test_sends_via_lark_cli_when_configured(monkeypatch):
     monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
+    monkeypatch.delenv(feishu_push.USER_ID_ENV, raising=False)
     calls = []
 
     class _Completed:
@@ -39,8 +43,31 @@ def test_sends_via_lark_cli_when_configured(monkeypatch):
     assert "--text" in calls[0] and "国务院发布新政策" in calls[0]
 
 
+def test_sends_to_user_id_when_chat_id_absent(monkeypatch):
+    monkeypatch.delenv(feishu_push.CHAT_ID_ENV, raising=False)
+    monkeypatch.setenv(feishu_push.USER_ID_ENV, "ou_test123")
+    calls = []
+
+    class _Completed:
+        returncode = 0
+        stderr = ""
+
+    def _fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _Completed()
+
+    monkeypatch.setattr(feishu_push.subprocess, "run", _fake_run)
+
+    result = feishu_push.push_text("news-monitor", "资讯摘要")
+
+    assert result == {"status": "sent", "job_id": "news-monitor"}
+    assert "--user-id" in calls[0] and "ou_test123" in calls[0]
+    assert "--chat-id" not in calls[0]
+
+
 def test_reports_failure_without_raising(monkeypatch):
     monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
+    monkeypatch.delenv(feishu_push.USER_ID_ENV, raising=False)
 
     class _Completed:
         returncode = 1
@@ -56,6 +83,7 @@ def test_reports_failure_without_raising(monkeypatch):
 
 def test_subprocess_exception_reports_failure(monkeypatch):
     monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
+    monkeypatch.delenv(feishu_push.USER_ID_ENV, raising=False)
 
     def _raise(cmd, **kwargs):
         raise FileNotFoundError("lark-cli not found")

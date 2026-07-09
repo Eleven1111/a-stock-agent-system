@@ -67,11 +67,10 @@ def test_intraday_adapter_preserves_market_fields(monkeypatch):
 
 def test_scheduled_monitor_serializes_typed_provider_errors(monkeypatch):
     monitor = _load_scheduled_monitor()
-    monkeypatch.setattr(monitor, "_serper_key", lambda: "secret")
     monkeypatch.setattr(
         monitor,
         "fetch_news",
-        lambda query, api_key, limit: (_ for _ in ()).throw(
+        lambda query, limit: (_ for _ in ()).throw(
             DataSourceError(
                 "serper",
                 "slow",

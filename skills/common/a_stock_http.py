@@ -266,30 +266,62 @@ def fetch_eastmoney_json(path: str, params: Dict = None) -> Dict[str, Any]:
     return eastmoney_json(url, required_path=("data",), required_type=dict)
 
 
-def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,
-                        ktype: str = "day") -> List[Dict[str, Any]]:
-    """腾讯历史K线"""
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={market}{code},{ktype},,,{days},qfq"
+def fetch_sina_kline(code: str, market: str = "sz", days: int = 60,
+                      ktype: str = "day") -> List[Dict[str, Any]]:
+    """Sina 历史K线（2026-07-07: 替代已停用的腾讯 fqkline）
+
+    Sina scale 参数：240=日, 60=60分钟, 30=30分钟, 15=15分钟, 5=5分钟
+    Sina 主站(money.finance.sina.com.cn)限流严重(HTTP 456)，改用移动端
+    quotes.sina.cn，实测稳定。
+    返回格式与腾讯兼容：{"date", "open", "close", "high", "low", "volume"}
+    """
+    scale_map = {"day": "240", "week": "1440", "month": "2880",
+                 "60": "60", "30": "30", "15": "15", "5": "5"}
+    scale = scale_map.get(ktype, "240")
+    url = (
+        "https://quotes.sina.cn/cn/api/json_v2.php/"
+        f"CN_MarketData.getKLineData?symbol={market}{code}&scale={scale}&ma=no&datalen={days}"
+    )
     try:
-        data = http_get_json(url, timeout=10)
+        result = request_json(
+            url,
+            source="sina_kline",
+            timeout=15,
+            max_attempts=2,
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                       "Referer": "https://quotes.sina.cn/"},
+        )
+        klines = result.data
     except DataSourceError:
+        klines = []
+
+    if not klines or not isinstance(klines, list):
         return []
-
-    key_map = {"day": "qfqday", "week": "qfqweek", "month": "qfqmonth",
-               "60": "qfq60", "30": "qfq30"}
-    key = key_map.get(ktype, "qfqday")
-    fallback = ktype if ktype in ("day", "week", "month") else "day"
-
-    stock_data = data.get("data", {}).get(f"{market}{code}", {})
-    klines = stock_data.get(key, []) or stock_data.get(fallback, [])
 
     result = []
     for k in klines[-days:]:
-        result.append({
-            "date": k[0], "open": float(k[1]), "close": float(k[2]),
-            "high": float(k[3]), "low": float(k[4]), "volume": float(k[5]),
-        })
+        if not isinstance(k, dict):
+            continue
+        date_str = k.get("day", "")
+        try:
+            result.append({
+                "date": date_str,
+                "open": float(k["open"]),
+                "close": float(k["close"]),
+                "high": float(k["high"]),
+                "low": float(k["low"]),
+                "volume": float(k["volume"]),
+            })
+        except (KeyError, ValueError, TypeError):
+            continue
     return result
+
+
+# fetch_tencent_kline 别名，指向新浪适配器
+def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,
+                        ktype: str = "day") -> List[Dict[str, Any]]:
+    """历史K线 — 当前路由到新浪 quotes.sina.cn（腾讯 fqkline 已停用 HTTP 501）"""
+    return fetch_sina_kline(code, market=market, days=days, ktype=ktype)
 
 
 def parse_tencent_minute_response(data: Dict[str, Any], code: str, market: str) -> List[Dict[str, Any]]:

@@ -1,6 +1,13 @@
 """腾讯行情解析 — 字段下标锁定测试（防止 parts[45] 等魔数静默漂移）"""
 
-from a_stock_http import parse_tencent_minute_response, parse_tencent_quote_line, _TENCENT_FIELDS
+from http_client import DataSourceError
+import a_stock_http
+from a_stock_http import (
+    fetch_tencent_kline,
+    parse_tencent_minute_response,
+    parse_tencent_quote_line,
+    _TENCENT_FIELDS,
+)
 
 
 def _build_line(code="sz002156"):
@@ -60,6 +67,39 @@ def test_parse_handles_empty_fields():
     r = parse_tencent_quote_line(line)
     assert r is not None
     assert r["fields"]["price"] is None   # 空字段 → None，不崩溃
+
+
+def test_fetch_tencent_kline_falls_back_when_fqkline_is_blocked(monkeypatch):
+    def fake_request_json(url, **_kwargs):
+        from http_client import HttpResult
+        return HttpResult(
+            data=[{
+                "day": "2026-07-06",
+                "open": "1186.000",
+                "close": "1206.910",
+                "high": "1215.000",
+                "low": "1180.000",
+                "volume": "40970.000",
+            }],
+            attempts=1,
+            fetched_at="2026-07-07T00:00:00",
+        )
+
+    # Mock the inner request_json used by fetch_sina_kline
+    monkeypatch.setattr(a_stock_http, "request_json", fake_request_json)
+
+    result = fetch_tencent_kline("600519", market="sh", days=5)
+    assert result == [
+        {
+            "date": "2026-07-06",
+            "open": 1186.0,
+            "close": 1206.91,
+            "high": 1215.0,
+            "low": 1180.0,
+            "volume": 40970.0,
+        }
+    ]
+    assert len(result) == 1
 
 
 # ======================== 分时（minute/query）解析 ========================

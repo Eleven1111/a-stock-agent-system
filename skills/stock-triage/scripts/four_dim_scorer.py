@@ -38,7 +38,6 @@ from a_stock_http import (
     fetch_tencent_kline as _http_kline,
 )
 from data_provider import fetch_serper_news as _fetch_serper_news
-from data_provider import _next_serper_key
 from http_client import DataSourceError
 from tradeability import assess_tradeability
 from deep_research_cache import read_deep_research, decay_stale_score
@@ -52,6 +51,7 @@ try:
 except Exception:  # noqa: BLE001
     _chan = None
 from strategy_registry import is_allowed_in_live as _chan_allowed
+from strategy_registry import live_record as _strategy_live_record
 
 # 技术指标统一走 common/indicators.py（去重，数值与历史实现逐位一致）
 from indicators import (
@@ -63,6 +63,7 @@ from indicators import (
 from emotion_cycle_features import compute_emotion_features as _compute_emotion_features
 
 _EMOTION_CYCLE_STRATEGY_ID = "emotion_cycle:v1"
+_BEHAVIORAL_FINANCE_STRATEGY_ID = "behavioral_finance_overlay"
 
 # 大盘 context overlay（外围环境回流个股评分；无缓存则 no-op）
 from market_context import read_market_context, apply_market_overlay
@@ -72,6 +73,8 @@ from signal_context import read_signal_context, sentiment_boost
 from social_attention import sentiment_attention_overlay
 from catalyst_context import read_catalyst_events
 from config_registry import config_path
+from paths import cache_dir
+from state_store import read_json
 from scoring.catalyst import (  # noqa: F401
     CATALYST_TIERS,
     CLARIFICATION_RISK_TERMS,
@@ -103,11 +106,8 @@ def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60, ktype: st
 
 def fetch_serper_news(query: str, num: int = 5) -> Optional[List[Dict]]:
     """Serper.dev 新闻；None 表示源不可用，空列表表示可用但无结果。"""
-    api_key = _next_serper_key()
-    if not api_key:
-        return None
     try:
-        result = _fetch_serper_news(query, api_key, num)
+        result = _fetch_serper_news(query, None, num)
         return [dict(item) for item in result.data]
     except (DataSourceError, AttributeError, TypeError):
         return None
@@ -771,6 +771,65 @@ def _load_historical_reference(
         return None
 
 
+def _behavioral_finance_block() -> Dict[str, Any]:
+    path = os.path.join(cache_dir("stock-triage"), "behavioral_finance_context.json")
+    context = read_json(path, {})
+    record = _strategy_live_record(_BEHAVIORAL_FINANCE_STRATEGY_ID)
+    live_allowed = bool(record and record.get("runtime_allowed") is True)
+    if not isinstance(context, dict) or not context:
+        return {
+            "strategy_id": _BEHAVIORAL_FINANCE_STRATEGY_ID,
+            "status": "missing",
+            "artifact": path,
+            "influences_live_ranking": False,
+            "reason_code": "behavioral_finance_context_missing",
+            "notes": ["行为金融上下文缺失；不解释为无风险"],
+            "risk_notes": ["缺少市场心理证据时不得放宽买入门禁"],
+        }
+    overreaction = context.get("overreaction") if isinstance(context.get("overreaction"), dict) else {}
+    underreaction = context.get("underreaction") if isinstance(context.get("underreaction"), dict) else {}
+    notes: List[str] = []
+    phase = context.get("sentiment_phase")
+    score = context.get("sentiment_score")
+    if phase:
+        notes.append(f"市场情绪阶段: {phase}" + (f"({score})" if score is not None else ""))
+    market_over = overreaction.get("market") if isinstance(overreaction, dict) else []
+    stock_over = overreaction.get("stocks") if isinstance(overreaction, dict) else []
+    stock_under = underreaction.get("stocks") if isinstance(underreaction, dict) else []
+    if market_over:
+        notes.append(f"过度反应线索: market={len(market_over)}")
+    if stock_over:
+        notes.append(f"个股过度反应线索: {len(stock_over)}")
+    if stock_under:
+        notes.append(f"反应不足线索: {len(stock_under)}")
+    checklist = context.get("debiasing_checklist") or []
+    return {
+        "strategy_id": _BEHAVIORAL_FINANCE_STRATEGY_ID,
+        "status": context.get("status") or "ready",
+        "artifact": path,
+        "generated_at": context.get("generated_at"),
+        "trading_date": context.get("trading_date"),
+        "sentiment_phase": phase,
+        "sentiment_score": score,
+        "overreaction": {"market": market_over, "stocks": stock_over},
+        "underreaction": {"stocks": stock_under},
+        "strategy_gate": {
+            "runtime_allowed": live_allowed,
+            "gate_decision": (record or {}).get("gate_decision"),
+            "gate_asof": (record or {}).get("gate_asof"),
+            "status": "live_allowed" if live_allowed else "observe_only",
+        },
+        "influences_live_ranking": live_allowed,
+        "score_delta": 0.0,
+        "reason_code": (
+            "behavioral_finance_overlay_live_allowed_observed"
+            if live_allowed else "behavioral_finance_overlay_observe_only"
+        ),
+        "notes": notes or ["行为金融上下文无明确阶段信号"],
+        "risk_notes": list(checklist[:3]) or ["只作为解释和风险提示，不改变最终分"],
+    }
+
+
 def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
                 klines: Optional[List[Dict]] = None,
                 market_ctx: Optional[Dict[str, Any]] = None,
@@ -879,6 +938,7 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
 
     # 历史胜率参考
     hist_ref = _load_historical_reference(g, strategy_id, sector=sector)
+    behavioral_finance = _behavioral_finance_block()
 
     # 策略通道标注
     lane = "default"
@@ -915,6 +975,7 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "score_gates": score_gates,
         "deep_source": scores["deep"].get("source"),
         "historical_reference": hist_ref,
+        "behavioral_finance": behavioral_finance,
         "temperature_tier": temperature_tier,
         "sector": sector,
     }
@@ -1037,6 +1098,23 @@ def format_report(result: Dict[str, Any]) -> str:
                 icon = "✅" if str(sig.get("outcome", "")).startswith("win") else "❌"
                 ret = f"{sig['t1_ret']:+.1f}%" if sig.get("t1_ret") is not None else "?"
                 lines.append(f"    {icon} {sig['name']}({sig['code']}) {sig['grade']}级 → {ret}")
+        lines.append("")
+
+    # 7. 行为金融解释（首期只解释，不改分）
+    behavior = result.get("behavioral_finance") or {}
+    if behavior:
+        gate = behavior.get("strategy_gate") or {}
+        lines.append("## 行为金融")
+        lines.append(
+            f"  阶段: {behavior.get('sentiment_phase') or 'unknown'}"
+            f" | 分数: {behavior.get('sentiment_score', 'N/A')}"
+            f" | 门禁: {gate.get('status') or 'observe_only'}"
+        )
+        for note in (behavior.get("notes") or [])[:3]:
+            lines.append(f"  - {note}")
+        for note in (behavior.get("risk_notes") or [])[:2]:
+            lines.append(f"  ⚠️ {note}")
+        lines.append("  注: 首期解释/风险提示，不改变最终分或排序。")
         lines.append("")
 
     return "\n".join(lines)

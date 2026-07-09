@@ -29,7 +29,6 @@ from a_share_rules import add_trading_days  # noqa: E402
 from a_stock_http import load_hermes_env  # noqa: E402
 from catalyst_context import update_catalyst_context  # noqa: E402
 from data_provider import fetch_serper_news  # noqa: E402
-from data_provider import _next_serper_key  # noqa: E402
 from http_client import DataSourceError  # noqa: E402
 from paths import data_file, cache_dir  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
@@ -87,13 +86,6 @@ def _normalize_stock_code(value: Any) -> str:
 def scan_fresh_catalysts() -> List[Dict[str, Any]]:
     """从 Serper.dev 抓取最近新闻并分级。"""
     load_hermes_env()
-    api_key = _next_serper_key()
-    if not api_key:
-        return CatalystScan(status="insufficient_data", errors=[{
-            "source": "serper",
-            "error_type": "missing_credential",
-            "error": "SERPER_API_KEY/SERPER_API_KEYS missing",
-        }])
     queries = [
         "A股 政策 重大 最新",
         "A股 涨停 板块 异动",
@@ -105,7 +97,7 @@ def scan_fresh_catalysts() -> List[Dict[str, Any]]:
     successful_queries = 0
     for query in queries:
         try:
-            items = fetch_serper_news(query, api_key, 5)
+            items = fetch_serper_news(query, None, 5)
             successful_queries += 1
             for item in items.data if hasattr(items, "data") else []:
                 link = item.get("link", "")

@@ -28,6 +28,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "mainline_top_n": 2,
     "leader_top_n": 2,
     "min_sector_limitups": 3,
+    "max_ladder_age_days": 0,
     "min_sector_evidence_types_weak": 2,
     "sector_flow_confirm_yi": 5.0,
     "sector_weights": {
@@ -148,13 +149,28 @@ def build_market_timing(
         for row in observed
         if _code(row.get("code")) in previous_codes
     ]
-    temperature = temperature_from_context(context, event_asof=event_asof, max_age_days=0)
+    max_ladder_age_days = int(cfg.get("max_ladder_age_days") or 0)
+    temperature = temperature_from_context(
+        context,
+        event_asof=event_asof,
+        max_age_days=max_ladder_age_days,
+    )
     reasons: list[str] = []
     context_asof = str(context.get("ladder_asof") or "")
     if not temperature.get("context_fresh"):
         reasons.extend(str(note) for note in temperature.get("notes") or [])
-    if context_asof and context_asof != event_asof:
-        reasons.append(f"梯队日期与事件日不一致或已过期: {context_asof} != {event_asof}")
+    if context_asof:
+        try:
+            from datetime import datetime
+
+            age_days = (
+                datetime.fromisoformat(event_asof).date()
+                - datetime.fromisoformat(context_asof).date()
+            ).days
+        except ValueError:
+            age_days = max_ladder_age_days + 1
+        if age_days < 0 or age_days > max_ladder_age_days:
+            reasons.append(f"梯队日期与事件日不一致或已过期: {context_asof} != {event_asof}")
     if len(observed) < int(cfg["min_quote_count"]):
         reasons.append(
             f"全市场有效行情不足: {len(observed)} < {int(cfg['min_quote_count'])}"

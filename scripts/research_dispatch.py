@@ -26,6 +26,11 @@ from agent_state import load_agent_state  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import read_json  # noqa: E402
 
+try:  # noqa: SIM105 - optional monitor side effect must never block dispatch
+    import monitor_registry  # noqa: E402
+except Exception:  # noqa: BLE001
+    monitor_registry = None
+
 
 def _norm_code(value: Any) -> str:
     code = str(value or "").strip()
@@ -67,6 +72,65 @@ def _enqueue(
     else:
         entry["skip_reason"] = result.get("reason")
     return entry
+
+
+def _load_dispatch_triggers() -> dict[str, Any]:
+    """Load config/research_dispatch.yaml without adding a YAML dependency.
+
+    The file is intentionally small and only needs nested trigger scalars.
+    Unknown lines are ignored so a malformed optional config degrades to the
+    research_bus defaults.
+    """
+    path = os.path.join(ROOT, "config", "research_dispatch.yaml")
+    try:
+        lines = open(path, encoding="utf-8").read().splitlines()
+    except OSError:
+        return {}
+    data: dict[str, Any] = {}
+    current: list[str] = []
+    for raw in lines:
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        key, sep, value = raw.strip().partition(":")
+        if not sep:
+            continue
+        level = indent // 2
+        current = current[:level]
+        current.append(key.strip())
+        cursor = data
+        for part in current[:-1]:
+            cursor = cursor.setdefault(part, {})
+        text = value.strip()
+        if not text:
+            cursor.setdefault(current[-1], {})
+            continue
+        lowered = text.lower()
+        if lowered in {"true", "false"}:
+            parsed: Any = lowered == "true"
+        else:
+            try:
+                parsed = float(text) if "." in text else int(text)
+            except ValueError:
+                parsed = text.strip("\"'")
+        cursor[current[-1]] = parsed
+    triggers = data.get("triggers")
+    return triggers if isinstance(triggers, dict) else {}
+
+
+def _merge_dispatch_config(config: dict[str, Any]) -> dict[str, Any]:
+    triggers = _load_dispatch_triggers()
+    if not triggers:
+        return config
+    merged = json.loads(json.dumps(config))
+    target = merged.setdefault("triggers", {})
+    for name, trigger in triggers.items():
+        if isinstance(trigger, dict):
+            base = target.get(name) if isinstance(target.get(name), dict) else {}
+            target[name] = {**base, **trigger}
+        else:
+            target[name] = trigger
+    return merged
 
 
 def scan_candidate_trigger(
@@ -161,15 +225,104 @@ def scan_postmortem_trigger(
     return results
 
 
+def _event_expected_value(event: dict[str, Any]) -> float | None:
+    value = event.get("expected_value_pct")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _activate_high_risk_monitor(
+    event: dict[str, Any],
+    *,
+    trading_date: str,
+) -> dict[str, Any] | None:
+    if monitor_registry is None:
+        return {"changed": False, "reason": "monitor_registry_unavailable"}
+    code = _norm_code(event.get("code") or event.get("stock_code"))
+    if not code:
+        return {"changed": False, "reason": "missing_code"}
+    try:
+        return monitor_registry.activate(
+            "stock",
+            code,
+            str(event.get("name") or code),
+            "company_event_opportunities",
+            metadata={
+                "reason_code": "company_event_high_risk_monitor",
+                "event_type": event.get("event_type"),
+                "risk_level": event.get("risk_level"),
+                "expected_value_pct": event.get("expected_value_pct"),
+            },
+            source_group="research_dispatch",
+            trading_date=trading_date,
+        )
+    except Exception as exc:  # noqa: BLE001 - monitor registration is best effort
+        return {"changed": False, "reason": f"monitor_activate_failed:{exc}"}
+
+
+def scan_event_trigger(
+    config: dict[str, Any],
+    trading_date: str,
+) -> list[dict[str, Any]]:
+    trigger = (config.get("triggers") or {}).get("event_review") or {}
+    if not trigger.get("enabled"):
+        return []
+    payload = read_json(data_file("company-event-opportunities", "latest.json"), {})
+    if not isinstance(payload, dict):
+        return []
+    ev_threshold = float(trigger.get("min_expected_value_pct") or 5.0)
+    max_per_day = int(trigger.get("max_per_day") or 5)
+    results: list[dict[str, Any]] = []
+    for event in payload.get("opportunities") or payload.get("events") or []:
+        if not isinstance(event, dict):
+            continue
+        risk_high = str(event.get("risk_level") or "").lower() == "high"
+        expected_value = _event_expected_value(event)
+        positive_ev = expected_value is not None and expected_value > ev_threshold
+        if not (risk_high or positive_ev):
+            continue
+        code = _norm_code(event.get("code") or event.get("stock_code"))
+        if not code:
+            continue
+        if risk_high:
+            monitor_result = _activate_high_risk_monitor(event, trading_date=trading_date)
+        else:
+            monitor_result = None
+        entry = _enqueue(
+            "event_review",
+            {
+                "code": code,
+                "name": event.get("name"),
+                "event_type": event.get("event_type"),
+                "risk_level": event.get("risk_level"),
+            },
+            reason=(
+                "company_event_high_risk"
+                if risk_high else f"company_event_expected_value_{expected_value:.1f}pct"
+            ),
+            trading_date=trading_date,
+            config=config,
+        )
+        if monitor_result is not None:
+            entry["monitor_registry"] = monitor_result
+        results.append(entry)
+        if len(results) >= max_per_day:
+            break
+    return results
+
+
 def dispatch(
     *,
     trading_date: str,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    config = config or research_bus.load_config()
+    config = _merge_dispatch_config(config or research_bus.load_config())
     state = load_agent_state()
     results = []
     results.extend(scan_candidate_trigger(config, trading_date))
+    results.extend(scan_event_trigger(config, trading_date))
     results.extend(scan_anomaly_trigger(config, trading_date, state))
     results.extend(scan_postmortem_trigger(config, trading_date, state))
     enqueued = [entry for entry in results if entry.get("enqueued")]

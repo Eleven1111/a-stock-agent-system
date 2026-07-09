@@ -29,6 +29,13 @@ def _job(job_id, command, dependencies=None, mode="same_trading_date"):
     }
 
 
+def _test_env(tmp_path):
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env["A_STOCK_STATE_ID"] = ""
+    return env
+
+
 def test_dag_reuses_dependencies_but_reruns_scheduled_target(tmp_path):
     log = tmp_path / "order.log"
     worker = tmp_path / "worker.py"
@@ -45,8 +52,7 @@ def test_dag_reuses_dependencies_but_reruns_scheduled_target(tmp_path):
         _job("downstream", f"{sys.executable} {worker} {log} downstream", ["upstream"]),
     ]
     manifest.write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
-    env = os.environ.copy()
-    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env = _test_env(tmp_path)
 
     first = run_agent_dag.execute_dag(
         manifest_path=str(manifest),
@@ -85,8 +91,7 @@ def test_dag_can_explicitly_resume_target(tmp_path):
     manifest.write_text(json.dumps({
         "jobs": [_job("target", f"{sys.executable} {worker} {log} target")]
     }), encoding="utf-8")
-    env = os.environ.copy()
-    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env = _test_env(tmp_path)
 
     run_agent_dag.execute_dag(
         manifest_path=str(manifest),
@@ -203,6 +208,35 @@ def test_target_output_records_push_telemetry_jsonl(tmp_path):
             "silent_reason": "no_signal",
         },
     ]
+
+
+def test_target_output_uses_json_message_instead_of_raw_state_payload():
+    delivered = run_agent_dag.target_output(
+        {
+            "id": "hot-money-morning-checkpoint",
+            "deliver": "origin",
+            "silent_when_no_signal": False,
+            "max_output_chars": 2000,
+        },
+        {
+            "trading_date": "2026-07-08",
+            "stdout": json.dumps({
+                "status": "ready",
+                "profile": "morning_confirm",
+                "window": "09:50",
+                "asof": "2026-07-08",
+                "message": "今日早盘无主线龙头承接信号。",
+                "research_only": True,
+                "observation_count": 0,
+                "confirmed_count": 0,
+                "confirmed": [],
+            }, ensure_ascii=False),
+            "has_signal": True,
+        },
+    )
+
+    assert delivered == "今日早盘无主线龙头承接信号。\n"
+    assert '"profile"' not in delivered
 
 
 def test_target_output_pushes_feishu_direct_jobs_without_entering_reply(tmp_path, monkeypatch):

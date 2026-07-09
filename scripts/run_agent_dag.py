@@ -410,10 +410,16 @@ def target_output(
                 was_compressed=len(stdout) > max_chars,
                 silent_reason="none" if result["status"] == "sent" else f"feishu_{result['status']}",
                 telemetry_path=telemetry_path,
-            )
+        )
         return "NO_REPLY\n"
     stdout = str(artifact.get("stdout") or "")
     max_chars = max(200, int(job.get("max_output_chars") or 4000))
+    try:
+        parsed_stdout = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        parsed_stdout = None
+    if isinstance(parsed_stdout, Mapping) and parsed_stdout.get("message"):
+        stdout = str(parsed_stdout["message"])
     was_compressed = False
     if len(stdout) > max_chars:
         was_compressed = True

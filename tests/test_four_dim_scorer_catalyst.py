@@ -48,5 +48,9 @@ def test_clarification_language_blocks_embedded_bullish_keywords():
 
 def test_fetch_serper_news_no_key_returns_none(monkeypatch):
     """无 API key 应返回 None（数据源不可用），而非 []（可用但无新闻）。"""
-    monkeypatch.setattr(fds, "_next_serper_key", lambda: None)
+    monkeypatch.setattr(
+        fds,
+        "_fetch_serper_news",
+        lambda *args, **kwargs: (_ for _ in ()).throw(fds.DataSourceError("serper", "missing")),
+    )
     assert fds.fetch_serper_news("任意查询") is None

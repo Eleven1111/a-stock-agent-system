@@ -18,7 +18,6 @@ def load_module(name: str, relpath: str):
 def test_market_pulse_digest_uses_one_query_and_caps_summary(monkeypatch):
     pulse = load_module("market_pulse_digest_test", "scripts/market_pulse_digest.py")
     calls = []
-    monkeypatch.setattr(pulse, "_serper_key", lambda: "test-key")
     monkeypatch.setattr(
         pulse,
         "fetch_serper_news",
@@ -33,6 +32,7 @@ def test_market_pulse_digest_uses_one_query_and_caps_summary(monkeypatch):
 
     assert result["status"] == "ready"
     assert len(calls) == 1
+    assert calls[0][1] is None
     assert result["query"] == pulse.PROFILES["midday"]["query"]
     assert len(result["summary"]) <= 60
     assert result["events_count"] == 2
@@ -40,7 +40,13 @@ def test_market_pulse_digest_uses_one_query_and_caps_summary(monkeypatch):
 
 def test_market_pulse_digest_fails_closed_without_key(monkeypatch):
     pulse = load_module("market_pulse_digest_no_key_test", "scripts/market_pulse_digest.py")
-    monkeypatch.setattr(pulse, "_serper_key", lambda: None)
+    monkeypatch.setattr(
+        pulse,
+        "fetch_serper_news",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            pulse.DataSourceError("serper", "SERPER_API_KEY not configured")
+        ),
+    )
 
     result = pulse.run_pulse(profile="close")
 

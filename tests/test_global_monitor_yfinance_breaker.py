@@ -114,7 +114,6 @@ def test_http_sources_use_provider_clients_and_preserve_decoding(monkeypatch):
             return HttpResult({"features": []}, "2026-06-12T06:00:00+00:00", 1)
 
     monkeypatch.setattr(monitor, "provider_client", lambda source: FakeClient(source))
-    monkeypatch.setattr(monitor, "_next_serper_key", lambda: "secret")
     monkeypatch.setattr(
         monitor,
         "_fetch_serper_news",

@@ -66,6 +66,7 @@ def test_same_window_auction_and_open_pushes_are_merged():
 
 def test_pure_notification_jobs_push_feishu_direct_and_skip_agent_context():
     for job_id in (
+        "global-preopen",
         "capital-flow",
         "event-calendar",
         "official-policy-watch",
@@ -73,6 +74,27 @@ def test_pure_notification_jobs_push_feishu_direct_and_skip_agent_context():
         "news-monitor-intraday",
     ):
         assert _manifest_job(job_id)["deliver"] == "feishu_direct"
+
+
+def test_global_preopen_pushes_full_feishu_report():
+    job = _manifest_job("global-preopen")
+
+    assert job["deliver"] == "feishu_direct"
+    assert job["max_output_chars"] >= 20000
+    assert "--delivery-job-id" not in job["run"]["command"]
+
+
+def test_candidate_freshness_check_uses_standard_dag_fields():
+    job = _manifest_job("candidate-freshness-check")
+
+    assert job["command"] == "python scripts/run_agent_dag.py candidate-freshness-check --emit-target"
+    assert job["deliver"] == "feishu_direct"
+    assert job["silent_when_no_signal"] is True
+    assert job["context_from"] == []
+    assert job["artifact_path_template"] == "{cron_output_dir}/{job_id}/{run_id}.json"
+    assert any("candidate-freshness-check" in path for path in job["allowed_state_writes"])
+    assert job["run"]["command"].endswith("--check-freshness --json --alert-mode")
+    assert job["run"]["timeout_seconds"] == 60
 
 
 def test_high_frequency_idle_prone_jobs_opt_into_adaptive_backoff():
@@ -291,8 +313,9 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
             "hot-money-afternoon-checkpoint",
             "closing-triage",
             "news-monitor-intraday",
-            "official-policy-watch",
-            "market-pulse-1314",
+        "official-policy-watch",
+        "official-policy-watch-evening",
+        "market-pulse-1314",
             "market-pulse-1500",
             "stock-intelligence-refresh",
             "serenity-refresh-plan",
@@ -309,25 +332,31 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["candidate-discovery"]["context_from"][0] == "hot-money-context"
     assert "social-attention-close" in jobs["candidate-discovery"]["context_from"]
     assert jobs["candidate-discovery"]["dependency_policy"]["optional_jobs"] == [
+        "hk-a-linkage",
         "social-attention-close",
     ]
     assert jobs["candidate-preopen"]["schedule"] == "45 8 * * 1-5"
     assert jobs["candidate-preopen"]["run"]["command"].endswith(
-        "candidate_discovery.py --bootstrap-if-missing --no-settle --json"
+        "candidate_discovery.py --bootstrap-if-missing --no-settle --json --max-ladder-age-days 1"
     )
     assert jobs["hot-money-context"]["run"]["command"].endswith("--cache-only")
     assert jobs["social-attention-preopen"]["schedule"] == "42 8 * * 1-5"
     assert jobs["social-attention-midday"]["schedule"] == "37 11 * * 1-5"
     assert jobs["social-attention-close"]["schedule"] == "4 15 * * 1-5"
     assert jobs["news-monitor-intraday"]["schedule"] == (
-        "2,17,32,47 9-11,13-14 * * 1-5"
+        "2,32 9-11,13-14 * * 1-5"
     )
     assert jobs["news-monitor-intraday"]["run"]["command"].endswith("--mode intraday --json")
     assert any("catalyst_context.json" in path for path in jobs["news-monitor"]["allowed_state_writes"])
     assert any("catalyst_context.json" in path for path in jobs["news-monitor-intraday"]["allowed_state_writes"])
     assert jobs["official-policy-watch"]["trading_day_policy"] == "calendar_day"
-    assert jobs["official-policy-watch"]["schedule"] == "3,13,23,33,43,53 8-22 * * *"
+    assert jobs["official-policy-watch"]["schedule"] == "3,33 9-11,13-14 * * 1-5"
     assert jobs["official-policy-watch"]["run"]["command"] == (
+        "python skills/policy-intent-decoder/scripts/watch_official_policy.py --json"
+    )
+    assert jobs["official-policy-watch-evening"]["trading_day_policy"] == "calendar_day"
+    assert jobs["official-policy-watch-evening"]["schedule"] == "3 22 * * 1-5"
+    assert jobs["official-policy-watch-evening"]["run"]["command"] == (
         "python skills/policy-intent-decoder/scripts/watch_official_policy.py --json"
     )
     assert jobs["official-policy-watch"]["silent_when_no_signal"] is True
@@ -355,7 +384,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "social-attention-midday",
         "social-attention-close",
     ):
-        assert jobs[job_id]["enabled"] is True
+        assert jobs[job_id]["enabled"] is False
         assert jobs[job_id]["run"]["command"].endswith("--json")
         assert jobs[job_id]["deliver"] == "local"
         assert any(
@@ -441,7 +470,13 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["provider-health"]["deliver"] == "local"
     assert jobs["provider-health"]["run"]["command"] == "python scripts/provider_doctor.py --json"
     assert manifest["default_trading_day_policy"] == "required"
-    for job_id in ("institution-weekly", "event-calendar", "performance-weekly", "official-policy-watch"):
+    for job_id in (
+        "institution-weekly",
+        "event-calendar",
+        "performance-weekly",
+        "official-policy-watch",
+        "official-policy-watch-evening",
+    ):
         assert jobs[job_id]["trading_day_policy"] == "calendar_day"
     assert "pulse_engine" not in manifest.get("external_dependencies", {})
     assert "builderpulse" not in manifest.get("external_dependencies", {})

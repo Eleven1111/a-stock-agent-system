@@ -90,6 +90,19 @@ def test_stale_or_missing_context_fails_closed_for_daban():
     assert any("过期" in reason or "不一致" in reason for reason in timing["reasons"])
 
 
+def test_preopen_can_accept_previous_trading_day_ladder_when_configured():
+    timing = hms.build_market_timing(
+        _quotes(),
+        _context("2026-06-21"),
+        event_asof="2026-06-22",
+        config={**_config(), "max_ladder_age_days": 1},
+    )
+
+    assert timing["status"] == "ready"
+    assert timing["daban_ready"] is True
+    assert timing["context_asof"] == "2026-06-21"
+
+
 def test_market_timing_derives_breadth_and_previous_ladder_premium():
     timing = hms.build_market_timing(
         _quotes(),
