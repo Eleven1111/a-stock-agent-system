@@ -10,12 +10,13 @@ from a_stock_http import (
     fetch_tencent_quote as _fetch_tencent_quote,
     fetch_tencent_snapshot as _fetch_tencent_snapshot,
 )
-from http_client import DataSourceError, request_bytes
+from http_client import DataSourceError, request_bytes, request_json
 
 
 ADAPTER_VERSIONS = {
     "tencent_quote": "tencent-adapter-v2",
     "tencent_kline": "tencent-kline-adapter-v2",
+    "eastmoney_kline": "eastmoney-kline-adapter-v1",
     "tencent_minute": "tencent-adapter-v1",
     "tencent_orderbook": "tencent-adapter-v2",
     "akshare_limitup": "akshare-adapter-v1",
@@ -44,6 +45,61 @@ def fetch_tencent_kline(
 
 def fetch_tencent_minute(code: str, *, market: str) -> list[dict[str, Any]]:
     return _fetch_tencent_minute(code, market=market)
+
+
+def parse_eastmoney_kline_payload(payload: dict[str, Any],
+                                  days: int) -> list[dict[str, Any]]:
+    """东财日K原始 JSON → 与 fetch_tencent_kline 同构的 bar 列表（纯函数可单测）。
+
+    kline 行形如 "2026-07-09,10.20,10.50,10.60,10.10,123456,..."
+    = 日期,开,收,高,低,成交量(手)。
+    """
+    klines = ((payload or {}).get("data") or {}).get("klines") or []
+    bars: list[dict[str, Any]] = []
+    for line in klines[-days:]:
+        parts = str(line).split(",")
+        if len(parts) < 6:
+            continue
+        try:
+            bars.append({
+                "date": parts[0],
+                "open": float(parts[1]),
+                "close": float(parts[2]),
+                "high": float(parts[3]),
+                "low": float(parts[4]),
+                "volume": float(parts[5]),
+            })
+        except (TypeError, ValueError):
+            continue
+    return bars
+
+
+def fetch_eastmoney_kline(
+    code: str,
+    *,
+    market: str,
+    days: int,
+) -> list[dict[str, Any]]:
+    """东财前复权日K，腾讯K线失败时的候选池回退源（PR #90 引用但从未实现）。"""
+    secid = f"{'1' if market == 'sh' else '0'}.{code}"
+    url = (
+        "https://push2his.eastmoney.com/api/qt/stock/kline/get?"
+        f"secid={secid}&klt=101&fqt=1&lmt={days}&end=20500101&"
+        "fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56"
+    )
+    try:
+        result = request_json(
+            url,
+            source="eastmoney_kline",
+            timeout=10,
+            max_attempts=2,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+    except DataSourceError:
+        return []
+    if not isinstance(result.data, dict):
+        return []
+    return parse_eastmoney_kline_payload(result.data, days)
 
 
 def fetch_hot_money_limitup_pool(date: str):
