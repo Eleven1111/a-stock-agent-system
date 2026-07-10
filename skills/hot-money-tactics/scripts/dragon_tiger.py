@@ -22,7 +22,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence
+import os
+import sys
+from typing import Any, Dict, List, Optional, Sequence
+
+_COMMON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common")
+if _COMMON not in sys.path:
+    sys.path.insert(0, _COMMON)
 
 INSTITUTION_MARKERS = ("机构专用",)
 NORTHBOUND_MARKERS = ("深股通专用", "沪股通专用")
@@ -138,3 +144,108 @@ def build_seat_signal(code: str, date: str) -> Dict[str, Any]:
     signal["code"] = str(code).zfill(6)
     signal["date"] = date
     return signal
+
+
+def _column(row: Dict[str, Any], *candidates: str) -> Any:
+    for key in candidates:
+        for name in row:
+            if key in str(name):
+                return row[name]
+    return None
+
+
+def normalize_lhb_daily_rows(records: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """akshare 龙虎榜明细行 → lhb_patterns 日序列（净买额亿/换手率/收盘价）。
+
+    同票同日多榜单（如日榜+3日榜）净买额合并、换手/收盘取首个有效值。纯函数可单测。
+    """
+    by_date: Dict[str, Dict[str, Any]] = {}
+    for row in records:
+        date = str(_column(row, "上榜日") or "")[:10]
+        if not date:
+            continue
+        net = _column(row, "龙虎榜净买额", "净买额")
+        try:
+            net_yi = round(float(net) / 1e8, 2) if net is not None else None
+        except (TypeError, ValueError):
+            net_yi = None
+        if net_yi is None:
+            continue
+        entry = by_date.setdefault(date, {"date": date, "net_yi": 0.0,
+                                          "turnover_pct": None, "close": None})
+        entry["net_yi"] = round(entry["net_yi"] + net_yi, 2)
+        for field, *names in (("turnover_pct", "换手率"), ("close", "收盘价")):
+            if entry[field] is None:
+                value = _column(row, *names)
+                try:
+                    entry[field] = float(value) if value is not None else None
+                except (TypeError, ValueError):
+                    pass
+    return [by_date[key] for key in sorted(by_date)]
+
+
+def fetch_lhb_daily_seq(code: str, start: str, end: str) -> List[Dict[str, Any]]:
+    """某票区间内的龙虎榜日序列（升序）。start/end 形如 '20260601'。失败返回空。"""
+    df = fetch_lhb_detail(start, end)
+    if df is None or not len(df):
+        return []
+    code = str(code).zfill(6)
+    code_col = next((c for c in df.columns if "代码" in str(c)), None)
+    if code_col is None:
+        return []
+    rows = df[df[code_col].astype(str).str.zfill(6) == code]
+    return normalize_lhb_daily_rows(rows.to_dict("records"))
+
+
+def build_lhb_profile_for(code: str, days: int = 30) -> Dict[str, Any]:
+    """端到端：近 N 天龙虎榜序列 + 最新上榜日席位 → 模式画像与持有策略。
+
+    产出仅供风控/退出信号链路消费（见模块头红线），不直接进打分。
+    """
+    from datetime import date as _date, timedelta
+
+    from lhb_patterns import build_lhb_profile
+
+    end = _date.today()
+    start = end - timedelta(days=days)
+    seq = fetch_lhb_daily_seq(code, start.strftime("%Y%m%d"), end.strftime("%Y%m%d"))
+    seat_summary: Optional[Dict[str, Any]] = None
+    if seq:
+        latest = str(seq[-1]["date"]).replace("-", "")
+        seats = fetch_seats(code, latest, "买入") + fetch_seats(code, latest, "卖出")
+        if seats:
+            seat_summary = seat_signal(summarize_seats(seats))
+    return build_lhb_profile(
+        seq,
+        seat_summary,
+        code=code,
+        asof=seq[-1]["date"] if seq else None,
+    )
+
+
+def cache_lhb_profiles(profiles: Dict[str, Dict[str, Any]]) -> None:
+    """把画像合并写入 signal_context.lhb_profiles，供盘中退出信号消费。"""
+    from signal_context import read_signal_context, update_signal_context
+
+    existing = (read_signal_context() or {}).get("lhb_profiles") or {}
+    merged = {**existing, **profiles}
+    update_signal_context({"lhb_profiles": merged})
+
+
+if __name__ == "__main__":
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="龙虎榜模式画像")
+    parser.add_argument("--profile", metavar="CODE", required=True,
+                        help="个股代码，输出多日模式画像与持有策略")
+    parser.add_argument("--days", type=int, default=30, help="回看自然日数（默认30）")
+    parser.add_argument("--cache", action="store_true",
+                        help="画像写入 signal_context.lhb_profiles 供盘中风控消费")
+    args = parser.parse_args()
+
+    profile = build_lhb_profile_for(args.profile, days=args.days)
+    if args.cache and profile.get("sample_days"):
+        cache_lhb_profiles({str(args.profile).zfill(6): profile})
+        print("✅ 画像已缓存至 signal_context.lhb_profiles", file=sys.stderr)
+    print(json.dumps(profile, ensure_ascii=False, indent=2))

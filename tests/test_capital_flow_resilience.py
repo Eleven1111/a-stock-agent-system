@@ -26,8 +26,17 @@ def _failed(provider: str) -> dict:
     }
 
 
+def _stub_adapters(module, monkeypatch):
+    """PR #92 后主路由是 market_adapters 韧性链——单元测试必须全部打桩，
+    否则会打真网络（曾在 CI 静默期漏进 main）。"""
+    monkeypatch.setattr(module, "fetch_northbound_flow", lambda: {})
+    monkeypatch.setattr(module, "fetch_stock_fund_flow", lambda code, market=None, days=3: {})
+    monkeypatch.setattr(module, "fetch_sector_fund_flow", lambda bk_code, name=None, days=3: {})
+
+
 def test_northbound_falls_back_to_sina_with_provenance(monkeypatch):
     module = _load()
+    _stub_adapters(module, monkeypatch)
     monkeypatch.setattr(module, "fetch_eastmoney_observation", lambda url: _failed("eastmoney"))
     monkeypatch.setattr(
         module,
@@ -53,6 +62,7 @@ def test_northbound_falls_back_to_sina_with_provenance(monkeypatch):
 
 def test_tencent_volume_metrics_are_labeled_proxy_not_main_flow(monkeypatch):
     module = _load()
+    _stub_adapters(module, monkeypatch)
     monkeypatch.setattr(module, "fetch_eastmoney_observation", lambda url: _failed("eastmoney"))
     monkeypatch.setattr(module, "fetch_sina_northbound_observation", lambda: _failed("sina"))
     monkeypatch.setattr(
@@ -82,6 +92,7 @@ def test_tencent_volume_metrics_are_labeled_proxy_not_main_flow(monkeypatch):
 
 def test_provider_failures_are_not_reported_as_legitimate_empty(monkeypatch):
     module = _load()
+    _stub_adapters(module, monkeypatch)
     monkeypatch.setattr(module, "fetch_eastmoney_observation", lambda url: _failed("eastmoney"))
     monkeypatch.setattr(module, "fetch_sina_northbound_observation", lambda: _failed("sina"))
 

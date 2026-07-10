@@ -15,7 +15,6 @@ import os
 import time
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Sequence
-from urllib.parse import urlencode
 
 from a_stock_http import (
     fetch_tencent_kline as _fetch_tencent_kline,

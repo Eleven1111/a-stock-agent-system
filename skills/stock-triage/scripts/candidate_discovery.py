@@ -80,8 +80,12 @@ def reusable_pool(
 ) -> bool:
     if pool.get("status") not in ("ready", "degraded") or not pool.get("candidates"):
         return False
-    # Reject pools that claim ready but have zero candidates (stale data artifact)
-    if pool.get("candidate_count", 0) == 0:
+    # Reject pools that claim ready but have zero candidates (stale data artifact).
+    # 旧池没有 candidate_count 字段，回退到 candidates 长度，不误杀合法池。
+    count = pool.get("candidate_count")
+    if count is None:
+        count = len(pool.get("candidates") or [])
+    if int(count or 0) == 0:
         return False
     scan_codes = pool.get("auction_scan_codes")
     if not isinstance(scan_codes, list) or len(scan_codes) < int(pool.get("eligible_count") or 1):
@@ -471,6 +475,8 @@ def load_signal_context_for_discovery(
                 "market_sentiment",
                 "stock_flows",
                 "sector_flows",
+                "sector_momentum",
+                "sector_rotation",
                 "northbound_net_yi",
             ):
                 ranking_ctx.pop(key, None)

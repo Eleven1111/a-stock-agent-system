@@ -348,3 +348,79 @@ def test_take_profit_target_alert_fires_independently_of_trailing_stop():
     levels = [alert["level"] for alert in result["alerts"]]
     assert "🟢 止盈目标" in levels
     assert "🟡 止盈" not in levels
+
+
+# ========== 止损执行闭环（issue #88：建议→执行的纪律升级） ==========
+
+def _stop_loss_portfolio(buy_date):
+    return {
+        "cash": 0,
+        "positions": [{
+            "code": "002842", "name": "翔鹭钨业", "cost": 49.5, "shares": 400,
+            "peak_price": 51.4,
+            "lots": [{"shares": 400, "cost": 49.5, "acquired_on": buy_date}],
+            "buy_date": buy_date,
+        }],
+    }
+
+
+def test_stop_loss_first_trigger_persists_trigger_date():
+    portfolio = _stop_loss_portfolio(_n_trading_days_ago(5))
+
+    result = pm._apply_prices(portfolio, {"002842": {"price": 44.0, "change_pct": -5.0}})
+
+    pos = portfolio["positions"][0]
+    assert pos["stop_loss_triggered_on"] == date.today().isoformat()
+    alert = next(a for a in result["alerts"] if "止损" in a["level"])
+    assert alert["level"] == "🔴 止损"
+    assert alert["overdue_trading_days"] == 0
+    assert "今日必须执行" in alert["msg"]
+
+
+def test_stop_loss_unexecuted_escalates_next_trading_day():
+    portfolio = _stop_loss_portfolio(_n_trading_days_ago(5))
+    portfolio["positions"][0]["stop_loss_triggered_on"] = _n_trading_days_ago(2)
+
+    result = pm._apply_prices(portfolio, {"002842": {"price": 40.0, "change_pct": -8.0}})
+
+    alert = next(a for a in result["alerts"] if "止损" in a["level"])
+    assert alert["level"] == "🔴🔴 止损逾期"
+    assert alert["overdue_trading_days"] == 2
+    assert "仍未执行" in alert["msg"]
+
+
+def test_stop_loss_recovery_clears_trigger_state():
+    portfolio = _stop_loss_portfolio(_n_trading_days_ago(5))
+    portfolio["positions"][0]["stop_loss_triggered_on"] = _n_trading_days_ago(1)
+
+    result = pm._apply_prices(portfolio, {"002842": {"price": 49.0, "change_pct": 2.0}})
+
+    assert "stop_loss_triggered_on" not in portfolio["positions"][0]
+    assert not any("止损逾期" in a["level"] for a in result["alerts"])
+
+
+def test_deep_score_below_red_line_forces_action_alert():
+    portfolio = _stop_loss_portfolio(_n_trading_days_ago(5))
+
+    # 复盘场景：6/28 深研 2.0/10 却没有触发任何减仓动作
+    result = pm._apply_prices(
+        portfolio,
+        {"002842": {"price": 50.0, "change_pct": 1.0}},
+        deep_scores={"002842": 2.0},
+    )
+
+    alert = next(a for a in result["alerts"] if a["level"] == "🔴 深研红线")
+    assert "必须清仓" in alert["msg"]
+    assert alert["deep_score"] == 2.0
+
+
+def test_deep_score_above_red_line_no_alert():
+    portfolio = _stop_loss_portfolio(_n_trading_days_ago(5))
+
+    result = pm._apply_prices(
+        portfolio,
+        {"002842": {"price": 50.0, "change_pct": 1.0}},
+        deep_scores={"002842": 7.5},
+    )
+
+    assert not any(a["level"] == "🔴 深研红线" for a in result["alerts"])

@@ -257,7 +257,14 @@ def test_target_output_records_not_configured_feishu_push(tmp_path, monkeypatch)
         record_telemetry=True,
     )
 
-    assert output == "NO_REPLY\n"
-    record = json.loads(telemetry.read_text(encoding="utf-8").splitlines()[0])
-    assert record["delivered"] is False
-    assert record["silent_reason"] == "feishu_not_configured"
+    # 飞书未配置时不再静默吞掉消息：回落 OpenClaw 通道正常投递，
+    # 遥测保留两跳记录（飞书未配置 + 回落投递成功）
+    assert output == "本周事件日历\n"
+    records = [
+        json.loads(line)
+        for line in telemetry.read_text(encoding="utf-8").splitlines()
+    ]
+    assert records[0]["delivered"] is False
+    assert records[0]["silent_reason"] == "feishu_not_configured"
+    assert records[1]["delivered"] is True
+    assert records[1]["silent_reason"] == "none"

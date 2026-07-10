@@ -230,16 +230,23 @@ def _news_sectors_for_subject(subject_code: str) -> list[str]:
     return sectors
 
 
-def _news_evidence(subject_code: str) -> dict[str, Any] | None:
+def _news_evidence(subject_code: str,
+                   trading_date: str | None = None) -> dict[str, Any] | None:
     """近 N 天 L2 已评级资讯：直接点名该股 或 命中其所属板块。
 
     fail-open: 资讯池为空/不可达时证据包仍照常生成，但 ``status`` 必须显式
     标注（``empty``/``unavailable``），绝不静默缺席这一段；资讯只作为证据
     附加，不改变候选排序或信号（news_pipeline.read_graded_news 是纯读取，
     评级本身不参与打分）。
+
+    回看窗口锚定任务 ``trading_date``（而非墙钟）：证据包按任务日期成立，
+    回放/补跑历史任务时不得把窗口漂移到执行当天（数据隔离）。
     """
     if not subject_code:
         return None
+    anchor = None
+    if trading_date and len(str(trading_date)) >= 10:
+        anchor = f"{str(trading_date)[:10]}T23:59:59+08:00"
     sectors = _news_sectors_for_subject(subject_code)
     try:
         import news_pipeline
@@ -249,6 +256,7 @@ def _news_evidence(subject_code: str) -> dict[str, Any] | None:
             sectors=sectors,
             days=DEFAULT_NEWS_LOOKBACK_DAYS,
             limit=DEFAULT_NEWS_MAX_ITEMS,
+            now=anchor,
         )
     except Exception:  # noqa: BLE001 - news pool must never block a pack
         return {"status": "unavailable", "items": []}
@@ -401,7 +409,7 @@ def _subject_data(
     interactive_qa = _interactive_qa_evidence(subject_code)
     if interactive_qa is not None:
         data["interactive_qa"] = interactive_qa
-    news_evidence = _news_evidence(subject_code)
+    news_evidence = _news_evidence(subject_code, trading_date)
     if news_evidence is not None:
         data["news_evidence"] = news_evidence
     pack_hints = _strategy_pack_hints(data.get("candidate_entry"), trading_date)

@@ -94,12 +94,12 @@ def test_event_and_institution_endpoints_share_datacenter_normalization(monkeypa
             "ASSIGN_PROGRESS": "实施",
         }],
         "RPT_ORG_SURVEY": [{
-            "NOTICEDATE": "2026-06-14",
+            "NOTICE_DATE": "2026-06-14",
             "RECEPTIONAMOUNT": 12,
             "MAINPOINT": "关注先进封装进展",
         }],
         "RPT_HOLDER_TRADE_STOCK": [{
-            "NOTICEDATE": "2026-06-13",
+            "NOTICE_DATE": "2026-06-13",
             "PARTICIPANTNAME": "控股股东",
             "TRADETYPE": "2",
             "TRADENUM": 100000,
