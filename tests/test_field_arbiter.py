@@ -104,7 +104,11 @@ def test_field_chain_reads_configured_priority(tmp_path, monkeypatch):
 
     chain = field_arbiter.field_chain("capital_flow")
 
-    assert chain == ["eastmoney", "tencent"]
+    # PR #92 数据源韧性重构后的链路：AkShare/adata 优先，push2 降级殿后
+    assert chain == [
+        "akshare", "adata", "eastmoney_datacenter",
+        "eastmoney_push2_degraded", "tencent",
+    ]
 
 
 def test_field_chain_unknown_type_is_empty(tmp_path, monkeypatch):

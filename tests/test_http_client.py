@@ -34,7 +34,13 @@ def test_module_level_bytes_text_json_apis(monkeypatch):
         FakeResponse("中文".encode()),
         FakeResponse(b'{"ok": true}'),
     ])
-    monkeypatch.setattr(http_client.urllib.request, "urlopen", lambda request, timeout: next(payloads))
+    # PR #92 起默认走绕代理专用 opener（不再经 urllib.request.urlopen），
+    # 打桩缝隙相应移到 _build_no_proxy_opener。
+    monkeypatch.setattr(
+        http_client,
+        "_build_no_proxy_opener",
+        lambda: (lambda request, timeout: next(payloads)),
+    )
 
     assert http_client.request_bytes("https://example.test/raw", source="test").data == b"raw"
     assert http_client.request_text("https://example.test/text", source="test").data == "中文"

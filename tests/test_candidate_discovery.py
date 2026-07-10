@@ -333,7 +333,8 @@ def test_run_discovery_uses_narrow_cached_industry_as_sector(tmp_path, monkeypat
     assert all(item.get("sector") == "半导体" for item in result["candidates"])
     assert all(item.get("industry") == "半导体" for item in result["candidates"])
     assert all(
-        item.get("sector_source") == "eastmoney_industry_board"
+        # PR #92 行业映射改为韧性链，源标签随之更名
+        item.get("sector_source") == "resilient_industry_board"
         for item in result["candidates"]
     )
     # 板块归属齐备 → 选股态可识别该主线

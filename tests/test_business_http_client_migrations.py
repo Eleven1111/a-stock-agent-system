@@ -93,7 +93,7 @@ def test_candidate_discovery_caps_provider_attempts_at_two(monkeypatch):
         kline_calls += 1
         return []
 
-    monkeypatch.setattr(module, "fetch_tencent_kline", empty_klines)
+    monkeypatch.setattr(module, "fetch_a_share_daily_kline", empty_klines)
     with pytest.raises(DataSourceError, match="K线覆盖不足"):
         module.fetch_candidate_klines([{"code": "600011"}])
     assert kline_calls == 2

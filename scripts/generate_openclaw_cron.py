@@ -214,6 +214,14 @@ def build_openclaw_commands(
             parts.extend(["--command-env", f"A_STOCK_STATE_ID={state_id}"])
         if env_file:
             parts.extend(["--command-env", f"A_STOCK_ENV_FILE={env_file}"])
+        # Backup home (used by provider-health, ledger-projector, hk-a-linkage, market-pulse-*)
+        backup_home = os.environ.get("A_STOCK_BACKUP_HOME", "")
+        if backup_home:
+            parts.extend(["--command-env", f"A_STOCK_BACKUP_HOME={backup_home}"])
+        # Feishu user id (used by delivery-aware jobs)
+        feishu_uid = os.environ.get("A_STOCK_FEISHU_USER_ID", "")
+        if feishu_uid:
+            parts.extend(["--command-env", f"A_STOCK_FEISHU_USER_ID={feishu_uid}"])
         # Pass API keys from environment
         miaoxiang_key = os.environ.get("MIAOXIANG_API_KEY", "")
         if miaoxiang_key:

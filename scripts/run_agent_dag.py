@@ -411,7 +411,10 @@ def target_output(
                 silent_reason="none" if result["status"] == "sent" else f"feishu_{result['status']}",
                 telemetry_path=telemetry_path,
             )
-        return "NO_REPLY\n"
+        # If feishu push succeeded, suppress stdout; otherwise let OpenClaw deliver
+        if result["status"] == "sent":
+            return "NO_REPLY\n"
+        # Fall through to default delivery (OpenClaw announce channel)
     stdout = str(artifact.get("stdout") or "")
     max_chars = max(200, int(job.get("max_output_chars") or 4000))
     was_compressed = False

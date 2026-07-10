@@ -28,11 +28,9 @@ from paths import data_file
 from state_store import atomic_write_json, read_json
 
 SCHEMA = "industry_map_v1"
-SOURCE = "eastmoney_industry_board"
+SOURCE = "resilient_industry_board"
 _UA = "Mozilla/5.0 (Hermes A-Stock Agent)"
-# 行业板块清单走东财 17.push2 分片，与 akshare stock_board_industry_name_em 同源。
-# 裸 push2.eastmoney.com 的 clist/get 不稳定/不通，编号分片才是实际服务节点。
-_EAST_INDUSTRY_BOARDS_URL = "https://17.push2.eastmoney.com/api/qt/clist/get"
+_EAST_INDUSTRY_BOARDS_URL = "degraded:last-resort:push2-clist"
 _EAST_INDUSTRY_BOARDS_PARAMS = {
     "pn": "1",
     "pz": "500",
@@ -62,31 +60,16 @@ def _norm_code(code: Any) -> str:
 # ── 默认数据源（真实，惰性导入，尊重环境代理）────────────────────
 
 def _default_boards_fetcher() -> List[Tuple[str, str]]:
-    """东方财富行业板块清单（m:90 t:2）→ [(板块码, 行业名)]。"""
-    import requests  # 惰性导入：模块本身不强依赖
+    """行业板块清单 → [(板块码, 行业名)]，优先 THS/AkShare，不再直打 push2 clist。"""
+    try:
+        from market_adapters import fetch_industry_boards
 
-    last_error: Exception | None = None
-    for attempt in range(3):
-        try:
-            response = requests.get(
-                _EAST_INDUSTRY_BOARDS_URL,
-                params=_EAST_INDUSTRY_BOARDS_PARAMS,
-                headers={"User-Agent": _UA},
-                timeout=15,
-            )
-            diff = ((response.json() or {}).get("data") or {}).get("diff") or []
-            boards = [
-                (str(item["f12"]), str(item["f14"]))
-                for item in diff
-                if item.get("f12") and item.get("f14")
-            ]
-            if boards:
-                return boards
-            last_error = ValueError("东财行业板块清单为空")
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-        time.sleep(1.0 * (attempt + 1))
-    raise RuntimeError(f"东财行业板块清单获取失败: {last_error}")
+        boards = fetch_industry_boards()
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"行业板块清单获取失败: {exc}") from exc
+    if not boards:
+        raise RuntimeError("行业板块清单为空")
+    return boards
 
 
 def _default_constituents_fetcher(board_code: str) -> List[str]:

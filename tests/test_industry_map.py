@@ -22,16 +22,9 @@ def _constituents(board_code):
 
 # ── 默认数据源端点 ───────────────────────────────────────────────
 
-def test_default_boards_endpoint_uses_reachable_eastmoney_shard():
-    """守护：行业板块清单端点必须是可用的 17.push2 https 分片。
-
-    PR #41 曾用裸 ``http://push2.eastmoney.com``（不通），与 adata 成分股走的
-    ``https://push2`` 不一致。修复后对齐 akshare ``stock_board_industry_name_em``。
-    """
-    assert im._EAST_INDUSTRY_BOARDS_URL == (
-        "https://17.push2.eastmoney.com/api/qt/clist/get"
-    )
-    assert im._EAST_INDUSTRY_BOARDS_URL.startswith("https://")
+def test_default_boards_endpoint_is_degraded_only():
+    """守护：行业板块清单不得再直连被 WAF 封禁的 push2 clist 主路径。"""
+    assert im._EAST_INDUSTRY_BOARDS_URL == "degraded:last-resort:push2-clist"
     assert im._EAST_INDUSTRY_BOARDS_PARAMS["fs"] == "m:90 t:2 f:!50"
     assert im._EAST_INDUSTRY_BOARDS_PARAMS["fields"] == "f12,f14"
 
@@ -95,9 +88,9 @@ def test_enrich_fills_missing_industry_and_is_immutable():
     enriched = im.enrich_records(records, mapping)
 
     assert enriched[0]["industry"] == "食品饮料"      # 填补 SSE 空缺
-    assert enriched[0]["industry_source"] == "eastmoney_industry_board"
+    assert enriched[0]["industry_source"] == "resilient_industry_board"
     assert enriched[1]["industry"] == "食品饮料"      # 映射统一口径，覆盖旧值
-    assert enriched[1]["industry_source"] == "eastmoney_industry_board"
+    assert enriched[1]["industry_source"] == "resilient_industry_board"
     assert enriched[2].get("industry", "") == ""      # 缺失则留空
     assert records[0] == {"code": "600519", "name": "贵州茅台"}  # 原对象不被 mutate
 

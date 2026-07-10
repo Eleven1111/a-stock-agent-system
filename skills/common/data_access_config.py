@@ -29,6 +29,10 @@ DEFAULTS: Dict[str, Any] = {
             "coordination_timeout_seconds": 30,
             "coordination_stale_seconds": 90,
         },
+        "akshare": {"timeout_seconds": 15, "max_attempts": 1},
+        "adata": {"timeout_seconds": 15, "max_attempts": 1},
+        "eastmoney_datacenter": {"timeout_seconds": 10, "max_attempts": 2},
+        "eastmoney_push2_degraded": {"timeout_seconds": 8, "max_attempts": 1},
         "cninfo": {"timeout_seconds": 8, "max_attempts": 2},
         "sse": {"timeout_seconds": 8, "max_attempts": 2},
         "xueqiu": {"timeout_seconds": 10, "max_attempts": 2},
@@ -91,7 +95,10 @@ DEFAULTS: Dict[str, Any] = {
         "probe_ttl_seconds": 60,
     },
     "field_chains": {
-        "capital_flow": ["eastmoney", "tencent"],
+        "capital_flow": ["akshare", "adata", "eastmoney_datacenter", "eastmoney_push2_degraded", "tencent"],
+        "quote": ["akshare", "adata", "eastmoney_datacenter", "eastmoney_push2_degraded", "tencent"],
+        "kline": ["akshare", "adata", "tencent", "eastmoney_push2_degraded"],
+        "board_quote": ["akshare", "adata", "eastmoney_push2_degraded"],
     },
     "global_market": {
         "switches": {
