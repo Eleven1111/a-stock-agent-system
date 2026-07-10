@@ -8,6 +8,8 @@
   5. flow_reversal:   北向连续流出 + 个股主力出逃
   6. catalyst_negated: 催化事件被澄清/否定
   7. time_stop:       持仓超过持有窗口未达目标
+  8. lhb_climax:      龙虎榜高潮见顶（净买突然放量3倍，issue #88）
+  9. deep_research_exit: 深研评分红线（deep_score<5 必须减仓，<3 清仓）
 
 每个信号返回 {triggered, signal_type, severity, reason, action}。
 severity: critical(立即卖) / warning(减仓/关注) / info(记录)
@@ -187,6 +189,50 @@ def check_time_stop(
     }
 
 
+def check_lhb_climax(
+    lhb_profile: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """龙虎榜高潮见顶：单日净买放量3倍是"最后疯狂"。
+
+    游资主导 → critical 立即止盈；机构主导趋势有支撑 → warning 减仓。
+    """
+    if not lhb_profile:
+        return {"triggered": False, "signal_type": "lhb_climax"}
+    climax = lhb_profile.get("climax") or {}
+    if not climax.get("matched"):
+        return {"triggered": False, "signal_type": "lhb_climax"}
+    hot_money_led = lhb_profile.get("dominant_force") == "hot_money"
+    return {
+        "triggered": True,
+        "signal_type": "lhb_climax",
+        "severity": "critical" if hot_money_led else "warning",
+        "reason": str(climax.get("note") or "龙虎榜净买突然放量，高潮见顶"),
+        "action": "sell" if hot_money_led else "reduce",
+    }
+
+
+def check_deep_research_exit(
+    deep_score: float | None = None,
+) -> dict[str, Any]:
+    """深研红线：deep_score<5 必须触发减仓，<3 清仓——不能只是"建议"后无动作。"""
+    if not isinstance(deep_score, (int, float)):
+        return {"triggered": False, "signal_type": "deep_research_exit"}
+    if deep_score >= 5:
+        return {"triggered": False, "signal_type": "deep_research_exit"}
+    critical = deep_score < 3
+    return {
+        "triggered": True,
+        "signal_type": "deep_research_exit",
+        "severity": "critical" if critical else "warning",
+        "reason": (
+            f"深研评分{deep_score:.1f}/10低于红线5.0，"
+            + ("基本面证伪，必须清仓" if critical else "必须减仓，不允许仅观望")
+        ),
+        "action": "sell" if critical else "reduce",
+        "deep_score": deep_score,
+    }
+
+
 def evaluate_all_exit_signals(
     *,
     current_price: float,
@@ -207,8 +253,18 @@ def evaluate_all_exit_signals(
     catalyst_events: list[Mapping[str, Any]] | None = None,
     asof: date | None = None,
     auction_open_premium_pct: float | None = None,
+    lhb_profile: Mapping[str, Any] | None = None,
+    deep_score: float | None = None,
 ) -> dict[str, Any]:
-    """综合评估所有退出信号，返回最高优先级的行动建议。"""
+    """综合评估所有退出信号，返回最高优先级的行动建议。
+
+    lhb_profile 携带龙虎榜主体持有策略时，回撤止盈阈值随主体调整
+    （机构主导放宽、游资主导收紧，issue #88 席位分类闭环）。
+    """
+    policy = (lhb_profile or {}).get("policy") or {}
+    policy_trailing = policy.get("trailing_pct")
+    if isinstance(policy_trailing, (int, float)) and policy_trailing > 0:
+        trailing_pct = float(policy_trailing)
     checks = [
         check_stop_loss(current_price, stop_price),
         check_take_profit(current_price, target_price, target_price_2),
@@ -217,6 +273,8 @@ def evaluate_all_exit_signals(
         check_flow_reversal(northbound_net_yi, stock_main_net_yi, consecutive_outflow_days),
         check_catalyst_negated(catalyst_events),
         check_time_stop(entry_date, horizon_days, current_pnl_pct, asof),
+        check_lhb_climax(lhb_profile),
+        check_deep_research_exit(deep_score),
     ]
     try:
         from daban_adjustments import check_auction_premium_exit

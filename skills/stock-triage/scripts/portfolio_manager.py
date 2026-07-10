@@ -528,10 +528,18 @@ def _position_t1_state(pos: Dict, asof: str | None = None) -> Dict:
     }
 
 
-def _apply_prices(pf: Dict, fetched: Dict[str, Optional[Dict]]) -> Dict:
-    """把预取到的现价合并进持仓并算风控告警。fetched: code -> 行情或 None。"""
+def _apply_prices(pf: Dict, fetched: Dict[str, Optional[Dict]],
+                  deep_scores: Optional[Dict[str, float]] = None) -> Dict:
+    """把预取到的现价合并进持仓并算风控告警。fetched: code -> 行情或 None。
+
+    止损执行闭环（issue #88）：止损首次触发时把 stop_loss_triggered_on 落进
+    持仓，此后每次检查按逾期交易日数升级告警——止损建议只发一次然后被无视，
+    是 -5% 拖成 -25% 的直接原因。deep_scores 携带深研评分时，<5 触发减仓红线。
+    """
     alerts = []
     total_value = 0
+    today = date.today().isoformat()
+    deep_scores = deep_scores or {}
 
     for pos in pf["positions"]:
         t1_state = _position_t1_state(pos)
@@ -550,21 +558,55 @@ def _apply_prices(pf: Dict, fetched: Dict[str, Optional[Dict]]) -> Dict:
             total_value += pos["market_value"]
 
             if pos["pnl_pct"] <= STOP_LOSS_PCT:
+                if not pos.get("stop_loss_triggered_on"):
+                    pos["stop_loss_triggered_on"] = today
+                overdue_days = _trading_days_elapsed(
+                    pos["stop_loss_triggered_on"], today
+                )
                 if t1_state["locked_shares"]:
                     message = (
                         f"{pos['name']}({pos['code']}) 浮亏{pos['pnl_pct']}%，风险已触发；"
                         f"{t1_state['locked_shares']}股受A股T+1锁定，最早"
                         f"{t1_state['earliest_sell_date']}处置"
                     )
+                    level = "🔴 止损"
+                elif overdue_days >= 1:
+                    message = (
+                        f"{pos['name']}({pos['code']}) 止损已于"
+                        f"{pos['stop_loss_triggered_on']}触发，逾期{overdue_days}个交易日"
+                        f"仍未执行！当前浮亏{pos['pnl_pct']}%。止损必须机械执行，"
+                        f"每拖一天亏损可能扩大（-5%拖成-25%的教训）"
+                    )
+                    level = "🔴🔴 止损逾期"
                 else:
                     message = (
                         f"{pos['name']}({pos['code']}) 浮亏{pos['pnl_pct']}%，触发硬止损！"
-                        f"成本{pos['cost']}，现价{data['price']}"
+                        f"成本{pos['cost']}，现价{data['price']}，今日必须执行卖出"
                     )
+                    level = "🔴 止损"
                 alerts.append({
-                    "level": "🔴 止损",
+                    "level": level,
                     "msg": message,
                     "execution_status": "t1_locked" if t1_state["locked_shares"] else "sellable",
+                    "stop_loss_triggered_on": pos["stop_loss_triggered_on"],
+                    "overdue_trading_days": overdue_days,
+                    **t1_state,
+                })
+            elif pos.get("stop_loss_triggered_on"):
+                # 价格回到止损线上方，解除触发状态（避免陈旧升级告警）。
+                pos.pop("stop_loss_triggered_on", None)
+
+            deep_score = deep_scores.get(str(pos["code"]).zfill(6))
+            if isinstance(deep_score, (int, float)) and deep_score < 5:
+                action = "清仓" if deep_score < 3 else "减仓"
+                alerts.append({
+                    "level": "🔴 深研红线",
+                    "msg": (
+                        f"{pos['name']}({pos['code']}) 深研评分{deep_score:.1f}/10"
+                        f"低于红线5.0，必须{action}——深研不能只出报告不出动作"
+                    ),
+                    "execution_status": "t1_locked" if t1_state["locked_shares"] else "sellable",
+                    "deep_score": deep_score,
                     **t1_state,
                 })
 
@@ -640,11 +682,20 @@ def refresh_prices() -> tuple:
     """
     snapshot = ensure_portfolio()
     fetched = {pos["code"]: fetch_price(pos["code"]) for pos in snapshot["positions"]}
+    deep_scores: Dict[str, float] = {}
+    for pos in snapshot["positions"]:
+        try:
+            from deep_research_cache import read_deep_research
+            record = read_deep_research(pos["code"])
+            if record and isinstance(record.get("deep_score"), (int, float)):
+                deep_scores[str(pos["code"]).zfill(6)] = record["deep_score"]
+        except Exception:  # noqa: BLE001 — 深研缓存缺失不阻塞风控检查
+            continue
     result: Dict = {}
 
     def _mut(pf):
         pf = _normalize(pf)
-        result.update(_apply_prices(pf, fetched))
+        result.update(_apply_prices(pf, fetched, deep_scores))
         return pf
 
     pf = mutate_json(PORTFOLIO_FILE, _mut, default=_default_portfolio())

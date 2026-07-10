@@ -19,7 +19,7 @@ from typing import Any, Dict, Mapping
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from paths import data_file
 from state_store import atomic_write_json, read_json
-from data_access_config import intraday_settings
+from data_access_config import intraday_settings, risk_settings
 from data_provider import fetch_tencent_quote, fetch_tencent_quotes
 from http_client import DataSourceError
 from exit_signals import evaluate_all_exit_signals
@@ -47,6 +47,7 @@ SECTOR_MIN_MEMBERS = int(_MONITOR_CONFIG["sector_min_members"])
 SECTOR_MIN_POSITIVE_RATIO = float(_MONITOR_CONFIG["sector_min_positive_ratio"])
 SECTOR_MIN_AVERAGE_PCT = float(_MONITOR_CONFIG["sector_min_average_pct"])
 SECTOR_MIN_ACCELERATION_PCT = float(_MONITOR_CONFIG["sector_min_acceleration_pct"])
+STOP_LOSS_PCT = float(risk_settings()["stop_loss_pct"])
 
 
 def in_trading_session(now: datetime = None) -> bool:
@@ -345,34 +346,60 @@ def check_intraday() -> Dict:
         if not pos_data.get("price"):
             continue
         pos_price = pos_data["price"]
-        entry_price = float(pos.get("entry_price") or pos.get("avg_cost") or 0)
+        # portfolio_manager 落盘字段是 cost/buy_date；entry_price/entry_date 仅
+        # 兼容旧测试注入。此前缺 cost/buy_date 回退，真实持仓的止损/时间止损
+        # 在盘中从不触发（issue #88 翔鹭钨业止损未闭环的坑之一）。
+        entry_price = float(
+            pos.get("entry_price") or pos.get("avg_cost") or pos.get("cost") or 0
+        )
         pnl_pct = ((pos_price / entry_price - 1) * 100) if entry_price > 0 else None
         peak = float(pos.get("peak_price") or pos.get("high_since_entry") or pos_price)
         if pos_price > peak:
             peak = pos_price
 
+        stop_price = float(pos.get("stop_price") or 0)
+        if stop_price <= 0 and entry_price > 0:
+            stop_price = round(entry_price * (1 + STOP_LOSS_PCT / 100), 2)
+
         nb_yi = signal_ctx.get("northbound_net_yi") if signal_ctx else None
         stock_flow = (signal_ctx.get("stock_flows") or {}).get(pos_code) if signal_ctx else None
         stock_main = stock_flow.get("main_net_yi") if isinstance(stock_flow, dict) else None
+        lhb_profile = (signal_ctx.get("lhb_profiles") or {}).get(
+            runtime_targets.normalize_stock_code(pos_code) or pos_code
+        ) if signal_ctx else None
+        deep_score = None
+        try:
+            from deep_research_cache import read_deep_research
+            deep_record = read_deep_research(pos_code)
+            if deep_record:
+                deep_score = deep_record.get("deep_score")
+        except Exception:  # noqa: BLE001 — 深研缓存缺失不阻塞盘中监控
+            pass
 
         exit_result = evaluate_all_exit_signals(
             current_price=pos_price,
-            stop_price=float(pos.get("stop_price") or 0),
+            stop_price=stop_price,
             target_price=float(pos.get("target_price") or 0),
             target_price_2=float(pos.get("target_price_2") or 0) or None,
             peak_price=peak,
             trailing_pct=5.0,
-            entry_date=pos.get("entry_date"),
+            entry_date=pos.get("entry_date") or pos.get("buy_date"),
             horizon_days=int(pos.get("horizon_days") or 3),
             current_pnl_pct=pnl_pct,
             temperature_tier=signal_ctx.get("temperature_tier") if signal_ctx else None,
             northbound_net_yi=nb_yi,
             stock_main_net_yi=stock_main,
             catalyst_events=read_catalyst_events(pos_code),
+            lhb_profile=lhb_profile if isinstance(lhb_profile, dict) else None,
+            deep_score=deep_score,
         )
         if exit_result["triggered_count"] > 0:
             top = _apply_t1_exit_guard(exit_result["top_signal"], pos, now)
             key = f"exit_{pos_code}_{top['signal_type']}"
+            # critical 且可执行的退出信号每小时重报，直到执行——
+            # 止损建议只发一次然后沉默，是 -5% 拖成 -25% 的直接原因。
+            if top.get("severity") == "critical" and top.get("action") in {"sell", "reduce"}:
+                key = f"{key}_{now.strftime('%H')}"
             if key not in cache:
                 severity_icon = {"critical": "🔴", "warning": "🟡"}.get(top.get("severity", ""), "⚪")
                 exit_alerts.append({
