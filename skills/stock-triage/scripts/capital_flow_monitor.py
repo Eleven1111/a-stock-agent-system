@@ -24,6 +24,7 @@ from http_client import DataSourceError, request_json
 from provider_contract import health_attempt, observation_error, observation_ok
 import delivery_output
 import runtime_targets
+import sector_momentum as sm
 
 load_hermes_env()
 
@@ -190,6 +191,134 @@ def fetch_tencent_flow(code: str, market: str) -> Dict:
         return {}
 
 
+SECTOR_BOARD_PAGE_SIZE = 100  # push2delay 每页上限
+SECTOR_BOARD_MAX_PAGES = 8
+
+
+def _fetch_sector_board_page(page: int) -> Dict[str, Any]:
+    query = (
+        f"/api/qt/clist/get?pn={page}&pz={SECTOR_BOARD_PAGE_SIZE}&po=1&np=1"
+        "&fltt=2&invt=2&fid=f3&fs=m:90+t:2&"
+        "fields=f3,f8,f12,f14,f62,f104,f105,f109,f164"
+    )
+    observation = fetch_eastmoney_observation(f"https://push2.eastmoney.com{query}")
+    if observation.get("status") != "ok":
+        observation = fetch_eastmoney_observation(
+            f"https://push2delay.eastmoney.com{query}"
+        )
+    return observation
+
+
+def fetch_all_sector_boards() -> Dict[str, Any]:
+    """全市场行业板块快照（分页拉全约 500 个行业板块）。
+
+    字段：当日/5日涨跌幅、换手率、当日/5日主力净额、涨跌家数。
+    实时主机失败时回退延时镜像 push2delay（板块动量是日级信号，可接受）；
+    延时主机每页上限 100，按 total 翻页直到取全。
+    """
+    first = _fetch_sector_board_page(1)
+    if first.get("status") != "ok":
+        return first
+    body = (first.get("data") or {}).get("data") or {}
+    diff = list(body.get("diff") or [])
+    total = int(body.get("total") or len(diff))
+    page = 2
+    while len(diff) < total and page <= SECTOR_BOARD_MAX_PAGES:
+        follow = _fetch_sector_board_page(page)
+        if follow.get("status") != "ok":
+            break  # 已取到的页仍可用，降级为部分覆盖
+        rows = (((follow.get("data") or {}).get("data")) or {}).get("diff") or []
+        if not rows:
+            break
+        diff.extend(rows)
+        page += 1
+    return observation_ok("eastmoney", {"data": {"total": total, "diff": diff}})
+
+
+def fetch_index_return_5d() -> Optional[float]:
+    """上证指数 5 日涨跌幅%（板块相对强弱基准）。
+
+    东财日K失败时回退腾讯日K（跨厂商冗余）。均失败返回 None，
+    动量分级中 strong 判定自动降级（不误判，只少报）。
+    """
+    observation = fetch_eastmoney_observation(
+        "https://push2his.eastmoney.com/api/qt/stock/kline/get?"
+        "secid=1.000001&klt=101&fqt=1&lmt=6&end=20500101&"
+        "fields1=f1,f2,f3&fields2=f51,f53"
+    )
+    if observation.get("status") == "ok":
+        klines = ((observation.get("data") or {}).get("data") or {}).get("klines")
+        result = sm.index_return_from_klines(klines or [])
+        if result is not None:
+            return result
+    try:
+        from a_stock_http import fetch_tencent_kline
+        bars = fetch_tencent_kline("000001", market="sh", days=6)
+    except Exception:  # noqa: BLE001 — 双源均失败时降级为无基准
+        return None
+    closes = [bar.get("close") for bar in bars if bar.get("close")]
+    if len(closes) < 6 or not closes[-6]:
+        return None
+    return round((closes[-1] / closes[-6] - 1) * 100, 2)
+
+
+def collect_sector_momentum(
+    sector_limitups: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """采集板块动量 + 轮动信号。数据不可用时返回 status 标记，不抛异常。"""
+    trading_date = datetime.now().date().isoformat()
+    observation = fetch_all_sector_boards()
+    if observation.get("status") != "ok":
+        return {
+            "status": "unavailable",
+            "error": observation.get("error"),
+            "momentum": None,
+            "rotation": None,
+        }
+    diff = ((observation.get("data") or {}).get("data") or {}).get("diff") or []
+    rows = sm.parse_board_rows(diff)
+    if not rows:
+        return {"status": "empty", "momentum": None, "rotation": None}
+    index_return_5d = fetch_index_return_5d()
+    momentum = sm.build_sector_momentum(
+        rows,
+        index_return_5d=index_return_5d,
+        trading_date=trading_date,
+        sector_limitups=sector_limitups,
+    )
+    rotation = sm.detect_sector_rotation(rows, trading_date=trading_date)
+    return {"status": "ok", "momentum": momentum, "rotation": rotation}
+
+
+def sector_momentum_alerts(momentum: Optional[Dict[str, Any]],
+                           rotation: Optional[Dict[str, Any]]) -> list:
+    """板块动量/轮动 → 资金异动警报（strong/emerging 板块 + 轮动方向）。"""
+    alerts = []
+    for entry in (momentum or {}).get("sectors") or []:
+        signal = entry.get("signal")
+        if signal == "strong":
+            alerts.append({
+                "level": "🟢",
+                "msg": f"板块主升：{entry['name']} {entry.get('signal_reason', '')}",
+            })
+        elif signal == "emerging":
+            alerts.append({
+                "level": "🟢",
+                "msg": f"板块启动：{entry['name']} {entry.get('signal_reason', '')}",
+            })
+        elif signal == "weakening":
+            alerts.append({
+                "level": "🟡",
+                "msg": f"板块退潮：{entry['name']} {entry.get('signal_reason', '')}",
+            })
+    if rotation and rotation.get("rotation_signal"):
+        alerts.append({
+            "level": "🧭",
+            "msg": f"板块轮动：{rotation['rotation_signal']}",
+        })
+    return alerts
+
+
 def collect_flow_data(
     stocks: Optional[list[tuple[str, str, str]]] = None,
     sectors: Optional[list[tuple[str, str]]] = None,
@@ -347,6 +476,21 @@ def collect_flow_data(
         })
         result["sectors"].append(sector)
 
+    # 4. 全市场板块动量 + 轮动（issue #89：只看个股不看板块的架构补缺）
+    try:
+        from signal_context import read_signal_context
+        ctx = read_signal_context() or {}
+        limitups = ctx.get("sector_limitups") or {}
+    except Exception:  # noqa: BLE001 — 涨停数缺失只影响 limitup_count 字段
+        limitups = {}
+    momentum_result = collect_sector_momentum(sector_limitups=limitups)
+    result["sector_momentum_status"] = momentum_result["status"]
+    result["sector_momentum"] = momentum_result["momentum"]
+    result["sector_rotation"] = momentum_result["rotation"]
+    result["alerts"].extend(sector_momentum_alerts(
+        momentum_result["momentum"], momentum_result["rotation"],
+    ))
+
     result["directional_ready"] = exact_available == exact_requested
     if exact_available == 0:
         result["status"] = "insufficient_data"
@@ -385,6 +529,23 @@ def format_report(data: Dict) -> str:
     for s in data.get("sectors", []):
         main_str = f"主力{s['main_net_yi']:+.1f}亿" if 'main_net_yi' in s else "无数据"
         lines.append(f"- {s['name']}: {main_str}")
+
+    # 板块动量与轮动
+    momentum = data.get("sector_momentum") or {}
+    signaled = [
+        e for e in momentum.get("sectors") or []
+        if e.get("signal") not in (None, "neutral")
+    ]
+    if signaled:
+        lines.append("\n## 🚀 板块动量信号")
+        icons = {"strong": "🔥", "emerging": "🌱", "weakening": "❄️", "rotating_out": "↘️"}
+        for e in signaled[:10]:
+            lines.append(
+                f"- {icons.get(e['signal'], '·')} {e['name']}: {e.get('signal_reason', '')}"
+            )
+    rotation = data.get("sector_rotation") or {}
+    if rotation.get("rotation_signal"):
+        lines.append(f"\n## 🧭 板块轮动\n- {rotation['rotation_signal']}")
 
     # 警报
     alerts = data.get("alerts", [])
@@ -437,6 +598,10 @@ def cache_signal_context(data: Dict[str, Any]) -> None:
                        if s.get("code") and s.get("main_net_yi") is not None}
         if stock_flows:
             partial["stock_flows"] = stock_flows
+        if data.get("sector_momentum"):
+            partial["sector_momentum"] = data["sector_momentum"]
+        if data.get("sector_rotation"):
+            partial["sector_rotation"] = data["sector_rotation"]
         if partial:
             update_signal_context(partial)
     except Exception as e:  # noqa: BLE001

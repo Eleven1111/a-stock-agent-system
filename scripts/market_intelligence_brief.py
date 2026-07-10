@@ -42,6 +42,29 @@ def _score(item: Mapping[str, Any], *keys: str) -> str:
     return "-"
 
 
+def _sector_momentum_lines() -> list[str]:
+    """从 signal_context 提取板块动量/轮动摘要（缺失/过期时静默省略）。"""
+    try:
+        from signal_context import read_signal_context
+
+        ctx = read_signal_context() or {}
+    except Exception:  # noqa: BLE001 — 简报缺一段不缺整份
+        return []
+    lines: list[str] = []
+    momentum = ctx.get("sector_momentum") or {}
+    hot = [
+        f"{entry.get('name')}({entry.get('signal')})"
+        for entry in momentum.get("sectors") or []
+        if entry.get("signal") in ("strong", "emerging")
+    ][:5]
+    if hot:
+        lines.append("板块动量：" + "、".join(hot))
+    rotation = (ctx.get("sector_rotation") or {}).get("rotation_signal")
+    if rotation:
+        lines.append(f"板块轮动：{rotation}")
+    return lines
+
+
 def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400) -> str:
     asof = result.get("asof") or "unknown"
     lines: list[str] = []
@@ -51,8 +74,9 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
             f"## 早盘情报简报 | {asof}",
             f"全市场{digest['scanned_count']}｜合格{digest['eligible_count']}｜"
             f"深度池{digest['candidate_count']}｜09:24全市场竞价扫描{digest['auction_scan_count']}",
-            "### 打板评分 TOP",
         ])
+        lines.extend(_sector_momentum_lines())
+        lines.append("### 打板评分 TOP")
         lines.extend(
             f"- {_label(item)}：{_score(item, 'daban_score')}"
             for item in digest["top_daban"]

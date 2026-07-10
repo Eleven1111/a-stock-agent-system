@@ -86,6 +86,7 @@ def sentiment_boost(code: str, ctx: Optional[Dict[str, Any]],
     - 连板梯队在册：连板≥2 +1.5（梯队龙头延续性）；首板 +0.8
     - 封板资金≥1亿 +0.5；竞价/早盘封(≤09:35) +0.5（封板质量）
     - 板块涨停≥5 +1.0 / ≥3 +0.5（板块赚钱效应/集群共振）
+    - 板块动量 strong +1.0 / emerging +0.5 / weakening -0.3 / rotating_out -0.5
     - 个股主力净流入>1亿 +0.5；净流出<-1亿 -0.5
     - 北向净流出<-30亿 -0.5（外资风险偏好收缩）
     """
@@ -124,6 +125,13 @@ def sentiment_boost(code: str, ctx: Optional[Dict[str, Any]],
         elif n >= 3:
             delta += 0.5
             notes.append(f"板块共振({sector}涨停{n}家)")
+
+    if sector:
+        from sector_momentum import momentum_boost
+        momentum = momentum_boost(sector, ctx.get("sector_momentum"))
+        if momentum["delta"]:
+            delta += momentum["delta"]
+            notes.append(momentum["note"])
 
     flow = (ctx.get("stock_flows") or {}).get(code)
     if isinstance(flow, dict):
