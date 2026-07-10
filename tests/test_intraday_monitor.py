@@ -276,3 +276,68 @@ def test_exit_signal_respects_t1_lock_for_same_day_position(tmp_path, monkeypatc
     assert data["exit_signals"]
     assert data["exit_signals"][0]["action"] == "hold_locked"
     assert "T+1" in data["exit_signals"][0]["msg"]
+
+
+def _wire_position(tmp_path, monkeypatch, position, price):
+    """真实持仓形状（portfolio_manager 落盘格式）+ 指定现价的最小盘中环境。"""
+    monkeypatch.setattr(im, "TRACKED_CODES", [])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {})
+    monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(im.PORTFOLIO_FILE, {"positions": [position]})
+    quote = {"price": price, "change_pct": -3.0, "turnover": 1.0, "amount": 1e8}
+    monkeypatch.setattr(im, "fetch_realtime", lambda code: dict(quote))
+    monkeypatch.setattr(
+        im, "fetch_realtime_many",
+        lambda codes: {str(code)[-6:]: dict(quote) for code in codes},
+    )
+    monkeypatch.setattr(im, "read_signal_context", lambda: {})
+    monkeypatch.setattr(im, "read_catalyst_events", lambda code: [])
+
+
+def test_stop_loss_fires_for_real_portfolio_manager_position(tmp_path, monkeypatch):
+    """issue #88 真坑回归锁：portfolio_manager 落盘字段是 cost/buy_date（无
+    entry_price/entry_date/stop_price），字段错配曾导致真实持仓的止损在盘中
+    从不触发（翔鹭钨业 6/30 止损建议未闭环的原因之一）。"""
+    _wire_position(tmp_path, monkeypatch, {
+        "code": "002842",
+        "name": "翔鹭钨业",
+        "cost": 49.5,
+        "shares": 400,
+        "buy_date": "2026-06-23",
+        "peak_price": 51.4,
+        "lots": [{"shares": 400, "cost": 49.5, "acquired_on": "2026-06-23"}],
+    }, price=44.0)  # -11.1%，越过 cost×(1-8%)=45.54 的兜底止损位
+
+    data = im.check_intraday()
+
+    stop_signals = [
+        s for s in data["exit_signals"] if "stop_loss" in s["type"]
+    ]
+    assert stop_signals, f"真实持仓形状必须触发止损信号: {data['exit_signals']}"
+    assert stop_signals[0]["action"] == "sell"
+
+
+def test_critical_exit_alert_realerts_hourly_not_once_per_day(tmp_path, monkeypatch):
+    """止损建议只发一次然后沉默是 -5% 拖成 -25% 的直接原因：critical 且可执行
+    的退出信号缓存键必须带小时后缀（每小时重报直到执行）。"""
+    _wire_position(tmp_path, monkeypatch, {
+        "code": "002842",
+        "name": "翔鹭钨业",
+        "cost": 49.5,
+        "shares": 400,
+        "buy_date": "2026-06-23",
+        "lots": [{"shares": 400, "cost": 49.5, "acquired_on": "2026-06-23"}],
+    }, price=44.0)
+
+    data = im.check_intraday()
+
+    assert data["exit_signals"]
+    cache = im.load_alert_cache()
+    hourly_keys = [
+        key for key in cache
+        if key.startswith("exit_002842_stop_loss_") and key.rsplit("_", 1)[-1].isdigit()
+    ]
+    assert hourly_keys, f"critical 退出信号缓存键必须带小时后缀: {list(cache)}"
