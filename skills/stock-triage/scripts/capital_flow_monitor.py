@@ -21,6 +21,11 @@ from a_stock_http import load_hermes_env
 from data_provider import fetch_tencent_quote
 from eastmoney_intelligence import eastmoney_json
 from http_client import DataSourceError, request_json
+from market_adapters import (
+    fetch_northbound_flow,
+    fetch_sector_fund_flow,
+    fetch_stock_fund_flow,
+)
 from provider_contract import health_attempt, observation_error, observation_ok
 import delivery_output
 import runtime_targets
@@ -34,6 +39,78 @@ KNOWN_SECTOR_CODES = {
     "BK0710": "军工航天",
 }
 SECTOR_CODE_BY_NAME = {name: code for code, name in KNOWN_SECTOR_CODES.items()}
+
+# --- Dynamic sector code resolution (EastMoney API) ---
+_sector_code_cache: dict[str, str] = {}  # name -> BK code
+_sector_code_cache_loaded = False
+
+
+def _fetch_sector_code_map() -> dict[str, str]:
+    """Fetch EastMoney sector list and build name->code mapping.
+    Uses file cache to avoid repeated API calls."""
+    global _sector_code_cache_loaded
+    if _sector_code_cache_loaded:
+        return _sector_code_cache
+
+    cache_path = os.path.join(
+        os.path.dirname(__file__), '..', '..', 'data',
+        'sector_code_cache.json',
+    )
+    # Try loading from file cache first
+    try:
+        with open(cache_path, encoding='utf-8') as f:
+            cached = json.load(f)
+        if isinstance(cached, dict) and cached:
+            _sector_code_cache.update(cached)
+            _sector_code_cache_loaded = True
+            return _sector_code_cache
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    # Fetch from resilient board adapter. EastMoney push2 clist is WAF-blocked
+    # and only remains inside market_adapters as a degraded last-resort probe.
+    try:
+        from market_adapters import fetch_industry_boards
+
+        for code, name in fetch_industry_boards():
+            code = str(code or "").strip()
+            name = str(name or "").strip()
+            if code and name:
+                _sector_code_cache[name] = code
+        # Save to file cache
+        if _sector_code_cache:
+            try:
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                with open(cache_path, 'w', encoding='utf-8') as f:
+                    json.dump(_sector_code_cache, f, ensure_ascii=False, indent=2)
+            except OSError:
+                pass
+    except Exception:
+        pass
+    _sector_code_cache_loaded = True
+    return _sector_code_cache
+
+
+def resolve_sector_code(name: str) -> str | None:
+    """Resolve a sector label to its EastMoney BK code.
+    1. Exact match in hardcoded dict
+    2. Dynamic lookup via EastMoney API (fuzzy prefix match for partial names)
+    """
+    # Exact match in hardcoded
+    code = SECTOR_CODE_BY_NAME.get(name)
+    if code:
+        return code
+    # Dynamic lookup
+    dynamic_map = _fetch_sector_code_map()
+    # Exact match in dynamic
+    code = dynamic_map.get(name)
+    if code:
+        return code
+    # Prefix match: "房地产开" -> "房地产开发"
+    for full_name, bk_code in dynamic_map.items():
+        if full_name.startswith(name) or name.startswith(full_name):
+            return bk_code
+    return None
 
 
 def _market(code: str) -> str:
@@ -55,11 +132,15 @@ def load_runtime_sectors() -> tuple[list[tuple[str, str]], list[str]]:
         label = topic["label"]
         code = SECTOR_CODE_BY_NAME.get(label) or SECTOR_CODE_BY_NAME.get(topic["key"])
         if not code:
+            code = resolve_sector_code(label) or resolve_sector_code(topic["key"])
+        if not code:
             unmapped.append(label)
             continue
+        # Resolve display name: prefer dynamic, fallback to label
+        display_name = KNOWN_SECTOR_CODES.get(code) or label
         if code not in seen:
             seen.add(code)
-            sectors.append((code, KNOWN_SECTOR_CODES[code]))
+            sectors.append((code, display_name))
     return sectors, unmapped
 
 
@@ -220,29 +301,17 @@ def collect_flow_data(
     exact_available = 0
     degraded = False
 
-    # 1. Northbound flow: exact Eastmoney metric, then exact Sina metric.
-    nb_observation = fetch_eastmoney_observation(
-        "https://push2his.eastmoney.com/api/qt/kamt.kline/get?"
-        "fields1=f1,f2,f3,f4&fields2=f51,f52,f53,f54&klt=1&lmt=5&secid=1.000001"
+    # 1. Northbound flow: AkShare first, allowed Eastmoney kamt endpoint only as fallback.
+    # The blocked stock/board push2 paths are no longer on the primary route.
+    nb_data = fetch_northbound_flow()
+    nb_observation = (
+        observation_ok(str(nb_data.get("provider") or "market_adapters"), nb_data)
+        if nb_data
+        else fetch_sina_northbound_observation()
     )
-    result["source_health"]["northbound"]["attempts"].append(
-        health_attempt(nb_observation)
-    )
-    if nb_observation.get("status") == "ok":
-        try:
-            normalized_nb = _parse_eastmoney_northbound(nb_observation["data"])
-            nb_observation = observation_ok("eastmoney", normalized_nb)
-        except (TypeError, ValueError) as exc:
-            nb_observation = observation_error("eastmoney", exc)
-            result["source_health"]["northbound"]["attempts"][-1] = health_attempt(
-                nb_observation
-            )
+    result["source_health"]["northbound"]["attempts"].append(health_attempt(nb_observation))
     if nb_observation.get("status") != "ok":
         degraded = True
-        nb_observation = fetch_sina_northbound_observation()
-        result["source_health"]["northbound"]["attempts"].append(
-            health_attempt(nb_observation)
-        )
     if nb_observation.get("status") == "ok":
         selected = str(nb_observation["provider"])
         result["source_health"]["northbound"]["selected_provider"] = selected
@@ -256,10 +325,11 @@ def collect_flow_data(
 
     # 2. 个股资金流
     for code, market, name in stocks:
-        secid = f"1.{code}" if market == "sh" else f"0.{code}"
-        ff_observation = fetch_eastmoney_observation(
-            f"https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?"
-            f"fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56&lmt=3&secid={secid}"
+        exact_stock_flow = fetch_stock_fund_flow(code, market=market, days=3)
+        ff_observation = (
+            observation_ok(str(exact_stock_flow.get("provider") or "market_adapters"), exact_stock_flow)
+            if exact_stock_flow
+            else observation_error("market_adapters", DataSourceError("market_adapters", "stock fund flow unavailable"))
         )
 
         # 量价替代数据（腾讯）
@@ -281,19 +351,19 @@ def collect_flow_data(
         }
 
         if ff_observation.get("status") == "ok":
-            try:
-                exact_flow = _parse_eastmoney_flow(ff_observation["data"])
-                stock_flow.update(exact_flow)
-                stock_flow["main_flow_status"] = "ok"
-                stock_flow["main_flow_provider"] = "eastmoney"
-                exact_available += 1
-                main = stock_flow["main_net_yi"]
-                if main > 1:
-                    stock_flow["signal"] = "主力流入"
-                elif main < -1:
-                    stock_flow["signal"] = "主力流出"
-            except (TypeError, ValueError) as exc:
-                ff_observation = observation_error("eastmoney", exc)
+            exact_flow = dict(ff_observation["data"])
+            stock_flow.update({
+                "main_net_yi": exact_flow.get("main_net_yi"),
+                "retail_net_yi": exact_flow.get("retail_net_yi"),
+            })
+            stock_flow["main_flow_status"] = "ok"
+            stock_flow["main_flow_provider"] = exact_flow.get("provider")
+            exact_available += 1
+            main = stock_flow.get("main_net_yi")
+            if main is not None and main > 1:
+                stock_flow["signal"] = "主力流入"
+            elif main is not None and main < -1:
+                stock_flow["signal"] = "主力流出"
         if ff_observation.get("status") != "ok":
             degraded = True
         result["source_health"]["stock_main_flow"].append({
@@ -314,31 +384,29 @@ def collect_flow_data(
 
     # 3. 板块资金流
     for bk_code, bk_name in sectors:
-        secid = f"90.{bk_code}"
-        bk_observation = fetch_eastmoney_observation(
-            f"https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?"
-            f"fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56&lmt=3&secid={secid}"
+        exact_sector_flow = fetch_sector_fund_flow(bk_code, name=bk_name, days=3)
+        bk_observation = (
+            observation_ok(str(exact_sector_flow.get("provider") or "market_adapters"), exact_sector_flow)
+            if exact_sector_flow
+            else observation_error("market_adapters", DataSourceError("market_adapters", "sector fund flow unavailable"))
         )
         sector = {"code": bk_code, "name": bk_name, "main_flow_status": "unavailable"}
         if bk_observation.get("status") == "ok":
-            try:
-                exact_flow = _parse_eastmoney_flow(bk_observation["data"])
-                sector["main_net_yi"] = exact_flow["main_net_yi"]
-                sector["main_flow_status"] = "ok"
-                sector["main_flow_provider"] = "eastmoney"
-                exact_available += 1
-                if sector["main_net_yi"] > 10:
-                    result["alerts"].append({
-                        "level": "🟢",
-                        "msg": f"{bk_name}板块主力净流入{sector['main_net_yi']:.0f}亿，板块级别看多"
-                    })
-                elif sector["main_net_yi"] < -10:
-                    result["alerts"].append({
-                        "level": "🟡",
-                        "msg": f"{bk_name}板块主力净流出{abs(sector['main_net_yi']):.0f}亿，注意风险"
-                    })
-            except (TypeError, ValueError) as exc:
-                bk_observation = observation_error("eastmoney", exc)
+            exact_flow = dict(bk_observation["data"])
+            sector["main_net_yi"] = exact_flow.get("main_net_yi")
+            sector["main_flow_status"] = "ok"
+            sector["main_flow_provider"] = exact_flow.get("provider")
+            exact_available += 1
+            if sector["main_net_yi"] is not None and sector["main_net_yi"] > 10:
+                result["alerts"].append({
+                    "level": "🟢",
+                    "msg": f"{bk_name}板块主力净流入{sector['main_net_yi']:.0f}亿，板块级别看多"
+                })
+            elif sector["main_net_yi"] is not None and sector["main_net_yi"] < -10:
+                result["alerts"].append({
+                    "level": "🟡",
+                    "msg": f"{bk_name}板块主力净流出{abs(sector['main_net_yi']):.0f}亿，注意风险"
+                })
         if bk_observation.get("status") != "ok":
             degraded = True
         result["source_health"]["sector_main_flow"].append({

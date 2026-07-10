@@ -10,9 +10,13 @@
 
 1. 共享熔断状态检查。
 2. 基于原子目录锁的跨进程、跨机器限速。
-3. 单次 HTTP 请求。传输层内部不重试。
-4. 严格业务响应校验。
-5. 仅对超时、网络错误、429 和 5xx 做一次退避重试。
+3. **进程内节流**：同一 source 的请求间隔至少2秒（`http_client._throttle_wait`）。
+4. 单次 HTTP 请求。传输层内部不重试。
+5. 严格业务响应校验。
+6. 仅对超时、网络错误、429 和 5xx 做一次退避重试。
+
+半开（half_open）探测限制由 `provider_health.allow_request` 保证：
+每个冷却窗口仅发放一个 probe_token，持有者才能提交探测结果。
 6. 成功后关闭熔断；连续失败达到阈值后打开熔断。
 
 总尝试次数仍不超过 2。429 优先遵守数字格式的 `Retry-After`，否则使用指数退避。
@@ -26,8 +30,8 @@ HTTP 200 但 `success=false`、`code/rc` 非零、必要字段缺失或行结构
 {
   "minimum_interval_seconds": 1.1,
   "backoff_base_seconds": 0.5,
-  "circuit_failure_threshold": 3,
-  "circuit_open_seconds": 300,
+  "circuit_failure_threshold": 5,
+  "circuit_open_seconds": 120,
   "coordination_backend": "shared_file"
 }
 ```

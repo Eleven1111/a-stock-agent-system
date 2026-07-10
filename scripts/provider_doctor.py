@@ -25,11 +25,15 @@ from data_provider import (  # noqa: E402
     fetch_public_finance_news,
     fetch_serper_news,
 )
-from eastmoney_intelligence import eastmoney_json  # noqa: E402
 from market_adapters import (  # noqa: E402
+    fetch_a_share_daily_kline,
     fetch_a_share_spot,
+    fetch_board_quotes,
+    fetch_dragon_tiger_rows,
     fetch_hot_money_limitup_pool,
     fetch_industry_catalog_ths,
+    fetch_northbound_flow,
+    fetch_stock_fund_flow,
     fetch_tencent_quote,
 )
 import provider_health  # noqa: E402
@@ -38,15 +42,6 @@ import provider_health  # noqa: E402
 def _limitup_probe():
     asof = previous_trading_day(date.today()).strftime("%Y%m%d")
     return fetch_hot_money_limitup_pool(asof)
-
-
-def _eastmoney_flow_probe():
-    return eastmoney_json(
-        "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get?"
-        "fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56&lmt=1&secid=1.600519",
-        required_path=("data", "klines"),
-        required_type=list,
-    )
 
 
 def _serper_news_probe():
@@ -63,10 +58,30 @@ PROBES: dict[str, dict[str, Any]] = {
         "required": True,
         "call": lambda: fetch_tencent_quote(["sh000001"]),
     },
-    "eastmoney_fund_flow": {
-        "provider": "eastmoney_push2his",
+    "stock_fund_flow": {
+        "provider": "akshare->adata->eastmoney_push2_degraded",
         "required": False,
-        "call": _eastmoney_flow_probe,
+        "call": lambda: fetch_stock_fund_flow("600519", market="sh"),
+    },
+    "daily_kline": {
+        "provider": "akshare->adata->tencent->eastmoney_push2_degraded",
+        "required": True,
+        "call": lambda: fetch_a_share_daily_kline("600519", market="sh", days=5),
+    },
+    "board_quotes": {
+        "provider": "akshare_ths->adata->eastmoney_push2_degraded",
+        "required": False,
+        "call": fetch_board_quotes,
+    },
+    "northbound_flow": {
+        "provider": "akshare->eastmoney_kamt",
+        "required": False,
+        "call": fetch_northbound_flow,
+    },
+    "dragon_tiger": {
+        "provider": "eastmoney_datacenter",
+        "required": False,
+        "call": lambda: fetch_dragon_tiger_rows("600519"),
     },
     "akshare_limitup": {
         "provider": "akshare_push2ex",
@@ -78,8 +93,8 @@ PROBES: dict[str, dict[str, Any]] = {
         "required": False,
         "call": fetch_industry_catalog_ths,
     },
-    "akshare_spot_em": {
-        "provider": "akshare_push2",
+    "a_share_spot": {
+        "provider": "akshare_sina->adata->eastmoney_datacenter->eastmoney_push2_degraded",
         "required": False,
         "call": fetch_a_share_spot,
     },
