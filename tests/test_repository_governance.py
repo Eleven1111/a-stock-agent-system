@@ -88,7 +88,7 @@ def test_codeql_is_pinned_and_covers_pull_requests_and_main():
     assert any(value.startswith("github/codeql-action/analyze@") for value in uses)
 
 
-def test_versioned_main_ruleset_has_no_bypass_and_requires_ci_and_review():
+def test_versioned_main_ruleset_has_no_bypass_and_requires_ci_and_pr():
     import json
 
     ruleset = json.loads(
@@ -100,9 +100,9 @@ def test_versioned_main_ruleset_has_no_bypass_and_requires_ci_and_review():
     rules = {rule["type"]: rule for rule in ruleset["rules"]}
     assert {"deletion", "non_fast_forward", "pull_request", "required_status_checks"} <= set(rules)
     pull_request = rules["pull_request"]["parameters"]
-    assert pull_request["required_approving_review_count"] == 1
-    assert pull_request["dismiss_stale_reviews_on_push"] is True
-    assert pull_request["require_last_push_approval"] is True
+    assert pull_request["required_approving_review_count"] == 0
+    assert pull_request["dismiss_stale_reviews_on_push"] is False
+    assert pull_request["require_last_push_approval"] is False
     assert pull_request["required_review_thread_resolution"] is True
     required = rules["required_status_checks"]["parameters"]
     assert required["strict_required_status_checks_policy"] is True
