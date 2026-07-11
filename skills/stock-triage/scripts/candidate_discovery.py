@@ -23,6 +23,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
+from zoneinfo import ZoneInfo
 
 SCRIPT_DIR = os.path.dirname(__file__)
 ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
@@ -40,7 +41,11 @@ import monitor_registry  # noqa: E402
 from config_registry import config_path  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
-from market_adapters import fetch_a_share_daily_kline, fetch_tencent_quote  # noqa: E402
+from market_adapters import (  # noqa: E402
+    fetch_a_share_daily_kline,
+    fetch_a_share_daily_series,
+    fetch_tencent_quote_with_provenance as fetch_tencent_quote,
+)
 from http_client import request_bytes  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot, write_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -316,7 +321,17 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
     batch_size = int(config["quote_batch_size"])
     workers = int(config["quote_workers"])
     retries = int(config["request_retries"])
-    metadata = {candidate_pipeline.naked_code(item["code"]): dict(item) for item in universe}
+    metadata = {
+        candidate_pipeline.naked_code(item["code"]): {
+            **dict(item),
+            "is_st": (
+                item.get("is_st")
+                if isinstance(item.get("is_st"), bool)
+                else "ST" in str(item.get("name") or "").upper()
+            ),
+        }
+        for item in universe
+    }
     batches = [
         [candidate_pipeline.market_code(item["code"]) for item in batch]
         for batch in _chunks(list(universe), batch_size)
@@ -354,7 +369,12 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
     return quotes
 
 
-def fetch_candidate_klines(candidates: Sequence[Mapping[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+def fetch_candidate_klines(
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    event_asof: str | None = None,
+    decision_mode: str = "live",
+) -> Dict[str, List[Dict[str, Any]]]:
     network_config = load_config()["network"]
     workers = int(network_config["kline_workers"])
     retries = int(network_config["request_retries"])
@@ -364,7 +384,21 @@ def fetch_candidate_klines(candidates: Sequence[Mapping[str, Any]]) -> Dict[str,
         market = "sh" if code.startswith("6") else "sz"
         attempts = min(retries + 1, 2)
         for attempt in range(attempts):
-            bars = fetch_a_share_daily_kline(code, market=market, days=70)
+            if event_asof is None:
+                bars = fetch_a_share_daily_kline(code, market=market, days=70)
+            else:
+                series = fetch_a_share_daily_series(
+                    code,
+                    market=market,
+                    days=70,
+                    event_asof=event_asof,
+                    adjustment="qfq",
+                    decision_mode=decision_mode,
+                )
+                bars = list(series.get("data") or []) if series.get("status") == "ok" else []
+                provenance = series.get("series_provenance")
+                if provenance:
+                    bars = [{**bar, "series_provenance": dict(provenance)} for bar in bars]
             if bars:
                 return code, bars
             if attempt + 1 < attempts:
@@ -388,6 +422,83 @@ def fetch_candidate_klines(candidates: Sequence[Mapping[str, Any]]) -> Dict[str,
     if len(result) < minimum_coverage:
         raise DataSourceError("tencent_kline", f"K线覆盖不足: {len(result)}/{len(candidates)}")
     return result
+
+
+def _candidate_pit_contract(
+    asof: str,
+    quote_map: Mapping[str, Mapping[str, Any]],
+) -> Dict[str, Any] | None:
+    fetched = [
+        str(quote.get("fetched_at"))
+        for quote in quote_map.values()
+        if quote.get("fetched_at")
+    ]
+    if not fetched:
+        return None
+    try:
+        timestamps = [datetime.fromisoformat(value.replace("Z", "+00:00")) for value in fetched]
+        local = max(timestamps).astimezone(ZoneInfo("Asia/Shanghai")).isoformat(
+            timespec="seconds"
+        )
+    except ValueError:
+        return None
+    if local[:10] != asof:
+        return None
+    return {
+        "schema": "pit_stage_contract_v1",
+        "decision_mode": "live",
+        "event_asof": asof,
+        "evidence_time": local,
+        "captured_at": local,
+        "stage_policy": {
+            "schema": "pit_stage_contract_v1",
+            "stage": "candidate_discovery",
+            "cutoff_time": "23:59:59",
+            "timezone": "Asia/Shanghai",
+            "publication_delay_seconds": 0,
+        },
+    }
+
+
+def _propagate_execution_contracts(
+    result: Dict[str, Any],
+    quote_map: Mapping[str, Mapping[str, Any]],
+    kline_by_code: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    point_in_time: Mapping[str, Any] | None,
+    decision_mode: str,
+) -> None:
+    for candidate in result.get("candidates", []):
+        code = candidate_pipeline.naked_code(candidate.get("code"))
+        quote = quote_map.get(code) or {}
+        bars = list(kline_by_code.get(code) or [])
+        provenance = (bars[0].get("series_provenance") if bars else None) or {}
+        transport = {
+            key: quote.get(key)
+            for key in (
+                "provider", "provider_version", "fetched_at", "transport_trust",
+                "directional_eligible", "transport_reason",
+            )
+        }
+        complete = bool(
+            point_in_time
+            and quote.get("listed_date")
+            and isinstance(quote.get("is_st"), bool)
+            and provenance.get("provider")
+            and transport.get("provider")
+            and transport.get("directional_eligible") is not None
+        )
+        candidate.update({
+            "strict_execution": complete,
+            "decision_mode": decision_mode,
+            "point_in_time": dict(point_in_time or {}),
+            "listing_date": quote.get("listed_date"),
+            "listing_stage": "normal" if quote.get("listed_date") else None,
+            "is_st": quote.get("is_st"),
+            "series_provenance": dict(provenance),
+            "transport_provenance": transport,
+            "directional_eligible": transport.get("directional_eligible"),
+        })
 
 
 def _advance_fsm_to_watching(asof: str, selected_codes: Iterable[str]) -> None:
@@ -508,15 +619,16 @@ def load_signal_context_for_discovery(
         return ranking_ctx or None, temperature
     except Exception as exc:  # noqa: BLE001
         return None, {
-            "tier": "neutral",
+            "tier": "unknown",
+            "context_status": "unknown",
             "height": 0,
             "promotion_rate": None,
             "limitup_total": None,
-            "allow_new_daban": True,
-            "position_multiplier": 1.0,
-            "top_n_limit": None,
+            "allow_new_daban": False,
+            "position_multiplier": 0.0,
+            "top_n_limit": 0,
             "retreat_signal": None,
-            "advice": "温度数据不可用，不施加情绪约束",
+            "advice": "温度数据不可用，阻断新增风险",
             "notes": [f"情绪上下文读取失败: {exc}"],
             "context_asof": None,
             "context_fresh": False,
@@ -665,8 +777,29 @@ def run_discovery(
         eligible,
         limit=prefilter_limit,
     )
-    kline_by_code = dict(kline_fetcher(enrichment_universe))
+    production_kline = kline_fetcher is fetch_candidate_klines
+    kline_by_code = dict(
+        fetch_candidate_klines(
+            enrichment_universe,
+            event_asof=asof,
+            decision_mode="live",
+        )
+        if production_kline
+        else kline_fetcher(enrichment_universe)
+    )
     batch_id = os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}"
+    point_in_time = _candidate_pit_contract(asof, quote_map) if production_kline else None
+    snapshot_pit = (
+        {
+            "event_asof": point_in_time["event_asof"],
+            "evidence_time": point_in_time["evidence_time"],
+            "captured_at": point_in_time["captured_at"],
+            "decision_mode": point_in_time["decision_mode"],
+            "stage_policy": point_in_time["stage_policy"],
+        }
+        if point_in_time
+        else {}
+    )
     input_snapshot = materialize_input_snapshot(
         "candidate-discovery-input",
         {
@@ -690,6 +823,7 @@ def run_discovery(
                 ).get("source_versions") or {}
             ),
         },
+        **snapshot_pit,
     )
     inputs = input_snapshot["payload"]
     quote_map = dict(inputs["quotes"])
@@ -763,72 +897,13 @@ def run_discovery(
             asof=asof,
             bars=list(kline_by_code.get(code) or []),
         )
-    # --- Extreme weak-market rescue: keep top-N candidates ---
-    # When the weak-market delivery gate downgrades ALL candidates to
-    # research_only, the brief output is completely blank.  Rescue the
-    # highest-scored candidates so the brief has at least a few actionable
-    # targets to display.
-    _RESCUE_TOP_N = 5
-    if result.get("candidate_count", 0) == 0:
-        market_timing = (
-            (selection_state or {}).get("market_timing") or {}
-        )
-        weak_market = market_timing.get("weak_market") or {}
-        extreme_weak = bool(weak_market.get("extreme_weak"))
-        if extreme_weak and result.get("evaluated_candidates"):
-            from weak_market_delivery import assess_delivery_quality
-
-            scored = sorted(
-                result["evaluated_candidates"],
-                key=lambda row: (
-                    -max(
-                        float(row.get("daban_score") or 0),
-                        float(row.get("trend_score") or 0),
-                    ),
-                    row.get("code") or "",
-                ),
-            )
-            rescued: list[dict] = []
-            for item in scored[:_RESCUE_TOP_N]:
-                selected_by = item.get("selected_by") or {}
-                lane = "daban" if selected_by.get("daban") else "trend"
-                quality = assess_delivery_quality(
-                    item,
-                    lane=lane,
-                    stage="D0_close_rescue",
-                    selection_state=selection_state,
-                )
-                override_quality = {
-                    **quality,
-                    "status": "deliverable_watch",
-                    "reasons": quality.get("reasons", [])
-                    + ["extreme_weak_market_rescue_top_n"],
-                }
-                rescued_item = dict(item)
-                rescued_item["delivery_quality"] = override_quality
-                rescued_item["rescued"] = True
-                strategy_id = hot_money_selection.selection_strategy_id(
-                    rescued_item, lane,
-                )
-                rescued_item["strategy_id"] = strategy_id
-                rescued_item["selection_context"] = hot_money_selection.selection_context_for(
-                    rescued_item, selection_state, window="D0_close",
-                )
-                code = candidate_pipeline.naked_code(rescued_item.get("code"))
-                rescued_item["research_evidence"] = build_research_evidence(
-                    code,
-                    strategy_id=strategy_id,
-                    asof=asof,
-                    bars=list(kline_by_code.get(code) or []),
-                )
-                rescued.append(rescued_item)
-            if rescued:
-                result["candidates"] = rescued
-                result["candidate_count"] = len(rescued)
-                result["warnings"] = list(result.get("warnings") or []) + [
-                    f"extreme_weak_market_rescued_top_{len(rescued)}"
-                ]
-
+    _propagate_execution_contracts(
+        result,
+        quote_map,
+        kline_by_code,
+        point_in_time=(input_snapshot.get("point_in_time") or point_in_time),
+        decision_mode="live",
+    )
     evaluated = result.pop("evaluated_candidates")
     result.update({
         "asof": asof,

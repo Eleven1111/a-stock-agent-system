@@ -1,0 +1,26 @@
+{
+  "schema_version": "validation-thresholds-v1",
+  "effective_date": "2026-07-10",
+  "empirical": {
+    "minimum_real_trading_days": 60,
+    "minimum_trade_effective_samples": 30,
+    "minimum_stock_effective_samples": 8,
+    "minimum_regime_effective_samples": 3
+  },
+  "statistics": {
+    "minimum_observations": 20,
+    "block_length": 5,
+    "bootstrap_resamples": 1000,
+    "fdr_alpha": 0.05,
+    "hac_lags": 3,
+    "pbo_partitions": 4,
+    "maximum_pbo": 0.5,
+    "minimum_deflated_sharpe_probability": 0.95
+  },
+  "shadow": {
+    "minimum_trading_days": 20,
+    "maximum_simulation_error": 0.02,
+    "auto_demotion_error": 0.05,
+    "maximum_manual_pilot_weight": 0.1
+  }
+}

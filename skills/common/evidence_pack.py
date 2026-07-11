@@ -19,6 +19,7 @@ from agent_state import load_agent_state
 from paths import data_file
 from runtime_context import load_latest_artifact
 from state_store import atomic_write_json, read_json
+from agent_evidence import untrusted_external_text
 
 
 PACK_SCHEMA = "research_evidence_pack_v1"
@@ -138,9 +139,10 @@ def _artifact_entry(
         entry["stale"] = True
     excerpt = str(artifact.get("stdout_tail") or "").strip()
     if excerpt:
-        entry["stdout_excerpt"] = excerpt[
-            : int(limits.get("artifact_excerpt_chars") or 1200)
-        ]
+        entry["stdout_excerpt"] = untrusted_external_text(
+            excerpt[: int(limits.get("artifact_excerpt_chars") or 1200)],
+            source=f"cron_artifact:{job_id}",
+        )
     return _fit(entry, int(limits.get("artifact_chars") or 1500))
 
 
@@ -561,5 +563,9 @@ def load_pack(ref: str) -> dict[str, Any] | None:
         return None
     value = read_json(os.path.join(packs_dir(), f"{digest}.json"), None)
     if not isinstance(value, dict) or value.get("schema") != PACK_SCHEMA:
+        return None
+    payload = value.get("payload")
+    actual = hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
+    if actual != digest or value.get("ref") != f"sha256:{digest}":
         return None
     return value

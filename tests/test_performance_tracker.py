@@ -423,6 +423,181 @@ def test_update_outcomes_upgrades_t1_to_t3_final(tmp_path, monkeypatch):
     assert [event["event_type"] for event in events].count("signal.t3_settled") == 1
 
 
+def test_update_outcomes_uses_observable_signal_price_not_signal_day_close(
+    tmp_path,
+    monkeypatch,
+):
+    """09:35 信号只能按当时记录价结算，不能偷看当日收盘价。"""
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(pt, "limit_pct", lambda code, name: 10.0)
+    pt.record_signal(
+        "600001",
+        "盘中信号",
+        "A",
+        5.0,
+        9.5,
+        signal_date="2026-06-10",
+    )
+
+    def fake_fetch(code, signal_date, market):
+        if code == pt.BENCH_CODE:
+            return None
+        return {
+            # 这是 2026-06-10 收盘价，在 09:35 信号发生时尚不可观察。
+            "signal_close": 10.0,
+            "future": [bar(10.5, 11.0, 11.0, 10.4)],
+        }
+
+    monkeypatch.setattr(pt, "_fetch_future_bars", fake_fetch)
+
+    settled = pt.update_outcomes()[0]
+
+    assert settled["t1_close_ret"] == 15.79
+    assert settled["settlement_entry_price"] == 9.5
+    assert settled["settlement_entry_price_source"] == "signal_price"
+    # 晋级仍按交易所 T+1 涨停基准（信号日收盘 10.0）判定，而非盘中入场价。
+    assert settled["promoted"] is True
+
+
+def test_update_outcomes_terminalizes_signal_without_observable_entry_price(
+    tmp_path,
+    monkeypatch,
+):
+    """没有事前可观察价格时应 fail closed，不能回退到信号日收盘。"""
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(pt, "limit_pct", lambda code, name: 10.0)
+    links = signal_ledger.make_links("rec-without-entry")
+    signal_ledger.append_events(
+        [
+            signal_ledger.signal_opened_event(
+                {
+                    "code": "600001",
+                    "name": "无价格信号",
+                    "date": "2026-06-10",
+                    "grade": "A",
+                    "strategy_id": "trend_pullback",
+                    "action": "buy",
+                },
+                links,
+            )
+        ],
+        ledger_file=pt.LEDGER_FILE,
+    )
+
+    def fake_fetch(code, signal_date, market):
+        if code == pt.BENCH_CODE:
+            return None
+        return {
+            "signal_close": 10.0,
+            "future": [bar(10.5, 11.0, 11.0, 10.4)],
+        }
+
+    monkeypatch.setattr(pt, "_fetch_future_bars", fake_fetch)
+
+    unresolved = pt.update_outcomes()[0]
+
+    assert unresolved["outcome"] == "unresolved"
+    assert unresolved["settlement_status"] == "terminal_unresolved"
+    assert unresolved["settlement_observation_status"] == "entry_price_missing"
+    assert any(
+        event["event_type"] == "signal.settled"
+        for event in signal_ledger.read_events(pt.LEDGER_FILE)
+    )
+
+
+def test_update_outcomes_terminalizes_aged_market_data_gap(tmp_path, monkeypatch):
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    pt.record_signal(
+        "600001", "长期无行情", "A", 5.0, 10.0, signal_date="2020-01-01"
+    )
+    monkeypatch.setattr(pt, "_fetch_future_bars", lambda *args: None)
+
+    unresolved = pt.update_outcomes()[0]
+
+    assert unresolved["settlement_status"] == "terminal_unresolved"
+    assert unresolved["settlement_observation_status"] == (
+        "market_data_unavailable_or_tradeability_unknown"
+    )
+
+
+def test_settlement_coverage_blocks_strategy_gate():
+    records = [
+        {
+            "code": "1",
+            "strategy_id": "trend_pullback",
+            "outcome": "win",
+            "t1_close_ret": 2.0,
+            "t1_open_premium": 1.0,
+            "promoted": False,
+            "settlement_status": "final",
+        },
+        {"code": "2", "strategy_id": "trend_pullback", "outcome": "pending"},
+    ]
+    stats = compute_stats(records)
+    assert stats["settlement_coverage"]["status"] == "coverage_insufficient"
+    decision = pt.evaluate_strategy_gating(
+        {"trend_pullback": {"closed": 20, "expectancy": 1.0}},
+        coverage_sufficient=False,
+    )[0]
+    assert decision["action"] == "skip"
+    assert decision["reason"] == "coverage_insufficient"
+
+
+def test_terminal_ambiguity_cannot_enable_survivor_only_strategy():
+    records = [
+        {
+            "code": str(index),
+            "strategy_id": "survivor",
+            "outcome": "win",
+            "t1_close_ret": 2.0,
+            "t1_open_premium": 1.0,
+            "promoted": False,
+            "settlement_status": "final",
+        }
+        for index in range(12)
+    ] + [
+        {
+            "code": f"u{index}",
+            "strategy_id": "survivor",
+            "outcome": "unresolved",
+            "settlement_status": "terminal_unresolved",
+            "settlement_observation_status": (
+                "market_data_unavailable_or_tradeability_unknown"
+            ),
+        }
+        for index in range(100)
+    ]
+    stats = compute_stats(records)
+    coverage = stats["settlement_coverage"]
+    assert coverage["ratio"] == 1.0
+    assert coverage["gating_reason"] == "terminal_ambiguity"
+
+    decision = pt.evaluate_strategy_gating(
+        stats["gating_by_strategy"],
+        coverage_sufficient=coverage["gating_status"] == "sufficient",
+        coverage_reason=coverage["gating_reason"],
+    )[0]
+    assert decision["action"] == "skip"
+    assert decision["reason"] == "terminal_ambiguity"
+
+
+def test_observable_entry_price_rejects_malformed_values_and_supports_legacy_key():
+    assert pt._observable_entry_price({
+        "signal_price": float("nan"),
+        "entry_price": float("inf"),
+        "reference_price": -1,
+        "recommendation_price": "10.25",
+    }) == (10.25, "recommendation_price")
+    assert pt._observable_entry_price({
+        "signal_price": 0,
+        "entry_price": True,
+        "reference_price": "not-a-price",
+    }) is None
+
+
 def test_gate_stats_include_recommendation_ledger_signals(tmp_path, monkeypatch):
     monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
     monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))

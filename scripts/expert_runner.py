@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -22,6 +23,7 @@ COMMON = os.path.join(ROOT, "skills", "common")
 sys.path.insert(0, COMMON)
 
 import evidence_pack  # noqa: E402
+import agent_evidence  # noqa: E402
 import research_bus  # noqa: E402
 import research_synthesis  # noqa: E402
 from runtime_context import resolve_runtime_name  # noqa: E402
@@ -166,7 +168,8 @@ def cmd_next(args: argparse.Namespace, config: dict[str, Any]) -> int:
         "output_contract": _output_contract(task, role, config),
         "submit_command": (
             f"python scripts/expert_runner.py submit "
-            f"--task {task.get('id')} --role {role} --file <finding.json>"
+            f"--task {task.get('id')} --role {role} --model <model-version> "
+            f"--file <finding.json>"
         ),
         "abstain_command": (
             f"python scripts/expert_runner.py abstain "
@@ -189,6 +192,25 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     except (OSError, json.JSONDecodeError) as error:
         _print({"ok": False, "errors": [f"cannot read finding JSON: {error}"]})
         return 2
+    task = research_bus.find_task(args.task)
+    ref = str((task or {}).get("evidence_pack_ref") or "")
+    pack = evidence_pack.load_pack(ref) if ref else None
+    if isinstance(finding, dict) and pack and finding.get("stance") != "abstain":
+        prompt = _profile_text(args.role, config) + json.dumps(
+            _output_contract(task or {}, args.role, config),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        finding["model_run_manifest"] = agent_evidence.build_finding_manifest(
+            model=args.model or os.environ.get("A_STOCK_MODEL_VERSION", ""),
+            prompt=prompt,
+            evidence_pack=pack,
+            evidence_refs=finding.get("evidence_refs") or [],
+            tool_inputs=finding.get("tool_inputs") or {},
+            generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            review_status="reviewed" if args.reviewed_by else "unreviewed",
+            reviewed_by=args.reviewed_by or "",
+        )
     result = research_bus.submit_finding(
         args.task, args.role, finding, worker=args.worker, config=config,
     )
@@ -262,6 +284,11 @@ def main() -> int:
     submit.add_argument("--role", required=True)
     submit.add_argument("--file")
     submit.add_argument("--worker")
+    submit.add_argument("--model")
+    submit.add_argument(
+        "--reviewed-by",
+        help="明确记录已完成人工复核的责任人；缺省输出只能进入 review-only",
+    )
 
     abstain = sub.add_parser("abstain", help="主动弃权")
     abstain.add_argument("--task", required=True)

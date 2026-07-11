@@ -16,8 +16,8 @@ def test_emotion_cycle_unregistered_zero_weight_notes(monkeypatch):
     assert result["emotion_cycle"]["volume_percentile_60d"]["available"] is True
 
 
-def test_emotion_cycle_registered_still_zero_weight_delta(monkeypatch, tmp_path, verified_gate_factory):
-    """过闸后：本次不实现计权 delta，只是不再标[研究假设]；score 数值不因过闸而变化。"""
+def test_emotion_cycle_research_gate_alone_still_zero_weight(monkeypatch, tmp_path, verified_gate_factory):
+    """研究门禁不是 live promotion；仍标研究假设且保持零权重。"""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     klines = [{"close": 10.0, "high": 10.2, "low": 9.8, "volume": 1000} for _ in range(60)]
     quote = {"price": 10.0, "change_pct": 1.0}
@@ -31,8 +31,7 @@ def test_emotion_cycle_registered_still_zero_weight_delta(monkeypatch, tmp_path,
     )
 
     out_after = fds.score_technical("002156", "通富微电", quote=quote, klines=klines)
-    assert "[研究假设]情绪周期" not in out_after["detail"]
-    # 过闸不引入计权（本次不实现 delta），分数应保持一致。
+    assert "[研究假设]情绪周期" in out_after["detail"]
     assert out_after["score"] == out_before["score"]
 
 

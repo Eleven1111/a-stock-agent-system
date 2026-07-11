@@ -197,3 +197,57 @@ def test_chase_gate_skips_daban_when_not_limit_up(monkeypatch, tmp_path):
     result = fds.score_stock("600001", "测试股", quote=_quote(), klines=_klines(),
                              market_ctx={}, strategy_id="daban:first_board_reseal")
     assert "chase_limitup_negative_ev" not in result["score_gates"]
+
+
+def test_raw_four_dim_score_is_explicitly_research_only(monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _mock_four_dims(monkeypatch, change_pct=5.0)
+
+    result = fds.score_stock(
+        "600001",
+        "测试股",
+        quote=_quote(),
+        klines=_klines(),
+        market_ctx={},
+        strategy_id="trend_pullback",
+    )
+
+    assert result["directional_ready"] is False
+    assert result["execution_action"] == "none"
+    assert "研究" in result["advice"]
+    assert "推荐" not in result["advice"]
+
+
+def test_short_term_score_never_emits_execution_instruction(monkeypatch):
+    bars = [
+        {"close": 10.0, "high": 10.2, "low": 9.8, "volume": 1000}
+        for _ in range(30)
+    ]
+    monkeypatch.setattr(
+        fds,
+        "fetch_tencent_realtime",
+        lambda *args, **kwargs: {"price": 10.0, "change_pct": 1.0},
+    )
+    monkeypatch.setattr(fds, "fetch_tencent_kline", lambda *args, **kwargs: bars)
+    monkeypatch.setattr(fds, "calc_ma", lambda values, period: [9.5] * len(values))
+    monkeypatch.setattr(
+        fds,
+        "calc_macd",
+        lambda values, **kwargs: (
+            [0.0] * (len(values) - 2) + [0.0, 1.0],
+            [0.0] * (len(values) - 2) + [0.5, 0.5],
+            [0.0] * len(values),
+        ),
+    )
+    monkeypatch.setattr(fds, "calc_rsi", lambda values, period: [20.0] * len(values))
+    monkeypatch.setattr(fds, "calc_volume_ratio", lambda values: 2.0)
+    monkeypatch.setattr(fds, "calc_atr", lambda *args, **kwargs: [1.0] * len(bars))
+    monkeypatch.setattr(fds, "_chan", None)
+
+    result = fds.score_short_term_entry("600001", "测试股")
+
+    assert result["directional_ready"] is False
+    assert result["execution_action"] == "none"
+    assert result["suggestion"] == "等待完整政策复核"
+    assert "immediate_buy" not in result["entry_conditions"]
+    assert all("执行" not in item["label"] for item in result["entry_conditions"].values())

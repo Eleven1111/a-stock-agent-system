@@ -7,6 +7,8 @@ import recommendation_audit as ra
 
 
 def _wire(tmp_path, monkeypatch):
+    import market_temperature
+
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     portfolio_path = str(tmp_path / "portfolio.json")
     monkeypatch.setattr(ra, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
@@ -25,6 +27,28 @@ def _wire(tmp_path, monkeypatch):
             "allowed_in_live_agent": True,
             "gating_status": "enabled",
             "runtime_allowed": True,
+        },
+    )
+    monkeypatch.setattr(
+        ra,
+        "read_market_context",
+        lambda: {
+            "status": "ok",
+            "context_status": "fresh",
+            "context_fresh": True,
+            "sector_impact": {},
+            "alerts": [],
+        },
+    )
+    monkeypatch.setattr(
+        market_temperature,
+        "read_temperature",
+        lambda **_kwargs: {
+            "tier": "发酵",
+            "context_status": "fresh",
+            "context_fresh": True,
+            "allow_new_daban": True,
+            "position_multiplier": 1.0,
         },
     )
     atomic_write_json(portfolio_path, {"cash": 100000, "positions": [], "cash_reconciled": True})
@@ -89,7 +113,45 @@ def test_build_review_without_refresh_skips_network_and_includes_discipline_stat
         code="600001", name="候选票", action="buy", price_range="10.00-10.50",
         rationale="测试", entry_price=10.3, target_price=11.0, stop_price=9.8,
         horizon="T+1到T+3", grade="A", confidence="medium", announcements=[],
-        strategy_id="daban:first_board_reseal", asof="2026-06-24",
+        strategy_id="daban:first_board_reseal", asof="2026-06-24", sector="半导体",
+        execution_context={
+            "strict_execution": True,
+            "decision_mode": "live",
+            "point_in_time": {
+                "schema": "pit_stage_contract_v1",
+                "decision_mode": "live",
+                "event_asof": "2026-06-24",
+                "evidence_time": "2026-06-24T14:59:00+08:00",
+                "captured_at": "2026-06-24T15:00:00+08:00",
+                "stage_policy": {
+                    "schema": "pit_stage_contract_v1",
+                    "stage": "recommendation",
+                    "cutoff_time": "15:00:00",
+                    "timezone": "Asia/Shanghai",
+                    "publication_delay_seconds": 0,
+                },
+            },
+            "listing_date": "2020-01-01",
+            "listing_stage": "normal",
+            "is_st": False,
+            "direction": "buy",
+            "directional_eligible": True,
+            "executable_price": 10.3,
+            "available_volume": 100000,
+            "adv_value": 10000000,
+                "corporate_action_status": "clear",
+                "portfolio_risk_evidence": {
+                    "schema": "portfolio_risk_evidence_v1",
+                    "asof": "2026-06-24",
+                    "source": "risk-engine-fixture",
+                    "coverage": 1.0,
+                    "correlation": 0.35,
+                    "beta": 1.05,
+                    "style_exposure_pct": 22.0,
+                    "adv_participation_pct": 3.0,
+                    "portfolio_volatility_pct": 18.0,
+                },
+            },
         research_evidence={
             "market_intelligence": {"available": True, "stale": False, "directional_ready": True, "hard_risks": [], "warnings": []},
             "chanlun": {"live_bullish_signals": [], "live_bearish_signals": []},

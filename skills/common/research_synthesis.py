@@ -27,7 +27,7 @@ _LIST_CAP = 10
 
 
 def _now_text(now: str | None = None) -> str:
-    return now or datetime.now().isoformat(timespec="seconds")
+    return now or datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def load_findings(task: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -38,6 +38,53 @@ def load_findings(task: dict[str, Any]) -> dict[str, dict[str, Any]]:
         if isinstance(value, dict):
             findings[role] = value
     return findings
+
+
+def _revalidate_model_manifests(
+    task: dict[str, Any],
+    findings: dict[str, dict[str, Any]],
+    config: dict[str, Any],
+    now: str,
+) -> dict[str, dict[str, Any]]:
+    finding_cfg = config.get("finding") or {}
+    if not finding_cfg.get("require_model_run_manifest"):
+        return findings
+    try:
+        import agent_evidence
+        import evidence_pack
+    except ImportError:
+        return {
+            role: {**finding, "model_run_manifest": {"execution_eligible": False}}
+            for role, finding in findings.items()
+        }
+    pack = evidence_pack.load_pack(str(task.get("evidence_pack_ref") or ""))
+    if not pack:
+        return {
+            role: {**finding, "model_run_manifest": {"execution_eligible": False}}
+            for role, finding in findings.items()
+        }
+    checked: dict[str, dict[str, Any]] = {}
+    for role, finding in findings.items():
+        item = dict(finding)
+        if item.get("stance") == "abstain":
+            checked[role] = item
+            continue
+        errors = agent_evidence.validate_finding_manifest(
+            item.get("model_run_manifest"),
+            evidence_pack=pack,
+            evidence_refs=item.get("evidence_refs") or [],
+            tool_inputs=item.get("tool_inputs") or {},
+            require_execution_eligible=False,
+            now=now,
+            max_age_minutes=int(finding_cfg.get("manifest_max_age_minutes") or 10),
+        )
+        if errors:
+            manifest = dict(item.get("model_run_manifest") or {})
+            manifest["execution_eligible"] = False
+            item["model_integrity_errors"] = errors
+            item["model_run_manifest"] = manifest
+        checked[role] = item
+    return checked
 
 
 def _confidence(finding: dict[str, Any]) -> float:
@@ -55,6 +102,19 @@ def decide_verdict(
         role: str(finding.get("stance") or "neutral")
         for role, finding in findings.items()
     }
+    review_only_roles = [
+        role
+        for role, finding in findings.items()
+        if finding.get("stance") != "abstain"
+        and isinstance(finding.get("model_run_manifest"), dict)
+        and (finding.get("model_run_manifest") or {}).get("execution_eligible")
+        is not True
+    ]
+    if review_only_roles:
+        return {
+            "verdict": "review_only",
+            "basis": "human_review_required:" + ",".join(sorted(review_only_roles)),
+        }
     if stances and all(stance == "abstain" for stance in stances.values()):
         return {"verdict": "abstained", "basis": "all_roles_abstained"}
     veto_at = float(synthesis_cfg.get("veto_confidence") or 0.7)
@@ -217,6 +277,7 @@ _TERMINAL_STATUS = {
     "disputed": "done",
     "rejected": "rejected",
     "abstained": "abstained",
+    "review_only": "done",
 }
 
 
@@ -239,6 +300,7 @@ def synthesize_task(
         return {"ok": False, "error": f"findings missing for roles: {missing}"}
 
     timestamp = _now_text(now)
+    findings = _revalidate_model_manifests(task, findings, config, timestamp)
     synthesis_cfg = config.get("synthesis") or {}
     decision = decide_verdict(findings, synthesis_cfg)
     if decision["verdict"] == "disputed":

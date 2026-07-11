@@ -18,7 +18,6 @@ from typing import Any, Mapping, Sequence
 
 
 DEFAULT_DELIVERY_CHANNEL = "discord"
-DEFAULT_DELIVERY_TO = "user:1068705928590917722"
 DEFAULT_DELIVERY_ACCOUNT = "default"
 MANAGED_JOB_PREFIX = "A-stock: "
 
@@ -78,20 +77,31 @@ def dependency_timeout_budget(
     return total
 
 
-def _delivery_args(job: Mapping[str, Any]) -> list[str]:
+def _delivery_args(
+    job: Mapping[str, Any],
+    *,
+    channel: str,
+    target: str | None,
+    account: str,
+) -> list[str]:
     policy = str(job.get("deliver") or "origin")
     if policy in {"local", "silent", "feishu_direct"}:
         return ["--no-deliver"]
     if policy != "origin":
         raise ValueError(f"unknown deliver policy for {job.get('id')}: {policy}")
+    if not target:
+        raise ValueError(
+            "origin delivery target is required; set --delivery-to or "
+            "A_STOCK_DELIVERY_TO"
+        )
     return [
         "--announce",
         "--channel",
-        DEFAULT_DELIVERY_CHANNEL,
+        channel,
         "--to",
-        DEFAULT_DELIVERY_TO,
+        target,
         "--account",
-        DEFAULT_DELIVERY_ACCOUNT,
+        account,
     ]
 
 
@@ -133,10 +143,24 @@ def build_openclaw_commands(
     env_file: str | None = None,
     installed_jobs: Sequence[Mapping[str, Any]] | None = None,
     openclaw: str = "openclaw",
+    delivery_channel: str | None = None,
+    delivery_to: str | None = None,
+    delivery_account: str | None = None,
 ) -> list[str]:
     state_home = state_home or os.environ.get("A_STOCK_STATE_HOME")
     state_id = state_id or os.environ.get("A_STOCK_STATE_ID")
     env_file = env_file or os.environ.get("A_STOCK_ENV_FILE")
+    delivery_channel = (
+        delivery_channel
+        or os.environ.get("A_STOCK_DELIVERY_CHANNEL")
+        or DEFAULT_DELIVERY_CHANNEL
+    )
+    delivery_to = delivery_to or os.environ.get("A_STOCK_DELIVERY_TO")
+    delivery_account = (
+        delivery_account
+        or os.environ.get("A_STOCK_DELIVERY_ACCOUNT")
+        or DEFAULT_DELIVERY_ACCOUNT
+    )
     jobs = {
         str(job["id"]): job
         for job in manifest.get("jobs", [])
@@ -218,15 +242,15 @@ def build_openclaw_commands(
         backup_home = os.environ.get("A_STOCK_BACKUP_HOME", "")
         if backup_home:
             parts.extend(["--command-env", f"A_STOCK_BACKUP_HOME={backup_home}"])
-        # Feishu user id (used by delivery-aware jobs)
-        feishu_uid = os.environ.get("A_STOCK_FEISHU_USER_ID", "")
-        if feishu_uid:
-            parts.extend(["--command-env", f"A_STOCK_FEISHU_USER_ID={feishu_uid}"])
-        # Pass API keys from environment
-        miaoxiang_key = os.environ.get("MIAOXIANG_API_KEY", "")
-        if miaoxiang_key:
-            parts.extend(["--command-env", f"MIAOXIANG_API_KEY={miaoxiang_key}"])
-        parts.extend(_delivery_args(job))
+        # Secrets and recipient identities are loaded by the child runner from
+        # A_STOCK_ENV_FILE. Never serialize their values into cron commands,
+        # dry-run output, process arguments, or the OpenClaw job store.
+        parts.extend(_delivery_args(
+            job,
+            channel=delivery_channel,
+            target=delivery_to,
+            account=delivery_account,
+        ))
         commands.append(" ".join(shlex.quote(value) for value in parts))
     return commands
 
@@ -244,6 +268,15 @@ def main() -> int:
     parser.add_argument("--state-id", default=os.environ.get("A_STOCK_STATE_ID"))
     parser.add_argument("--env-file", default=os.environ.get("A_STOCK_ENV_FILE"))
     parser.add_argument("--openclaw", default="openclaw")
+    parser.add_argument(
+        "--delivery-channel",
+        default=os.environ.get("A_STOCK_DELIVERY_CHANNEL", DEFAULT_DELIVERY_CHANNEL),
+    )
+    parser.add_argument("--delivery-to", default=os.environ.get("A_STOCK_DELIVERY_TO"))
+    parser.add_argument(
+        "--delivery-account",
+        default=os.environ.get("A_STOCK_DELIVERY_ACCOUNT", DEFAULT_DELIVERY_ACCOUNT),
+    )
     parser.add_argument(
         "--reconcile",
         action="store_true",
@@ -276,6 +309,9 @@ def main() -> int:
         env_file=args.env_file,
         installed_jobs=installed_jobs,
         openclaw=args.openclaw,
+        delivery_channel=args.delivery_channel,
+        delivery_to=args.delivery_to,
+        delivery_account=args.delivery_account,
     )
     if args.apply:
         apply_openclaw_commands(commands)

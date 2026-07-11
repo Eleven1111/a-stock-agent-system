@@ -27,6 +27,10 @@ from http_client import (
     request_text,
 )
 from paths import env_file as _env_file
+from provider_contract import transport_contract
+
+
+TENCENT_QUOTE_ADAPTER_VERSION = "tencent-adapter-v2"
 
 
 def load_hermes_env() -> Dict[str, str]:
@@ -169,6 +173,7 @@ def fetch_tencent_quotes_result(
             max_attempts=int(settings.get("max_attempts", 2)),
         )
     response = client.request_text(request, encoding="gbk")
+    transport = transport_contract("http://qt.gtimg.cn/")
     quotes: Dict[str, Dict[str, Any]] = {}
     for line in response.data.strip().splitlines():
         parsed = parse_tencent_quote_line(line)
@@ -177,7 +182,11 @@ def fetch_tencent_quotes_result(
         quotes[parsed["code"]] = {
             **parsed["fields"],
             "provider": "tencent",
+            "provider_version": TENCENT_QUOTE_ADAPTER_VERSION,
             "fetched_at": response.fetched_at,
+            "transport_trust": transport["trust"],
+            "transport_reason": transport["reason"],
+            "directional_eligible": transport["directional_eligible"],
         }
     if not quotes:
         raise DataSourceError(
@@ -209,14 +218,7 @@ def fetch_tencent_quote(codes: List[str]) -> Dict[str, Dict[str, Any]]:
             status_code=exc.status_code,
         ) from exc
 
-    return {
-        code: {
-            key: value
-            for key, value in quote.items()
-            if key not in {"provider", "fetched_at"}
-        }
-        for code, quote in result.data.items()
-    }
+    return {code: dict(quote) for code, quote in result.data.items()}
 
 
 def fetch_tencent_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -226,14 +228,15 @@ def fetch_tencent_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     """
     url = "http://qt.gtimg.cn/q=" + ",".join(codes)
     try:
-        raw = request_text(
+        response = request_text(
             url,
             source="tencent",
             timeout=10,
             max_attempts=2,
             encoding="gbk",
             headers={"User-Agent": "Mozilla/5.0"},
-        ).data
+        )
+        raw = response.data
     except DataSourceError as exc:
         raise DataSourceError(
             "tencent",
@@ -246,12 +249,23 @@ def fetch_tencent_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
         ) from exc
 
     results: Dict[str, Dict[str, Any]] = {}
+    transport = transport_contract(url)
     for line in raw.strip().split("\n"):
         quote = parse_tencent_quote_line(line)
         if not quote:
             continue
         book = parse_tencent_orderbook_line(line) or {"bids": [], "asks": []}
-        results[quote["code"]] = {**quote["fields"], "bids": book["bids"], "asks": book["asks"]}
+        results[quote["code"]] = {
+            **quote["fields"],
+            "bids": book["bids"],
+            "asks": book["asks"],
+            "provider": "tencent",
+            "provider_version": TENCENT_QUOTE_ADAPTER_VERSION,
+            "fetched_at": response.fetched_at,
+            "transport_trust": transport["trust"],
+            "transport_reason": transport["reason"],
+            "directional_eligible": transport["directional_eligible"],
+        }
     return results
 
 

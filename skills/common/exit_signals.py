@@ -9,7 +9,7 @@
   6. catalyst_negated: 催化事件被澄清/否定
   7. time_stop:       持仓超过持有窗口未达目标
   8. lhb_climax:      龙虎榜高潮见顶（净买突然放量3倍，issue #88）
-  9. deep_research_exit: 深研评分红线（deep_score<5 必须减仓，<3 清仓）
+  9. deep_research_exit: 深研低分复核（普通/过期评分不得直接触发交易）
 
 每个信号返回 {triggered, signal_type, severity, reason, action}。
 severity: critical(立即卖) / warning(减仓/关注) / info(记录)
@@ -212,24 +212,41 @@ def check_lhb_climax(
 
 
 def check_deep_research_exit(
-    deep_score: float | None = None,
+    deep_score: float | Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """深研红线：deep_score<5 必须触发减仓，<3 清仓——不能只是"建议"后无动作。"""
-    if not isinstance(deep_score, (int, float)):
+    """把低深研分降级为人工复核，不把 agent 判断伪装成交易风控证据。
+
+    当前 deep_research_cache_v1 没有结构化、独立验证且新鲜的 hard-risk
+    evidence schema，因此普通数值和缓存记录一律 ``execution_eligible=False``。
+    价格止损、催化否定等确定性退出信号仍由各自检查器独立执行。
+    """
+    record = deep_score if isinstance(deep_score, Mapping) else None
+    score = record.get("deep_score") if record is not None else deep_score
+    if not isinstance(score, (int, float)):
         return {"triggered": False, "signal_type": "deep_research_exit"}
-    if deep_score >= 5:
+    if score >= 5:
         return {"triggered": False, "signal_type": "deep_research_exit"}
-    critical = deep_score < 3
+    stale = bool(record and record.get("stale"))
+    freshness_status = (
+        str(record.get("freshness_status") or ("stale" if stale else "fresh"))
+        if record is not None
+        else "unknown"
+    )
+    freshness_note = "且研究缓存已过期，" if stale else "，"
     return {
         "triggered": True,
         "signal_type": "deep_research_exit",
-        "severity": "critical" if critical else "warning",
+        "severity": "info",
         "reason": (
-            f"深研评分{deep_score:.1f}/10低于红线5.0，"
-            + ("基本面证伪，必须清仓" if critical else "必须减仓，不允许仅观望")
+            f"深研评分{score:.1f}/10低于复核线5.0{freshness_note}"
+            "但该评分未绑定可执行硬风险证据，仅要求研究复核"
         ),
-        "action": "sell" if critical else "reduce",
-        "deep_score": deep_score,
+        "action": "hold",
+        "deep_score": score,
+        "review_required": True,
+        "execution_eligible": False,
+        "evidence_status": "unbound_score",
+        "freshness_status": freshness_status,
     }
 
 
@@ -254,7 +271,7 @@ def evaluate_all_exit_signals(
     asof: date | None = None,
     auction_open_premium_pct: float | None = None,
     lhb_profile: Mapping[str, Any] | None = None,
-    deep_score: float | None = None,
+    deep_score: float | Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """综合评估所有退出信号，返回最高优先级的行动建议。
 

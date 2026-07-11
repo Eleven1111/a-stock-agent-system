@@ -23,7 +23,8 @@ sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "stock-triage", "scripts
 from a_stock_http import DataSourceError  # noqa: E402
 from market_adapters import fetch_tencent_snapshot  # noqa: E402
 from announcement_risk import scan_many  # noqa: E402
-from a_share_rules import add_trading_days  # noqa: E402
+from a_share_rules import add_trading_days, resolve_price_limit_rule  # noqa: E402
+from execution_model import build_execution_scenarios, estimate_trade_cost  # noqa: E402
 import candidate_fsm  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
@@ -45,9 +46,18 @@ from recommendation_quality import (  # noqa: E402
     merge_market_intelligence,
 )
 from decision_policy import evaluate_decision  # noqa: E402
-from market_snapshot import compact_ref, materialize_input_snapshot  # noqa: E402
+from market_snapshot import (  # noqa: E402
+    PointInTimeViolation,
+    compact_ref,
+    materialize_input_snapshot,
+    validate_point_in_time,
+)
 from market_context import market_regime, read_market_context  # noqa: E402
-from portfolio_policy import evaluate_candidate, portfolio_value  # noqa: E402
+from portfolio_policy import (  # noqa: E402
+    evaluate_candidate,
+    evaluate_complete_admission,
+    portfolio_value,
+)
 from portfolio_research_history import record_open_confirmation  # noqa: E402
 import recommendation_audit  # noqa: E402
 from research_evidence import build_research_evidence  # noqa: E402
@@ -103,6 +113,74 @@ def _recommendation_action(item: Mapping[str, Any]) -> str:
     if decision == "watch" and requested in POSITIVE_ACTIONS and reasons == {"strategy_unverified"}:
         return requested
     return "hold"
+
+
+def _open_execution_controls(
+    item: Mapping[str, Any],
+    quote: Mapping[str, Any],
+    tradeability: Mapping[str, Any],
+    asof: str,
+) -> Dict[str, Any]:
+    point_in_time = item.get("point_in_time") or quote.get("point_in_time")
+    if not isinstance(point_in_time, Mapping):
+        return {"status": "blocked", "reason": "point_in_time_missing"}
+    try:
+        validated_pit = validate_point_in_time(
+            event_asof=str(point_in_time.get("event_asof") or ""),
+            evidence_time=str(point_in_time.get("evidence_time") or ""),
+            captured_at=str(point_in_time.get("captured_at") or ""),
+            decision_mode=str(point_in_time.get("decision_mode") or ""),
+            stage_policy=point_in_time.get("stage_policy") or {},
+        )
+    except PointInTimeViolation:
+        return {"status": "blocked", "reason": "point_in_time_invalid"}
+    if validated_pit.get("event_asof") != asof:
+        return {"status": "blocked", "reason": "point_in_time_mismatch"}
+    if validated_pit.get("decision_mode") != item.get("decision_mode"):
+        return {"status": "blocked", "reason": "point_in_time_mismatch"}
+    rule = resolve_price_limit_rule(
+        code=_naked_code(str(item.get("code") or "")),
+        asof=asof,
+        listing_date=item.get("listing_date"),
+        listing_stage=item.get("listing_stage"),
+        is_st=item.get("is_st"),
+        direction="buy",
+    )
+    if rule["status"] != "known":
+        return {"status": "blocked", "reason": rule["reason"], "rule": rule}
+    if quote.get("directional_eligible") is not True:
+        return {"status": "blocked", "reason": "transport_lower_trust", "rule": rule}
+    price = quote.get("price")
+    if not isinstance(price, (int, float)) or price <= 0:
+        return {"status": "blocked", "reason": "execution_price_unknown", "rule": rule}
+    quantity = int(item.get("planned_quantity") or 100)
+    scenarios = build_execution_scenarios(
+        side="buy",
+        quantity=quantity,
+        signal_price=float(price),
+        limit_queue=tradeability.get("status") == "limit_up",
+        executable_price=(
+            float(price) if tradeability.get("tradeable") is not False else None
+        ),
+        available_volume=quote.get("volume"),
+        adv_value=item.get("adv_value"),
+        event_asof=asof,
+    )
+    return {
+        "status": "estimate_only",
+        "reason": "broker_reconciliation_required",
+        "rule": rule,
+        "point_in_time": dict(validated_pit),
+        "scenario_quantity": quantity,
+        "scenario_quantity_basis": (
+            "planned_quantity" if item.get("planned_quantity") else "minimum_lot"
+        ),
+        "scenarios": scenarios,
+        "entry_cost_estimate": estimate_trade_cost(
+            "buy", float(price) * quantity, asof=asof
+        ),
+        "authoritative_source": "broker_statement",
+    }
 
 
 def _enrich_decision(
@@ -171,11 +249,20 @@ def _apply_policy(
     ):
         if key in prior_chanlun:
             evidence["chanlun"][key] = prior_chanlun[key]
-    portfolio_risk = evaluate_candidate(
-        portfolio or {},
-        result,
-        float((result.get("execution_plan") or {}).get("position_pct") or 0),
-    )
+    if result.get("strict_execution") is True:
+        portfolio_risk = evaluate_complete_admission(
+            portfolio or {},
+            result,
+            float((result.get("execution_plan") or {}).get("position_pct") or 0),
+            factor_evidence=result.get("portfolio_risk_evidence"),
+            decision_asof=str(asof or date.today().isoformat()),
+        )
+    else:
+        portfolio_risk = evaluate_candidate(
+            portfolio or {},
+            result,
+            float((result.get("execution_plan") or {}).get("position_pct") or 0),
+        )
     selection_market = (result.get("selection_context") or {}).get("market_timing") or {}
     policy = evaluate_decision(
         requested_action=str((result.get("execution_plan") or {}).get("decision") or "watch"),
@@ -250,13 +337,33 @@ def evaluate_open_confirmation(
         "board_status": factor.get("board_status"),
         "action": action,
         "tradeability": tradeability,
+        "volume": quote.get("volume"),
+        "adv_value": factor.get("adv_value"),
+        "strict_execution": True,
+        "decision_mode": factor.get("decision_mode"),
+        "point_in_time": factor.get("point_in_time") or quote.get("point_in_time"),
+        "listing_date": factor.get("listing_date"),
+        "listing_stage": factor.get("listing_stage"),
+        "is_st": factor.get("is_st"),
+        "directional_eligible": quote.get("directional_eligible"),
+        "corporate_action_status": factor.get("corporate_action_status"),
+        "portfolio_risk_evidence": factor.get("portfolio_risk_evidence"),
         "reasons": reasons,
     }
-    return _enrich_decision(
+    controls = _open_execution_controls(result, quote, tradeability, asof or date.today().isoformat())
+    enriched = _enrich_decision(
         result,
         factor.get("announcements") if "announcements" in factor else None,
         asof or date.today().isoformat(),
     )
+    enriched["execution_controls"] = controls
+    if controls["status"] == "blocked":
+        plan = dict(enriched.get("execution_plan") or {})
+        plan.update({"decision": "watch", "position_pct": 0.0})
+        enriched["execution_plan"] = plan
+        enriched["decision"] = "watch"
+        enriched.setdefault("reasons", []).append(str(controls["reason"]))
+    return enriched
 
 
 def _shortlist_path(asof: str) -> str:
@@ -698,6 +805,24 @@ def build_confirmation(
             selection_context=item.get("selection_context"),
             discipline_state=item.get("discipline_state"),
             evidence_sources=evidence_sources,
+            sector=item.get("sector"),
+            execution_context={
+                "strict_execution": item.get("strict_execution") is True,
+                "decision_mode": item.get("decision_mode") or "live",
+                "point_in_time": (item.get("execution_controls") or {}).get(
+                    "point_in_time"
+                ),
+                "listing_date": item.get("listing_date"),
+                "listing_stage": item.get("listing_stage"),
+                "is_st": item.get("is_st"),
+                "direction": "buy",
+                "limit_queue": (item.get("tradeability") or {}).get("status") == "limit_up",
+                "executable_price": item.get("price"),
+                "available_volume": item.get("volume"),
+                "adv_value": item.get("adv_value"),
+                "directional_eligible": item.get("directional_eligible"),
+                "corporate_action_status": item.get("corporate_action_status") or "unknown",
+            },
         )
     monitor_registry.reconcile_automatic(
         "stock",

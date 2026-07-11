@@ -111,3 +111,62 @@ def t1_constraint(
         "calendar_covered": acquired.year in _calendar()["covered_years"],
         "calendar_source": _calendar().get("source"),
     }
+
+
+def resolve_price_limit_rule(
+    *,
+    code: str,
+    asof: date | datetime | str | None,
+    listing_date: date | datetime | str | None,
+    listing_stage: str | None,
+    is_st: bool | None,
+    direction: str | None,
+) -> dict[str, Any]:
+    """Resolve a price-limit rule without inferring missing security state."""
+    if (
+        asof is None
+        or listing_date is None
+        or listing_stage not in {"normal", "initial_no_limit"}
+        or not isinstance(is_st, bool)
+        or direction not in {"buy", "sell"}
+    ):
+        return {"status": "blocked", "reason": "rule_unknown", "limit_pct": None}
+    try:
+        decision_day = _as_date(asof)
+        listed_on = _as_date(listing_date)
+    except ValueError:
+        return {"status": "blocked", "reason": "rule_unknown", "limit_pct": None}
+    if listed_on > decision_day:
+        return {"status": "blocked", "reason": "rule_unknown", "limit_pct": None}
+    if listing_stage == "initial_no_limit":
+        return {
+            "status": "known",
+            "reason": "initial_listing_no_daily_limit",
+            "limit_pct": None,
+            "direction": direction,
+        }
+    normalized = str(code).strip().lower()
+    if normalized.startswith(("sh", "sz", "bj")):
+        normalized = normalized[2:]
+    if not normalized.isdigit() or len(normalized) != 6:
+        return {"status": "blocked", "reason": "rule_unknown", "limit_pct": None}
+    # 创业板/科创板风险警示股票仍适用板块 20% 涨跌幅；5% 仅适用于主板 ST。
+    if normalized.startswith(("300", "301", "688")):
+        limit = 20.0
+    elif is_st:
+        limit = 5.0
+    elif normalized.startswith(("4", "8", "920")):
+        limit = 30.0
+    elif normalized.startswith(("00", "60", "601", "603", "605")):
+        limit = 10.0
+    else:
+        return {"status": "blocked", "reason": "rule_unknown", "limit_pct": None}
+    return {
+        "status": "known",
+        "reason": "rule_resolved",
+        "limit_pct": limit,
+        "direction": direction,
+        "listing_stage": listing_stage,
+        "listing_date": listed_on.isoformat(),
+        "is_st": is_st,
+    }

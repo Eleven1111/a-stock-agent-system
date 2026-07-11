@@ -24,6 +24,30 @@ def _wire(tmp_path, monkeypatch, history=None):
             "runtime_allowed": True,
         },
     )
+    # Unrelated recommendation tests exercise a verified fresh-market path.
+    # Missing context is covered separately by market_context/decision_policy tests.
+    monkeypatch.setattr(
+        ra,
+        "read_market_context",
+        lambda: {
+            "status": "ok",
+            "context_status": "fresh",
+            "context_fresh": True,
+            "sector_impact": {},
+            "alerts": [],
+        },
+    )
+    monkeypatch.setattr(
+        mt,
+        "read_temperature",
+        lambda **_kwargs: {
+            "tier": "发酵",
+            "context_status": "fresh",
+            "context_fresh": True,
+            "allow_new_daban": True,
+            "position_multiplier": 1.0,
+        },
+    )
     if history is not None:
         atomic_write_json(ra.HISTORY_FILE, history)
 
@@ -43,6 +67,8 @@ def _passed_buy(**overrides):
         "grade": "A",
         "confidence": "medium",
         "strategy_id": "daban:first_board_reseal",
+        "sector": "半导体",
+        "asof": "2026-07-10",
         "announcements": [],
         "research_evidence": {
             "market_intelligence": {
@@ -64,6 +90,47 @@ def _passed_buy(**overrides):
         },
     }
     values.update(overrides)
+    if "execution_context" not in overrides:
+        day = values["asof"]
+        values["execution_context"] = {
+            "strict_execution": True,
+            "decision_mode": "live",
+            "point_in_time": {
+                "schema": "pit_stage_contract_v1",
+                "decision_mode": "live",
+                "event_asof": day,
+                "evidence_time": f"{day}T14:59:00+08:00",
+                "captured_at": f"{day}T15:00:00+08:00",
+                "stage_policy": {
+                    "schema": "pit_stage_contract_v1",
+                    "stage": "recommendation",
+                    "cutoff_time": "15:00:00",
+                    "timezone": "Asia/Shanghai",
+                    "publication_delay_seconds": 0,
+                },
+            },
+            "listing_date": "2020-01-01",
+            "listing_stage": "normal",
+            "is_st": False,
+            "direction": "buy",
+            "directional_eligible": True,
+            "limit_queue": False,
+            "executable_price": values["entry_price"],
+            "available_volume": 100000,
+            "adv_value": 10000000,
+            "corporate_action_status": "clear",
+            "portfolio_risk_evidence": {
+                "schema": "portfolio_risk_evidence_v1",
+                "asof": day,
+                "source": "risk-engine-fixture",
+                "coverage": 1.0,
+                "correlation": 0.35,
+                "beta": 1.05,
+                "style_exposure_pct": 22.0,
+                "adv_participation_pct": 3.0,
+                "portfolio_volatility_pct": 18.0,
+            },
+        }
     return values
 
 
@@ -93,14 +160,22 @@ def test_recommendation_amount_uses_runtime_portfolio_value(tmp_path, monkeypatc
     _wire(tmp_path, monkeypatch)
     atomic_write_json(
         ra.PORTFOLIO_FILE,
-        {"cash": 12000, "positions": [{"code": "600001", "shares": 800, "current_price": 10}]},
+        {
+            "cash": 112000,
+            "positions": [{
+                "code": "600001",
+                "shares": 800,
+                "current_price": 10,
+                "sector": "电力",
+            }],
+        },
     )
 
     result = ra.record_recommendation(**_passed_buy())
 
     sizing = result["record"]["position_sizing"]
-    assert sizing["account_value"] == 20000
-    assert sizing["recommended_amount"] == 400
+    assert sizing["account_value"] == 120000
+    assert sizing["recommended_amount"] == 2400
 
 
 def test_record_recommendation_preserves_selection_context_in_ledger(tmp_path, monkeypatch):

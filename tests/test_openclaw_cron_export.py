@@ -68,15 +68,31 @@ def test_origin_delivery_maps_to_explicit_announce_route(tmp_path):
         {"jobs": [job]},
         repo_dir=str(tmp_path),
         python="/venv/bin/python",
+        delivery_channel="discord",
+        delivery_to="user:test-recipient",
+        delivery_account="test-account",
     )[0]
     parts = shlex.split(command)
 
     assert "--announce" in parts
     assert "--no-deliver" not in parts
     assert parts[parts.index("--channel") + 1] == "discord"
-    assert parts[parts.index("--to") + 1] == "user:1068705928590917722"
-    assert parts[parts.index("--account") + 1] == "default"
+    assert parts[parts.index("--to") + 1] == "user:test-recipient"
+    assert parts[parts.index("--account") + 1] == "test-account"
     assert parts[parts.index("--tz") + 1] == "Asia/Shanghai"
+
+
+def test_origin_delivery_requires_explicit_deployment_target(tmp_path, monkeypatch):
+    job = _job("target", 30)
+    job["deliver"] = "origin"
+    monkeypatch.delenv("A_STOCK_DELIVERY_TO", raising=False)
+
+    with pytest.raises(ValueError, match="delivery target"):
+        build_openclaw_commands(
+            {"jobs": [job]},
+            repo_dir=str(tmp_path),
+            python="/venv/bin/python",
+        )
 
 
 def test_feishu_direct_delivery_skips_openclaw_announce(tmp_path):
@@ -126,6 +142,7 @@ def test_reconcile_edits_existing_named_job_instead_of_creating_duplicate(tmp_pa
         repo_dir=str(tmp_path),
         python="/venv/bin/python",
         installed_jobs=[{"id": "cron-123", "name": "A-stock: target"}],
+        delivery_to="user:test-recipient",
     )[0]
     parts = shlex.split(command)
 
@@ -237,6 +254,8 @@ def test_cli_reconcile_apply_edits_installed_job(tmp_path, monkeypatch):
             "/venv/bin/python",
             "--state-home",
             "/state",
+            "--delivery-to",
+            "user:test-recipient",
             "--reconcile",
             "--apply",
         ],
@@ -253,6 +272,7 @@ def test_repo_manifest_exports_every_enabled_job_as_command_cron():
         manifest,
         repo_dir=str(ROOT),
         python="/venv/bin/python",
+        delivery_to="user:test-recipient",
     )
 
     enabled = [job for job in manifest["jobs"] if job.get("enabled", True)]
@@ -284,6 +304,25 @@ def test_export_can_pin_env_file_without_embedding_secrets(tmp_path):
 
     assert "A_STOCK_ENV_FILE=/secure/a-stock.env" in command
     assert "SERPER_API_KEY" not in command
+
+
+def test_export_never_embeds_runtime_api_key_value(tmp_path, monkeypatch):
+    sensitive_value = "synthetic-secret-value-for-redaction-test"
+    monkeypatch.setenv("MIAOXIANG_API_KEY", sensitive_value)
+    monkeypatch.setenv("A_STOCK_FEISHU_USER_ID", "private-user-id")
+
+    command = build_openclaw_commands(
+        {"jobs": [_job("target", 30)]},
+        repo_dir=str(tmp_path),
+        python="/venv/bin/python",
+        env_file="/secure/a-stock.env",
+    )[0]
+
+    assert sensitive_value not in command
+    assert "MIAOXIANG_API_KEY=" not in command
+    assert "A_STOCK_FEISHU_USER_ID=" not in command
+    assert "private-user-id" not in command
+    assert "A_STOCK_ENV_FILE=/secure/a-stock.env" in command
 
 
 def test_export_defaults_to_explicit_environment_state_identity(tmp_path, monkeypatch):

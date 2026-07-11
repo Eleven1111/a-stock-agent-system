@@ -44,6 +44,13 @@ DEFAULTS: Dict[str, Any] = {
         "trailing_stop_pct": 5.0,
         "max_single_position_pct": 25,
         "max_sector_exposure_pct": 40,
+        "max_correlation": 0.80,
+        "max_beta": 1.30,
+        "max_style_exposure_pct": 40.0,
+        "max_adv_participation_pct": 10.0,
+        "max_portfolio_volatility_pct": 25.0,
+        "factor_min_coverage": 0.95,
+        "factor_max_age_days": 1,
     },
     "storage": {
         "snapshot_input_retention_days": 30,

@@ -16,6 +16,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
+from itertools import combinations
 from typing import Any
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -25,6 +26,7 @@ sys.path.insert(0, ROOT)
 
 from paths import hermes_home  # noqa: E402
 from runtime_context import ledger_path  # noqa: E402
+from scripts.generate_openclaw_cron import MANAGED_JOB_PREFIX  # noqa: E402
 from state_store import read_json  # noqa: E402
 
 
@@ -40,9 +42,7 @@ def detect_concurrent_duplicate_runs(
     *,
     window_seconds: int = 300,
 ) -> list[dict[str, Any]]:
-    """Flag (job_id, trading_date, batch_id) groups completed by >1 runtime
-    within window_seconds of each other — evidence of the same node actually
-    executing twice instead of the lease deduplicating it."""
+    """Flag cross-runtime overlap for the same logical batch and job."""
     groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for run in runs:
         if run.get("status") != "ok":
@@ -59,22 +59,58 @@ def detect_concurrent_duplicate_runs(
         runtimes = {str(m.get("runtime") or "unknown") for m in members}
         if len(runtimes) < 2:
             continue
-        timestamps = sorted(
-            _parse_ts(m.get("finished_at") or m.get("started_at")) for m in members
-        )
-        timestamps = [t for t in timestamps if t is not None]
-        if len(timestamps) < 2:
+        basis = None
+        overlap_seconds = None
+        for left, right in combinations(members, 2):
+            if str(left.get("runtime") or "unknown") == str(
+                right.get("runtime") or "unknown"
+            ):
+                continue
+            left_interval = _run_interval(left)
+            right_interval = _run_interval(right)
+            if left_interval and right_interval:
+                overlap = (
+                    min(left_interval[1], right_interval[1])
+                    - max(left_interval[0], right_interval[0])
+                ).total_seconds()
+                if overlap >= 0:
+                    basis = "interval_overlap"
+                    overlap_seconds = overlap
+                    break
+                continue
+            left_point = _parse_ts(left.get("finished_at") or left.get("started_at"))
+            right_point = _parse_ts(right.get("finished_at") or right.get("started_at"))
+            if left_point and right_point:
+                spread = abs((left_point - right_point).total_seconds())
+                if spread <= window_seconds:
+                    basis = "completion_window"
+                    break
+        if basis is None:
             continue
-        spread = (max(timestamps) - min(timestamps)).total_seconds()
-        if spread <= window_seconds:
-            findings.append({
-                "job_id": job_id,
-                "trading_date": trading_date,
-                "batch_id": batch_id,
-                "runtimes": sorted(runtimes),
-                "run_count": len(members),
-                "spread_seconds": spread,
-            })
+        timestamps = [
+            timestamp
+            for timestamp in (
+                _parse_ts(member.get("finished_at") or member.get("started_at"))
+                for member in members
+            )
+            if timestamp is not None
+        ]
+        finding = {
+            "job_id": job_id,
+            "trading_date": trading_date,
+            "batch_id": batch_id,
+            "runtimes": sorted(runtimes),
+            "run_count": len(members),
+            "spread_seconds": (
+                (max(timestamps) - min(timestamps)).total_seconds()
+                if len(timestamps) >= 2
+                else None
+            ),
+            "detection_basis": basis,
+        }
+        if overlap_seconds is not None:
+            finding["overlap_seconds"] = overlap_seconds
+        findings.append(finding)
     return findings
 
 
@@ -88,6 +124,14 @@ def _parse_ts(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _run_interval(run: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    started = _parse_ts(run.get("started_at"))
+    finished = _parse_ts(run.get("finished_at"))
+    if started is None or finished is None or finished < started:
+        return None
+    return started, finished
 
 
 def active_leases(state_root: str) -> list[dict[str, Any]]:
@@ -129,9 +173,24 @@ def active_leases(state_root: str) -> list[dict[str, Any]]:
     return held
 
 
+def _active_leases_inventory(
+    state_root: str,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    try:
+        return active_leases(state_root), {"status": "ok"}
+    except (OSError, TimeoutError):
+        return [], {"status": "error", "reason": "lease inventory query failed"}
+
+
 def state_identity_summary(state_root: str) -> dict[str, Any]:
-    identity = read_json(os.path.join(state_root, "state_identity.json"), {})
-    return {
+    identity = read_json(os.path.join(state_root, "state_identity.json"), None)
+    if not isinstance(identity, dict):
+        return {
+            "status": "error",
+            "state_root": state_root,
+            "reason": "state identity query failed",
+        }
+    summary = {
         "state_root": state_root,
         "state_id": identity.get("state_id"),
         "created_at": identity.get("created_at"),
@@ -140,6 +199,12 @@ def state_identity_summary(state_root: str) -> dict[str, Any]:
         if identity.get("initial_root")
         else None,
     }
+    summary["status"] = (
+        "ok"
+        if summary["state_id"] and summary["matches_current_root"] is True
+        else "error"
+    )
+    return summary
 
 
 def openclaw_registration_check(manifest: dict[str, Any], openclaw: str = "openclaw") -> dict[str, Any]:
@@ -167,7 +232,19 @@ def openclaw_registration_check(manifest: dict[str, Any], openclaw: str = "openc
     installed = payload.get("jobs") if isinstance(payload, dict) else payload
     if not isinstance(installed, list):
         installed = []
-    installed_ids = {str(job.get("id") or job.get("job_id") or "") for job in installed}
+    managed_names: dict[str, list[str]] = defaultdict(list)
+    for job in installed:
+        if not isinstance(job, dict):
+            continue
+        name = str(job.get("name") or "")
+        if not name.startswith(MANAGED_JOB_PREFIX):
+            continue
+        logical_id = name.removeprefix(MANAGED_JOB_PREFIX).strip()
+        if logical_id:
+            managed_names[logical_id].append(
+                str(job.get("id") or job.get("jobId") or job.get("job_id") or "")
+            )
+    installed_ids = set(managed_names)
     manifest_ids = {
         str(job.get("id"))
         for job in manifest.get("jobs", [])
@@ -179,32 +256,63 @@ def openclaw_registration_check(manifest: dict[str, Any], openclaw: str = "openc
         "manifest_enabled_count": len(manifest_ids),
         "missing_from_openclaw": sorted(manifest_ids - installed_ids),
         "orphaned_in_openclaw": sorted(installed_ids - manifest_ids),
+        "duplicate_managed_names": sorted(
+            logical_id for logical_id, ids in managed_names.items() if len(ids) > 1
+        ),
     }
 
 
 def build_report(
     manifest: dict[str, Any],
-    runs: list[dict[str, Any]],
+    runs: Any,
     *,
     state_root: str,
     window_seconds: int = 300,
     check_openclaw: bool = True,
 ) -> dict[str, Any]:
-    duplicates = detect_concurrent_duplicate_runs(runs, window_seconds=window_seconds)
-    leases = active_leases(state_root)
+    runs_valid = isinstance(runs, list) and all(isinstance(run, dict) for run in runs)
+    normalized_runs = runs if runs_valid else []
+    duplicates = detect_concurrent_duplicate_runs(
+        normalized_runs,
+        window_seconds=window_seconds,
+    )
+    leases, lease_inventory = _active_leases_inventory(state_root)
+    state_identity = state_identity_summary(state_root)
+    registration = (
+        openclaw_registration_check(manifest) if check_openclaw else {"status": "skipped"}
+    )
+    runtime_inventory = {
+        "status": "ok" if runs_valid else "error",
+        "reason": None if runs_valid else "run inventory is not a list of objects",
+    }
     report = {
         "schema": "a_stock_dual_runtime_audit_v1",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "state_identity": state_identity_summary(state_root),
-        "runtime_distribution": runtime_distribution(runs),
-        "sample_run_count": len(runs),
+        "state_identity": state_identity,
+        "runtime_inventory": runtime_inventory,
+        "lease_inventory": lease_inventory,
+        "runtime_distribution": runtime_distribution(normalized_runs),
+        "sample_run_count": len(normalized_runs),
         "concurrent_duplicate_runs": duplicates,
         "active_leases": leases,
-        "openclaw_registration": (
-            openclaw_registration_check(manifest) if check_openclaw else {"status": "skipped"}
-        ),
+        "openclaw_registration": registration,
     }
-    report["clean"] = not duplicates and not leases
+    registration_blocked = registration.get("status") not in {"ok", "skipped"} or any(
+        registration.get(key)
+        for key in (
+            "missing_from_openclaw",
+            "orphaned_in_openclaw",
+            "duplicate_managed_names",
+        )
+    )
+    query_blocked = any(
+        component.get("status") != "ok"
+        for component in (state_identity, runtime_inventory, lease_inventory)
+    ) or registration_blocked
+    report["clean"] = not query_blocked and not duplicates and not leases
+    report["status"] = (
+        "blocked" if query_blocked else ("findings" if duplicates or leases else "ok")
+    )
     return report
 
 
@@ -220,9 +328,7 @@ def main() -> int:
         manifest = json.load(handle)
     state_root = hermes_home()
     runs_path = args.runs or ledger_path()
-    runs = read_json(runs_path, [])
-    if not isinstance(runs, list):
-        runs = []
+    runs = read_json(runs_path, None)
 
     report = build_report(
         manifest,

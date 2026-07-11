@@ -27,6 +27,7 @@ Usage:
 """
 
 import json
+import math
 import os
 import sys
 from datetime import datetime, date, timedelta
@@ -50,6 +51,10 @@ BENCH_MARKET = "sh"
 BENCH_CODE = "000300"
 
 HOLD_DAYS = 3  # 打板最长观察窗（隔日为主，最多看到 T+3）
+AGED_PENDING_DAYS = 3
+TERMINAL_UNRESOLVED_DAYS = 7
+MIN_SETTLEMENT_COVERAGE = 0.95
+MAX_TERMINAL_AMBIGUITY_RATIO = 0.02
 EVIDENCE_PIPELINE_KEYWORDS = (
     "candidate",
     "auction",
@@ -76,9 +81,13 @@ def evaluate_signal(
     index_signal_close: Optional[float] = None,
     index_future_bars: Optional[List[Dict[str, Any]]] = None,
     hold_days: int = HOLD_DAYS,
+    limit_reference_close: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
     """
-    根据信号日后的前复权 K 线结算一个打板信号。
+    根据事前可观察的入场参考价与后续前复权 K 线结算一个打板信号。
+    signal_close 保留旧参数名以兼容调用方，但语义是信号发生时已记录的入场参考价。
+    limit_reference_close 是交易所计算 T+1 涨停价使用的信号日收盘；若未提供，
+    为兼容旧调用而回退到 signal_close。
     future_bars: 信号日**之后**的日 K（含 open/close/high/low），按时间正序。
     至少需要 1 根（T+1）才能结算；不足返回 None（保持 pending）。
     """
@@ -91,7 +100,8 @@ def evaluate_signal(
 
     # 连板晋级：T+1 收盘是否封在涨停价（信号日收盘为 T+1 的昨收）
     # 复用 tradeability.round_limit（round half up），与可成交性闸门口径一致
-    t1_limit_up = round_limit(signal_close, limit_pct_val, up=True)
+    limit_base = limit_reference_close or signal_close
+    t1_limit_up = round_limit(limit_base, limit_pct_val, up=True)
     promoted = t1["close"] >= t1_limit_up - 0.01
 
     # 持有窗内（最多 hold_days）极值与终值
@@ -158,7 +168,7 @@ def record_signal(
     monitor_id: Optional[str] = None,
     signal_date: Optional[str] = None,
 ) -> Dict:
-    """记录一个新信号。price 为信号日收盘价（仅留档；结算以前复权 K 线为准）。
+    """记录一个新信号。price 必须是信号发生时已观察到的入场参考价。
 
     用 update_json_list 在单锁内完成"读-追加-写回"，避免并发 --record 互相覆盖丢记录。
     """
@@ -216,6 +226,49 @@ def _fetch_future_bars(code: str, signal_date: str, market: str) -> Optional[Dic
     return {"signal_close": klines[idx]["close"], "future": klines[idx + 1:]}
 
 
+def _observable_entry_price(record: Mapping[str, Any]) -> Optional[tuple[float, str]]:
+    """Return a positive, finite price captured when the signal was emitted.
+
+    Canonical ``signal.opened`` projections use ``signal_price``. The other
+    names keep legacy/recommendation records settleable without consulting a
+    later market close. Missing or invalid values fail closed.
+    """
+    for key in (
+        "signal_price",
+        "entry_price",
+        "reference_price",
+        "recommendation_price",
+    ):
+        raw = record.get(key)
+        if raw is None or isinstance(raw, bool):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and math.isfinite(value):
+            return value, key
+    return None
+
+
+def _signal_age_days(record: Mapping[str, Any], *, asof: date | None = None) -> int | None:
+    try:
+        signal_day = date.fromisoformat(str(record.get("signal_date") or record.get("date"))[:10])
+    except ValueError:
+        return None
+    return max(0, ((asof or date.today()) - signal_day).days)
+
+
+def _unresolved_settlement(reason: str, age_days: int | None) -> Dict[str, Any]:
+    return {
+        "settlement_status": "terminal_unresolved",
+        "settlement_observation_status": reason,
+        "settlement_age_days": age_days,
+        "resolved": False,
+        "outcome": "unresolved",
+    }
+
+
 def update_outcomes() -> List[Dict]:
     """重新结算所有 pending 信号（已结算的不再改动）。
 
@@ -226,43 +279,72 @@ def update_outcomes() -> List[Dict]:
     snapshot = load_history()
     bench_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     resolutions: Dict[str, Dict[str, Any]] = {}
+    observations: Dict[str, Dict[str, Any]] = {}
     records_by_id: Dict[str, Dict[str, Any]] = {}
 
     for r in snapshot:
         if r.get("settlement_status") == "final":
             continue
 
+        entry = _observable_entry_price(r)
+        if entry is None:
+            signal_id = str(signal_ledger.legacy_signal_links(r)["signal_id"])
+            resolutions[signal_id] = _unresolved_settlement(
+                "entry_price_missing", _signal_age_days(r)
+            )
+            records_by_id[signal_id] = r
+            continue  # 无事前可观察价格，禁止回退到信号日收盘
+        entry_price, entry_price_source = entry
+
         code, sdate = r["code"], r["signal_date"]
         market = "sh" if code.startswith("6") else "sz"
 
         stock = _fetch_future_bars(code, sdate, market)
         if not stock or not stock["future"]:
-            continue  # 还没到 T+1，保持 pending
+            signal_id = str(signal_ledger.legacy_signal_links(r)["signal_id"])
+            age_days = _signal_age_days(r)
+            if age_days is not None and age_days >= TERMINAL_UNRESOLVED_DAYS:
+                resolutions[signal_id] = _unresolved_settlement(
+                    "market_data_unavailable_or_tradeability_unknown", age_days
+                )
+                records_by_id[signal_id] = r
+            elif age_days is not None and age_days >= AGED_PENDING_DAYS:
+                observations[signal_id] = {
+                    "settlement_observation_status": "aged_pending",
+                    "settlement_age_days": age_days,
+                }
+            continue  # 未到 T+1 或短时数据缺口，保持 pending
 
         if sdate not in bench_cache:
             bench_cache[sdate] = _fetch_future_bars(BENCH_CODE, sdate, BENCH_MARKET)
         bench = bench_cache[sdate]
 
         result = evaluate_signal(
-            signal_close=stock["signal_close"],
+            signal_close=entry_price,
             future_bars=stock["future"],
             limit_pct_val=limit_pct(code, r.get("name", "")),
             index_signal_close=bench["signal_close"] if bench else None,
             index_future_bars=bench["future"] if bench else None,
+            limit_reference_close=stock["signal_close"],
         )
         if result:
+            result.update({
+                "settlement_entry_price": entry_price,
+                "settlement_entry_price_source": entry_price_source,
+            })
             signal_id = signal_ledger.legacy_signal_links(r)["signal_id"]
             resolutions[str(signal_id)] = result
             records_by_id[str(signal_id)] = r
 
-    if not resolutions:
+    if not resolutions and not observations:
         return snapshot
 
     ledger_events = []
     for signal_id, resolution in resolutions.items():
         record = records_by_id[signal_id]
         links = signal_ledger.legacy_signal_links(record)
-        stage = "t3" if resolution.get("settlement_status") == "final" else "t1"
+        status = resolution.get("settlement_status")
+        stage = "t3" if status == "final" else "t1" if status == "provisional" else None
         ledger_events.extend([
             signal_ledger.signal_opened_event(record, links),
             signal_ledger.settlement_event(record, resolution, stage=stage),
@@ -287,6 +369,8 @@ def update_outcomes() -> List[Dict]:
                     for key, value in signal_ledger.legacy_signal_links(r).items()
                     if value is not None
                 })
+            elif signal_id in observations:
+                r.update(observations[signal_id])
         for signal_id, res in resolutions.items():
             if signal_id in seen:
                 continue
@@ -493,14 +577,50 @@ def compute_stats(
     # 仅统计**新口径已结算**记录（含 t1_close_ret）。旧 schema 记录（首穿锁定法、
     # 无 t1_close_ret）一律排除，避免把旧方法的虚高胜率混入新口径，污染"可信的数字"。
     closed = [r for r in records if r.get("t1_close_ret") is not None]
-    legacy = sum(1 for r in records
-                 if r.get("outcome") not in (None, "pending") and r.get("t1_close_ret") is None)
+    legacy = sum(
+        1 for r in records
+        if r.get("outcome") not in (None, "pending")
+        and r.get("t1_close_ret") is None
+        and r.get("settlement_status") != "terminal_unresolved"
+    )
+    terminal_unresolved = [
+        r for r in records if r.get("settlement_status") == "terminal_unresolved"
+    ]
+    eligible = max(0, len(records) - legacy)
+    terminal_count = len(closed) + len(terminal_unresolved)
+    coverage_ratio = terminal_count / eligible if eligible else 1.0
+    resolved_ratio = len(closed) / eligible if eligible else 1.0
+    ambiguity_ratio = len(terminal_unresolved) / eligible if eligible else 0.0
+    gating_reason = (
+        "coverage_insufficient"
+        if coverage_ratio < MIN_SETTLEMENT_COVERAGE
+        else "terminal_ambiguity"
+        if ambiguity_ratio > MAX_TERMINAL_AMBIGUITY_RATIO
+        else None
+    )
+    settlement_coverage = {
+        "eligible": eligible,
+        "terminal": terminal_count,
+        "terminal_unresolved": len(terminal_unresolved),
+        "aged_pending": sum(
+            r.get("settlement_observation_status") == "aged_pending" for r in records
+        ),
+        "ratio": round(coverage_ratio, 4),
+        "resolved_ratio": round(resolved_ratio, 4),
+        "terminal_ambiguity_ratio": round(ambiguity_ratio, 4),
+        "maximum_terminal_ambiguity_ratio": MAX_TERMINAL_AMBIGUITY_RATIO,
+        "minimum": MIN_SETTLEMENT_COVERAGE,
+        "status": "sufficient" if coverage_ratio >= MIN_SETTLEMENT_COVERAGE else "coverage_insufficient",
+        "gating_status": "sufficient" if gating_reason is None else "blocked",
+        "gating_reason": gating_reason,
+    }
     if not closed:
         msg = "尚无已结算信号（需至少到 T+1）"
         if legacy:
             msg += f"；另有 {legacy} 条旧口径记录已排除（建议重置 signal_history.json）"
         return {"total_signals": len(records), "closed": 0,
-                "pending": len(records) - legacy, "legacy_excluded": legacy, "message": msg,
+                "pending": eligible - len(terminal_unresolved), "legacy_excluded": legacy, "message": msg,
+                "settlement_coverage": settlement_coverage,
                 "by_evidence_source": by_evidence_source,
                 "inactive_evidence_pipelines_30d": inactive_evidence_pipelines}
 
@@ -561,8 +681,9 @@ def compute_stats(
         "metric": "打板口径(T+1隔日)",
         "total_signals": len(records),
         "closed": len(closed),
-        "pending": len(records) - len(closed) - legacy,
+        "pending": eligible - terminal_count,
         "legacy_excluded": legacy,
+        "settlement_coverage": settlement_coverage,
         "win_rate": round(len(wins) / len(closed) * 100, 1),
         "promote_rate": round(len(promoted) / len(closed) * 100, 1),
         "avg_t1_open_premium": round(
@@ -587,7 +708,9 @@ GATING_MIN_SAMPLES = 12  # 至少结算 N 笔才门控，避免小样本误杀
 
 
 def evaluate_strategy_gating(by_strategy: Dict[str, Dict],
-                             min_samples: int = GATING_MIN_SAMPLES) -> List[Dict]:
+                             min_samples: int = GATING_MIN_SAMPLES,
+                             *, coverage_sufficient: bool = True,
+                             coverage_reason: str = "coverage_insufficient") -> List[Dict]:
     """根据 by_strategy 期望值决定门控（纯函数）。
 
     期望<0 且样本≥min_samples → disable；≥0 且样本≥min_samples → enable；
@@ -600,7 +723,9 @@ def evaluate_strategy_gating(by_strategy: Dict[str, Dict],
             continue
         closed = s.get("closed", 0)
         exp = s.get("expectancy", 0.0)
-        if closed < min_samples:
+        if not coverage_sufficient:
+            action, reason = "skip", coverage_reason
+        elif closed < min_samples:
             action, reason = "skip", "样本不足"
         elif exp < 0:
             action, reason = "disable", f"实盘期望{exp:+.2f}%<0"
@@ -669,6 +794,11 @@ def format_stats(stats: Dict, records: List[Dict]) -> str:
     if stats.get("closed", 0) == 0:
         lines.append("尚无已结算信号，继续积累数据...")
         lines.append(f"当前 {stats.get('pending', 0)} 个信号待结算（需至少到 T+1）")
+        coverage = stats.get("settlement_coverage") or {}
+        lines.append(
+            f"结算覆盖率: {float(coverage.get('ratio') or 0):.1%} "
+            f"({coverage.get('status') or 'unknown'})"
+        )
         push_report = format_push_report(stats.get("push_report"))
         if push_report:
             lines.extend(["", push_report])
@@ -678,6 +808,12 @@ def format_stats(stats: Dict, records: List[Dict]) -> str:
     alpha_str = f"{alpha:+.2f}%" if alpha is not None else "N/A"
     lines.append(f"📊 总信号: {stats['total_signals']} | 已结算: {stats['closed']} | "
                  f"待结算: {stats['pending']}")
+    coverage = stats.get("settlement_coverage") or {}
+    lines.append(
+        f"🧾 结算覆盖率: {float(coverage.get('ratio') or 0):.1%} | "
+        f"未决终态: {coverage.get('terminal_unresolved', 0)} | "
+        f"状态: {coverage.get('status') or 'unknown'}"
+    )
     lines.append(f"🎯 胜率: **{stats['win_rate']}%** | 连板晋级率: **{stats['promote_rate']}%**")
     lines.append(f"💰 隔日溢价(均): {stats['avg_t1_open_premium']:+.2f}% | "
                  f"隔日收益(均): {stats['avg_t1_close_ret']:+.2f}%")
@@ -776,10 +912,14 @@ if __name__ == "__main__":
         stats = compute_stats(records)
         if args.gate:
             main_decisions = evaluate_strategy_gating(
-                stats.get("gating_by_strategy", {})
+                stats.get("gating_by_strategy", {}),
+                coverage_sufficient=(stats.get("settlement_coverage") or {}).get("gating_status") == "sufficient",
+                coverage_reason=(stats.get("settlement_coverage") or {}).get("gating_reason") or "coverage_insufficient",
             )
             evidence_decisions = evaluate_strategy_gating(
-                stats.get("gating_by_attribution_strategy", {})
+                stats.get("gating_by_attribution_strategy", {}),
+                coverage_sufficient=(stats.get("settlement_coverage") or {}).get("gating_status") == "sufficient",
+                coverage_reason=(stats.get("settlement_coverage") or {}).get("gating_reason") or "coverage_insufficient",
             )
             stats["gating_applied"] = apply_strategy_gating(
                 main_decisions + evidence_decisions

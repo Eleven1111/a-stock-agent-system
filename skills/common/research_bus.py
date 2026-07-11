@@ -454,12 +454,57 @@ def validate_finding(
     elif len(summary) > max_summary:
         errors.append(f"summary exceeds {max_summary} chars")
     errors.extend(_validate_stance_fields(finding, stance))
+    if not errors and stance != "abstain":
+        errors.extend(
+            _validate_bound_evidence(finding, task=task, config=config)
+        )
     max_chars = int(limits.get("max_finding_chars") or 10000)
     if len(json.dumps(finding, ensure_ascii=False)) > max_chars:
         errors.append(f"finding exceeds {max_chars} chars")
     if not errors and stance != "abstain":
         errors.extend(_validate_kind_specific(finding, task=task))
     return errors
+
+
+def _validate_bound_evidence(
+    finding: dict[str, Any],
+    *,
+    task: dict[str, Any],
+    config: dict[str, Any],
+) -> list[str]:
+    if not bool((config.get("finding") or {}).get("require_bound_evidence")):
+        return []
+    ref = str(task.get("evidence_pack_ref") or "")
+    if not ref:
+        return ["evidence_pack_ref is required"]
+    try:
+        import agent_evidence
+        import evidence_pack
+    except ImportError:
+        return ["evidence integrity validator unavailable"]
+    pack = evidence_pack.load_pack(ref)
+    if not pack:
+        return ["artifact_hash_mismatch"]
+    errors = agent_evidence.validate_reference_paths(
+        pack,
+        finding.get("evidence_refs") or [],
+    )
+    if bool((config.get("finding") or {}).get("require_model_run_manifest")):
+        errors.extend(
+            agent_evidence.validate_finding_manifest(
+                finding.get("model_run_manifest"),
+                evidence_pack=pack,
+                evidence_refs=finding.get("evidence_refs") or [],
+                tool_inputs=finding.get("tool_inputs") or {},
+                require_execution_eligible=False,
+                now=datetime.now().astimezone().isoformat(timespec="seconds"),
+                max_age_minutes=int(
+                    (config.get("finding") or {}).get("manifest_max_age_minutes")
+                    or 10
+                ),
+            )
+        )
+    return list(dict.fromkeys(errors))
 
 
 def _validate_kind_specific(

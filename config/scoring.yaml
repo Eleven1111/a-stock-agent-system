@@ -14,11 +14,11 @@ scoring:
     极热: {sentiment: +0.10, deep: -0.10}
 
   grades:
-    S: {min: 8.0, emoji: "🟢🟢🟢", advice: "强烈推荐 — 多维度共振看多"}
-    A: {min: 6.0, emoji: "🟢🟢", advice: "推荐 — 技术面偏多，有催化支撑"}
-    B: {min: 4.0, emoji: "🟢", advice: "观察 — 中性偏多，等待信号确认"}
-    C: {min: 2.0, emoji: "🔶", advice: "谨慎 — 偏空信号，控制仓位"}
-    D: {min: 0.0, emoji: "🔴", advice: "回避 — 多维度利空"}
+    S: {min: 8.0, emoji: "🟢🟢🟢", advice: "研究高分 — 多维度共振，等待完整政策复核"}
+    A: {min: 6.0, emoji: "🟢🟢", advice: "研究较高分 — 技术与催化偏强，等待完整政策复核"}
+    B: {min: 4.0, emoji: "🟢", advice: "研究中性 — 保持观察，不构成方向建议"}
+    C: {min: 2.0, emoji: "🔶", advice: "研究偏弱 — 仅作风险观察"}
+    D: {min: 0.0, emoji: "🔴", advice: "研究低分 — 仅作风险观察"}
 
   confidence:
     high:
@@ -37,6 +37,13 @@ risk:
   max_single_position_pct: 25
   max_sector_exposure_pct: 40
   max_chase_pct: 7.0
+  max_correlation: 0.80
+  max_beta: 1.30
+  max_style_exposure_pct: 40.0
+  max_adv_participation_pct: 10.0
+  max_portfolio_volatility_pct: 25.0
+  factor_min_coverage: 0.95
+  factor_max_age_days: 1
 
 # 情绪周期确定性特征（研究信号，未过 research_gate 前 0 权重，不得影响实盘评分）。
 # 阈值变更须走 research_gate 纪律，禁止看实盘回拟合。

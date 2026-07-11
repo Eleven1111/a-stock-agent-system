@@ -113,6 +113,8 @@ def score_targets(targets: List[Target], max_workers: int = 5) -> Dict[str, Any]
             "target_count": 0,
             "signals": [],
             "signal_count": 0,
+            "research_candidates": [],
+            "research_candidate_count": 0,
             "results": [],
         }
     quote_map = _prefetch_quotes(targets)
@@ -137,17 +139,28 @@ def score_targets(targets: List[Target], max_workers: int = 5) -> Dict[str, Any]
     with ThreadPoolExecutor(max_workers=workers) as executor:
         results = list(executor.map(_one, targets))  # map 保持 targets 顺序
 
-    actionable = [
-        r for r in results
-        if r.get("confidence") in {"high", "medium"} and r.get("grade") in {"S", "A"}
-    ]
+    research_candidates = []
+    for raw in results:
+        if raw.get("confidence") not in {"high", "medium"} or raw.get("grade") not in {"S", "A"}:
+            continue
+        item = dict(raw)
+        item.update({
+            "directional_ready": False,
+            "execution_action": "none",
+            "policy_status": "not_evaluated",
+        })
+        research_candidates.append(item)
     return {
         "schema": "four_dim_batch_v1",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "status": "ready",
         "target_count": len(results),
-        "signals": actionable,
-        "signal_count": len(actionable),
+        # Raw factor scores never become directional cron signals. Downstream
+        # policy must produce a separate, fully gated recommendation artifact.
+        "signals": [],
+        "signal_count": 0,
+        "research_candidates": research_candidates,
+        "research_candidate_count": len(research_candidates),
         "results": results,
     }
 

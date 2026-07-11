@@ -265,7 +265,8 @@ def test_rank_confirmations_returns_top_five_and_keeps_strategy_scores():
     shortlist = [
         {
             "code": f"sh60{i:04d}",
-            "name": f"股票{i}",
+                "name": f"股票{i}",
+                "sector": "半导体",
             "auction_score": 95 - i,
             "daban_score": 90 - i,
             "trend_score": 70 + i,
@@ -386,7 +387,8 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
     monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
-    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "MIRROR_LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
@@ -405,6 +407,25 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
             "auction_gap_pct": 2.0,
             "board_status": "high_open",
             "is_yiziban": False,
+            "strict_execution": True,
+            "decision_mode": "live",
+            "point_in_time": {
+                "schema": "pit_stage_contract_v1",
+                "decision_mode": "live",
+                "event_asof": event_asof,
+                "evidence_time": f"{event_asof}T09:34:00+08:00",
+                "captured_at": f"{event_asof}T09:35:00+08:00",
+                "stage_policy": {
+                    "schema": "pit_stage_contract_v1",
+                    "stage": "open_confirmation",
+                    "cutoff_time": "09:35:00",
+                    "timezone": "Asia/Shanghai",
+                    "publication_delay_seconds": 0,
+                },
+            },
+            "listing_date": "2020-01-01",
+            "listing_stage": "normal",
+            "is_st": False,
         },
         {
             "code": "sz300001",
@@ -451,8 +472,9 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
                 "open": 9.3 if code == "sh600001" else 10.4,
                 "high": 10.6,
                 "low": 9.2,
-                "volume": 1_000,
-                "change_pct": 5.0,
+                "volume": 100_000,
+                    "change_pct": 5.0,
+                    "directional_eligible": True,
             }
             for code in codes
         }
@@ -468,20 +490,27 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
 
 
 def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeypatch):
+    import market_temperature
+
     # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试状态
     # 无条件设置了它，这里要用 HERMES_HOME 驱动本用例的 tmp_path，
     # 必须先清掉 A_STOCK_STATE_HOME 才能让 HERMES_HOME 生效。
     monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
-    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "MIRROR_LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
     monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     atomic_write_json(
+        oc.recommendation_audit.PORTFOLIO_FILE,
+        {"cash": 200000, "positions": [], "cash_reconciled": True},
+    )
+    atomic_write_json(
         str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
-        {"cash": 20000, "positions": [], "cash_reconciled": True},
+        {"cash": 200000, "positions": [], "cash_reconciled": True},
     )
     monkeypatch.setattr(
         oc.strategy_registry,
@@ -494,19 +523,77 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
         },
     )
     monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    monkeypatch.setattr(
+        oc,
+        "read_market_context",
+        lambda: {
+            "status": "ok",
+            "context_status": "fresh",
+            "context_fresh": True,
+            "sector_impact": {},
+            "alerts": [],
+        },
+    )
+    monkeypatch.setattr(
+        oc.recommendation_audit,
+        "read_market_context",
+        oc.read_market_context,
+    )
+    monkeypatch.setattr(
+        market_temperature,
+        "read_temperature",
+        lambda **_kwargs: {
+            "tier": "发酵",
+            "context_status": "fresh",
+            "context_fresh": True,
+            "allow_new_daban": True,
+            "position_multiplier": 1.0,
+        },
+    )
     source_asof = "2026-06-10"
     event_asof = "2026-06-11"
     shortlist = [
         {
             "code": f"sh600{i:03d}",
             "name": f"股票{i}",
+            "sector": "半导体",
             "auction_score": 90 - i,
             "daban_score": 85 - i,
             "trend_score": 70 + i,
             "auction_gap_pct": 2.0,
             "board_status": "high_open",
             "is_yiziban": False,
-        }
+            "strict_execution": True,
+            "decision_mode": "live",
+            "point_in_time": {
+                "schema": "pit_stage_contract_v1",
+                "decision_mode": "live",
+                "event_asof": event_asof,
+                "evidence_time": f"{event_asof}T09:34:00+08:00",
+                "captured_at": f"{event_asof}T09:35:00+08:00",
+                "stage_policy": {
+                    "schema": "pit_stage_contract_v1",
+                    "stage": "open_confirmation",
+                    "cutoff_time": "09:35:00",
+                    "timezone": "Asia/Shanghai",
+                    "publication_delay_seconds": 0,
+                },
+            },
+            "listing_date": "2020-01-01",
+            "listing_stage": "normal",
+                "is_st": False,
+                "portfolio_risk_evidence": {
+                    "schema": "portfolio_risk_evidence_v1",
+                    "asof": event_asof,
+                    "source": "risk-engine-fixture",
+                    "coverage": 1.0,
+                    "correlation": 0.35,
+                    "beta": 1.05,
+                    "style_exposure_pct": 22.0,
+                    "adv_participation_pct": 3.0,
+                    "portfolio_volatility_pct": 18.0,
+                },
+            }
         for i in range(6)
     ]
     lifecycle_candidates = [
@@ -538,8 +625,9 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
                 "open": 10.4,
                 "high": 10.6,
                 "low": 10.3,
-                "volume": 1_000,
+                "volume": 100_000,
                 "change_pct": 5.0,
+                "directional_eligible": True,
             }
             for code in codes
         },
@@ -593,11 +681,16 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
         ("auction-finalize", "supporting"),
     }
     assert oc.signal_ledger.project_signals(events)[0]["evidence_sources"] == evidence_sources
-    assert all(not event["event_type"].startswith("monitor.") for event in events)
+    assert any(event["event_type"].startswith("monitor.") for event in events)
     monitor_events = oc.monitor_registry.monitor_ledger.read_events(
-        oc.monitor_registry.LEDGER_FILE
+        oc.monitor_registry.MIRROR_LEDGER_FILE
     )
-    assert sum(event["event_type"] == "monitor.activated" for event in monitor_events) == 3
+    assert sum(event["event_type"] == "monitor.activated" for event in monitor_events) == 4
+    assert any(
+        event["payload"].get("kind") == "sector"
+        and event["payload"].get("key") == "半导体"
+        for event in monitor_events
+    )
     monitors = oc.monitor_registry.active_entries("stock", asof=event_asof)
     assert len(monitors) == 3
     assert {item["source_group"] for item in monitors} == {"open_confirmation"}
@@ -640,6 +733,7 @@ def test_apply_policy_blocks_daban_lane_when_discipline_gate_trips(monkeypatch):
     )
     item = {
         "code": "sh600001",
+        "sector": "半导体",
         "hot_money_qualified": True,
         "open_selected_by": {"daban": True, "trend": False},
         "execution_plan": {"decision": "buy", "position_pct": 4.0},
@@ -667,7 +761,8 @@ def test_build_confirmation_computes_real_discipline_state_from_ledger(tmp_path,
     monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
-    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "MIRROR_LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
     monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
     monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
     monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))

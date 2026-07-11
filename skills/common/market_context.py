@@ -8,7 +8,7 @@ four_dim 在出分后叠加一层"大盘 overlay"：大盘系统性承压时给�
 顺风时只标注不追高。
 
 设计取舍：overlay 不改动四维内部分值（保持各维度纯净），只在最终 grade/advice 上做
-封顶式调整，且**无缓存时是 no-op**（默认不影响任何现有行为）。
+封顶式调整。缺失、过期或异常上下文是一等状态，必须阻断方向性新风险，不能解释为中性。
 
 缓存：$HERMES_HOME/skills/stock-triage/cache/market_context.json
 数据源：本地 JSON，cron-safe。
@@ -53,20 +53,39 @@ def write_market_context(impact: Dict[str, Any], asof: Optional[str] = None) -> 
     return record
 
 
+def _unavailable_context(
+    status: str,
+    reason: str,
+    record: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    out = dict(record or {})
+    out.update({
+        "schema": out.get("schema") or "market_context_v1",
+        "context_status": status,
+        "context_fresh": False,
+        "unavailable_reason": reason,
+    })
+    return out
+
+
 def read_market_context(max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
-                        now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
-    """读大盘上下文；缺失或过期返回 None（→ overlay no-op）。"""
+                        now: Optional[datetime] = None) -> Dict[str, Any]:
+    """读大盘上下文；缺失、异常和过期都返回可审计的非中性状态。"""
     record = read_json(context_file(), None)
-    if not isinstance(record, dict) or not record.get("generated_at"):
-        return None
+    if not isinstance(record, dict):
+        return _unavailable_context("unknown", "大盘上下文缺失或无法读取")
+    if not record.get("generated_at"):
+        return _unavailable_context("unknown", "大盘上下文缺少 generated_at", record)
     try:
         gen = datetime.fromisoformat(record["generated_at"])
     except (TypeError, ValueError):
-        return None
+        return _unavailable_context("unknown", "大盘上下文 generated_at 无效", record)
     ref = now or datetime.now()
     if (ref - gen).total_seconds() > max_age_hours * 3600:
-        return None
-    return record
+        return _unavailable_context("stale", "大盘上下文已过期", record)
+    out = dict(record)
+    out.update({"context_status": "fresh", "context_fresh": True})
+    return out
 
 
 # ========== 纯函数：态势判定 + overlay ==========
@@ -74,7 +93,21 @@ def read_market_context(max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
 def market_regime(ctx: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """从大盘上下文判定风险态势（纯函数）。"""
     if not ctx:
-        return {"regime": "neutral", "reason": "无大盘数据", "score": 0}
+        return {"regime": "unknown", "reason": "无大盘数据", "score": None}
+    context_status = str(ctx.get("context_status") or "")
+    if context_status in {"unknown", "stale"}:
+        return {
+            "regime": context_status,
+            "reason": str(ctx.get("unavailable_reason") or "大盘上下文不可用"),
+            "score": None,
+        }
+    upstream_status = str(ctx.get("status") or "").lower()
+    if upstream_status and upstream_status not in {"ok", "ready"}:
+        return {
+            "regime": "unknown",
+            "reason": f"大盘上下文上游状态异常: {upstream_status}",
+            "score": None,
+        }
     sector_impact = ctx.get("sector_impact", {}) or {}
     alerts = ctx.get("alerts", []) or []
     score = sum(v for v in sector_impact.values() if isinstance(v, (int, float)))
@@ -97,13 +130,21 @@ def downgrade(grade: str, steps: int = 1) -> str:
 
 
 def apply_market_overlay(result: Dict[str, Any], ctx: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """在四维评分结果上叠加大盘 overlay（返回新 dict，不 mutate 入参）。无 ctx → 原样返回。"""
-    if not ctx:
-        return result
+    """在四维评分结果上叠加大盘 overlay（返回新 dict，不 mutate 入参）。"""
     regime = market_regime(ctx)
     r = regime["regime"]
     out = dict(result)
-    if r == "risk_off":
+    if r in {"unknown", "stale"}:
+        old = out.get("grade")
+        out["grade"] = "D"
+        out["advice"] = f"⚠️大盘上下文{r}（{regime['reason']}），仅供研究｜{out.get('advice', '')}"
+        out["market_overlay"] = {
+            "regime": r,
+            "reason": regime["reason"],
+            "grade_from": old,
+            "grade_to": "D",
+        }
+    elif r == "risk_off":
         old = out.get("grade")
         new = downgrade(old, 1)
         out["grade"] = new
