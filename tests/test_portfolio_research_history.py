@@ -1,12 +1,14 @@
 import json
-from datetime import date, datetime
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import portfolio_research_history as history
 
 
 def _confirmation(*, decision="watch", reason="strategy_unverified"):
-    today = date.today().isoformat()
-    generated_at = datetime.now().isoformat(timespec="seconds")
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    today = now.date().isoformat()
+    generated_at = now.isoformat(timespec="seconds")
     return {
         "schema": "open_confirmation_v3",
         "asof": today,
