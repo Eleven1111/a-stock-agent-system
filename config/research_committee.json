@@ -97,7 +97,10 @@
   },
   "finding": {
     "max_summary_chars": 600,
-    "max_finding_chars": 10000
+    "max_finding_chars": 10000,
+    "require_bound_evidence": true,
+    "require_model_run_manifest": true,
+    "manifest_max_age_minutes": 10
   },
   "synthesis": {
     "veto_confidence": 0.7,

@@ -73,6 +73,42 @@ def test_read_stale(tmp_path, monkeypatch):
     rec = drc.read_deep_research("600011", max_age_days=90)
     assert rec["stale"] is True
     assert rec["age_days"] >= 200
+    assert rec["freshness_qualified"] is False
+    assert rec["execution_eligible"] is False
+
+
+def test_read_fresh_score_is_still_not_execution_evidence(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    drc.write_deep_research(
+        "600011",
+        "华能国际",
+        {"total": 20, "rating": "谨慎", "dimensions": {}},
+        asof=date.today().isoformat(),
+    )
+
+    rec = drc.read_deep_research("600011")
+
+    assert rec["stale"] is False
+    assert rec["freshness_qualified"] is True
+    assert rec["hard_risk_evidence"] == []
+    assert rec["execution_eligible"] is False
+
+
+def test_invalid_or_future_asof_fails_closed_for_freshness(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    for code, asof in (("600011", "not-a-date"), ("000002", "2999-01-01")):
+        drc.write_deep_research(
+            code,
+            "测试",
+            {"total": 20, "rating": "谨慎", "dimensions": {}},
+            asof=asof,
+        )
+
+        rec = drc.read_deep_research(code)
+
+        assert rec["stale"] is True
+        assert rec["freshness_qualified"] is False
+        assert rec["execution_eligible"] is False
 
 
 def test_read_missing_returns_none(tmp_path, monkeypatch):

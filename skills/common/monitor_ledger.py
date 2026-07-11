@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """
-Append-only ledger for monitor lifecycle churn.
+Compatibility mirror for monitor lifecycle churn.
 
-Monitor activation/deactivation events are high-frequency state transitions
-(1000-1500/day) that must NOT live in ``signal_ledger.jsonl`` — the canonical
-decision ledger. Keeping them separate avoids the O(N)-per-write dedup and
-backup-mirror sync that the signal ledger performs, and keeps the audit surface
-of the signal ledger readable.
+The canonical source of truth is ``signal_ledger.jsonl``.  This smaller stream
+is retained for legacy readers and operational inspection only; losing it must
+not prevent monitor state from being replayed from the canonical ledger.
 
 This module is deliberately minimal:
 - pure append, no full-file dedup scan (each event is naturally unique via
   its timestamp);
-- no backup mirror (monitor state is rebuildable from ``monitor_registry.json``
-  and is not CRITICAL data).
+- no backup mirror (the canonical signal ledger owns durability).
 """
 
 from __future__ import annotations

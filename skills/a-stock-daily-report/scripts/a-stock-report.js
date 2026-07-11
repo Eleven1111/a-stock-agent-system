@@ -103,22 +103,22 @@ function analyzeAndBuildReportData(boards, indices) {
       name: b.name,
       change: b.change,
       leader: '--',
-      reason: '资金关注',
+      reason: '当日涨幅靠前（不代表资金流入）',
     }));
 
     // 明日关注板块
     focusBoards = sortedBoards.slice(2, 5).map((b) => ({
       name: b.name,
-      reason: '资金持续流入',
-      technical: '趋势向好',
-      suggestion: '逢低关注',
+      reason: '当日涨幅排名靠前',
+      technical: '持续性未验证',
+      suggestion: '仅作研究观察，需通过完整政策检查',
     }));
 
     // 风险板块（跌幅前3）
     riskBoards = sortedBoards.slice(-3).reverse().map((b) => ({
       name: b.name,
-      reason: '资金流出',
-      suggestion: '谨慎参与',
+      reason: '当日跌幅靠前（不代表资金流出）',
+      suggestion: '仅作风险观察',
     }));
   }
 
@@ -139,15 +139,15 @@ function analyzeAndBuildReportData(boards, indices) {
     focus_boards: focusBoards,
     risk_boards: riskBoards,
     north_money: '--',
-    main_inflow: hotBoards.length > 0 ? hotBoards.slice(0, 3).map((b) => b.name).join('、') : '--',
+    main_inflow: '--',
     margin_balance: '--',
     board_failed: boardFailed,
     index_failed: indices.failed || [],
     index_success: indices.success || [],
-    strategy: `1. **仓位控制**：建议维持6-7成仓位
-2. **关注方向**：今日热点板块的持续性
-3. **风险控制**：设置止损位，避免追高
-4. **操作节奏**：低吸高抛，不追涨杀跌`,
+    strategy: `1. **仓位控制**：仓位由组合风险政策决定，本日报不提供固定仓位
+2. **板块数据**：仅表示当日涨跌幅排名，不代表资金流向或持续趋势
+3. **方向建议**：本日报未执行公告、数据质量、可交易性、价格计划和组合风险全链检查
+4. **使用边界**：仅作研究摘要，不构成交易建议`,
   };
 
   return data;
@@ -248,11 +248,11 @@ function generateReport(boardData) {
 
 ## 📝 操作策略
 
-${boardData.strategy || '1. **仓位控制**：建议维持6-7成仓位\n2. **关注方向**：今日热点板块的持续性\n3. **风险控制**：设置止损位，避免追高\n4. **操作节奏**：低吸高抛，不追涨杀跌'}
+${boardData.strategy || '1. **仓位控制**：仓位由组合风险政策决定，本日报不提供固定仓位\n2. **板块数据**：仅表示当日涨跌幅排名，不代表资金流向或持续趋势\n3. **方向建议**：本日报未执行完整政策检查\n4. **使用边界**：仅作研究摘要，不构成交易建议'}
 
 ---
 
-**数据来源**: 东方财富网
+**数据来源**: 项目数据适配器（具体 provider 见运行 artifact）
 **生成时间**: ${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}
 `;
 

@@ -186,7 +186,18 @@ def _write_candidate_pool_with_evidence():
         json.dump(pool, handle, ensure_ascii=False)
 
 
-def test_pack_surfaces_strategy_pack_hints_as_non_influential_explanation():
+def test_pack_surfaces_strategy_pack_hints_as_non_influential_explanation(monkeypatch):
+    import market_temperature
+
+    monkeypatch.setattr(
+        market_temperature,
+        "read_temperature",
+        lambda **_kwargs: {
+            "tier": "发酵",
+            "context_status": "fresh",
+            "context_fresh": True,
+        },
+    )
     _write_agent_state()
     _write_artifact("closing-triage")
     _write_artifact("capital-flow")

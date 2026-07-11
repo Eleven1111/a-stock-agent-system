@@ -621,11 +621,11 @@ GRADES = sorted(
     key=lambda item: item["min"],
     reverse=True,
 ) if _grades_cfg else [
-    {"name": "S", "min": 8.0, "emoji": "🟢🟢🟢", "advice": "强烈推荐 — 多维度共振看多"},
-    {"name": "A", "min": 6.0, "emoji": "🟢🟢", "advice": "推荐 — 技术面偏多，有催化支撑"},
-    {"name": "B", "min": 4.0, "emoji": "🟢", "advice": "观察 — 中性偏多，等待信号确认"},
-    {"name": "C", "min": 2.0, "emoji": "🔶", "advice": "谨慎 — 偏空信号，控制仓位"},
-    {"name": "D", "min": 0.0, "emoji": "🔴", "advice": "回避 — 多维度利空"},
+    {"name": "S", "min": 8.0, "emoji": "🟢🟢🟢", "advice": "研究高分 — 多维度共振，等待完整政策复核"},
+    {"name": "A", "min": 6.0, "emoji": "🟢🟢", "advice": "研究较高分 — 技术与催化偏强，等待完整政策复核"},
+    {"name": "B", "min": 4.0, "emoji": "🟢", "advice": "研究中性 — 保持观察，不构成方向建议"},
+    {"name": "C", "min": 2.0, "emoji": "🔶", "advice": "研究偏弱 — 仅作风险观察"},
+    {"name": "D", "min": 0.0, "emoji": "🔴", "advice": "研究低分 — 仅作风险观察"},
 ]
 
 CONFIDENCE_RULES = {
@@ -908,6 +908,11 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "grade": g,
         "emoji": emoji,
         "advice": advice,
+        # A factor score is research evidence, not a directional policy decision.
+        # Only the canonical recommendation-quality/policy path may set this true.
+        "directional_ready": False,
+        "execution_action": "none",
+        "policy_status": "not_evaluated",
         "weights": {k: f"{v*100:.0f}%" for k, v in active_weights.items()},
         "effective_weights": {k: f"{eff.get(k, 0)*100:.0f}%" for k in active_weights},
         "excluded_dims": excluded,
@@ -924,7 +929,7 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
 
 
 def format_report(result: Dict[str, Any]) -> str:
-    """格式化完整推荐报告 v2。"""
+    """格式化四维研究报告；原始评分不产生方向性执行建议。"""
     s = result["scores"]
     lane = result.get("strategy_lane", "default")
     lane_label = {"daban": "打板", "trend": "趋势", "default": "综合"}.get(lane, lane)
@@ -978,21 +983,13 @@ def format_report(result: Dict[str, Any]) -> str:
     lines.append(f"**PE：** {s['deep'].get('pe', 'N/A')}")
     lines.append("")
 
-    # 4. ATR 自适应执行参考
+    # 4. ATR 仅作为研究态波动率信息；执行价位必须由完整政策链生成。
     if t.get("price") and t.get("atr14"):
-        price = float(t["price"])
         atr = float(t["atr14"])
-        is_daban = lane == "daban"
-        stop_mult = float(_risk_cfg.get("stop_loss_atr_mult_daban", 1.2)) if is_daban else float(_risk_cfg.get("stop_loss_atr_mult", 2.0))
-        tp1_mult = float(_risk_cfg.get("take_profit_atr_mult", 3.0))
-        tp2_mult = float(_risk_cfg.get("take_profit_atr_mult_2", 5.0))
         lines.extend([
-            "## 执行参考（ATR自适应）",
-            "| 项目 | 价位 | 距现价 |",
-            "|------|------|--------|",
-            f"| 止损 | {price - stop_mult * atr:.2f} | -{stop_mult * atr:.2f} ({stop_mult}×ATR) |",
-            f"| 目标1 | {price + tp1_mult * atr:.2f} | +{tp1_mult * atr:.2f} ({tp1_mult}×ATR) |",
-            f"| 目标2 | {price + tp2_mult * atr:.2f} | +{tp2_mult * atr:.2f} ({tp2_mult}×ATR) |",
+            "## 波动率研究参考",
+            f"**ATR(14)：** {atr:.2f}",
+            "**政策状态：** 未执行公告、数据质量、可交易性、价格计划与组合风险全链检查；不得据此交易。",
             "",
         ])
 
@@ -1043,7 +1040,7 @@ def format_report(result: Dict[str, Any]) -> str:
 
 
 def score_short_term_entry(code: str, name: str) -> Dict:
-    """短线入场时机判断（60分钟/30分钟级别）→ 结构化入场条件矩阵。"""
+    """短线研究观察（60分钟/30分钟级别），不产生执行指令。"""
     market = "sz" if code.startswith(("0", "3")) else "sh"
     rt = fetch_tencent_realtime(code, market)
     daily_klines = fetch_tencent_kline(code, market, 60, "day")
@@ -1122,43 +1119,37 @@ def score_short_term_entry(code: str, name: str) -> Dict:
         prev_high = max(d_highs[-10:]) if len(d_highs) >= 10 else None
 
     price = rt.get("price")
-    # 入场条件矩阵
+    # 研究观察条件；执行条件必须由完整政策链生成。
     vol_ok = vol_r is not None and vol_r >= 1.5
     if has_macd_cross and vol_ok and rt.get("change_pct", 0) < 3:
-        entry_conditions["immediate_buy"] = {
-            "label": "满足条件立即执行",
+        entry_conditions["momentum_observation"] = {
+            "label": "动量条件满足，等待政策复核",
             "conditions": ["60分钟MACD金叉", f"量比≥1.5({vol_r})", "高开<3%"],
         }
     if ma20_val and price and atr_val:
         pullback_zone = round(ma20_val, 2)
         if price > ma20_val:
-            entry_conditions["pullback_buy"] = {
-                "label": "回调到位再执行",
+            entry_conditions["pullback_observation"] = {
+                "label": "回调条件观察，等待政策复核",
                 "trigger_price": pullback_zone,
                 "conditions": ["价格回踩MA20支撑", "RSI从超卖反弹", "量能萎缩"],
             }
     if prev_high and price and atr_val:
-        entry_conditions["breakout_buy"] = {
-            "label": "突破确认再执行",
+        entry_conditions["breakout_observation"] = {
+            "label": "突破条件观察，等待政策复核",
             "trigger_price": round(prev_high, 2),
             "conditions": [f"突破近10日高点{prev_high:.2f}", "放量>1.5倍", "板块共振"],
         }
 
-    if score >= 7:
-        suggestion = "可入场"
-        if "immediate_buy" in entry_conditions:
-            suggestion = "立即入场"
-    elif score >= 5:
-        suggestion = "等待"
-        if "pullback_buy" in entry_conditions:
-            suggestion = f"等回调至{entry_conditions['pullback_buy'].get('trigger_price', 'MA20')}"
-    else:
-        suggestion = "暂不入场"
+    suggestion = "等待完整政策复核" if score >= 5 else "研究评分不足"
 
     return {
         "score": round(score, 1),
         "signals": signals,
         "suggestion": suggestion,
+        "directional_ready": False,
+        "execution_action": "none",
+        "policy_status": "not_evaluated",
         "entry_conditions": entry_conditions,
         "price": price,
         "atr14": atr_val,
@@ -1184,7 +1175,7 @@ if __name__ == "__main__":
         if args.json:
             print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), default=str))
         else:
-            print(f"⚡ **{args.name}({args.code}) 短线入场判断**")
+            print(f"⚡ **{args.name}({args.code}) 短线研究观察**")
             print(f"评分: {result['score']}/10 | 建议: **{result['suggestion']}**")
             print(f"现价: {result.get('price', 'N/A')}")
             print(f"信号: {result['detail']}")

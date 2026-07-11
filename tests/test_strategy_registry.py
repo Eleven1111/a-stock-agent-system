@@ -10,15 +10,16 @@ def _gate(strategy_id, allowed, decision="passed_for_reference"):
             "allowed_in_live_agent": allowed, "asof": "2026-06-03", "stats": {}}
 
 
-def test_register_passed_allows_live(tmp_path, verified_gate_factory):
+def test_register_passed_stays_research_only_until_promotion(tmp_path, verified_gate_factory):
     f = str(tmp_path / "reg.json")
     sr.register_gate_result(
         "chanlun_third_buy",
         verified_gate_factory("chanlun_third_buy"),
         registry_file=f,
     )
-    assert sr.is_allowed_in_live("chanlun_third_buy", registry_file=f) is True
-    assert sr.live_weight("chanlun_third_buy", registry_file=f) == 1.0
+    assert sr.is_allowed_in_live("chanlun_third_buy", registry_file=f) is False
+    assert sr.live_weight("chanlun_third_buy", registry_file=f) == 0.0
+    assert sr.promotion_state("chanlun_third_buy", registry_file=f)["state"] == "research_only"
 
 
 def test_forged_pass_without_artifact_is_not_registered_for_live(tmp_path):
@@ -84,4 +85,16 @@ def test_reenable_after_disable(tmp_path, verified_gate_factory):
     sr.register_gate_result("s", verified_gate_factory("s"), registry_file=f)
     sr.set_gating("s", enabled=False, registry_file=f)
     sr.set_gating("s", enabled=True, registry_file=f)
-    assert sr.is_allowed_in_live("s", registry_file=f) is True
+    assert sr.is_allowed_in_live("s", registry_file=f) is False
+    assert sr.promotion_state("s", registry_file=f)["state"] == "research_only"
+
+
+def test_legacy_record_without_promotion_fails_closed(tmp_path, verified_gate_factory):
+    f = str(tmp_path / "reg.json")
+    gate = verified_gate_factory("legacy")
+    record = sr.register_gate_result("legacy", gate, registry_file=f)
+    record.pop("promotion")
+    with open(f, "w", encoding="utf-8") as handle:
+        json.dump({"legacy": record}, handle)
+    assert sr.is_allowed_in_live("legacy", registry_file=f) is False
+    assert sr.live_weight("legacy", registry_file=f) == 0.0

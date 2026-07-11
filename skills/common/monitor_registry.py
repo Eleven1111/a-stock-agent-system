@@ -2,20 +2,47 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from typing import Any, Iterable, Mapping
 
 from paths import data_file
-from state_store import mutate_json, read_json
+from state_store import file_lock, mutate_json, read_json
+import event_projection
 import monitor_ledger
 import signal_ledger
 
 
 REGISTRY_FILE = data_file("stock-triage", "monitor_registry.json")
-LEDGER_FILE = monitor_ledger.LEDGER_FILE
+LEDGER_FILE = signal_ledger.LEDGER_FILE
+MIRROR_LEDGER_FILE = monitor_ledger.LEDGER_FILE
+CHECKPOINT_FILE = data_file(
+    "stock-triage", "monitor_registry_projection_checkpoint.json"
+)
+_DEFAULT_REGISTRY_FILE = REGISTRY_FILE
+_DEFAULT_MIRROR_LEDGER_FILE = MIRROR_LEDGER_FILE
+_DEFAULT_CHECKPOINT_FILE = CHECKPOINT_FILE
 VALID_KINDS = {"stock", "sector", "theme"}
 PORTFOLIO_SOURCES = {"portfolio_buy", "portfolio_sync"}
 MANUAL_SOURCE = "manual"
+
+
+def _checkpoint_file() -> str:
+    if (
+        REGISTRY_FILE != _DEFAULT_REGISTRY_FILE
+        and CHECKPOINT_FILE == _DEFAULT_CHECKPOINT_FILE
+    ):
+        return f"{REGISTRY_FILE}.checkpoint.json"
+    return CHECKPOINT_FILE
+
+
+def _mirror_ledger_file() -> str:
+    if (
+        REGISTRY_FILE != _DEFAULT_REGISTRY_FILE
+        and MIRROR_LEDGER_FILE == _DEFAULT_MIRROR_LEDGER_FILE
+    ):
+        return f"{REGISTRY_FILE}.events.jsonl"
+    return MIRROR_LEDGER_FILE
 
 
 def _today(value: date | str | None = None) -> date:
@@ -73,28 +100,113 @@ def _resolved_source_group(
     return (_entry_source_group(existing or {}) or source).strip()
 
 
-def _record_monitor_event(event_type: str, entry: Mapping[str, Any]) -> None:
-    monitor_ledger.append_event(
+def _record_monitor_event(
+    event_type: str,
+    entry: Mapping[str, Any],
+    *,
+    mutation_id: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "entry": dict(entry),
+        "kind": entry.get("kind"),
+        "key": entry.get("key"),
+        "label": entry.get("label"),
+        "status": entry.get("status"),
+        "source": entry.get("source"),
+        "source_group": entry.get("source_group"),
+        "reason": entry.get("reason"),
+        "expires_at": entry.get("expires_at"),
+        "last_seen_trading_date": entry.get("last_seen_trading_date"),
+        "last_seen_batch_id": entry.get("last_seen_batch_id"),
+        "manual_cancelled": entry.get("manual_cancelled", False),
+    }
+    canonical = signal_ledger.append_event(
         event_type,
         _ledger_links(entry),
-        {
-            "kind": entry.get("kind"),
-            "key": entry.get("key"),
-            "label": entry.get("label"),
-            "status": entry.get("status"),
-            "source": entry.get("source"),
-            "source_group": entry.get("source_group"),
-            "reason": entry.get("reason"),
-            "expires_at": entry.get("expires_at"),
-            "last_seen_trading_date": entry.get("last_seen_trading_date"),
-            "last_seen_batch_id": entry.get("last_seen_batch_id"),
-            "manual_cancelled": entry.get("manual_cancelled", False),
-        },
+        payload,
+        idempotency_key=(
+            f"{event_type}:{entry['id']}:{mutation_id or uuid.uuid4().hex}"
+        ),
         ledger_file=LEDGER_FILE,
+    )
+    if canonical is None:
+        raise RuntimeError("canonical monitor event was not appended")
+    try:
+        monitor_ledger.append_event(
+            event_type,
+            canonical.get("links") or {},
+            {
+                **payload,
+                "canonical_event_id": canonical.get("event_id"),
+                "canonical_sequence": canonical.get("sequence"),
+            },
+            occurred_at=canonical.get("occurred_at"),
+            ledger_file=_mirror_ledger_file(),
+        )
+    except (OSError, TimeoutError):
+        # Compatibility mirror failure cannot invalidate the canonical event.
+        pass
+    return canonical
+
+
+def _project_monitor_event(event: Mapping[str, Any]) -> None:
+    if not str(event.get("event_type") or "").startswith("monitor."):
+        return
+
+    def _mutate(records: Any) -> list[dict[str, Any]]:
+        return event_projection.project_monitor_records(
+            records if isinstance(records, list) else [], event
+        )
+
+    mutate_json(REGISTRY_FILE, _mutate, default=[])
+
+
+def _recover_registry_projection() -> dict[str, Any]:
+    events = signal_ledger.read_events(LEDGER_FILE)
+    return event_projection.replay_events(
+        events,
+        projectors=[_project_monitor_event],
+        checkpoint_file=_checkpoint_file(),
     )
 
 
+def _registry_projection_matches_ledger() -> bool:
+    expected: list[dict[str, Any]] = []
+    for event in signal_ledger.read_events(LEDGER_FILE):
+        expected = event_projection.project_monitor_records(expected, event)
+    actual = read_json(REGISTRY_FILE, [])
+    actual_records = actual if isinstance(actual, list) else []
+    expected = sorted(expected, key=lambda item: str(item.get("id") or ""))
+    actual_records = sorted(
+        (dict(item) for item in actual_records if isinstance(item, Mapping)),
+        key=lambda item: str(item.get("id") or ""),
+    )
+    return event_projection.reconcile_projections(
+        {"monitors": expected}, {"monitors": actual_records}
+    )["status"] == "ok"
+
+
+def _recover_and_reconcile_registry() -> None:
+    events = signal_ledger.read_events(LEDGER_FILE)
+    if not any(str(event.get("event_type") or "").startswith("monitor.") for event in events):
+        legacy = read_json(REGISTRY_FILE, [])
+        for entry in legacy if isinstance(legacy, list) else []:
+            if not isinstance(entry, Mapping) or not entry.get("id"):
+                continue
+            signal_ledger.append_event(
+                "monitor.migrated",
+                _ledger_links(entry),
+                {"entry": dict(entry), "migration": "legacy_registry_v1"},
+                idempotency_key=f"monitor.migrated:{entry['id']}",
+                ledger_file=LEDGER_FILE,
+            )
+    recovery = _recover_registry_projection()
+    if recovery.get("status") != "ok" or not _registry_projection_matches_ledger():
+        raise RuntimeError("monitor registry projection mismatch")
+
+
 def load_registry() -> list[dict[str, Any]]:
+    _recover_and_reconcile_registry()
     value = read_json(REGISTRY_FILE, [])
     return value if isinstance(value, list) else []
 
@@ -104,7 +216,7 @@ def get_entry(kind: str, key: str) -> dict[str, Any] | None:
     return next((item for item in load_registry() if item.get("id") == entry_id), None)
 
 
-def activate(
+def _activate_locked(
     kind: str,
     key: str,
     label: str,
@@ -121,7 +233,9 @@ def activate(
     normalized = _key(kind, key)
     entry_id = _entry_id(kind, normalized)
     now = datetime.now().isoformat(timespec="seconds")
+    mutation_id = uuid.uuid4().hex
     outcome: dict[str, Any] = {}
+    _recover_and_reconcile_registry()
 
     def _mut(records: Any) -> list[dict[str, Any]]:
         items = list(records) if isinstance(records, list) else []
@@ -150,17 +264,55 @@ def activate(
             updates["last_seen_trading_date"] = _today(trading_date).isoformat()
         if batch_id is not None:
             updates["last_seen_batch_id"] = str(batch_id)
+        projected = {**existing, **updates}
+        event = _record_monitor_event(
+            "monitor.activated", projected, mutation_id=mutation_id
+        )
         existing.update(updates)
-        outcome.update(changed=True, entry=dict(existing))
+        outcome.update(
+            changed=True,
+            entry=dict(existing),
+            event_recorded=True,
+            canonical_event=event,
+        )
         return items
 
     mutate_json(REGISTRY_FILE, _mut, [])
-    if outcome.get("changed") and outcome.get("entry"):
-        _record_monitor_event("monitor.activated", outcome["entry"])
+    event_projection.advance_checkpoint(
+        _checkpoint_file(), outcome.get("canonical_event")
+    )
+    outcome.pop("canonical_event", None)
     return outcome
 
 
-def cancel(
+def activate(
+    kind: str,
+    key: str,
+    label: str,
+    source: str,
+    expires_at: date | str | None = None,
+    force: bool = False,
+    metadata: Mapping[str, Any] | None = None,
+    source_group: str | None = None,
+    trading_date: date | str | None = None,
+    batch_id: str | None = None,
+) -> dict[str, Any]:
+    with file_lock(f"{REGISTRY_FILE}.event-transaction", timeout=30):
+        return _activate_locked(
+            kind,
+            key,
+            label,
+            source,
+            expires_at,
+            force,
+            metadata,
+            source_group,
+            trading_date,
+            batch_id,
+        )
+
+
+def _cancel_locked(
     kind: str,
     key: str,
     reason: str,
@@ -171,7 +323,9 @@ def cancel(
     normalized = _key(kind, key)
     entry_id = _entry_id(kind, normalized)
     now = datetime.now().isoformat(timespec="seconds")
+    mutation_id = uuid.uuid4().hex
     outcome: dict[str, Any] = {}
+    _recover_and_reconcile_registry()
 
     def _mut(records: Any) -> list[dict[str, Any]]:
         items = list(records) if isinstance(records, list) else []
@@ -187,27 +341,51 @@ def cancel(
             items.append(existing)
         entry_metadata = dict(existing.get("metadata") or {})
         entry_metadata.update(dict(metadata or {}))
-        existing.update({
+        updates = {
             "status": status or ("cancelled" if manual else "closed"),
             "reason": reason,
             "manual_cancelled": bool(manual),
             "updated_at": now,
             "metadata": entry_metadata,
-        })
-        outcome.update(changed=True, entry=dict(existing))
-        return items
-
-    mutate_json(REGISTRY_FILE, _mut, [])
-    if outcome.get("changed") and outcome.get("entry"):
+        }
+        projected = {**existing, **updates}
         event_type = (
             "monitor.cancelled"
             if manual
             else "monitor.closed"
-            if outcome["entry"].get("status") == "closed"
+            if projected.get("status") == "closed"
             else "monitor.deactivated"
         )
-        _record_monitor_event(event_type, outcome["entry"])
+        event = _record_monitor_event(
+            event_type, projected, mutation_id=mutation_id
+        )
+        existing.update(updates)
+        outcome.update(
+            changed=True,
+            entry=dict(existing),
+            event_recorded=True,
+            canonical_event=event,
+        )
+        return items
+
+    mutate_json(REGISTRY_FILE, _mut, [])
+    event_projection.advance_checkpoint(
+        _checkpoint_file(), outcome.get("canonical_event")
+    )
+    outcome.pop("canonical_event", None)
     return outcome
+
+
+def cancel(
+    kind: str,
+    key: str,
+    reason: str,
+    manual: bool = True,
+    status: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    with file_lock(f"{REGISTRY_FILE}.event-transaction", timeout=30):
+        return _cancel_locked(kind, key, reason, manual, status, metadata)
 
 
 def deactivate_automatic(kind: str, key: str, reason: str) -> dict[str, Any]:

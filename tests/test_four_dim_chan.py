@@ -85,7 +85,7 @@ def test_score_technical_gates_chan_signal(monkeypatch, tmp_path, verified_gate_
     out1 = fds.score_technical("002156", "通富微电")
     assert "研究假设" in out1["detail"]
 
-    # 注册过闸 → 计权加分
+    # 研究门禁通过仍未完成 shadow/promotion → 继续 0 权重。
     import strategy_registry as sr
     sr.register_gate_result(
         "chanlun_third_buy",
@@ -93,4 +93,5 @@ def test_score_technical_gates_chan_signal(monkeypatch, tmp_path, verified_gate_
     )
     out2 = fds.score_technical("002156", "通富微电")
     assert "缠论三买" in out2["detail"]
-    assert out2["score"] > out1["score"]
+    assert "研究假设" in out2["detail"]
+    assert out2["score"] == out1["score"]

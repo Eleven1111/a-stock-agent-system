@@ -456,6 +456,115 @@ def test_run_discovery_reconciles_daily_observation_targets(tmp_path, monkeypatc
     ]
 
 
+def test_extreme_weak_market_keeps_research_only_candidates_out_of_live_targets(
+    tmp_path,
+    monkeypatch,
+):
+    """An empty deliverable pool is valid when every ranked name fails the gate."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    listed_date = (date.today() - timedelta(days=500)).isoformat()
+    universe = [{"code": "600001", "name": "研究候选", "listed_date": listed_date}]
+    quote_map = {
+        "600001": {
+            **universe[0],
+            "price": 10.0,
+            "prev_close": 10.0,
+            "change_pct": 0.0,
+            "amount": 200_000_000,
+            "turnover": 4.0,
+            "volume": 1_000_000,
+        },
+    }
+    market_timing = {
+        "status": "ready",
+        "daban_ready": False,
+        "weak_market": {
+            "weak_regime": True,
+            "extreme_weak": True,
+        },
+        "temperature": {"tier": "cold", "context_fresh": True},
+    }
+    selection_state = {
+        "schema": "hot_money_selection_state_v1",
+        "status": "research_only",
+        "research_only": True,
+        "daban_ready": False,
+        "sector_coverage": 1.0,
+        "market_timing": market_timing,
+        "sectors": [],
+        "reasons": ["extreme weak market"],
+    }
+    evaluated = {
+        "code": "600001",
+        "name": "研究候选",
+        "daban_score": 95.0,
+        "trend_score": 90.0,
+        "selected_by": {"daban": False, "trend": False},
+        "delivery_quality": {
+            "status": "research_only",
+            "reasons": ["极弱市场门禁"],
+        },
+    }
+    captured = {}
+    monkeypatch.setattr(
+        discovery.hot_money_selection,
+        "build_market_timing",
+        lambda *_args, **_kwargs: market_timing,
+    )
+    monkeypatch.setattr(
+        discovery.hot_money_selection,
+        "build_sector_leadership",
+        lambda *_args, **_kwargs: selection_state,
+    )
+    monkeypatch.setattr(
+        discovery.candidate_pipeline,
+        "build_watch_pool",
+        lambda *_args, **_kwargs: {
+            "schema": "candidate_watch_pool_v1",
+            "scanned_count": 1,
+            "eligible_count": 1,
+            "rejected_count": 0,
+            "rejected": {},
+            "candidate_count": 0,
+            "candidates": [],
+            "evaluated_candidates": [evaluated],
+        },
+    )
+    monkeypatch.setattr(
+        discovery.monitor_registry,
+        "reconcile_automatic",
+        lambda kind, targets, **kwargs: captured.update({
+            "kind": kind,
+            "targets": list(targets),
+            **kwargs,
+        }) or {"activated": [], "deactivated": [], "skipped": {}},
+    )
+
+    result = discovery.run_discovery(
+        "2026-06-10",
+        universe_fetcher=lambda: universe,
+        quote_fetcher=lambda _universe: quote_map,
+        kline_fetcher=lambda _candidates: {"600001": _bars(8)},
+        settle_previous=False,
+    )
+
+    assert result["status"] == "ready"
+    assert result["candidate_count"] == 0
+    assert result["candidates"] == []
+    assert result["research_only"] is True
+    assert result["auction_scan_codes"] == ["sh600001"]
+    assert result["warnings"] == [
+        "candidate_count=0_after_weak_market_delivery_gate"
+    ]
+    assert captured["targets"] == []
+    lifecycle = read_json(
+        discovery.candidate_lifecycle.lifecycle_file("2026-06-10"),
+        {},
+    )
+    assert lifecycle["metadata"]["watch_count"] == 0
+    assert lifecycle["records"][0]["current_stage"] == "discovery_rejected"
+
+
 def test_full_market_quotes_fail_closed_below_configured_coverage(monkeypatch):
     universe = [
         {"code": f"60{i:04d}", "name": f"股票{i}"}
@@ -513,7 +622,10 @@ def test_discovery_ignores_stale_hot_money_context(monkeypatch):
     signal_ctx, temperature = discovery.load_signal_context_for_discovery("2026-06-11")
 
     assert signal_ctx is None
-    assert temperature["tier"] == "neutral"
+    assert temperature["tier"] == "stale"
+    assert temperature["context_status"] == "stale"
+    assert temperature["allow_new_daban"] is False
+    assert temperature["position_multiplier"] == 0.0
     assert temperature["context_fresh"] is False
 
 
@@ -565,3 +677,25 @@ def test_discovery_drops_stale_social_attention_from_fresh_ladder(monkeypatch):
     assert temperature["context_fresh"] is True
     assert "lianban_ladder" in signal_ctx
     assert "social_attention" not in signal_ctx
+
+
+def test_discovery_temperature_exception_blocks_new_risk(monkeypatch):
+    import market_temperature
+    import signal_context
+
+    monkeypatch.setattr(signal_context, "read_signal_context", lambda: {})
+    monkeypatch.setattr(
+        market_temperature,
+        "temperature_from_context",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broken cache")),
+    )
+
+    signal_ctx, temperature = discovery.load_signal_context_for_discovery("2026-06-11")
+
+    assert signal_ctx is None
+    assert temperature["tier"] == "unknown"
+    assert temperature["context_status"] == "unknown"
+    assert temperature["allow_new_daban"] is False
+    assert temperature["position_multiplier"] == 0.0
+    assert temperature["top_n_limit"] == 0
+    assert "broken cache" in temperature["notes"][0]

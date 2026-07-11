@@ -6,7 +6,9 @@ import monitor_registry as registry
 
 def _wire(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
-    monkeypatch.setattr(registry, "LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
+    monkeypatch.setattr(registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(registry, "MIRROR_LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
+    monkeypatch.setattr(registry, "CHECKPOINT_FILE", str(tmp_path / "monitor_checkpoint.json"))
 
 
 def test_manual_cancel_is_not_reactivated_by_automation(tmp_path, monkeypatch):
@@ -80,24 +82,27 @@ def test_open_rejection_deactivates_only_automatic_subscription(tmp_path, monkey
     assert registry.active_stock_map() == {}
 
 
-def test_monitor_lifecycle_is_written_to_monitor_ledger(tmp_path, monkeypatch):
+def test_monitor_lifecycle_is_written_to_canonical_and_compatibility_ledgers(
+    tmp_path, monkeypatch
+):
     _wire(tmp_path, monkeypatch)
     import signal_ledger
-
-    signal_ledger_path = str(tmp_path / "signal_ledger.jsonl")
 
     registry.activate("theme", "AI算力", "AI算力", source="manual", force=True)
     registry.cancel("theme", "AI算力", reason="用户明确取消", manual=True)
 
-    events = monitor_ledger.read_events(registry.LEDGER_FILE)
+    events = monitor_ledger.read_events(registry.MIRROR_LEDGER_FILE)
     assert [event["event_type"] for event in events] == [
         "monitor.activated",
         "monitor.cancelled",
     ]
     assert events[0]["links"]["monitor_id"] == "theme:AI算力"
     assert events[0]["schema"] == "monitor_ledger_event_v1"
-    # Monitor churn must never leak into the canonical signal ledger.
-    assert signal_ledger.read_events(signal_ledger_path) == []
+    canonical = signal_ledger.read_events(registry.LEDGER_FILE)
+    assert [event["event_type"] for event in canonical] == [
+        "monitor.activated",
+        "monitor.cancelled",
+    ]
 
 
 def test_reconcile_automatic_replaces_latest_batch_without_touching_protected_entries(
@@ -223,5 +228,5 @@ def test_gc_expired_marks_automatic_entries_inactive(tmp_path, monkeypatch):
     assert result["expired"] == ["stock:600001"]
     assert registry.get_entry("stock", "600001")["status"] == "inactive"
     assert registry.active_stock_map(asof="2026-06-18") == {"600002": "持仓标的"}
-    events = monitor_ledger.read_events(registry.LEDGER_FILE)
+    events = monitor_ledger.read_events(registry.MIRROR_LEDGER_FILE)
     assert events[-1]["event_type"] == "monitor.deactivated"

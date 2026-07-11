@@ -11,19 +11,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import time
-from datetime import date, datetime, timedelta
-from typing import Any, Callable, Sequence
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Callable, Mapping, Sequence
 
 from a_stock_http import (
     fetch_tencent_kline as _fetch_tencent_kline,
     fetch_tencent_minute as _fetch_tencent_minute,
     fetch_tencent_quote as _fetch_tencent_quote,
     fetch_tencent_snapshot as _fetch_tencent_snapshot,
+    fetch_tencent_quotes_result as _fetch_tencent_quotes_result,
 )
 from http_client import DataSourceError, request_bytes
 from paths import cache_dir
+from provider_contract import transport_contract
 from state_store import atomic_write_json, read_json
 
 
@@ -44,6 +47,9 @@ ADAPTER_VERSIONS = {
     "ths_industry_catalog": "akshare-ths-adapter-v1",
     "eastmoney_kline": "eastmoney-kline-adapter-v2",
 }
+SERIES_PROVENANCE_SCHEMA = "market_series_provenance_v1"
+KNOWN_ADJUSTMENTS = {"qfq", "hfq", "unadjusted", "none"}
+KNOWN_DECISION_MODES = {"live", "replay"}
 
 _AKSHARE_PACE_SECONDS = 0.35
 _CACHE_SCHEMA = "market_adapter_cache_v1"
@@ -161,6 +167,219 @@ def _is_non_empty(value: Any) -> bool:
     if isinstance(value, (list, tuple, dict, set, str, bytes)):
         return bool(value)
     return True
+
+
+def fetch_with_replay_contract(
+    fetcher: Callable[[], Any],
+    *,
+    provider: str,
+    event_asof: str,
+    supports_historical_replay: bool,
+    current_date: str | None = None,
+) -> dict[str, Any]:
+    """Run a provider only when its replay capability matches the requested date."""
+    requested = date.fromisoformat(str(event_asof))
+    today = date.fromisoformat(current_date) if current_date else date.today()
+    if requested > today:
+        return {"status": "future_event_asof", "provider": provider, "data": None}
+    if requested < today and not supports_historical_replay:
+        return {
+            "status": "historical_replay_unsupported",
+            "provider": provider,
+            "data": None,
+        }
+    return {"status": "ok", "provider": provider, "data": fetcher()}
+
+
+def validate_series_provenance(provenance: Mapping[str, Any]) -> dict[str, Any]:
+    """Return conservative directional eligibility for one normalized bar series."""
+    if not isinstance(provenance, Mapping):
+        return {"directional_eligible": False, "reason": "provenance_unknown"}
+    if provenance.get("schema") != SERIES_PROVENANCE_SCHEMA:
+        return {"directional_eligible": False, "reason": "provenance_unknown"}
+    required = ("provider", "provider_version", "fetched_at", "event_asof")
+    if any(not str(provenance.get(field) or "").strip() for field in required):
+        return {"directional_eligible": False, "reason": "provenance_unknown"}
+    adjustment = provenance.get("adjustment")
+    if adjustment not in KNOWN_ADJUSTMENTS:
+        return {"directional_eligible": False, "reason": "adjustment_unknown"}
+    decision_mode = provenance.get("decision_mode")
+    if decision_mode not in KNOWN_DECISION_MODES:
+        return {"directional_eligible": False, "reason": "decision_mode_unknown"}
+    try:
+        date.fromisoformat(str(provenance["event_asof"]))
+        fetched_at = datetime.fromisoformat(str(provenance["fetched_at"]))
+    except (TypeError, ValueError):
+        return {"directional_eligible": False, "reason": "provenance_time_invalid"}
+    if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+        return {"directional_eligible": False, "reason": "provenance_time_invalid"}
+    if date.fromisoformat(str(provenance["event_asof"])) > date.today():
+        return {"directional_eligible": False, "reason": "future_event_asof"}
+    if fetched_at.astimezone(timezone.utc) > datetime.now(timezone.utc):
+        return {"directional_eligible": False, "reason": "future_fetched_at"}
+    return {"directional_eligible": True, "reason": "provenance_valid"}
+
+
+def validate_series_content(data: Any, *, event_asof: str) -> dict[str, Any]:
+    """Reject an entire bar series on future, unordered, duplicate or invalid bars."""
+    if not isinstance(data, list) or not data:
+        return {"directional_eligible": False, "reason": "series_invalid"}
+    try:
+        cutoff = date.fromisoformat(event_asof)
+    except (TypeError, ValueError):
+        return {"directional_eligible": False, "reason": "event_asof_invalid"}
+    previous: date | None = None
+    for bar in data:
+        if not isinstance(bar, Mapping):
+            return {"directional_eligible": False, "reason": "series_invalid"}
+        try:
+            bar_date = date.fromisoformat(str(bar["date"]))
+            if any(
+                isinstance(bar.get(field), bool)
+                for field in ("open", "high", "low", "close", "volume")
+            ):
+                return {"directional_eligible": False, "reason": "series_invalid"}
+            values = {
+                field: float(bar[field])
+                for field in ("open", "high", "low", "close", "volume")
+            }
+        except (KeyError, TypeError, ValueError):
+            return {"directional_eligible": False, "reason": "series_invalid"}
+        if bar_date > cutoff:
+            return {"directional_eligible": False, "reason": "future_bar"}
+        if previous is not None and bar_date <= previous:
+            return {"directional_eligible": False, "reason": "series_order_invalid"}
+        if (
+            any(not math.isfinite(value) for value in values.values())
+            or any(values[field] <= 0 for field in ("open", "high", "low", "close"))
+            or values["volume"] < 0
+            or values["low"] > min(values["open"], values["close"])
+            or values["high"] < max(values["open"], values["close"])
+            or values["low"] > values["high"]
+        ):
+            return {"directional_eligible": False, "reason": "series_invalid"}
+        previous = bar_date
+    return {"directional_eligible": True, "reason": "series_valid"}
+
+
+def _normalize_series_contract(
+    adjustment: Any, decision_mode: Any
+) -> tuple[str, str] | None:
+    normalized = (
+        str(adjustment or "").strip().lower(),
+        str(decision_mode or "").strip().lower(),
+    )
+    if normalized[0] not in KNOWN_ADJUSTMENTS or normalized[1] not in KNOWN_DECISION_MODES:
+        return None
+    return normalized
+
+
+def _validate_series_request_times(event_asof: str, fetched_at: str) -> str | None:
+    try:
+        event_day = date.fromisoformat(str(event_asof))
+        fetched = datetime.fromisoformat(str(fetched_at))
+    except (TypeError, ValueError):
+        return "series_time_invalid"
+    if event_day > date.today():
+        return "future_event_asof"
+    if fetched.tzinfo is None or fetched.utcoffset() is None:
+        return "series_time_invalid"
+    if fetched.astimezone(timezone.utc) > datetime.now(timezone.utc):
+        return "future_fetched_at"
+    return None
+
+
+def _blocked_series(reason: str, failures: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    return {
+        "status": "blocked",
+        "reason": reason,
+        "data": None,
+        "series_provenance": None,
+        "directional_eligible": False,
+        "provider_attempts": failures or [],
+    }
+
+
+def _cached_series_is_eligible(
+    cached: dict[str, Any],
+    *,
+    event_asof: str,
+    adjustment: str,
+    decision_mode: str,
+) -> bool:
+    provenance = cached.get("series_provenance") or {}
+    if not isinstance(provenance, Mapping):
+        return False
+    return (
+        cached.get("status") == "ok"
+        and cached.get("directional_eligible") is True
+        and validate_series_provenance(provenance)["directional_eligible"]
+        and validate_series_content(cached.get("data"), event_asof=event_asof)[
+            "directional_eligible"
+        ]
+        and provenance.get("event_asof") == event_asof
+        and provenance.get("adjustment") == adjustment
+        and provenance.get("decision_mode") == decision_mode
+    )
+
+
+def select_series_provider(
+    attempts: Sequence[tuple[str, str, Callable[[], Any]]],
+    *,
+    adjustment: str,
+    event_asof: str,
+    fetched_at: str,
+    decision_mode: str,
+) -> dict[str, Any]:
+    """Select the first non-empty series while preserving its actual source identity."""
+    contract = _normalize_series_contract(adjustment, decision_mode)
+    if contract is None:
+        return _blocked_series("series_contract_invalid")
+    normalized_adjustment, normalized_decision_mode = contract
+    time_error = _validate_series_request_times(event_asof, fetched_at)
+    if time_error:
+        return _blocked_series(time_error)
+    if normalized_decision_mode == "replay" and normalized_adjustment in {"qfq", "hfq"}:
+        return _blocked_series("adjustment_replay_unsafe")
+    failures: list[dict[str, str]] = []
+    for provider, provider_version, fetcher in attempts:
+        try:
+            data = fetcher()
+        except (DataSourceError, ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            failures.append({"provider": provider, "error_type": type(exc).__name__})
+            continue
+        if not _is_non_empty(data):
+            failures.append({"provider": provider, "error_type": "empty"})
+            continue
+        content = validate_series_content(data, event_asof=event_asof)
+        if not content["directional_eligible"]:
+            return _blocked_series(content["reason"], failures)
+        provenance = {
+            "schema": SERIES_PROVENANCE_SCHEMA,
+            "provider": provider,
+            "provider_version": provider_version,
+            "adjustment": normalized_adjustment,
+            "event_asof": event_asof,
+            "fetched_at": fetched_at,
+            "decision_mode": normalized_decision_mode,
+        }
+        validation = validate_series_provenance(provenance)
+        return {
+            "status": "ok" if validation["directional_eligible"] else "blocked",
+            "reason": validation["reason"],
+            "data": data,
+            "series_provenance": provenance,
+            "directional_eligible": validation["directional_eligible"],
+            "provider_attempts": failures,
+        }
+    return {
+        "status": "data_unavailable",
+        "reason": "provenance_unknown",
+        "data": None,
+        "series_provenance": None,
+        "directional_eligible": False,
+        "provider_attempts": failures,
+    }
 
 
 def _frame_records(frame: Any) -> list[dict[str, Any]]:
@@ -415,8 +634,21 @@ def fetch_a_share_daily_kline(
     *,
     market: str | None = None,
     days: int = 70,
+    event_asof: str | None = None,
+    adjustment: str = "qfq",
+    decision_mode: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch daily OHLCV bars through AkShare/adata/cache before push2."""
+    if event_asof is not None:
+        series = fetch_a_share_daily_series(
+            code,
+            market=market,
+            days=days,
+            event_asof=event_asof,
+            adjustment=adjustment,
+            decision_mode=decision_mode or "replay",
+        )
+        return list(series.get("data") or []) if series.get("status") == "ok" else []
     normalized = _normal_code(code)
     market = (market or _market(normalized)).lower()
     cache_key = f"{market}{normalized}:{days}"
@@ -474,21 +706,152 @@ def fetch_a_share_daily_kline(
     return bars[-days:]
 
 
+def _daily_series_attempts(
+    code: str,
+    market: str,
+    days: int,
+    event_asof: str,
+    adjustment: str,
+    decision_mode: str,
+) -> tuple[tuple[str, str, Callable[[], Any]], ...]:
+    end = date.fromisoformat(event_asof)
+    start = end - timedelta(days=max(days * 2, days + 20))
+
+    def akshare_tencent() -> list[dict[str, Any]]:
+        if adjustment != "qfq":
+            return []
+        import akshare as ak
+
+        frame = ak.stock_zh_a_hist_tx(
+            symbol=f"{market}{code}",
+            start_date=start.strftime("%Y%m%d"),
+            end_date=end.strftime("%Y%m%d"),
+        )
+        time.sleep(_AKSHARE_PACE_SECONDS)
+        return _normalize_bar_records(_frame_records(frame))[-days:]
+
+    def adata_daily() -> list[dict[str, Any]]:
+        import adata
+
+        adjust_type = {"none": 0, "unadjusted": 0, "qfq": 1, "hfq": 2}.get(adjustment)
+        if adjust_type is None:
+            return []
+        frame = adata.stock.market.get_market(
+            code,
+            start_date=start.isoformat(),
+            end_date=end.isoformat(),
+            k_type=1,
+            adjust_type=adjust_type,
+        )
+        return _normalize_bar_records(_frame_records(frame))[-days:]
+
+    def tencent_current_only() -> Any:
+        result = fetch_with_replay_contract(
+            lambda: _fetch_tencent_kline(code, market=market, days=days, ktype="day"),
+            provider="tencent",
+            event_asof=event_asof,
+            supports_historical_replay=False,
+        )
+        return result.get("data") if result["status"] == "ok" else None
+
+    def eastmoney_date_bound() -> list[dict[str, Any]]:
+        return _fetch_eastmoney_push2_kline(
+            code,
+            market=market,
+            days=days,
+            event_asof=event_asof,
+            adjustment=adjustment,
+        )
+
+    return (
+        ("akshare_tencent", ADAPTER_VERSIONS["akshare_tencent"], akshare_tencent),
+        ("adata", ADAPTER_VERSIONS["adata"], adata_daily),
+        ("tencent_kline", ADAPTER_VERSIONS["tencent_kline"], tencent_current_only),
+        (
+            "eastmoney_push2_degraded",
+            ADAPTER_VERSIONS["eastmoney_push2_degraded"],
+            eastmoney_date_bound,
+        ),
+    )
+
+
+def fetch_a_share_daily_series(
+    code: str,
+    *,
+    market: str | None = None,
+    days: int = 70,
+    event_asof: str,
+    adjustment: str = "qfq",
+    decision_mode: str = "replay",
+    fetched_at: str | None = None,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """Fetch a PIT-bound daily series with complete series-level provenance."""
+    contract = _normalize_series_contract(adjustment, decision_mode)
+    if contract is None:
+        return _blocked_series("series_contract_invalid")
+    normalized_adjustment, normalized_decision_mode = contract
+    if normalized_adjustment in {"qfq", "hfq"} and (
+        normalized_decision_mode == "replay" or event_asof != date.today().isoformat()
+    ):
+        return _blocked_series("adjustment_replay_unsafe")
+    normalized = _normal_code(code)
+    resolved_market = (market or _market(normalized)).lower()
+    cache_key = (
+        f"{resolved_market}{normalized}:{days}:{normalized_adjustment}:"
+        f"{event_asof}:{normalized_decision_mode}"
+    )
+    if use_cache:
+        cached = _cache_get("daily_series_v1", cache_key, max_age_seconds=12 * 3600)
+        if isinstance(cached, dict) and _cached_series_is_eligible(
+            cached,
+            event_asof=event_asof,
+            adjustment=normalized_adjustment,
+            decision_mode=normalized_decision_mode,
+        ):
+            return cached
+    timestamp = fetched_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    attempts = _daily_series_attempts(
+        normalized,
+        resolved_market,
+        days,
+        event_asof,
+        normalized_adjustment,
+        normalized_decision_mode,
+    )
+    result = select_series_provider(
+        attempts,
+        adjustment=normalized_adjustment,
+        event_asof=event_asof,
+        fetched_at=timestamp,
+        decision_mode=normalized_decision_mode,
+    )
+    if use_cache and result["status"] == "ok":
+        _cache_set("daily_series_v1", cache_key, result)
+    return result
+
+
 def _fetch_eastmoney_push2_kline(
     code: str,
     *,
     market: str,
     days: int = 70,
+    event_asof: str | None = None,
+    adjustment: str = "qfq",
 ) -> list[dict[str, Any]]:
     """Last-resort daily OHLCV bars from the degraded EastMoney push2his path."""
     secid = f"1.{code}" if market.lower() == "sh" else f"0.{code}"
-    end = date.today().strftime("%Y%m%d")
-    start = (date.today() - timedelta(days=max(days * 2, days + 20))).strftime("%Y%m%d")
+    end_day = date.fromisoformat(event_asof) if event_asof else date.today()
+    end = end_day.strftime("%Y%m%d")
+    start = (end_day - timedelta(days=max(days * 2, days + 20))).strftime("%Y%m%d")
+    fqt = {"none": 0, "unadjusted": 0, "qfq": 1, "hfq": 2}.get(adjustment)
+    if fqt is None:
+        return []
     url = (
         f"https://push2his.eastmoney.com/api/qt/stock/kline/get?"
         f"secid={secid}&fields1=f1,f2,f3,f4,f5,f6"
         f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
-        f"&klt=101&fqt=1&beg={start}&end={end}"
+        f"&klt=101&fqt={fqt}&beg={start}&end={end}"
     )
     result = request_bytes(
         url,
@@ -823,6 +1186,33 @@ def fetch_dragon_tiger_rows(code: str, *, asof: date | str | None = None) -> dic
 
 def fetch_tencent_quote(codes: Sequence[str]) -> dict[str, dict[str, Any]]:
     return _fetch_tencent_quote(list(codes))
+
+
+def fetch_tencent_quote_with_provenance(
+    codes: Sequence[str],
+    *,
+    corroborating_quotes: Mapping[str, Mapping[str, Any]] | None = None,
+    decision_stage: str | None = None,
+    maximum_corroboration_age_seconds: int = 120,
+) -> dict[str, dict[str, Any]]:
+    """Tencent quotes remain non-directional until corroboration is adapter-bound."""
+    result = _fetch_tencent_quotes_result(list(codes))
+    trust = transport_contract("http://qt.gtimg.cn/")
+    quotes = {
+        code: {
+            **quote,
+            "provider_version": quote.get("provider_version")
+            or ADAPTER_VERSIONS["tencent_quote"],
+            "transport_trust": quote.get("transport_trust") or trust["trust"],
+            "directional_eligible": False,
+            "transport_reason": quote.get("transport_reason") or trust["reason"],
+        }
+        for code, quote in result.data.items()
+    }
+    if corroborating_quotes:
+        for quote in quotes.values():
+            quote["corroboration_status"] = "rejected_untrusted_input"
+    return quotes
 
 
 def fetch_tencent_snapshot(codes: Sequence[str]) -> dict[str, dict[str, Any]]:

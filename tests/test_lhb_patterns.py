@@ -190,14 +190,20 @@ def test_lhb_climax_not_triggered_without_match():
     assert not check_lhb_climax(None)["triggered"]
 
 
-def test_deep_research_exit_enforces_red_line():
-    # 翔鹭钨业 6/28 深研 2.0/10，当时只出报告没出动作
+def test_deep_research_low_score_requires_review_but_cannot_force_trade():
+    # 普通 agent 评分没有绑定可执行硬风险证据，低分只能触发人工复核。
     signal = check_deep_research_exit(2.0)
     assert signal["triggered"]
-    assert signal["severity"] == "critical" and signal["action"] == "sell"
+    assert signal["severity"] == "info"
+    assert signal["action"] == "hold"
+    assert signal["review_required"] is True
+    assert signal["execution_eligible"] is False
+    assert "必须清仓" not in signal["reason"]
 
-    reduce_signal = check_deep_research_exit(4.5)
-    assert reduce_signal["severity"] == "warning" and reduce_signal["action"] == "reduce"
+    review_signal = check_deep_research_exit(4.5)
+    assert review_signal["action"] == "hold"
+    assert review_signal["review_required"] is True
+    assert "必须减仓" not in review_signal["reason"]
 
     assert not check_deep_research_exit(6.0)["triggered"]
     assert not check_deep_research_exit(None)["triggered"]
@@ -229,7 +235,37 @@ def test_evaluate_all_uses_seat_policy_trailing_stop():
     )
 
 
-def test_evaluate_all_deep_score_red_line_flows_through():
+def test_evaluate_all_deep_score_review_does_not_become_exit_action():
     result = evaluate_all_exit_signals(current_price=50.0, deep_score=2.0)
-    assert result["action"] == "sell"
+    assert result["action"] == "hold"
     assert result["top_signal"]["signal_type"] == "deep_research_exit"
+    assert result["top_signal"]["review_required"] is True
+
+
+def test_stale_deep_research_record_is_review_only():
+    result = evaluate_all_exit_signals(
+        current_price=50.0,
+        deep_score={"deep_score": 1.0, "stale": True, "age_days": 120},
+    )
+
+    assert result["action"] == "hold"
+    assert result["top_signal"]["review_required"] is True
+    assert result["top_signal"]["freshness_status"] == "stale"
+    assert "过期" in result["top_signal"]["reason"]
+
+
+def test_deterministic_stop_loss_still_outranks_deep_research_review():
+    result = evaluate_all_exit_signals(
+        current_price=9.0,
+        stop_price=10.0,
+        deep_score=1.0,
+    )
+
+    assert result["action"] == "sell"
+    assert result["top_signal"]["signal_type"] == "stop_loss"
+    deep_signal = next(
+        signal for signal in result["signals"]
+        if signal["signal_type"] == "deep_research_exit"
+    )
+    assert deep_signal["review_required"] is True
+    assert deep_signal["execution_eligible"] is False

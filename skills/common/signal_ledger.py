@@ -30,6 +30,16 @@ UNKNOWN_EVIDENCE_SOURCES = [
 ]
 
 
+class SignalLedgerCorruptionError(RuntimeError):
+    """Raised when a canonical ledger or its mirror cannot be parsed safely."""
+
+    def __init__(self, line_number: int, reason: str):
+        super().__init__(
+            f"signal ledger corruption at line {line_number}: {reason}"
+        )
+        self.line_number = line_number
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -140,11 +150,8 @@ def _payload_with_evidence_sources(event_type: str, payload: Mapping[str, Any]) 
 
 def _normalize_event(raw: Mapping[str, Any]) -> dict[str, Any]:
     event_type = str(raw["event_type"]).strip()
-    if event_type.startswith("monitor."):
-        raise ValueError(
-            "monitor lifecycle events must be written to monitor_ledger, "
-            f"not the signal ledger (rejected event_type={event_type!r})"
-        )
+    if not event_type:
+        raise ValueError("signal ledger event requires event_type")
     links = dict(raw.get("links") or {})
     if not links.get("correlation_id"):
         raise ValueError("signal ledger event requires correlation_id")
@@ -170,19 +177,43 @@ def _read_events_unlocked(ledger_file: str) -> list[dict[str, Any]]:
     if not os.path.exists(ledger_file):
         return []
     events = []
-    with open(ledger_file, "r", encoding="utf-8") as handle:
-        for line in handle:
+    with open(ledger_file, "rb") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
             try:
+                line = raw_line.decode("utf-8")
                 value = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(value, dict) and value.get("schema") in COMPATIBLE_SCHEMAS:
-                event_type = str(value.get("event_type") or "")
-                value["payload"] = _payload_with_evidence_sources(
-                    event_type,
-                    dict(value.get("payload") or {}),
+            except UnicodeDecodeError as exc:
+                raise SignalLedgerCorruptionError(
+                    line_number,
+                    "invalid UTF-8",
+                ) from exc
+            except json.JSONDecodeError as exc:
+                raise SignalLedgerCorruptionError(
+                    line_number,
+                    "invalid JSON",
+                ) from exc
+            if not isinstance(value, dict):
+                raise SignalLedgerCorruptionError(
+                    line_number,
+                    "event is not a JSON object",
                 )
-                events.append(value)
+            if value.get("schema") not in COMPATIBLE_SCHEMAS:
+                raise SignalLedgerCorruptionError(
+                    line_number,
+                    "unsupported or missing schema",
+                )
+            payload = value.get("payload") or {}
+            if not isinstance(payload, Mapping):
+                raise SignalLedgerCorruptionError(
+                    line_number,
+                    "payload is not a JSON object",
+                )
+            event_type = str(value.get("event_type") or "")
+            value["payload"] = _payload_with_evidence_sources(
+                event_type,
+                payload,
+            )
+            events.append(value)
     return events
 
 
@@ -282,14 +313,24 @@ def append_events(
     with file_lock(path):
         if not os.path.exists(path):
             _restore_ledger_unlocked(path)
+        existing_events = _read_events_unlocked(path)
         existing_ids = {
             event.get("event_id")
-            for event in _read_events_unlocked(path)
+            for event in existing_events
         }
+        last_sequence = max(
+            [
+                int(event.get("sequence") or index)
+                for index, event in enumerate(existing_events, start=1)
+            ],
+            default=0,
+        )
         appended = []
         for event in normalized:
             if event["event_id"] in existing_ids:
                 continue
+            last_sequence += 1
+            event["sequence"] = last_sequence
             appended.append(event)
             existing_ids.add(event["event_id"])
         if not appended:

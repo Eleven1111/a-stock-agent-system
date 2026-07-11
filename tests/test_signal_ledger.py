@@ -3,7 +3,32 @@
 import json
 import threading
 
+import pytest
+
 import signal_ledger as ledger
+
+
+def _ledger_line(event_id, *, event_type="recommendation.created"):
+    return json.dumps(
+        {
+            "schema": ledger.SCHEMA,
+            "event_id": event_id,
+            "event_type": event_type,
+            "occurred_at": "2026-07-10T09:35:00",
+            "links": {"correlation_id": f"corr-{event_id}"},
+            "payload": {},
+        },
+        ensure_ascii=False,
+    )
+
+
+def _backup_paths(tmp_path, monkeypatch):
+    state_home = tmp_path / "state"
+    backup_root = tmp_path / "backup"
+    monkeypatch.setattr(ledger, "hermes_home", lambda: str(state_home))
+    monkeypatch.setattr(ledger, "backup_home", lambda: str(backup_root))
+    relative = "skills/stock-triage/data/signal_ledger.jsonl"
+    return state_home / relative, backup_root / relative
 
 
 def test_append_is_idempotent_and_projects_settlement(tmp_path):
@@ -87,6 +112,31 @@ def test_projection_folds_provisional_then_final_settlement(tmp_path):
     ]
 
 
+def test_appended_events_receive_monotonic_sequences(tmp_path):
+    path = str(tmp_path / "ledger.jsonl")
+    links = ledger.make_links(signal_id="s1", correlation_id="c1")
+    first = ledger.append_event(
+        "signal.opened", links, {"code": "600001"}, ledger_file=path
+    )
+    duplicate = ledger.append_event(
+        "signal.opened",
+        links,
+        {"code": "600001"},
+        idempotency_key="same",
+        ledger_file=path,
+    )
+    third = ledger.append_event(
+        "signal.settled",
+        links,
+        {"code": "600001"},
+        idempotency_key="settled",
+        ledger_file=path,
+    )
+    assert first["sequence"] == 1
+    assert duplicate["sequence"] == 2
+    assert third["sequence"] == 3
+
+
 def test_concurrent_append_keeps_every_event(tmp_path):
     path = str(tmp_path / "signal_ledger.jsonl")
 
@@ -138,6 +188,95 @@ def test_read_legacy_recommendation_event_defaults_unknown_evidence_source(tmp_p
     assert event["payload"]["evidence_sources"] == [
         {"source": "unknown", "artifact": "unknown", "weight_hint": "context"}
     ]
+
+
+def test_read_fails_closed_on_corrupt_middle_line_without_rewriting_source(tmp_path):
+    path = tmp_path / "signal_ledger.jsonl"
+    original = (
+        _ledger_line("evt-before")
+        + "\n"
+        + '{"schema":"signal_ledger_event_v2","payload":'
+        + "\n"
+        + _ledger_line("evt-after")
+        + "\n"
+    ).encode("utf-8")
+    path.write_bytes(original)
+
+    with pytest.raises(ledger.SignalLedgerCorruptionError, match="line 2"):
+        ledger.read_events(str(path))
+
+    assert path.read_bytes() == original
+
+
+def test_projection_fails_closed_on_truncated_tail_without_rewriting_source(tmp_path):
+    path = tmp_path / "signal_ledger.jsonl"
+    original = (
+        _ledger_line("evt-complete") + "\n" + '{"schema":"signal_ledger_event_v2"'
+    ).encode("utf-8")
+    path.write_bytes(original)
+
+    with pytest.raises(ledger.SignalLedgerCorruptionError, match="line 2"):
+        ledger.project_signals(ledger_file=str(path))
+
+    assert path.read_bytes() == original
+
+
+def test_backup_sync_fails_closed_when_primary_is_corrupt_and_backup_exists(
+    tmp_path,
+    monkeypatch,
+):
+    path, backup = _backup_paths(tmp_path, monkeypatch)
+    path.parent.mkdir(parents=True)
+    backup.parent.mkdir(parents=True)
+    primary_original = (
+        _ledger_line("evt-before") + "\n" + "not-json\n" + _ledger_line("evt-after") + "\n"
+    ).encode("utf-8")
+    backup_original = (_ledger_line("evt-before") + "\n").encode("utf-8")
+    path.write_bytes(primary_original)
+    backup.write_bytes(backup_original)
+
+    with pytest.raises(ledger.SignalLedgerCorruptionError, match="line 2"):
+        ledger.sync_backup(str(path))
+
+    assert path.read_bytes() == primary_original
+    assert backup.read_bytes() == backup_original
+
+
+def test_backup_sync_fails_closed_when_primary_is_corrupt_and_backup_is_absent(
+    tmp_path,
+    monkeypatch,
+):
+    path, backup = _backup_paths(tmp_path, monkeypatch)
+    path.parent.mkdir(parents=True)
+    original = (_ledger_line("evt-before") + "\n" + "not-json\n").encode("utf-8")
+    path.write_bytes(original)
+
+    with pytest.raises(ledger.SignalLedgerCorruptionError, match="line 2"):
+        ledger.sync_backup(str(path))
+
+    assert path.read_bytes() == original
+    assert not backup.exists()
+
+
+def test_backup_sync_does_not_overwrite_a_corrupt_existing_backup(tmp_path, monkeypatch):
+    path, backup = _backup_paths(tmp_path, monkeypatch)
+    path.parent.mkdir(parents=True)
+    backup.parent.mkdir(parents=True)
+    path.write_text(_ledger_line("evt-primary") + "\n", encoding="utf-8")
+    backup_original = b"truncated-backup"
+    backup.write_bytes(backup_original)
+
+    with pytest.raises(ledger.SignalLedgerCorruptionError, match="line 1"):
+        ledger.sync_backup(str(path))
+
+    assert backup.read_bytes() == backup_original
+
+
+def test_empty_signal_ledger_is_valid(tmp_path):
+    path = tmp_path / "signal_ledger.jsonl"
+    path.write_bytes(b"")
+
+    assert ledger.read_events(str(path)) == []
 
 
 def test_merge_legacy_assigns_stable_ids_and_deduplicates():
@@ -242,16 +381,21 @@ def test_opened_signal_preserves_social_attention_attribution():
     assert event["payload"]["social_attention"]["record"]["cross_source_count"] == 2
 
 
-def test_signal_ledger_rejects_monitor_events(tmp_path):
-    import pytest
-
+def test_signal_ledger_accepts_monitor_events_as_canonical_state_changes(tmp_path):
     path = str(tmp_path / "signal_ledger.jsonl")
-    with pytest.raises(ValueError, match="monitor_ledger"):
-        ledger.append_event(
-            "monitor.activated",
-            ledger.make_links("rec-x", monitor_id="stock:600011"),
-            {"kind": "stock", "key": "600011"},
-            ledger_file=path,
-        )
-    # Fail-closed: the rejected write must not have created a ledger file.
-    assert ledger.read_events(path) == []
+    event = ledger.append_event(
+        "monitor.activated",
+        ledger.make_links("rec-x", monitor_id="stock:600011"),
+        {
+            "id": "stock:600011",
+            "kind": "stock",
+            "key": "600011",
+            "status": "active",
+            "manual_cancelled": False,
+        },
+        idempotency_key="monitor.activated:stock:600011:batch-1",
+        ledger_file=path,
+    )
+
+    assert event["sequence"] == 1
+    assert ledger.read_events(path) == [event]

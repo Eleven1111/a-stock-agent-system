@@ -34,13 +34,13 @@ elif "eastmoney.com" not in _no_proxy or "gtimg.cn" not in _no_proxy:
     os.environ["no_proxy"] = os.environ["NO_PROXY"]
 
 
-def _build_no_proxy_opener() -> Any:
-    """Return a callable opener that bypasses all system proxies.
+def _build_proxy_aware_opener() -> Any:
+    """Return a callable opener that respects system proxies and NO_PROXY.
 
     ``OpenerDirector`` is not directly callable, so we return its ``open``
     method — the same signature as ``urllib.request.urlopen``.
     """
-    director = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    director = urllib.request.build_opener()
     return director.open
 
 
@@ -167,12 +167,16 @@ class HttpClient:
         max_attempts: int = 2,
         opener: Optional[Callable[..., Any]] = None,
         clock: Callable[[], datetime] = _utc_now,
+        sleeper: Callable[[float], None] = time.sleep,
+        max_retry_after_seconds: float = 60,
     ):
         self.source = source
         self.timeout = float(timeout)
         self.max_attempts = min(max(int(max_attempts), 1), 2)
-        self._opener = opener or _build_no_proxy_opener()
+        self._opener = opener or _build_proxy_aware_opener()
         self._clock = clock
+        self._sleeper = sleeper
+        self._max_retry_after_seconds = max(0.0, float(max_retry_after_seconds))
 
     def _timestamp(self) -> str:
         return self._clock().isoformat(timespec="seconds")
@@ -250,6 +254,8 @@ class HttpClient:
                 )
                 if exc.code != 429 and exc.code < 500:
                     break
+                if retry_after is not None and attempt < self.max_attempts:
+                    self._sleeper(min(retry_after, self._max_retry_after_seconds))
             except urllib.error.URLError as exc:
                 error_type = (
                     ErrorType.TIMEOUT

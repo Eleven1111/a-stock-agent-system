@@ -50,6 +50,8 @@ GUARDRAIL_REASON_CODES: dict[str, str] = {
     "portfolio_value_unavailable": "concentration",
     # 情绪/温度/拥挤度门禁
     "market_risk_off": "temperature_gate",
+    "market_context_unknown": "temperature_gate",
+    "market_context_stale": "temperature_gate",
     "market_state_ebbing_reduced": "temperature_gate",
     "crowding_climax_reduced": "temperature_gate",
     "crowding_climax_observed": "temperature_gate",
@@ -181,7 +183,17 @@ def evaluate_decision(
             multiplier = 0.0
             reasons.append("strategy_not_allowed")
 
-        if (market_regime or {}).get("regime") == "risk_off" and decision in POSITIVE_ACTIONS:
+        regime = str((market_regime or {}).get("regime") or "")
+        context_status = str((market_regime or {}).get("context_status") or "")
+        unavailable_regime = (
+            context_status if context_status in {"unknown", "stale"} else regime
+        )
+        if unavailable_regime in {"unknown", "stale"}:
+            if decision in POSITIVE_ACTIONS:
+                decision = "watch"
+            multiplier = 0.0
+            reasons.append(f"market_context_{unavailable_regime}")
+        elif regime == "risk_off" and decision in POSITIVE_ACTIONS:
             decision = "watch"
             multiplier = 0.0
             reasons.append("market_risk_off")
@@ -265,6 +277,7 @@ def evaluate_decision(
         "portfolio_risk": dict(portfolio_risk or {}),
         "discipline_state": dict(discipline_state or {}),
         "research_evidence": dict(research_evidence or {}),
+        "market_regime": dict(market_regime or {}),
         "market_crowding": dict(market_crowding or {}),
         "expected_paths": _expected_paths(market_crowding),
         "expected_paths_calibrated": False,

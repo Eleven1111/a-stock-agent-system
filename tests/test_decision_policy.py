@@ -122,6 +122,32 @@ def test_market_intelligence_not_ready_blocks_positive_action():
     assert "market_intelligence_not_ready" in result["reasons"]
 
 
+def test_unknown_market_context_blocks_positive_action():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_regime={"regime": "unknown", "reason": "market context missing"},
+    )
+
+    assert result["decision"] == "watch"
+    assert result["position_multiplier"] == 0.0
+    assert "market_context_unknown" in result["reasons"]
+
+
+def test_stale_market_context_blocks_positive_action():
+    result = decision_policy.evaluate_decision(
+        requested_action="add",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_regime={"regime": "stale", "reason": "market context expired"},
+    )
+
+    assert result["decision"] == "watch"
+    assert result["position_multiplier"] == 0.0
+    assert "market_context_stale" in result["reasons"]
+
+
 def test_stale_serenity_reduces_trend_position_without_blocking_daban():
     evidence = {
         "serenity": {

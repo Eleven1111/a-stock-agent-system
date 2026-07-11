@@ -30,7 +30,35 @@ def test_score_targets_prefetch_inject_and_order(monkeypatch):
     assert calls["600011"]["strategy_id"] == "daban:first_board_reseal"
     assert calls["002156"]["quote"] is None             # 预取未命中 → 传 None 自抓
     assert calls["002156"]["strategy_id"] == "trend_pullback"
-    assert out["signal_count"] == 2
+    assert out["signal_count"] == 0
+    assert out["signals"] == []
+    assert out["research_candidate_count"] == 2
+
+
+def test_high_grade_scores_remain_research_only_without_policy_decision(monkeypatch):
+    """Raw factor scores must never become directional cron signals by themselves."""
+
+    monkeypatch.setattr(
+        batch.four_dim_scorer,
+        "score_stock",
+        lambda code, name, **kwargs: {
+            "code": code,
+            "name": name,
+            "weighted": 9.0,
+            "grade": "S",
+            "confidence": "high",
+            "advice": "强烈推荐",
+        },
+    )
+    monkeypatch.setattr(batch, "_prefetch_quotes", lambda targets: {})
+
+    out = batch.score_targets([("600011", "华能国际")])
+
+    assert out["signals"] == []
+    assert out["signal_count"] == 0
+    assert [item["code"] for item in out["research_candidates"]] == ["600011"]
+    assert out["research_candidates"][0]["directional_ready"] is False
+    assert out["research_candidates"][0]["execution_action"] == "none"
 
 
 def test_score_targets_failure_isolated(monkeypatch):

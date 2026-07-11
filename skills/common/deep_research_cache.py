@@ -177,12 +177,18 @@ def write_deep_research(code: str, name: str, scorecard: Dict[str, Any],
 
 def read_deep_research(code: str, max_age_days: int = DEFAULT_MAX_AGE_DAYS,
                        today: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """读取某只票的深研缓存。未命中返回 None；命中返回带 found/stale/age_days 的字典。"""
+    """读取某只票的深研缓存。
+
+    深研 scorecard 是研究意见，不是可执行风控证据。当前 v1 schema 没有经过
+    校验的 hard-risk evidence 绑定，因此无论分数高低都明确标记为不可直接交易。
+    日期缺失、非法或未来日期同样按陈旧处理，避免未知新鲜度被误当成新鲜。
+    """
     record = read_json(cache_file(code), None)
     if not isinstance(record, dict) or record.get("deep_score") is None:
         return None
     age = _age_days(record.get("asof", ""), today)
-    stale = age is not None and age > max_age_days
+    stale = age is None or age < 0 or age > max_age_days
+    freshness_qualified = not stale
     return {
         "found": True,
         "code": record.get("code"),
@@ -190,12 +196,20 @@ def read_deep_research(code: str, max_age_days: int = DEFAULT_MAX_AGE_DAYS,
         "asof": record.get("asof"),
         "age_days": age,
         "stale": stale,
+        "freshness_qualified": freshness_qualified,
+        "freshness_status": "fresh" if freshness_qualified else "stale",
         "deep_score": record.get("deep_score"),
         "rating": record.get("rating"),
         "scorecard_total": record.get("scorecard_total"),
         "valuation_upside_pct": record.get("valuation_upside_pct"),
         "dimensions": record.get("dimensions", {}),
         "report_path": record.get("report_path"),
+        # deep_research_cache_v1 does not bind independently verified hard-risk
+        # evidence. Keep these fields explicit so downstream consumers fail
+        # closed instead of turning an LLM score into a sell instruction.
+        "hard_risk_evidence": [],
+        "execution_eligible": False,
+        "evidence_status": "unbound_score",
     }
 
 

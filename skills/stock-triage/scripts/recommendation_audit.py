@@ -15,6 +15,7 @@ Usage:
 
 import argparse
 import json
+import math
 import os
 import sys
 import uuid
@@ -24,11 +25,17 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from state_store import read_json, update_json_list, mutate_json
 from paths import data_file
-from a_share_rules import t1_constraint
+from a_share_rules import resolve_price_limit_rule, t1_constraint
+from execution_model import (
+    build_execution_scenarios,
+    estimate_round_trip_pnl,
+    estimate_trade_cost,
+)
 from recommendation_quality import build_quality_report, merge_market_intelligence
 from decision_policy import evaluate_decision
 from market_context import market_regime, read_market_context
-from portfolio_policy import evaluate_candidate, portfolio_value
+from market_snapshot import PointInTimeViolation, validate_point_in_time
+from portfolio_policy import evaluate_candidate, evaluate_complete_admission, portfolio_value
 from research_evidence import build_research_evidence, strategy_attributions
 import signal_ledger
 import strategy_registry
@@ -213,7 +220,7 @@ def position_guidance(
         return guidance
 
     # 情绪温度倍率：打板范式仓位随市场温度缩放（冰点0.3/发酵1.0/极热0，退潮信号归零）。
-    # 温度数据缺失 → 1.0 不影响；趋势/中线策略不受打板情绪温度约束。
+    # 温度数据缺失/过期 → 0 并阻断新增方向风险；fresh 时仅打板策略按温度缩放。
     temp_multiplier = 1.0
     temp_tier = None
     temp_allow_new = True
@@ -281,6 +288,100 @@ def position_guidance(
     return guidance
 
 
+def _strict_execution_contract(
+    code: str,
+    asof: str,
+    details: Dict[str, Any],
+) -> Dict[str, Any]:
+    point_in_time = details.get("point_in_time")
+    if not isinstance(point_in_time, dict):
+        return {"status": "blocked", "reason": "point_in_time_missing"}
+    try:
+        validated_pit = validate_point_in_time(
+            event_asof=str(point_in_time.get("event_asof") or ""),
+            evidence_time=str(point_in_time.get("evidence_time") or ""),
+            captured_at=str(point_in_time.get("captured_at") or ""),
+            decision_mode=str(point_in_time.get("decision_mode") or ""),
+            stage_policy=point_in_time.get("stage_policy") or {},
+        )
+    except PointInTimeViolation:
+        return {"status": "blocked", "reason": "point_in_time_invalid"}
+    if validated_pit["event_asof"] != asof or (
+        validated_pit["decision_mode"] != details.get("decision_mode")
+    ):
+        return {"status": "blocked", "reason": "point_in_time_mismatch"}
+    rule = resolve_price_limit_rule(
+        code=code,
+        asof=asof,
+        listing_date=details.get("listing_date"),
+        listing_stage=details.get("listing_stage"),
+        is_st=details.get("is_st"),
+        direction=details.get("direction"),
+    )
+    if rule["status"] != "known":
+        return {"status": "blocked", "reason": rule["reason"], "rule": rule}
+    if details.get("directional_eligible") is not True:
+        return {"status": "blocked", "reason": "transport_lower_trust", "rule": rule}
+    return {"status": "valid", "rule": rule, "point_in_time": validated_pit}
+
+
+def _execution_analysis(
+    *,
+    code: str,
+    action: str,
+    entry_price: float | None,
+    target_price: float | None,
+    sizing: Dict[str, Any],
+    asof: str,
+    context: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    details = dict(context or {})
+    contract = _strict_execution_contract(code, asof, details)
+    if contract["status"] == "blocked":
+        return contract
+    rule = contract["rule"]
+    if entry_price is None or entry_price <= 0:
+        return {"status": "blocked", "reason": "execution_price_unknown", "rule": rule}
+    amount = float(sizing.get("recommended_amount") or 0)
+    quantity = math.floor(amount / entry_price / 100) * 100
+    if quantity <= 0:
+        return {"status": "blocked", "reason": "execution_quantity_unknown", "rule": rule}
+    side = "sell" if action in {"sell", "reduce"} else "buy"
+    scenarios = build_execution_scenarios(
+        side=side,
+        quantity=quantity,
+        signal_price=entry_price,
+        limit_queue=bool(details.get("limit_queue")),
+        executable_price=details.get("executable_price"),
+        available_volume=details.get("available_volume"),
+        adv_value=details.get("adv_value"),
+        event_asof=asof,
+    )
+    entry_cost = estimate_trade_cost(side, entry_price * quantity, asof=asof)
+    target_pnl = None
+    if side == "buy" and target_price is not None and target_price > 0:
+        target_pnl = estimate_round_trip_pnl(
+            entry_price=entry_price,
+            exit_price=target_price,
+            quantity=quantity,
+            asof=asof,
+            corporate_action_status=str(
+                details.get("corporate_action_status") or "unknown"
+            ),
+        )
+    return {
+        "status": "estimate_only",
+        "reason": "broker_reconciliation_required",
+        "rule": rule,
+        "quantity": quantity,
+        "scenarios": scenarios,
+        "entry_cost_estimate": entry_cost,
+        "target_pnl_estimate": target_pnl,
+        "authoritative_source": "broker_statement",
+        "point_in_time": contract["point_in_time"],
+    }
+
+
 def record_recommendation(
     code: str,
     name: str,
@@ -310,6 +411,8 @@ def record_recommendation(
     discipline_state: Optional[Dict[str, Any]] = None,
     evidence_sources: Optional[List[Dict[str, Any]]] = None,
     raw_score: Optional[float] = None,
+    sector: Optional[str] = None,
+    execution_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -369,11 +472,22 @@ def record_recommendation(
         quality,
         evidence.get("market_intelligence"),
     )
-    risk = portfolio_risk or evaluate_candidate(
-        portfolio,
-        {"code": code},
-        float(sizing.get("recommended_position_pct") or 0),
-    )
+    if portfolio_risk is not None:
+        risk = portfolio_risk
+    elif (execution_context or {}).get("strict_execution") is True:
+        risk = evaluate_complete_admission(
+            portfolio,
+            {"code": code, "sector": str(sector or "").strip()},
+            float(sizing.get("recommended_position_pct") or 0),
+            factor_evidence=(execution_context or {}).get("portfolio_risk_evidence"),
+            decision_asof=record_date,
+        )
+    else:
+        risk = evaluate_candidate(
+            portfolio,
+            {"code": code, "sector": str(sector or "").strip()},
+            float(sizing.get("recommended_position_pct") or 0),
+        )
     discipline = discipline_state or trading_discipline.assess_discipline_state(
         signal_ledger.read_events(),
         total_assets=account_value,
@@ -390,16 +504,32 @@ def record_recommendation(
         discipline_state=discipline,
         raw_score=raw_score,
     )
+    execution_analysis = _execution_analysis(
+        code=code,
+        action=action,
+        entry_price=entry_price,
+        target_price=target_price,
+        sizing=sizing,
+        asof=record_date,
+        context=execution_context,
+    )
+    execution_blocked = execution_analysis.get("status") == "blocked"
     effective_action = (
         "avoid"
         if policy["decision"] == "avoid"
         else "hold"
-        if policy["decision"] == "watch"
+        if policy["decision"] == "watch" or execution_blocked
         else action
     )
     if policy.get("guardrail") is not None:
         policy["guardrail"] = {**policy["guardrail"], "final_action": effective_action}
-    if policy["position_multiplier"] == 0:
+    elif execution_blocked:
+        policy["guardrail"] = {
+            "type": "execution_contract",
+            "reason": execution_analysis.get("reason"),
+            "final_action": effective_action,
+        }
+    if policy["position_multiplier"] == 0 or execution_blocked:
         sizing.update({
             "recommended_position_pct": 0.0,
             "recommended_amount": 0.0,
@@ -436,6 +566,7 @@ def record_recommendation(
         **{key: value for key, value in links.items() if value is not None},
         "code": code,
         "name": name,
+        "sector": str(sector or "").strip() or None,
         "date": record_date,
         "created_at": datetime.now().isoformat(),
         "requested_action": action,
@@ -460,6 +591,7 @@ def record_recommendation(
         "social_attention": dict(social_attention or {}),
         "selection_context": dict(selection_context or {}),
         "execution_constraints": quality["execution_constraints"],
+        "execution_analysis": execution_analysis,
         "settleable_signal": opens_signal,
         "outcome": "pending",
     }
@@ -484,6 +616,7 @@ def record_recommendation(
                 "strategy_id": record["strategy_id"],
                 "status": "proposed",
                 "execution_status": "not_executed",
+                "execution_analysis": execution_analysis,
                 "quality_status": quality.get("status"),
                 "policy_decision": policy,
             },

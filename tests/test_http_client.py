@@ -34,11 +34,10 @@ def test_module_level_bytes_text_json_apis(monkeypatch):
         FakeResponse("中文".encode()),
         FakeResponse(b'{"ok": true}'),
     ])
-    # PR #92 起默认走绕代理专用 opener（不再经 urllib.request.urlopen），
-    # 打桩缝隙相应移到 _build_no_proxy_opener。
+    # 默认 opener 尊重系统代理和 NO_PROXY；测试在构造点替换网络调用。
     monkeypatch.setattr(
         http_client,
-        "_build_no_proxy_opener",
+        "_build_proxy_aware_opener",
         lambda: (lambda request, timeout: next(payloads)),
     )
 
@@ -134,6 +133,57 @@ def test_http_error_exposes_retry_after_header():
 
     assert caught.value.retry_after_seconds == 3.0
     assert caught.value.to_dict()["retry_after_seconds"] == 3.0
+
+
+def test_default_opener_keeps_system_proxy_handler(monkeypatch):
+    calls = []
+
+    class Director:
+        def open(self, request, timeout):
+            return FakeResponse(b"ok")
+
+    monkeypatch.setattr(
+        http_client.urllib.request,
+        "build_opener",
+        lambda *handlers: calls.append(handlers) or Director(),
+    )
+
+    opener = http_client._build_proxy_aware_opener()
+
+    assert calls == [()]
+    assert opener("https://example.test", timeout=1).read() == b"ok"
+
+
+def test_retry_after_is_bounded_and_waited_before_retry():
+    calls = 0
+    sleeps = []
+
+    def opener(request, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise urllib.error.HTTPError(
+                "https://example.test",
+                429,
+                "Too Many Requests",
+                {"Retry-After": "120"},
+                None,
+            )
+        return FakeResponse(b"ok")
+
+    client = HttpClient(
+        "test",
+        opener=opener,
+        sleeper=sleeps.append,
+        max_retry_after_seconds=30,
+        max_attempts=2,
+    )
+
+    result = client.request_bytes("https://example.test")
+
+    assert result.data == b"ok"
+    assert result.attempts == 2
+    assert sleeps == [30.0]
 
 
 def test_a_stock_http_reexports_the_same_error_type():

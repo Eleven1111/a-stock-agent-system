@@ -16,8 +16,8 @@
 - position_multiplier：仓位倍率（报告：牛市6-8成 vs 弱市≤3成的环境适配）
 - top_n_limit：当日最多参与的打板候选数（加速期只做最强=1）
 
-数据缺失时回退 neutral（multiplier=1.0、不限制）——温度计缺数据不应瘫痪系统，
-但会在 notes 标明"温度数据缺失"。纯标准库，cron-safe。
+数据缺失、过期或异常时输出 unknown/stale 一等状态，并将新风险预算归零；
+不能把没有证据解释为 neutral。纯标准库，cron-safe。
 """
 
 import os
@@ -177,13 +177,13 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
                         morning_quotes: Optional[Mapping[str, Mapping[str, Any]]] = None,
                         retreat_ladder: Optional[Mapping[str, Any]] = None,
                         ) -> Dict[str, Any]:
-    """完整温度计（纯函数）。数据缺失 → neutral 回退，不瘫痪下游。"""
+    """完整温度计（纯函数）。数据缺失时阻断新风险。"""
     if not ladder:
-        return {"tier": "neutral", "height": 0, "promotion_rate": None,
-                "limitup_total": limitup_total, "allow_new_daban": True,
-                "position_multiplier": 1.0, "top_n_limit": None, "retreat_signal": None,
-                "advice": "温度数据缺失，不施加情绪约束",
-                "notes": ["lianban_ladder 缺失"]}
+        return _unavailable_temperature(
+            "unknown",
+            "lianban_ladder 缺失",
+            limitup_total=limitup_total,
+        )
 
     height = ladder_height(ladder)
     promo = promotion_rate(ladder, prev_ladder)
@@ -202,6 +202,7 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
 
     return {
         "tier": tier,
+        "context_status": "fresh",
         "height": height,
         "promotion_rate": promo,
         "limitup_total": limitup_total,
@@ -211,14 +212,27 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
     }
 
 
-def _neutral(reason: str, context_asof: Optional[str] = None) -> Dict[str, Any]:
-    result = compute_temperature(None)
-    result.update({
+def _unavailable_temperature(
+    status: str,
+    reason: str,
+    context_asof: Optional[str] = None,
+    limitup_total: Optional[int] = None,
+) -> Dict[str, Any]:
+    return {
+        "tier": status,
+        "context_status": status,
+        "height": 0,
+        "promotion_rate": None,
+        "limitup_total": limitup_total,
+        "allow_new_daban": False,
+        "position_multiplier": 0.0,
+        "top_n_limit": 0,
+        "retreat_signal": None,
+        "advice": f"温度上下文{status}，阻断新增风险",
         "context_asof": context_asof,
         "context_fresh": False,
         "notes": [reason],
-    })
-    return result
+    }
 
 
 def temperature_from_context(
@@ -227,26 +241,30 @@ def temperature_from_context(
     event_asof: Optional[str] = None,
     max_age_days: int = 4,
 ) -> Dict[str, Any]:
-    """计算带日期门禁的温度；过期/未来/无日期缓存一律 neutral。"""
+    """计算带日期门禁的温度；过期/未来/无日期缓存一律阻断新风险。"""
     context = dict(ctx or {})
     context_asof = str(context.get("ladder_asof") or "")
     ladder = context.get("lianban_ladder")
     if not ladder:
-        return _neutral("lianban_ladder 缺失", context_asof or None)
+        return _unavailable_temperature("unknown", "lianban_ladder 缺失", context_asof or None)
     if event_asof:
         try:
             event_day = datetime.fromisoformat(str(event_asof)).date()
             context_day = datetime.fromisoformat(context_asof).date()
         except ValueError:
-            return _neutral("ladder_asof 缺失或无效", context_asof or None)
+            return _unavailable_temperature(
+                "unknown", "ladder_asof 缺失或无效", context_asof or None,
+            )
         age_days = (event_day - context_day).days
         if age_days < 0:
-            return _neutral(
+            return _unavailable_temperature(
+                "unknown",
                 f"情绪上下文来自未来日期: {context_asof}",
                 context_asof,
             )
         if age_days > max_age_days:
-            return _neutral(
+            return _unavailable_temperature(
+                "stale",
                 f"情绪上下文已过期: {context_asof}，距事件日{age_days}天",
                 context_asof,
             )
@@ -261,6 +279,7 @@ def temperature_from_context(
     result.update({
         "context_asof": context_asof or None,
         "context_fresh": True,
+        "context_status": "fresh",
     })
     return result
 
@@ -270,11 +289,15 @@ def read_temperature(
     event_asof: Optional[str] = None,
     max_age_days: int = 4,
 ) -> Dict[str, Any]:
-    """从 signal_context 读取温度；日期不可信时不施加交易约束。"""
+    """从 signal_context 读取温度；缺失、异常或日期不可信时阻断新风险。"""
+    try:
+        context = read_signal_context(max_age_hours=max(24, max_age_days * 24)) or {}
+    except (OSError, RuntimeError, TimeoutError) as exc:
+        return _unavailable_temperature(
+            "unknown", f"情绪上下文读取失败: {exc}",
+        )
     return temperature_from_context(
-        read_signal_context(
-            max_age_hours=max(24, max_age_days * 24),
-        ) or {},
+        context,
         morning_quotes=morning_quotes,
         event_asof=event_asof,
         max_age_days=max_age_days,
@@ -335,7 +358,9 @@ def classify_market_state(
             "dominant_state": None,
             "previous_state": previous_state,
             "switched": False,
-            "notes": ["温度数据缺失或 neutral，状态机不输出方向性状态"],
+            "context_status": temperature.get("context_status") or "unknown",
+            "risk_off": True,
+            "notes": ["温度数据缺失、过期或未知，状态机不输出方向性状态"],
         }
 
     order = list(MARKET_STATES)

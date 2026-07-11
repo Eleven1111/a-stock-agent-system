@@ -124,6 +124,7 @@ def test_full_cycle_work_order_submit_and_synthesis(
         monkeypatch, capsys,
         "submit", "--task", task["id"], "--role", "risk_redteam",
         "--file", str(finding_path), "--worker", "openclaw",
+        "--model", "fixture-model", "--reviewed-by", "risk-owner",
     )
     assert code == 0
     assert result["ok"] is True
@@ -131,6 +132,20 @@ def test_full_cycle_work_order_submit_and_synthesis(
     assert result["synthesis"]["synthesis"]["verdict"] == "rejected"
     assert os.path.exists(result["synthesis"]["synthesis"]["report_path"])
     assert bus.find_task(task["id"])["status"] == "rejected"
+
+
+def test_unreviewed_model_finding_is_review_only():
+    finding = {
+        "stance": "support",
+        "confidence": 0.9,
+        "model_run_manifest": {"execution_eligible": False},
+    }
+    decision = runner.research_synthesis.decide_verdict(
+        {"thesis_builder": finding},
+        {"advance_min_support_confidence": 0.6},
+    )
+    assert decision["verdict"] == "review_only"
+    assert decision["basis"] == "human_review_required:thesis_builder"
 
 
 def test_insufficient_pack_auto_abstains_without_work_order(

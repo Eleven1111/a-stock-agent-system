@@ -58,11 +58,13 @@ def test_retreat_signal_forces_exit_only():
     assert out["position_multiplier"] == 0.0
 
 
-def test_missing_ladder_neutral():
+def test_missing_ladder_is_unknown_and_blocks_new_risk():
     out = mt.compute_temperature(None)
-    assert out["tier"] == "neutral"
-    assert out["position_multiplier"] == 1.0
-    assert out["allow_new_daban"] is True
+    assert out["tier"] == "unknown"
+    assert out["context_status"] == "unknown"
+    assert out["position_multiplier"] == 0.0
+    assert out["allow_new_daban"] is False
+    assert out["top_n_limit"] == 0
 
 
 def test_ladder_rolls_to_prev_on_new_day(tmp_path, monkeypatch):
@@ -83,7 +85,7 @@ def test_ladder_rolls_to_prev_on_new_day(tmp_path, monkeypatch):
     assert mt.promotion_rate(ctx["lianban_ladder"], ctx["prev_lianban_ladder"]) == 0.5
 
 
-def test_stale_context_fails_closed_to_neutral():
+def test_stale_context_is_first_class_and_blocks_new_risk():
     ctx = {
         "ladder_asof": "2026-06-01",
         "lianban_ladder": _ladder({"000001": 8}),
@@ -96,9 +98,27 @@ def test_stale_context_fails_closed_to_neutral():
         max_age_days=4,
     )
 
-    assert out["tier"] == "neutral"
+    assert out["tier"] == "stale"
+    assert out["context_status"] == "stale"
     assert out["context_fresh"] is False
+    assert out["allow_new_daban"] is False
+    assert out["position_multiplier"] == 0.0
     assert "过期" in out["notes"][0]
+
+
+def test_future_context_is_unknown_and_blocks_new_risk():
+    out = mt.temperature_from_context(
+        {
+            "ladder_asof": "2026-06-12",
+            "lianban_ladder": _ladder({"000001": 8}),
+        },
+        event_asof="2026-06-11",
+    )
+
+    assert out["tier"] == "unknown"
+    assert out["context_status"] == "unknown"
+    assert out["allow_new_daban"] is False
+    assert out["position_multiplier"] == 0.0
 
 
 def test_retreat_detection_accepts_prefixed_quotes_and_open_gap():
@@ -139,6 +159,21 @@ def test_read_temperature_keeps_weekend_context_for_date_gate(monkeypatch):
     assert out["context_asof"] == "2026-06-12"
 
 
+def test_read_temperature_exception_is_unknown_and_blocks_new_risk(monkeypatch):
+    def _broken_context(**_kwargs):
+        raise RuntimeError("corrupt signal context")
+
+    monkeypatch.setattr(mt, "read_signal_context", _broken_context)
+
+    out = mt.read_temperature(event_asof="2026-06-15")
+
+    assert out["tier"] == "unknown"
+    assert out["context_status"] == "unknown"
+    assert out["allow_new_daban"] is False
+    assert out["position_multiplier"] == 0.0
+    assert "corrupt signal context" in out["notes"][0]
+
+
 def test_daban_strategic_weight_default_and_override(monkeypatch):
     monkeypatch.delenv("HERMES_DABAN_STRATEGIC_WEIGHT", raising=False)
     assert mt.daban_strategic_weight() == 0.5            # 1+2 定位默认温和减半
@@ -163,11 +198,12 @@ def test_market_state_maps_tier_to_base_state():
 
 
 def test_market_state_neutral_when_temperature_missing():
-    out = mt.classify_market_state({"tier": "neutral"})
+    out = mt.classify_market_state({"tier": "unknown", "context_status": "unknown"})
     assert out["available"] is False
     assert out["calibrated"] is False
     assert out["dominant_state"] is None
     assert out["market_state_prob"] == {}
+    assert out["context_status"] == "unknown"
 
 
 def test_retreat_and_fragility_push_state_to_ebbing():

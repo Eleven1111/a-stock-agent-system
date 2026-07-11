@@ -191,6 +191,17 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
     monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(ac.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    monkeypatch.setattr(
+        ac,
+        "read_market_context",
+        lambda: {
+            "status": "ok",
+            "context_status": "fresh",
+            "context_fresh": True,
+            "sector_impact": {},
+            "alerts": [],
+        },
+    )
     atomic_write_json(
         str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
         {"cash": 20000, "positions": [], "cash_reconciled": True},
@@ -201,6 +212,7 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
         {
             "code": f"600{i:03d}",
             "name": f"股票{i}",
+            "sector": "半导体",
             "daban_score": 90 - i,
             "trend_score": 70 - i,
             "selected_by": {"daban": True, "trend": False},

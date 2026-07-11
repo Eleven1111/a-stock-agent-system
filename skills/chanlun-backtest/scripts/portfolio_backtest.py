@@ -21,6 +21,13 @@ for path in (HERE, COMMON):
 
 import daban_bt_stats as stats  # noqa: E402
 import research_gate  # noqa: E402
+from a_share_rules import resolve_price_limit_rule  # noqa: E402
+from execution_model import (  # noqa: E402
+    build_execution_scenarios,
+    estimate_round_trip_pnl,
+    estimate_trade_cost,
+)
+from market_snapshot import PointInTimeViolation, validate_point_in_time  # noqa: E402
 from research_artifact import verify_artifact, write_artifact  # noqa: E402
 from tradeability import assess_tradeability, limit_pct, round_limit  # noqa: E402
 
@@ -168,6 +175,25 @@ def _evidence_is_observable(candidate: Mapping[str, Any], snapshot: Mapping[str,
         return False
 
 
+def _point_in_time_reason(candidate: Mapping[str, Any], snapshot_date: str) -> str | None:
+    point_in_time = candidate.get("point_in_time")
+    if not isinstance(point_in_time, Mapping):
+        return "point_in_time_missing"
+    try:
+        validated = validate_point_in_time(
+            event_asof=str(point_in_time.get("event_asof") or ""),
+            evidence_time=str(point_in_time.get("evidence_time") or ""),
+            captured_at=str(point_in_time.get("captured_at") or ""),
+            decision_mode=str(point_in_time.get("decision_mode") or ""),
+            stage_policy=point_in_time.get("stage_policy") or {},
+        )
+    except PointInTimeViolation:
+        return "point_in_time_invalid"
+    if validated["event_asof"] != snapshot_date or validated["decision_mode"] != "replay":
+        return "point_in_time_mismatch"
+    return None
+
+
 def _next_bar(rows: Sequence[Mapping[str, Any]], after_date: str) -> tuple[int, dict[str, Any]] | None:
     for index, bar in enumerate(rows):
         if str(bar.get("date") or "") > after_date:
@@ -183,6 +209,8 @@ def _exit_bar(
     minimum_holding_sessions: int,
     code: str,
     name: str,
+    limit_percent: float | None = None,
+    apply_price_limit: bool = True,
 ) -> dict[str, Any] | None:
     try:
         session_index = sessions.index(entry_date)
@@ -197,7 +225,13 @@ def _exit_bar(
         if str(bar.get("date") or "") < target_date or _num(bar.get("volume")) <= 0:
             continue
         previous_close = _num(rows[index - 1].get("close"))
-        down = round_limit(previous_close, limit_pct(code, name), up=False)
+        if not apply_price_limit:
+            return dict(bar)
+        down = round_limit(
+            previous_close,
+            limit_percent if limit_percent is not None else limit_pct(code, name),
+            up=False,
+        )
         one_price_limit_down = all(
             abs(_num(bar.get(field)) - down) < 0.01
             for field in ("open", "high", "low", "close")
@@ -229,6 +263,18 @@ def _prepare_orders(
         for raw in snapshot.get("candidates") or []:
             candidate = dict(raw)
             code = _code(candidate.get("code"))
+            strict = (
+                candidate.get("strict_execution") is True
+                or candidate.get("decision_mode") == "replay"
+            )
+            pit_reason = _point_in_time_reason(candidate, snapshot_date) if strict else None
+            if pit_reason:
+                rejections.append({
+                    "date": snapshot_date,
+                    "code": code,
+                    "reason": pit_reason,
+                })
+                continue
             decision = str(candidate.get("decision") or "").strip().lower()
             quality_status = str(candidate.get("quality_status") or "").strip().lower()
             if (
@@ -262,6 +308,49 @@ def _prepare_orders(
                 rejections.append({"date": snapshot_date, "code": code, "reason": "missing_previous_close"})
                 continue
             previous_close = _num(rows[entry_index - 1].get("close"))
+            strict = (
+                candidate.get("strict_execution") is True
+                or candidate.get("decision_mode") == "replay"
+            )
+            rule = resolve_price_limit_rule(
+                code=code,
+                asof=str(entry.get("date") or ""),
+                listing_date=candidate.get("listing_date"),
+                listing_stage=candidate.get("listing_stage"),
+                is_st=candidate.get("is_st"),
+                direction="buy",
+            ) if strict else {
+                "status": "compatibility",
+                "limit_pct": limit_pct(code, str(candidate.get("name") or "")),
+            }
+            if strict and rule["status"] != "known":
+                rejections.append({
+                    "date": snapshot_date,
+                    "code": code,
+                    "reason": str(rule.get("reason") or "rule_unknown"),
+                })
+                continue
+            limit_percent = rule.get("limit_pct")
+            limit_up_price = (
+                round_limit(previous_close, float(limit_percent), up=True)
+                if limit_percent is not None
+                else None
+            )
+            if limit_up_price is not None and _num(entry.get("open")) >= limit_up_price - 0.005:
+                one_price_limit_up = all(
+                    abs(_num(entry.get(field)) - limit_up_price) < 0.01
+                    for field in ("open", "high", "low", "close")
+                )
+                rejections.append({
+                    "date": snapshot_date,
+                    "code": code,
+                    "reason": (
+                        "entry_limit_up_sealed"
+                        if one_price_limit_up
+                        else "entry_limit_up_open"
+                    ),
+                })
+                continue
             tradeability = assess_tradeability(
                 {
                     "price": entry.get("open"),
@@ -290,6 +379,8 @@ def _prepare_orders(
                 policy["minimum_holding_sessions"],
                 code,
                 str(candidate.get("name") or ""),
+                float(limit_percent) if limit_percent is not None else None,
+                not (strict and rule.get("reason") == "initial_listing_no_daily_limit"),
             )
             if exit_bar is None:
                 rejections.append({"date": snapshot_date, "code": code, "reason": "incomplete_horizon"})
@@ -304,6 +395,14 @@ def _prepare_orders(
                 "rank_score": score,
                 "entry_bar": entry,
                 "exit_bar": exit_bar,
+                "execution_contract": {
+                    "strict_execution": strict,
+                    "rule": rule,
+                    "adv_value": candidate.get("adv_value"),
+                    "corporate_action_status": (
+                        candidate.get("corporate_action_status") or "unknown"
+                    ),
+                },
             })
     return orders, rejections
 
@@ -434,25 +533,69 @@ def run_portfolio(
             raw_price = _num(order["entry_bar"].get("open"))
             entry_price = raw_price * (1.0 + policy["slippage"])
             budget = min(slot_value, cash)
-            shares = math.floor(
-                budget / (entry_price * (1.0 + policy["commission"])) / policy["lot_size"]
-            ) * policy["lot_size"]
+            shares = math.floor(budget / entry_price / policy["lot_size"]) * policy["lot_size"]
+            buy_cost = None
+            while shares > 0:
+                buy_cost = estimate_trade_cost(
+                    "buy", shares * entry_price, asof=date
+                )
+                if shares * entry_price + float(buy_cost["total"]) <= budget:
+                    break
+                shares -= policy["lot_size"]
             if shares <= 0:
                 rejections.append({"date": date, "code": code, "reason": "insufficient_cash_for_lot"})
                 continue
-            entry_cost = shares * entry_price * (1.0 + policy["commission"])
+            entry_cost = shares * entry_price + float((buy_cost or {})["total"])
+            execution_scenarios = build_execution_scenarios(
+                side="buy",
+                quantity=shares,
+                signal_price=raw_price,
+                limit_queue=False,
+                executable_price=entry_price,
+                available_volume=order["entry_bar"].get("volume"),
+                adv_value=(order.get("execution_contract") or {}).get("adv_value"),
+                event_asof=date,
+            )
             cash -= entry_cost
-            positions[code] = {**order, "shares": shares, "entry_price": entry_price, "entry_cost": entry_cost}
+            positions[code] = {
+                **order,
+                "shares": shares,
+                "entry_price": entry_price,
+                "entry_cost": entry_cost,
+                "execution_scenarios": execution_scenarios,
+                "applied_buy_cost": buy_cost,
+            }
 
         for code, position in list(positions.items()):
             if position["exit_date"] != date:
                 continue
             exit_price = _num(position["exit_bar"].get("close")) * (1.0 - policy["slippage"])
-            proceeds = position["shares"] * exit_price * (
-                1.0 - policy["commission"] - policy["stamp_tax"]
+            applied_sell_cost = estimate_trade_cost(
+                "sell", position["shares"] * exit_price, asof=date
             )
+            proceeds = position["shares"] * exit_price - float(applied_sell_cost["total"])
             cash += proceeds
-            net_return = proceeds / position["entry_cost"] - 1.0
+            pnl = proceeds - position["entry_cost"]
+            net_return = pnl / position["entry_cost"]
+            buy_cost = position.get("applied_buy_cost") or estimate_trade_cost(
+                "buy", position["shares"] * position["entry_price"], asof=position["entry_date"]
+            )
+            sell_cost = applied_sell_cost or estimate_trade_cost(
+                "sell",
+                position["shares"] * exit_price,
+                asof=position["exit_date"],
+            )
+            pnl_estimate = estimate_round_trip_pnl(
+                entry_price=position["entry_price"],
+                exit_price=exit_price,
+                quantity=position["shares"],
+                asof=position["exit_date"],
+                corporate_action_status=str(
+                    (position.get("execution_contract") or {}).get(
+                        "corporate_action_status"
+                    ) or "unknown"
+                ),
+            )
             trades.append({
                 key: position[key]
                 for key in ("signal_date", "entry_date", "exit_date", "code", "name", "lane", "rank_score")
@@ -461,9 +604,19 @@ def run_portfolio(
                 "entry_price": position["entry_price"],
                 "exit_price": exit_price,
                 "net_return": net_return,
-                "pnl": proceeds - position["entry_cost"],
+                "pnl": pnl,
                 "entry_cost": position["entry_cost"],
                 "exit_proceeds": proceeds,
+                "execution_scenarios": position["execution_scenarios"],
+                "cost_estimate": {
+                    "status": "estimate_only",
+                    "entry": buy_cost,
+                    "exit": sell_cost,
+                    "total": round(float(buy_cost["total"]) + float(sell_cost["total"]), 4),
+                    "authoritative_source": "broker_statement",
+                    "applied_to_equity": True,
+                },
+                "pnl_estimate": pnl_estimate,
             })
             del positions[code]
 

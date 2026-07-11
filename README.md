@@ -67,7 +67,7 @@ flowchart LR
 | **eod-anomaly-scanner** | Full-market end-of-day scan for tail-window (14:30-15:00) volume/price anomalies, filtered by valuation and 60-day price position; next-morning `--confirm` mode checks the opening gap | Tencent, AkShare |
 | **social-sentiment** | Eastmoney popularity/rising ranks plus Xueqiu discussion/follow ranks; cross-source confirmation, velocity and crowding divergence | Eastmoney, Xueqiu, optional Baidu |
 | **daban-stock-picker** | Main-board 10cm limit-up candidate gate: first-board reseal, second-board weak-to-strong, six-question veto, tradeability. Thresholds read from a single source of truth shared with the backtest engine | `config/daban_thresholds.yaml`, structured JSON |
-| **chanlun-backtest** | Offline research gate (IS/OOS wall, costs, controls, statistical tests) **plus** `chan_structure` signal generator: fractals → strokes → pivots → third buy/sell → MACD divergence. Signals earn live weight only after the gate passes | Tencent qfq K-line, local research-state JSON |
+| **chanlun-backtest** | Offline research gate (IS/OOS wall, costs, controls, statistical tests) **plus** `chan_structure` signal generator: fractals → strokes → pivots → third buy/sell → MACD divergence. Passing research is necessary but not sufficient for live weight; shadow, empirical, broker and human-promotion gates follow | Tencent qfq K-line, local research-state JSON |
 | **global-market-monitor** | US indices, VIX, Treasuries, commodities, FX, natural disasters → A-share sector views and stock watch mappings | yfinance, USGS, GDACS |
 | **policy-intent-decoder** | Official policy source hierarchy, real-intent inference, transmission chain, beneficiary/pressure maps for stock-selection support | Official government/media sources |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
@@ -85,8 +85,8 @@ flowchart LR
 | **nl-screening recall** | Natural-language stock screening as a second candidate-discovery channel: Eastmoney AI stock picker (free, gated on `EASTMONEY_QGQP_B_ID`; reports itself as disabled when unset) plus optional THS iwencai OpenAPI enhancement (`WENCAI_API_KEY`). Candidates carry a `recall_source` tag and still pass every candidate FSM/policy gate — this channel never bypasses them | Eastmoney AI picker, THS iwencai |
 | **interactive-qa evidence** | Investor-relations Q&A from 互动易 (Shenzhen, fail-closed) and 上证e互动 (Shanghai, best-effort; degrades to `sse_unavailable`) feeds an "investor attention" dimension into candidate/holding evidence packs | 互动易, 上证e互动 |
 | **NewsNow aggregator** | Low-rank attention signals (S1/S2, not authoritative evidence) from five default feeds — 财联社热门, 雪球热门股票, 华尔街见闻快讯, 金十数据, 格隆汇事件 — via a self-hostable NewsNow instance; the L1 rule engine still must match keywords before promoting anything | NewsNow (public demo or self-hosted, `NEWSNOW_BASE_URL`) |
-| **strategy-packs (declarative)** | Two built-in, regime-filtered explanatory strategy packs — `dragon_head` and `emotion_cycle` — surfaced as `strategy_pack_hints` in the evidence pack. Explanatory only: `influences_live_ranking=false`; promotion to live weight requires the `research_gate` OOS process | `config/strategy_packs/*.yaml` |
-| **emotion-cycle features** | Five deterministic, fail-closed technical features (60-day volume percentile, single-day volume-spike ≥5x flag, MA-convergence, ATR-contraction percentile, composite top/bottom detector); zero live weight until `emotion_cycle:v1` is registered in `strategy_registry` | Tencent qfq K-line |
+| **strategy-packs (declarative)** | Two built-in, regime-filtered explanatory strategy packs — `dragon_head` and `emotion_cycle` — surfaced as `strategy_pack_hints` in the evidence pack. Explanatory only: `influences_live_ranking=false`; live weight requires the complete research → shadow → manual-pilot → live promotion chain | `config/strategy_packs/*.yaml` |
+| **emotion-cycle features** | Five deterministic, fail-closed technical features (60-day volume percentile, single-day volume-spike ≥5x flag, MA-convergence, ATR-contraction percentile, composite top/bottom detector); zero live weight until `emotion_cycle:v1` completes the promotion chain in `strategy_registry` | Tencent qfq K-line |
 | **web-search adapter** | Multi-provider fallback chain (Tavily → Bocha 博查 → SearXNG) with per-provider key rotation on 401/402/429; used by Serenity's Harvest Sources step instead of ad hoc in-session browsing | Tavily, Bocha, SearXNG |
 | **recommendation feedback loop** | `scripts/recommendation_feedback.py` records `useful` / `not_useful` verdicts per signal id; guardrail divergences (raw vs. final action) carry structured machine-readable reason codes, audited by `recommendation_audit.py --audit-violations`; feedback stats feed `score_calibration_report.py` | `signal_ledger.jsonl` |
 
@@ -111,8 +111,8 @@ It answers two operational questions:
 
 Policy evidence only adds selection dimensions. It does not bypass market data,
 liquidity, tradeability, announcement quality, portfolio-risk checks, or the
-research gate. A strategy still cannot affect live ranking before its evidence
-and OOS gate pass.
+research gate. A strategy still cannot affect live ranking before its evidence,
+OOS, shadow, broker-reconciliation and promotion gates pass.
 
 ## Information and Policy Signal Loop
 
@@ -349,7 +349,8 @@ python scripts/state_doctor.py --runtime openclaw --recover
 # Generate command-cron definitions without a model-backed isolated turn.
 python scripts/generate_openclaw_cron.py \
   --state-home "$A_STOCK_STATE_HOME" \
-  --state-id "$A_STOCK_STATE_ID"
+  --state-id "$A_STOCK_STATE_ID" \
+  --delivery-to "$A_STOCK_DELIVERY_TO"
 
 # Recommended: reconcile against OpenClaw's active store. Existing named jobs
 # are edited and only missing jobs are created. Omit --apply for a dry preview.
@@ -357,6 +358,7 @@ python scripts/generate_openclaw_cron.py \
   --state-home "$A_STOCK_STATE_HOME" \
   --state-id "$A_STOCK_STATE_ID" \
   --env-file "$A_STOCK_ENV_FILE" \
+  --delivery-to "$A_STOCK_DELIVERY_TO" \
   --reconcile --apply
 python scripts/cron_budget_report.py
 
@@ -562,7 +564,7 @@ a-stock-agent-system/
 keeps bounded independent backups; missing or corrupt primary files recover
 from validated snapshots instead of silently resetting to defaults.
 
-**Earn your weight.** Chan-structure signals, emotion-cycle features, tuned thresholds, and declarative strategy packs (`dragon_head`, `emotion_cycle`) all carry **zero live weight** until they pass the offline research gate (out-of-sample walled), tracked in `strategy_registry`. Strategy packs are explicitly `influences_live_ranking=false` — explanatory only — until promoted. Live performance can only *retire* a strategy (gating by expectancy), never *refit* its entry rules — that separation is what keeps the system from overfitting to recent noise.
+**Earn your weight.** Chan-structure signals, emotion-cycle features, tuned thresholds, and declarative strategy packs (`dragon_head`, `emotion_cycle`) all carry **zero live weight** until they complete the versioned research, OOS, shadow, broker-reconciliation and human-promotion chain tracked in `strategy_registry`. Strategy packs are explicitly `influences_live_ranking=false` until promoted. Live performance can only *retire* a strategy, never *refit* its entry rules.
 
 ## Two Scoring Engines — Don't Confuse Them
 
@@ -618,11 +620,22 @@ get filled on is not actionable.
 ## Testing
 
 ```bash
-pip install -e ".[dev]"
+pip install -c constraints.txt -e ".[dev]"
 python -m pytest -q tests/        # Full regression suite
 python scripts/smoke_test.py      # 13 integration checks
 python scripts/validate_cron_manifest.py
+python scripts/check_maintainability_budget.py --base-ref origin/main
 ```
+
+## Validation and release status
+
+The repository contains the P2 control plane needed to collect and evaluate
+point-in-time OOS, walk-forward, independent-cluster, cost/capacity, shadow,
+and broker-reconciliation evidence. These controls do not manufacture the
+evidence. Production promotion remains blocked until at least 60 verified
+A-share trading days, the versioned shadow window, repository-computed
+statistics, and broker reconciliation all pass. A strategy has zero live
+weight before those gates and explicit human approval.
 
 ## Disclaimer
 

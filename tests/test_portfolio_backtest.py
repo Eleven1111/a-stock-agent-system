@@ -90,12 +90,37 @@ def test_replay_enforces_t1_and_rejects_sealed_limit_up():
     assert result["trades"][0]["code"] == "600001"
     assert result["trades"][0]["entry_date"] == "2026-01-06"
     assert result["trades"][0]["exit_date"] == "2026-01-07"
-    assert result["trades"][0]["net_return"] == pytest.approx(0.1)
-    assert result["metrics"]["final_equity"] == pytest.approx(105000.0)
+    trade = result["trades"][0]
+    assert trade["net_return"] == pytest.approx(trade["pnl"] / trade["entry_cost"])
+    assert trade["net_return"] < 0.1
+    assert trade["cost_estimate"]["applied_to_equity"] is True
+    assert result["metrics"]["final_equity"] == pytest.approx(
+        100000.0 + trade["pnl"]
+    )
+    assert result["metrics"]["final_equity"] < 105000.0
     assert result["metrics"]["benchmark_return"] == pytest.approx(0.02)
     assert result["metrics"]["turnover"] > 0
     assert any(
         row["code"] == "600002" and row["reason"] == "entry_limit_up_sealed"
+        for row in result["rejections"]
+    )
+
+
+def test_limit_up_open_is_not_filled_using_later_intraday_low():
+    payload = _payload(top_n=1)
+    entry_bar = payload["bars_by_code"]["600001"][1]
+    entry_bar.update({
+        "open": 11.0,
+        "high": 11.0,
+        "low": 10.5,
+        "close": 10.8,
+    })
+
+    result = portfolio_backtest.run_portfolio(payload)
+
+    assert result["metrics"]["closed_trades"] == 0
+    assert any(
+        row["code"] == "600001" and row["reason"] == "entry_limit_up_open"
         for row in result["rejections"]
     )
 

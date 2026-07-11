@@ -22,8 +22,10 @@ if COMMON_DIR not in sys.path:
     sys.path.insert(0, COMMON_DIR)
 
 from http_client import DataSourceError, request_bytes, request_json, request_text
+from paths import cache_dir
+from provider_contract import transport_contract
 
-CACHE_DIR = os.path.expanduser("~/.hermes/data")
+CACHE_DIR = cache_dir("stock-analyst")
 CACHE_DB = os.path.join(CACHE_DIR, "stock_cache.db")
 CACHE_TTL = 3600  # 1小时，盘中高频刷新
 
@@ -33,7 +35,7 @@ def get_db():
     conn = sqlite3.connect(CACHE_DB)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=OFF")
+    conn.execute("PRAGMA synchronous=FULL")
     _init_schema(conn)
     return conn
 
@@ -54,6 +56,19 @@ def _init_schema(conn):
         );
         CREATE INDEX IF NOT EXISTS idx_kline_code ON daily_kline(code);
         CREATE INDEX IF NOT EXISTS idx_kline_date ON daily_kline(date);
+
+        CREATE TABLE IF NOT EXISTS kline_cache_v2 (
+            code TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            adjustment TEXT NOT NULL,
+            event_asof TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            cached_at INTEGER NOT NULL,
+            schema_version TEXT NOT NULL,
+            PRIMARY KEY (code, provider, adjustment, event_asof)
+        );
+        CREATE INDEX IF NOT EXISTS idx_kline_v2_lookup
+            ON kline_cache_v2(code, adjustment, event_asof, cached_at);
 
         CREATE TABLE IF NOT EXISTS realtime_quotes (
             code TEXT PRIMARY KEY,
@@ -102,35 +117,116 @@ def clear_cache(code=None, days=0):
     conn = get_db()
     if code:
         conn.execute("DELETE FROM daily_kline WHERE code=?", (code,))
+        conn.execute("DELETE FROM kline_cache_v2 WHERE code=?", (code,))
     elif days > 0:
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         conn.execute("DELETE FROM daily_kline WHERE date<?", (cutoff,))
+        conn.execute("DELETE FROM kline_cache_v2 WHERE event_asof<?", (cutoff,))
+    else:
+        conn.execute("DELETE FROM kline_cache_v2")
     conn.commit()
     conn.close()
 
-def get_kline_cache(code: str) -> Optional[List[Dict]]:
-    """从缓存获取K线"""
+def read_kline_cache(
+    code: str,
+    *,
+    provider: Optional[str] = None,
+    adjustment: str = "qfq",
+    event_asof: Optional[str] = None,
+    now_epoch: Optional[int] = None,
+) -> Dict:
+    """Read a provenance-bound K-line cache record with explicit degradation."""
+    event_asof = event_asof or datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM daily_kline WHERE code=? ORDER BY date", (code,)
-    ).fetchall()
+    if provider:
+        row = conn.execute(
+            """SELECT * FROM kline_cache_v2
+               WHERE code=? AND provider=? AND adjustment=? AND event_asof=?""",
+            (code, provider, adjustment, event_asof),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """SELECT * FROM kline_cache_v2
+               WHERE code=? AND adjustment=? AND event_asof=?
+               ORDER BY cached_at DESC LIMIT 1""",
+            (code, adjustment, event_asof),
+        ).fetchone()
     conn.close()
-    if not rows:
-        return None
-    return [dict(r) for r in rows]
+    if row is None:
+        return {"status": "cache_miss", "data": None}
+    try:
+        payload = json.loads(row["payload"])
+    except (TypeError, json.JSONDecodeError):
+        return {"status": "cache_corrupt", "data": None, "provider": row["provider"]}
+    if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+        return {"status": "cache_corrupt", "data": None, "provider": row["provider"]}
+    age = int(now_epoch or time.time()) - int(row["cached_at"])
+    if age < 0 or age > CACHE_TTL:
+        return {
+            "status": "cache_stale",
+            "data": None,
+            "provider": row["provider"],
+            "age_seconds": age,
+        }
+    return {
+        "status": "ok",
+        "data": payload,
+        "provider": row["provider"],
+        "adjustment": row["adjustment"],
+        "event_asof": row["event_asof"],
+        "cached_at": row["cached_at"],
+        "schema_version": row["schema_version"],
+    }
 
-def save_kline_cache(code: str, data: List[Dict], source="tencent"):
-    """保存K线到缓存"""
+
+def get_kline_cache(
+    code: str,
+    *,
+    provider: Optional[str] = None,
+    adjustment: str = "qfq",
+    event_asof: Optional[str] = None,
+) -> Optional[List[Dict]]:
+    """Compatibility reader: only fresh, valid cache data is returned."""
+    result = read_kline_cache(
+        code,
+        provider=provider,
+        adjustment=adjustment,
+        event_asof=event_asof,
+    )
+    return result["data"] if result["status"] == "ok" else None
+
+
+def save_kline_cache(
+    code: str,
+    data: List[Dict],
+    source: str = "tencent",
+    *,
+    adjustment: str = "qfq",
+    event_asof: Optional[str] = None,
+    cached_at: Optional[int] = None,
+):
+    """Save K-lines under provider/adjustment/asof identity."""
+    if not source or adjustment not in {"qfq", "hfq", "unadjusted", "none"}:
+        raise ValueError("provider and known adjustment are required")
+    if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+        raise ValueError("K-line cache payload must be a list of objects")
     conn = get_db()
-    now = int(time.time())
-    for row in data:
-        conn.execute("""
-            INSERT OR REPLACE INTO daily_kline
-            (code, date, open, high, low, close, volume, amount, source, cached_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
-        """, (code, row['date'], row.get('open'), row.get('high'),
-              row.get('low'), row.get('close'), row.get('volume'),
-              row.get('amount', 0), source, now))
+    now = int(cached_at or time.time())
+    event_asof = event_asof or datetime.now().strftime("%Y-%m-%d")
+    conn.execute(
+        """INSERT OR REPLACE INTO kline_cache_v2
+           (code, provider, adjustment, event_asof, payload, cached_at, schema_version)
+           VALUES (?,?,?,?,?,?,?)""",
+        (
+            code,
+            source,
+            adjustment,
+            event_asof,
+            json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            now,
+            "kline_cache_v2",
+        ),
+    )
     conn.commit()
     conn.close()
 
@@ -179,7 +275,7 @@ def fetch_kline_from_tencent(code: str, days=120, period="day") -> Optional[List
     period_map = {"day": "day", "week": "week", "month": "month"}
     tz_period = period_map.get(period, "day")
 
-    url = f"http://ifzq.gtimg.cn/appstock/app/fqkline/get?param={api_code},{tz_period},,,{days},qfq"
+    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={api_code},{tz_period},,,{days},qfq"
 
     try:
         data = request_json(
@@ -360,13 +456,15 @@ def fetch_realtime(codes: List[str]) -> Dict:
         prefix_map[api] = c
 
     url = f"http://qt.gtimg.cn/q={','.join(api_codes)}"
-    raw = request_bytes(
+    response = request_bytes(
         url,
         source="tencent",
         timeout=10,
         max_attempts=2,
         headers={"User-Agent": "Mozilla/5.0"},
-    ).data
+    )
+    raw = response.data
+    trust = transport_contract(url)
 
     try:
         text = raw.decode('gbk')
@@ -401,6 +499,10 @@ def fetch_realtime(codes: List[str]) -> Dict:
                 'turnover_rate': float(parts[38]) if parts[38] else 0,
                 'pe': float(parts[39]) if parts[39] else 0,
                 'total_mv': float(parts[45]) if len(parts) > 45 and parts[45] else 0,
+                'provider': 'tencent',
+                'fetched_at': response.fetched_at,
+                'transport_trust': trust['trust'],
+                'directional_eligible': trust['directional_eligible'],
             }
         except (ValueError, IndexError):
             continue
