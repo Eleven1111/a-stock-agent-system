@@ -6,5 +6,5 @@ adata==2.9.5
 pandas==2.3.3
 numpy==2.2.6
 pyyaml==6.0.3
-pytest==8.4.2
+pytest==9.1.1
 ruff==0.15.20
