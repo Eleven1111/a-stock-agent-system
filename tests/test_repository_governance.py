@@ -16,6 +16,9 @@ def test_public_repository_has_required_governance_files():
         "CHANGELOG.md",
         "constraints.txt",
         ".github/CODEOWNERS",
+        ".github/workflows/codeql.yml",
+        ".github/rulesets/main.json",
+        "docs/issue-94-ci-governance.md",
     ):
         assert (ROOT / relative).is_file(), relative
 
@@ -57,3 +60,54 @@ def test_constraints_cover_every_direct_runtime_dependency():
     constraints = (ROOT / "constraints.txt").read_text(encoding="utf-8").lower()
     for package in ("yfinance", "akshare", "adata", "pandas", "numpy", "pyyaml"):
         assert f"{package}==" in constraints
+
+
+def test_codeql_is_pinned_and_covers_pull_requests_and_main():
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/codeql.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    assert set(workflow["on"]) == {
+        "workflow_dispatch",
+        "push",
+        "pull_request",
+        "schedule",
+    }
+    assert workflow["on"]["push"]["branches"] == ["main"]
+    assert workflow["on"]["pull_request"]["branches"] == ["main"]
+    assert workflow["permissions"] == {
+        "contents": "read",
+        "packages": "read",
+        "security-events": "write",
+    }
+    job = workflow["jobs"]["analyze"]
+    assert job["name"] == "CodeQL (python)"
+    uses = [step["uses"] for step in job["steps"] if step.get("uses")]
+    assert all(len(value.rsplit("@", 1)[1]) == 40 for value in uses)
+    assert any(value.startswith("github/codeql-action/init@") for value in uses)
+    assert any(value.startswith("github/codeql-action/analyze@") for value in uses)
+
+
+def test_versioned_main_ruleset_has_no_bypass_and_requires_ci_and_pr():
+    import json
+
+    ruleset = json.loads(
+        (ROOT / ".github/rulesets/main.json").read_text(encoding="utf-8")
+    )
+    assert ruleset["enforcement"] == "active"
+    assert ruleset["bypass_actors"] == []
+    assert ruleset["conditions"]["ref_name"]["include"] == ["~DEFAULT_BRANCH"]
+    rules = {rule["type"]: rule for rule in ruleset["rules"]}
+    assert {"deletion", "non_fast_forward", "pull_request", "required_status_checks"} <= set(rules)
+    pull_request = rules["pull_request"]["parameters"]
+    assert pull_request["required_approving_review_count"] == 0
+    assert pull_request["dismiss_stale_reviews_on_push"] is False
+    assert pull_request["require_last_push_approval"] is False
+    assert pull_request["required_review_thread_resolution"] is True
+    required = rules["required_status_checks"]["parameters"]
+    assert required["strict_required_status_checks_policy"] is True
+    assert required["do_not_enforce_on_create"] is False
+    assert [item["context"] for item in required["required_status_checks"]] == [
+        "Python 3.10",
+        "Python 3.13",
+    ]
