@@ -64,6 +64,20 @@ def test_same_window_auction_and_open_pushes_are_merged():
     assert open_brief["deliver"] == "origin"
 
 
+def test_paper_trading_jobs_are_research_only_and_dag_ordered():
+    open_job = _manifest_job("paper-trading-open")
+    monitor_job = _manifest_job("paper-trading-monitor")
+    close_job = _manifest_job("paper-trading-close")
+
+    assert open_job["context_from"] == ["open-confirmation"]
+    assert monitor_job["context_from"] == ["paper-trading-open"]
+    assert close_job["context_from"] == ["paper-trading-monitor"]
+    for job in (open_job, monitor_job, close_job):
+        assert job["deliver"] == "local"
+        assert "paper_trading_runner.py" in job["run"]["command"]
+        assert "signal_ledger.jsonl" in " ".join(job["allowed_state_writes"])
+
+
 def test_pure_notification_jobs_push_feishu_direct_and_skip_agent_context():
     for job_id in (
         "capital-flow",
