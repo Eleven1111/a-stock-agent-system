@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from crowding_fragility import build_market_crowding_fragility, sector_crowding_fragility
 from market_temperature import classify_market_state, temperature_from_context
+from reflexivity import assess_candidate
 from sector_taxonomy import resolve_sector
 from social_attention import theme_attention_evidence
 from tradeability import limit_pct
@@ -438,6 +439,9 @@ def apply_leader_identity(
         )
         for rank, item in enumerate(ordered, 1):
             sector_state = sector_states.get(sector, {})
+            ladder_entry = dict(ladder.get(_code(item.get("code"))) or {})
+            if ladder_entry.get("first_seal") and not item.get("first_seal"):
+                item["first_seal"] = ladder_entry["first_seal"]
             item["sector_rank"] = sector_state.get("rank")
             item["sector_state"] = sector_state.get("state")
             item["sector_evidence_types"] = list(
@@ -478,6 +482,7 @@ def apply_leader_identity(
                 )
                 if failed
             ]
+            item["reflexivity"] = assess_candidate(item, state)
     return output
 
 
@@ -525,6 +530,7 @@ def selection_context_for(
             "market_state_label": market_state.get("dominant_label"),
             "state_risk_off": bool(market_state.get("risk_off")),
             "weak_market": dict(market.get("weak_market") or {}),
+            "reflexivity": dict(candidate.get("reflexivity") or {}),
         },
         "sector": {
             "name": sector_name or None,
@@ -635,6 +641,7 @@ def compact_selection_context(context: Mapping[str, Any] | None) -> dict[str, An
         "daban_ready": bool(market.get("daban_ready")),
         "crowding_score": market.get("crowding_score"),
         "fragility_score": market.get("fragility_score"),
+        "reflexivity": dict(market.get("reflexivity") or {}),
         "dominant_state": market.get("dominant_state"),
         "weak_market_status": (market.get("weak_market") or {}).get("status"),
         "sector": sector.get("name"),

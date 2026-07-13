@@ -1,4 +1,5 @@
 import json
+import pytest
 
 import lifecycle_analytics as la
 
@@ -175,3 +176,143 @@ def test_load_settled_records_filters_and_tags_day(tmp_path, monkeypatch):
     assert len(records) == 1
     assert records[0]["code"] == "600000"
     assert records[0]["asof"] == "2026-06-25"
+
+
+def test_reflexivity_ablation_measures_cost_adjusted_risk_reduction():
+    records = [
+        {
+            "code": "600001",
+            "reflexivity": {
+                "phase": "distribution",
+                "defensive_guards": ["leader_isolation_exit_v1"],
+                "risk_multiplier": 0.0,
+            },
+            "outcome": {
+                "resolved": True,
+                "t3_close_ret": -8.0,
+                "max_drawdown": -12.0,
+            },
+        },
+        {
+            "code": "600002",
+            "reflexivity": {
+                "phase": "saturation",
+                "defensive_guards": ["algorithmic_false_consensus_guard_v1"],
+                "risk_multiplier": 0.5,
+            },
+            "outcome": {
+                "resolved": True,
+                "t3_close_ret": -4.0,
+                "max_drawdown": -7.0,
+            },
+        },
+        {
+            "code": "600003",
+            "reflexivity": {
+                "phase": "diffusion",
+                "defensive_guards": [],
+                "risk_multiplier": 1.0,
+            },
+            "outcome": {
+                "resolved": True,
+                "t3_close_ret": 6.0,
+                "max_drawdown": -2.0,
+            },
+        },
+    ]
+
+    report = la.reflexivity_ablation(
+        records, outcome_key="t3_close_ret", round_trip_cost_bps=20
+    )
+
+    assert report["status"] == "ok"
+    assert report["sample_size"] == 3
+    assert report["guarded_count"] == 2
+    assert report["baseline"]["mean_net_ret"] == -2.2
+    assert report["reflexivity"]["mean_net_ret"] == 1.2
+    assert report["delta"]["mean_net_ret"] == 3.4
+    assert report["delta"]["worst_case_ret"] > 0
+    assert report["guards"]["leader_isolation_exit_v1"]["sample_size"] == 1
+
+
+def test_reflexivity_ablation_rejects_unresolved_and_unknown_records():
+    records = [
+        {"code": "1", "reflexivity": {}, "outcome": {"resolved": True, "t3_close_ret": 2}},
+        {
+            "code": "2",
+            "reflexivity": {"phase": "distribution", "risk_multiplier": 0.0},
+            "outcome": {"resolved": False, "t3_close_ret": -9},
+        },
+    ]
+
+    report = la.reflexivity_ablation(records)
+
+    assert report["status"] == "insufficient_data"
+    assert report["sample_size"] == 0
+    assert report["excluded"]["unknown_reflexivity"] == 1
+    assert report["excluded"]["unresolved"] == 1
+
+
+def test_reflexivity_ablation_merges_policy_guard_from_stage_details():
+    records = [{
+        "code": "600004",
+        "reflexivity": {
+            "phase": "saturation",
+            "defensive_guards": [],
+            "risk_multiplier": 1.0,
+        },
+        "stage_history": [{
+            "stage": "auction_shortlist",
+            "selected": True,
+            "details": {
+                "policy_reasons": ["reflexivity_institution_distribution"],
+                "position_multiplier": 0.0,
+            },
+        }],
+        "outcome": {"resolved": True, "t3_close_ret": -5.0},
+    }]
+
+    report = la.reflexivity_ablation(records, round_trip_cost_bps=0)
+
+    guard = report["guards"]["institution_distribution_guard_v1"]
+    assert report["guarded_count"] == 1
+    assert guard["mean_delta"] == 5.0
+
+
+def test_reflexivity_ablation_rejects_negative_transaction_cost():
+    with pytest.raises(ValueError, match="round_trip_cost_bps"):
+        la.reflexivity_ablation([], round_trip_cost_bps=-1)
+
+
+def test_reflexivity_ablation_refuses_to_pool_mixed_config_versions():
+    records = [
+        {
+            "code": "600001",
+            "reflexivity": {
+                "phase": "diffusion", "risk_multiplier": 1.0,
+                "strategy_version": "v1", "config_sha256": "a" * 64,
+            },
+            "outcome": {"resolved": True, "t3_close_ret": 2.0},
+        },
+        {
+            "code": "600002",
+            "reflexivity": {
+                "phase": "distribution", "risk_multiplier": 0.0,
+                "strategy_version": "v2", "config_sha256": "b" * 64,
+            },
+            "outcome": {"resolved": True, "t3_close_ret": -2.0},
+        },
+    ]
+
+    report = la.reflexivity_ablation(records)
+
+    assert report["status"] == "mixed_versions"
+    assert report["sample_size"] == 0
+    assert set(report["versions"]) == {"a" * 64, "b" * 64}
+
+    filtered = la.reflexivity_ablation(
+        records, expected_config_sha256="a" * 64
+    )
+    assert filtered["status"] == "ok"
+    assert filtered["sample_size"] == 1
+    assert filtered["excluded"]["config_mismatch"] == 1

@@ -220,6 +220,68 @@ def test_crowding_guard_fails_open_when_scores_missing(monkeypatch):
     assert not any("crowding_climax" in reason for reason in result["reasons"])
 
 
+def test_reflexivity_leader_isolation_blocks_new_daban_position():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        strategy_lane="daban",
+        market_crowding={
+            "reflexivity": {
+                "status": "ready",
+                "phase": "distribution",
+                "defensive_guards": ["leader_isolation_exit_v1"],
+                "risk_multiplier": 0.0,
+            }
+        },
+    )
+
+    assert result["decision"] == "watch"
+    assert result["position_multiplier"] == 0.0
+    assert "reflexivity_leader_isolation" in result["reasons"]
+
+
+def test_institution_distribution_plus_retail_crowding_blocks_chasing():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        research_evidence={
+            "market_intelligence": {
+                "available": True,
+                "directional_ready": True,
+                "hard_risks": [],
+                "warnings": ["institutional_lhb_net_sell"],
+            }
+        },
+        market_crowding={"crowding_score": 0.75},
+    )
+
+    assert result["decision"] == "avoid"
+    assert result["position_multiplier"] == 0.0
+    assert "reflexivity_institution_distribution" in result["reasons"]
+
+
+def test_reflexivity_positive_phase_never_bypasses_strategy_registry():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=None,
+        market_crowding={
+            "reflexivity": {
+                "status": "ready",
+                "phase": "diffusion",
+                "positive_admission": False,
+                "risk_multiplier": 1.0,
+            }
+        },
+    )
+
+    assert result["decision"] == "watch"
+    assert result["position_multiplier"] == 0.0
+    assert "strategy_unverified" in result["reasons"]
+
+
 def test_crowding_guard_skips_below_threshold(monkeypatch):
     monkeypatch.setenv("HERMES_CROWDING_GUARD", "enforce")
     result = decision_policy.evaluate_decision(

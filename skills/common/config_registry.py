@@ -36,6 +36,11 @@ SPECS: dict[str, dict[str, Any]] = {
         "format": "yaml",
         "required_roots": {"version", "eastmoney", "wencai", "queries"},
     },
+    "reflexivity_strategy": {
+        "filename": "reflexivity_strategy.json",
+        "format": "json",
+        "required_roots": {"schema", "version", "thresholds"},
+    },
     "scoring": {
         "filename": "scoring.yaml",
         "format": "yaml",

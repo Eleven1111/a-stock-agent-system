@@ -280,7 +280,16 @@ def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch)
         "trend_score": 20,
         "hot_money_qualified": True,
         "selected_by": {"daban": True, "trend": False},
-        "selection_context": {"window": "D0_close"},
+        "selection_context": {
+            "window": "D0_close",
+            "market_timing": {
+                "reflexivity": {
+                    "phase": "distribution",
+                    "defensive_guards": ["leader_isolation_exit_v1"],
+                    "risk_multiplier": 0.0,
+                }
+            },
+        },
     }
     atomic_write_json(ac._pool_path(), {
         "status": "ready",
@@ -315,6 +324,10 @@ def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch)
     assert report["top_candidates"][0]["sector"] == "半导体"
     assert report["top_candidates"][0]["strategy_id"] == "daban:mainline_leader_confirm"
     assert "factors" not in report
+    lifecycle = candidate_lifecycle.load_day(source_asof)
+    event = lifecycle["records"][0]["stage_history"][-1]
+    assert event["details"]["reflexivity"]["phase"] == "distribution"
+    assert "policy_reasons" in event["details"]
 
 
 def test_finalize_passes_selection_market_risk_to_policy(tmp_path, monkeypatch):

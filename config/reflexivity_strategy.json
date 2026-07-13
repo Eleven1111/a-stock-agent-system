@@ -1,0 +1,15 @@
+{
+  "schema": "reflexivity_strategy_config_v1",
+  "version": "reflexivity-v1",
+  "thresholds": {
+    "crowding_climax": 0.6,
+    "fragility_climax": 0.55,
+    "multi_source_min": 2,
+    "open_burst_after": "09:25",
+    "open_burst_until": "09:31",
+    "algorithmic_pattern_probability": 0.65,
+    "open_burst_pattern_probability": 0.25,
+    "hot_money_probability": 0.8,
+    "algorithmic_guard_multiplier": 0.5
+  }
+}
