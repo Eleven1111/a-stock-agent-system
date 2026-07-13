@@ -2,23 +2,32 @@
 
 from __future__ import annotations
 
-import os
-import sys
+import importlib.util
+from pathlib import Path
 from typing import Any
 
 from deep_research_cache import read_deep_research
 from stock_intelligence import read_cache as read_stock_intelligence
 import strategy_registry
 
-_CHANLUN_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "chanlun-backtest", "scripts")
+_CHANLUN_FILE = (
+    Path(__file__).resolve().parents[1] / "chanlun-backtest" / "scripts" / "chan_structure.py"
 )
-if _CHANLUN_DIR not in sys.path:
-    sys.path.insert(0, _CHANLUN_DIR)
-try:
-    import chan_structure
-except ImportError:
-    chan_structure = None
+
+
+def _load_chan_structure():
+    spec = importlib.util.spec_from_file_location("research_chan_structure", _CHANLUN_FILE)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except ImportError:
+        return None
+    return module
+
+
+chan_structure = _load_chan_structure()
 
 
 HARD_RISK_DIMENSIONS = {

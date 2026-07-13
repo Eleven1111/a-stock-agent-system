@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
+import site
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
@@ -14,8 +14,7 @@ from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 COMMON = os.path.abspath(os.path.join(HERE, "..", "..", "common"))
-if COMMON not in sys.path:
-    sys.path.insert(0, COMMON)
+site.addsitedir(COMMON)
 
 from config_registry import load_registered  # noqa: E402
 from market_adapters import fetch_tencent_snapshot  # noqa: E402
@@ -47,6 +46,102 @@ def _normalize_quotes(quotes: Mapping[str, Mapping[str, Any]]) -> dict[str, dict
 def _candidate_links(candidate: Mapping[str, Any]) -> dict[str, Any] | None:
     links = candidate.get("ledger_links") or candidate.get("links")
     return dict(links) if isinstance(links, Mapping) else None
+
+
+def _append_rejection(
+    candidate: Mapping[str, Any],
+    gate: Mapping[str, Any],
+    *,
+    asof: str,
+    observed_at: str,
+    reason: str,
+    config: Mapping[str, Any],
+    **details: Any,
+) -> None:
+    code = _code(candidate.get("code"))
+    store.append_paper_event(
+        "paper.order.rejected",
+        payload={
+            "asof": asof,
+            "observed_at": observed_at,
+            "code": code,
+            "reason": reason,
+            **details,
+            "gate": gate,
+        },
+        idempotency_key=f"paper.order.rejected:{asof}:{code}:{reason}",
+        config=config,
+        links=_candidate_links(candidate),
+    )
+
+
+def _process_open_candidate(
+    account: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    quotes: Mapping[str, Mapping[str, Any]],
+    *,
+    asof: str,
+    observed_at: str,
+    config: Mapping[str, Any],
+    risk: Mapping[str, Any],
+    discipline: Mapping[str, Any],
+    source_snapshot: Mapping[str, Any],
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    code = _code(candidate.get("code"))
+    gate = paper_trading.evaluate_entry_gate(candidate, config)
+    evaluation = {"code": code, "allowed": gate["allowed"], "reason": gate["reason"]}
+    store.append_paper_event(
+        "paper.candidate_evaluated",
+        payload={
+            "asof": asof,
+            "observed_at": observed_at,
+            "code": code,
+            "name": candidate.get("name"),
+            "open_score": candidate.get("open_score"),
+            "recommendation_decision": candidate.get("decision"),
+            "gate": gate,
+            "source_snapshot": dict(source_snapshot),
+        },
+        idempotency_key=f"paper.candidate_evaluated:{asof}:{code}",
+        config=config,
+        links=_candidate_links(candidate),
+    )
+    if not gate["allowed"]:
+        _append_rejection(
+            candidate, gate, asof=asof, observed_at=observed_at,
+            reason=str(gate["reason"]), config=config,
+        )
+        return dict(account), "rejected", evaluation
+    trade_key = f"paper.trade.filled:{asof}:{code}:buy"
+    if store.event_exists("paper.trade.filled", trade_key):
+        return dict(account), "reused", evaluation
+    if discipline.get("blocked"):
+        _append_rejection(
+            candidate, gate, asof=asof, observed_at=observed_at,
+            reason="paper_discipline_blocked", config=config,
+            discipline_state=dict(discipline),
+        )
+        return dict(account), "rejected", evaluation
+    outcome = paper_trading.simulate_buy(
+        account, candidate, quotes.get(code) or {}, asof=asof,
+        observed_at=observed_at, config=config, risk=risk,
+    )
+    if outcome["status"] != "filled":
+        _append_rejection(
+            candidate, gate, asof=asof, observed_at=observed_at,
+            reason=str(outcome["reason"]), config=config,
+        )
+        return dict(account), "rejected", evaluation
+    updated = dict(outcome["account"])
+    store.append_paper_event(
+        "paper.trade.filled",
+        payload={"trade": outcome["trade"], "gate": gate, "live_order_sent": False},
+        idempotency_key=trade_key,
+        config=config,
+        account_after=updated,
+        links=_candidate_links(candidate),
+    )
+    return updated, "filled", evaluation
 
 
 def run_open(
@@ -85,87 +180,15 @@ def run_open(
         key=lambda item: (-float(item.get("open_score") or 0), _code(item.get("code"))),
     )
     for candidate in candidates:
-        code = _code(candidate.get("code"))
-        gate = paper_trading.evaluate_entry_gate(candidate, config)
-        evaluation_key = f"paper.candidate_evaluated:{asof}:{code}"
-        store.append_paper_event(
-            "paper.candidate_evaluated",
-            payload={
-                "asof": asof,
-                "observed_at": observed_at,
-                "code": code,
-                "name": candidate.get("name"),
-                "open_score": candidate.get("open_score"),
-                "recommendation_decision": candidate.get("decision"),
-                "gate": gate,
-                "source_snapshot": dict(surface.get("input_snapshot") or {}),
-            },
-            idempotency_key=evaluation_key,
-            config=config,
-            links=_candidate_links(candidate),
+        account, result, evaluation = _process_open_candidate(
+            account, candidate, normalized_quotes, asof=asof,
+            observed_at=observed_at, config=config, risk=risk, discipline=discipline,
+            source_snapshot=surface.get("input_snapshot") or {},
         )
-        evaluations.append({"code": code, "allowed": gate["allowed"], "reason": gate["reason"]})
-        if not gate["allowed"]:
-            rejected += 1
-            store.append_paper_event(
-                "paper.order.rejected",
-                payload={"asof": asof, "observed_at": observed_at, "code": code, "reason": gate["reason"], "gate": gate},
-                idempotency_key=f"paper.order.rejected:{asof}:{code}:{gate['reason']}",
-                config=config,
-                links=_candidate_links(candidate),
-            )
-            continue
-        trade_key = f"paper.trade.filled:{asof}:{code}:buy"
-        if store.event_exists("paper.trade.filled", trade_key):
-            reused += 1
-            continue
-        if discipline.get("blocked"):
-            rejected += 1
-            store.append_paper_event(
-                "paper.order.rejected",
-                payload={
-                    "asof": asof,
-                    "observed_at": observed_at,
-                    "code": code,
-                    "reason": "paper_discipline_blocked",
-                    "discipline_state": discipline,
-                    "gate": gate,
-                },
-                idempotency_key=f"paper.order.rejected:{asof}:{code}:paper_discipline_blocked",
-                config=config,
-                links=_candidate_links(candidate),
-            )
-            continue
-        quote = normalized_quotes.get(code) or {}
-        outcome = paper_trading.simulate_buy(
-            account,
-            candidate,
-            quote,
-            asof=asof,
-            observed_at=observed_at,
-            config=config,
-            risk=risk,
-        )
-        if outcome["status"] != "filled":
-            rejected += 1
-            store.append_paper_event(
-                "paper.order.rejected",
-                payload={"asof": asof, "observed_at": observed_at, "code": code, "reason": outcome["reason"], "gate": gate},
-                idempotency_key=f"paper.order.rejected:{asof}:{code}:{outcome['reason']}",
-                config=config,
-                links=_candidate_links(candidate),
-            )
-            continue
-        account = outcome["account"]
-        filled += 1
-        store.append_paper_event(
-            "paper.trade.filled",
-            payload={"trade": outcome["trade"], "gate": gate, "live_order_sent": False},
-            idempotency_key=trade_key,
-            config=config,
-            account_after=account,
-            links=_candidate_links(candidate),
-        )
+        evaluations.append(evaluation)
+        filled += result == "filled"
+        rejected += result == "rejected"
+        reused += result == "reused"
     return {
         "schema": "paper_trading_open_run_v1",
         "status": "ok",

@@ -215,6 +215,96 @@ def _sell_price(price: float, config: Mapping[str, Any]) -> float:
     return round(price * (1 - float(config["execution"]["slippage_bps"]) / 10_000), 2)
 
 
+def _rejected_buy(
+    state: Mapping[str, Any], reason: str, gate: Mapping[str, Any], **details: Any
+) -> dict[str, Any]:
+    return {
+        "status": "rejected",
+        "reason": reason,
+        **details,
+        "gate": dict(gate),
+        "account": state,
+    }
+
+
+def _buy_terms(
+    state: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    quote: Mapping[str, Any],
+    *,
+    asof: str,
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    signal_price = _number(quote.get("price"))
+    fill_price = _buy_price(signal_price, config)
+    maximum = _number((candidate.get("execution_plan") or {}).get("max_chase_price"))
+    if maximum > 0 and fill_price > maximum:
+        return {"status": "rejected", "reason": "maximum_chase_price_exceeded"}
+    position_pct = _number((candidate.get("execution_plan") or {}).get("position_pct"))
+    if position_pct <= 0:
+        return {"status": "rejected", "reason": "position_size_unavailable"}
+    assets = portfolio_value(state)
+    cash_buffer = assets * float(config["account"]["cash_buffer_pct"]) / 100
+    budget = min(
+        assets * position_pct / 100,
+        max(0.0, _number(state.get("cash")) - cash_buffer),
+    )
+    lot_size = int(config["account"]["lot_size"])
+    shares = int(budget // (fill_price * lot_size)) * lot_size
+    fee: Mapping[str, Any] = {}
+    gross = total = 0.0
+    while shares > 0:
+        gross = fill_price * shares
+        fee = estimate_trade_cost("buy", gross, asof=asof)
+        total = gross + _number(fee.get("total"))
+        if total <= _number(state.get("cash")) and total <= budget:
+            break
+        shares -= lot_size
+    if shares <= 0:
+        return {"status": "rejected", "reason": "insufficient_cash_for_round_lot"}
+    return {
+        "status": "ready",
+        "signal_price": signal_price,
+        "fill_price": fill_price,
+        "shares": shares,
+        "gross": gross,
+        "fee": fee,
+        "total": total,
+        "assets": assets,
+    }
+
+
+def _position_from_buy(
+    candidate: Mapping[str, Any], gate: Mapping[str, Any], terms: Mapping[str, Any]
+) -> dict[str, Any]:
+    code = _code(candidate.get("code"))
+    plan = candidate.get("execution_plan") or {}
+    fill_price = _number(terms.get("fill_price"))
+    return {
+        "code": code,
+        "name": str(candidate.get("name") or code),
+        "shares": int(terms["shares"]),
+        "average_cost": fill_price,
+        "cost": fill_price,
+        "buy_date": terms["asof"],
+        "peak_price": fill_price,
+        "sector": terms["sector"],
+        "strategy_id": candidate.get("strategy_id"),
+        "lane": plan.get("strategy_lane")
+        or ("daban" if str(candidate.get("strategy_id") or "").startswith("daban") else "trend"),
+        "stop_price": plan.get("stop_price"),
+        "target_price": plan.get("target_price"),
+        "target_price_2": plan.get("target_price_2"),
+        "entry_evidence": {
+            "recommendation": {
+                "decision": candidate.get("decision"),
+                "open_score": candidate.get("open_score"),
+            },
+            "chanlun": dict(gate["chanlun"]["bullish"]),
+        },
+    }
+
+
 def simulate_buy(
     account: Mapping[str, Any],
     candidate: Mapping[str, Any],
@@ -227,80 +317,47 @@ def simulate_buy(
 ) -> dict[str, Any]:
     gate = evaluate_entry_gate(candidate, config)
     if not gate["allowed"]:
-        return {"status": "rejected", "reason": gate["reason"], "gate": gate, "account": deepcopy(account)}
+        return _rejected_buy(deepcopy(account), str(gate["reason"]), gate)
     state = deepcopy(account)
     code = _code(candidate.get("code"))
     if any(_code(item.get("code")) == code for item in state.get("positions") or []):
-        return {"status": "rejected", "reason": "duplicate_open_position", "gate": gate, "account": state}
+        return _rejected_buy(state, "duplicate_open_position", gate)
     if len(state.get("positions") or []) >= int(config["account"]["max_positions"]):
-        return {"status": "rejected", "reason": "max_positions_reached", "gate": gate, "account": state}
+        return _rejected_buy(state, "max_positions_reached", gate)
     fresh, reason = _fresh_quote(quote, observed_at=observed_at, config=config)
     if not fresh:
-        return {"status": "rejected", "reason": reason, "gate": gate, "account": state}
+        return _rejected_buy(state, reason, gate)
     tradeability = assess_tradeability(dict(quote), code, str(candidate.get("name") or ""))
     if tradeability.get("tradeable") is not True:
         queue_reason = "limit_queue_unobservable" if tradeability.get("status") in {"limit_up", "limit_up_sealed"} else "not_tradeable"
-        return {"status": "rejected", "reason": queue_reason, "tradeability": tradeability, "gate": gate, "account": state}
-
-    signal_price = _number(quote.get("price"))
-    fill_price = _buy_price(signal_price, config)
-    maximum = _number((candidate.get("execution_plan") or {}).get("max_chase_price"))
-    if maximum > 0 and fill_price > maximum:
-        return {"status": "rejected", "reason": "maximum_chase_price_exceeded", "gate": gate, "account": state}
-    position_pct = _number((candidate.get("execution_plan") or {}).get("position_pct"))
-    if position_pct <= 0:
-        return {"status": "rejected", "reason": "position_size_unavailable", "gate": gate, "account": state}
-    assets = portfolio_value(state)
-    cash_buffer = assets * float(config["account"]["cash_buffer_pct"]) / 100
-    budget = min(assets * position_pct / 100, max(0.0, _number(state.get("cash")) - cash_buffer))
-    lot_size = int(config["account"]["lot_size"])
-    shares = int(budget // (fill_price * lot_size)) * lot_size
-    while shares > 0:
-        gross = fill_price * shares
-        fee = estimate_trade_cost("buy", gross, asof=asof)
-        total = gross + _number(fee.get("total"))
-        if total <= _number(state.get("cash")) and total <= budget:
-            break
-        shares -= lot_size
-    if shares <= 0:
-        return {"status": "rejected", "reason": "insufficient_cash_for_round_lot", "gate": gate, "account": state}
-
-    proposed_pct = total / assets * 100 if assets > 0 else 0.0
+        return _rejected_buy(state, queue_reason, gate, tradeability=tradeability)
+    terms = _buy_terms(state, candidate, quote, asof=asof, config=config)
+    if terms["status"] != "ready":
+        return _rejected_buy(state, str(terms["reason"]), gate)
     sector = _sector(candidate)
     concentration = evaluate_new_position(
         state,
         code=code,
         sector=sector,
-        proposed_position_pct=proposed_pct,
+        proposed_position_pct=(
+            _number(terms["total"]) / _number(terms["assets"]) * 100
+            if _number(terms["assets"]) > 0
+            else 0.0
+        ),
         max_single_position_pct=float(risk["max_single_position_pct"]),
         max_sector_exposure_pct=float(risk["max_sector_exposure_pct"]),
     )
     if not concentration["allowed"]:
-        return {"status": "rejected", "reason": "portfolio_policy_blocked", "portfolio_policy": concentration, "gate": gate, "account": state}
-
-    plan = candidate.get("execution_plan") or {}
-    position = {
-        "code": code,
-        "name": str(candidate.get("name") or code),
-        "shares": shares,
-        "average_cost": fill_price,
-        "cost": fill_price,
-        "buy_date": asof,
-        "peak_price": fill_price,
-        "sector": sector,
-        "strategy_id": candidate.get("strategy_id"),
-        "lane": plan.get("strategy_lane") or ("daban" if str(candidate.get("strategy_id") or "").startswith("daban") else "trend"),
-        "stop_price": plan.get("stop_price"),
-        "target_price": plan.get("target_price"),
-        "target_price_2": plan.get("target_price_2"),
-        "entry_evidence": {
-            "recommendation": {"decision": candidate.get("decision"), "open_score": candidate.get("open_score")},
-            "chanlun": dict(gate["chanlun"]["bullish"]),
-        },
-    }
+        return _rejected_buy(
+            state, "portfolio_policy_blocked", gate, portfolio_policy=concentration
+        )
+    terms = {**terms, "asof": asof, "sector": sector}
+    position = _position_from_buy(candidate, gate, terms)
     state.setdefault("positions", []).append(position)
-    state["cash"] = round(_number(state.get("cash")) - total, 2)
-    state["fees_paid"] = round(_number(state.get("fees_paid")) + _number(fee.get("total")), 2)
+    state["cash"] = round(_number(state.get("cash")) - _number(terms["total"]), 2)
+    state["fees_paid"] = round(
+        _number(state.get("fees_paid")) + _number(terms["fee"].get("total")), 2
+    )
     state["trade_count"] = int(state.get("trade_count") or 0) + 1
     state["updated_at"] = _local_datetime(observed_at).isoformat()
     trade = {
@@ -309,11 +366,11 @@ def simulate_buy(
         "name": position["name"],
         "trade_date": asof,
         "observed_at": state["updated_at"],
-        "signal_price": signal_price,
-        "fill_price": fill_price,
-        "shares": shares,
-        "gross_value": round(gross, 2),
-        "fees": fee,
+        "signal_price": terms["signal_price"],
+        "fill_price": terms["fill_price"],
+        "shares": terms["shares"],
+        "gross_value": round(_number(terms["gross"]), 2),
+        "fees": terms["fee"],
         "cash_after": state["cash"],
         "experimental": True,
         "live_order_sent": False,
@@ -350,14 +407,80 @@ def _exit_reason(position: Mapping[str, Any], price: float, risk: Mapping[str, A
     return None
 
 
-def simulate_exit_checks(
-    account: Mapping[str, Any],
-    quotes_by_code: Mapping[str, Mapping[str, Any]],
+def _account_after_exit_check(
+    state: Mapping[str, Any], positions: Sequence[Mapping[str, Any]], observed_at: str
+) -> dict[str, Any]:
+    account_after = deepcopy(state)
+    account_after["positions"] = deepcopy(positions)
+    account_after["updated_at"] = _local_datetime(observed_at).isoformat()
+    return account_after
+
+
+def _pending_exit_event(
     *,
+    status: str,
+    code: str,
+    reason: str,
+    state: Mapping[str, Any],
+    remaining: Sequence[Mapping[str, Any]],
+    observed_at: str,
+    **details: Any,
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "code": code,
+        "reason": reason,
+        **details,
+        "account_after": _account_after_exit_check(state, remaining, observed_at),
+    }
+
+
+def _fill_exit(
+    state: dict[str, Any],
+    position: Mapping[str, Any],
+    *,
+    code: str,
+    price: float,
+    reason: str,
     asof: str,
     observed_at: str,
     config: Mapping[str, Any],
-    risk: Mapping[str, Any],
+    remaining: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    fill_price = _sell_price(price, config)
+    shares = int(position.get("shares") or 0)
+    gross = fill_price * shares
+    fee = estimate_trade_cost("sell", gross, asof=asof)
+    proceeds = gross - _number(fee.get("total"))
+    cost_basis = _number(position.get("average_cost") or position.get("cost")) * shares
+    realized = proceeds - cost_basis
+    state["cash"] = round(_number(state.get("cash")) + proceeds, 2)
+    state["fees_paid"] = round(
+        _number(state.get("fees_paid")) + _number(fee.get("total")), 2
+    )
+    state["realized_pnl"] = round(_number(state.get("realized_pnl")) + realized, 2)
+    state["trade_count"] = int(state.get("trade_count") or 0) + 1
+    return {
+        "status": "filled",
+        "side": "sell",
+        "code": code,
+        "reason": reason,
+        "trade_date": asof,
+        "observed_at": _local_datetime(observed_at).isoformat(),
+        "signal_price": price,
+        "fill_price": fill_price,
+        "shares": shares,
+        "gross_value": round(gross, 2),
+        "fees": fee,
+        "realized_pnl": round(realized, 2),
+        "live_order_sent": False,
+        "account_after": _account_after_exit_check(state, remaining, observed_at),
+    }
+
+
+def simulate_exit_checks(
+    account: Mapping[str, Any], quotes_by_code: Mapping[str, Mapping[str, Any]], *,
+    asof: str, observed_at: str, config: Mapping[str, Any], risk: Mapping[str, Any],
     time_stop_sessions: int,
 ) -> dict[str, Any]:
     state = deepcopy(account)
@@ -390,62 +513,47 @@ def simulate_exit_checks(
                 "earliest_sell_date": constraint["earliest_sell_date"],
             }
             kept.append(position)
-            account_after = deepcopy(state)
-            account_after["positions"] = deepcopy(kept + positions[index + 1:])
-            account_after["updated_at"] = _local_datetime(observed_at).isoformat()
-            events.append({
-                "status": "pending_t1",
-                "code": code,
-                "reason": reason,
-                "t1": constraint,
-                "account_after": account_after,
-            })
+            events.append(
+                _pending_exit_event(
+                    status="pending_t1",
+                    code=code,
+                    reason=reason,
+                    state=state,
+                    remaining=kept + positions[index + 1 :],
+                    observed_at=observed_at,
+                    t1=constraint,
+                )
+            )
             continue
         tradeability = assess_tradeability(dict(quote), code, str(position.get("name") or ""))
         if tradeability.get("status") in {"halted", "limit_down"} or tradeability.get("tradeable") is False:
             position["pending_exit"] = {"reason": reason, "triggered_on": asof, "execution_block": tradeability.get("status")}
             kept.append(position)
-            account_after = deepcopy(state)
-            account_after["positions"] = deepcopy(kept + positions[index + 1:])
-            account_after["updated_at"] = _local_datetime(observed_at).isoformat()
-            events.append({
-                "status": "pending_unfilled",
-                "code": code,
-                "reason": reason,
-                "tradeability": tradeability,
-                "account_after": account_after,
-            })
+            events.append(
+                _pending_exit_event(
+                    status="pending_unfilled",
+                    code=code,
+                    reason=reason,
+                    state=state,
+                    remaining=kept + positions[index + 1 :],
+                    observed_at=observed_at,
+                    tradeability=tradeability,
+                )
+            )
             continue
-        fill_price = _sell_price(price, config)
-        shares = int(position.get("shares") or 0)
-        gross = fill_price * shares
-        fee = estimate_trade_cost("sell", gross, asof=asof)
-        proceeds = gross - _number(fee.get("total"))
-        cost_basis = _number(position.get("average_cost") or position.get("cost")) * shares
-        realized = proceeds - cost_basis
-        state["cash"] = round(_number(state.get("cash")) + proceeds, 2)
-        state["fees_paid"] = round(_number(state.get("fees_paid")) + _number(fee.get("total")), 2)
-        state["realized_pnl"] = round(_number(state.get("realized_pnl")) + realized, 2)
-        state["trade_count"] = int(state.get("trade_count") or 0) + 1
-        account_after = deepcopy(state)
-        account_after["positions"] = deepcopy(kept + positions[index + 1:])
-        account_after["updated_at"] = _local_datetime(observed_at).isoformat()
-        events.append({
-            "status": "filled",
-            "side": "sell",
-            "code": code,
-            "reason": reason,
-            "trade_date": asof,
-            "observed_at": _local_datetime(observed_at).isoformat(),
-            "signal_price": price,
-            "fill_price": fill_price,
-            "shares": shares,
-            "gross_value": round(gross, 2),
-            "fees": fee,
-            "realized_pnl": round(realized, 2),
-            "live_order_sent": False,
-            "account_after": account_after,
-        })
+        events.append(
+            _fill_exit(
+                state,
+                position,
+                code=code,
+                price=price,
+                reason=reason,
+                asof=asof,
+                observed_at=observed_at,
+                config=config,
+                remaining=kept + positions[index + 1 :],
+            )
+        )
     state["positions"] = kept
     state["updated_at"] = _local_datetime(observed_at).isoformat()
     return {"status": "ok", "events": events, "account": state}
