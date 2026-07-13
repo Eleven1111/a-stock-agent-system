@@ -19,6 +19,7 @@ def test_repository_configs_pass_registry_validation():
         "data_access",
         "nl_screening",
         "reflexivity_strategy",
+        "paper_trading",
         "scoring",
     }
 

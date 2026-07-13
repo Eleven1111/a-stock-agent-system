@@ -76,3 +76,28 @@ def test_live_chanlun_signals_become_directional_strategy_attributions():
             "signal_idx": 59,
         },
     ]
+
+
+def test_chanlun_evidence_records_point_in_time_signal_age(monkeypatch):
+    monkeypatch.setattr(
+        research_evidence.chan_structure,
+        "analyze",
+        lambda bars: {
+            "summary": "fixture",
+            "signals": [
+                {"type": "third_buy", "strategy_id": "chanlun_third_buy", "idx": 7}
+            ],
+        },
+    )
+    monkeypatch.setattr(strategy_registry, "is_allowed_in_live", lambda strategy_id: False)
+
+    evidence = research_evidence.build_research_evidence(
+        "600001",
+        strategy_id="trend:test",
+        asof="2026-07-13",
+        bars=[{"close": 10.0}] * 10,
+    )
+
+    signal = evidence["chanlun"]["signals"][0]
+    assert signal["signal_age_bars"] == 2
+    assert signal["gate_status"] == "display_only"

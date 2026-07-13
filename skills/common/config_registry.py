@@ -41,6 +41,11 @@ SPECS: dict[str, dict[str, Any]] = {
         "format": "json",
         "required_roots": {"schema", "version", "thresholds"},
     },
+    "paper_trading": {
+        "filename": "paper_trading.json",
+        "format": "json",
+        "required_roots": {"schema", "version", "account", "entry_gate", "execution"},
+    },
     "scoring": {
         "filename": "scoring.yaml",
         "format": "yaml",

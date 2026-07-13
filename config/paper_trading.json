@@ -1,0 +1,32 @@
+{
+  "schema": "paper_trading_config_v1",
+  "version": "paper-chanlun-gate-v1",
+  "account": {
+    "initial_cash": 100000.0,
+    "lot_size": 100,
+    "max_positions": 5,
+    "cash_buffer_pct": 5.0
+  },
+  "entry_gate": {
+    "minimum_open_score": 80.0,
+    "positive_recommendations": [
+      "buy",
+      "add",
+      "conditional_buy"
+    ],
+    "bullish_chanlun_types": [
+      "third_buy",
+      "bottom_divergence"
+    ],
+    "bearish_chanlun_types": [
+      "third_sell",
+      "top_divergence"
+    ],
+    "max_signal_age_bars": 3
+  },
+  "execution": {
+    "open_confirmation_not_before": "09:35:00",
+    "maximum_quote_age_seconds": 120,
+    "slippage_bps": 20.0
+  }
+}

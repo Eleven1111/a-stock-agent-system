@@ -105,6 +105,11 @@ python scripts/agent_runtime_context.py
 结果自动写入 `recommendations.json`，同一交易日和股票使用确定性 ID，重跑不会
 产生重复推荐。
 
+09:37 的研究专用模拟账户只消费上述正式开盘推荐。它先要求推荐和开盘确认通过，再用
+Chanlun 看多结构作二次硬门控；Chanlun 不产生候选、不改变排序、不增加推荐分。满足全部
+条件后才按 09:35 之后的可观察行情模拟成交。账户初始资金10万元，独立于真实
+`portfolio.json`，完整协议见 [推荐后 Chanlun 门控模拟交易协议](paper-trading-protocol.md)。
+
 报告不再只展示混合总分。每个候选同时展示市场时点、主线板块排名/持续状态、板块内龙头排名、策略研究标识和策略门禁后的真实动作。新游资策略 `daban:mainline_leader_confirm` 在未通过 OOS 注册前只能进入研究观察，仓位为零。
 
 ## 09:50 与 13:15 研究确认

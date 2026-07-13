@@ -552,6 +552,118 @@
       "external_note": "09:35 输出买入区间/追价线/止损/目标/T+1约束和公告质检；不自动下单"
     },
     {
+      "id": "paper-trading-open",
+      "name": "模拟交易开盘买入",
+      "schedule": "37 9 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py paper-trading-open --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2500,
+      "context_from": [
+        "open-confirmation"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 10
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/paper-trading/data/paper_portfolio.json",
+        "$A_STOCK_STATE_HOME/skills/paper-trading/data/paper_transaction*",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/cron/output/paper-trading-open/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/paper-trading/scripts/paper_trading_runner.py --phase open --json",
+        "cwd": ".",
+        "timeout_seconds": 45
+      },
+      "external_note": "09:35正式推荐通过后，以Chanlun看多结构作二次硬门控；仅模拟成交，不连接券商"
+    },
+    {
+      "id": "paper-trading-monitor",
+      "name": "模拟交易盘中纪律检查",
+      "schedule": "8,23,38,53 10-11,13-14 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py paper-trading-monitor --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2000,
+      "context_from": [
+        "paper-trading-open"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 360
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/paper-trading/data/paper_portfolio.json",
+        "$A_STOCK_STATE_HOME/skills/paper-trading/data/paper_transaction*",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/cron/output/paper-trading-monitor/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/paper-trading/scripts/paper_trading_runner.py --phase monitor --json",
+        "cwd": ".",
+        "timeout_seconds": 30
+      },
+      "external_note": "每15分钟检查模拟持仓止损、止盈、回撤和时间纪律；T+1锁定或不可成交时保留待卖状态"
+    },
+    {
+      "id": "paper-trading-close",
+      "name": "模拟交易收盘净值",
+      "schedule": "25 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py paper-trading-close --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2500,
+      "context_from": [
+        "paper-trading-monitor"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 60
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/paper-trading/data/paper_portfolio.json",
+        "$A_STOCK_STATE_HOME/skills/paper-trading/data/paper_nav_latest.json",
+        "$A_STOCK_STATE_HOME/skills/paper-trading/data/paper_transaction*",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/cron/output/paper-trading-close/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python skills/paper-trading/scripts/paper_trading_runner.py --phase close --json",
+        "cwd": ".",
+        "timeout_seconds": 30
+      },
+      "external_note": "记录模拟账户现金、持仓市值和当日净值；行情缺失时不虚构估值"
+    },
+    {
       "id": "open-intelligence-brief",
       "name": "开盘情报摘要",
       "schedule": "36 9 * * 1-5",

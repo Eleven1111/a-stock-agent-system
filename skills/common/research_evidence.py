@@ -83,6 +83,7 @@ def _with_chanlun_signals(
             if strategy_registry.is_allowed_in_live(str(signal.get("strategy_id") or ""))
             else "display_only"
         )
+        signal["signal_age_bars"] = total - 1 - int(idx)
         signals.append(signal)
     bearish = {"third_sell", "top_divergence"}
     bullish = {"third_buy", "bottom_divergence"}
