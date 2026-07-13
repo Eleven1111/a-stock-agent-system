@@ -4,16 +4,32 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-sys.path.insert(0, COMMON)
-sys.path.insert(0, ROOT)
 
-import lifecycle_analytics as la  # noqa: E402
+
+def _load_common_module(name: str):
+    """Load a common module without changing the process-wide import path."""
+    if name in sys.modules:
+        return sys.modules[name]
+    path = os.path.join(COMMON, f"{name}.py")
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load common module: {name}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_load_common_module("paths")
+_load_common_module("state_store")
+la = _load_common_module("lifecycle_analytics")
 
 
 def build_report(

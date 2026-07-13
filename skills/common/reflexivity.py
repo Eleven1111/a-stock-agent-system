@@ -47,6 +47,47 @@ def _open_burst(candidate: Mapping[str, Any], thresholds: Mapping[str, Any]) -> 
     )
 
 
+def _phase_for(
+    dominant_state: str,
+    sector_state: str,
+    crowding: float | None,
+    fragility: float | None,
+    thresholds: Mapping[str, Any],
+    isolated: bool,
+) -> str:
+    if dominant_state == "S6":
+        return "collapse"
+    if isolated or sector_state == "weakening":
+        return "distribution"
+    if (
+        crowding is not None and fragility is not None
+        and crowding >= float(thresholds["crowding_climax"])
+        and fragility >= float(thresholds["fragility_climax"])
+    ):
+        return "saturation"
+    if sector_state == "confirmed":
+        return "diffusion"
+    if sector_state == "emerging":
+        return "ignition"
+    return "unknown"
+
+
+def _actor_probabilities(
+    item: Mapping[str, Any], thresholds: Mapping[str, Any], *, burst: bool,
+    false_consensus: bool,
+) -> tuple[float, float]:
+    hot_money = (
+        float(thresholds["hot_money_probability"])
+        if item.get("hot_money_qualified") else 0.0
+    )
+    algorithmic = (
+        float(thresholds["algorithmic_pattern_probability"])
+        if false_consensus
+        else float(thresholds["open_burst_pattern_probability"]) if burst else 0.0
+    )
+    return hot_money, algorithmic
+
+
 def assess_candidate(
     candidate: Mapping[str, Any] | None,
     selection_state: Mapping[str, Any] | None,
@@ -68,7 +109,6 @@ def assess_candidate(
     evidence_count = int(item.get("sector_evidence_count") or 0)
     facts: list[str] = []
     guards: list[str] = []
-
     if dominant_state:
         facts.append(f"market_state:{dominant_state}")
     if sector_state:
@@ -80,7 +120,6 @@ def assess_candidate(
     burst = _open_burst(item, thresholds)
     if burst:
         facts.append("open_burst_0925_0931")
-
     isolated = (
         int(item.get("leader_rank") or 0) == 1
         and ablation.get("structural_leader") is False
@@ -88,7 +127,6 @@ def assess_candidate(
     )
     if isolated:
         guards.append("leader_isolation_exit_v1")
-
     false_consensus = (
         burst
         and evidence_count < int(thresholds["multi_source_min"])
@@ -97,33 +135,11 @@ def assess_candidate(
     )
     if false_consensus:
         guards.append("algorithmic_false_consensus_guard_v1")
-
-    if dominant_state == "S6":
-        phase = "collapse"
-    elif isolated or sector_state == "weakening":
-        phase = "distribution"
-    elif (
-        crowding is not None and fragility is not None
-        and crowding >= float(thresholds["crowding_climax"])
-        and fragility >= float(thresholds["fragility_climax"])
-    ):
-        phase = "saturation"
-    elif sector_state == "confirmed":
-        phase = "diffusion"
-    elif sector_state == "emerging":
-        phase = "ignition"
-    else:
-        phase = "unknown"
-
-    hot_money_probability = (
-        float(thresholds["hot_money_probability"])
-        if item.get("hot_money_qualified") else 0.0
+    phase = _phase_for(
+        dominant_state, sector_state, crowding, fragility, thresholds, isolated,
     )
-    algorithmic_probability = (
-        float(thresholds["algorithmic_pattern_probability"])
-        if false_consensus
-        else float(thresholds["open_burst_pattern_probability"])
-        if burst else 0.0
+    hot_money_probability, algorithmic_probability = _actor_probabilities(
+        item, thresholds, burst=burst, false_consensus=false_consensus,
     )
     dominant_actor = "hot_money" if hot_money_probability >= 0.7 else "unknown"
     enough_evidence = bool(dominant_state or sector_state or facts)

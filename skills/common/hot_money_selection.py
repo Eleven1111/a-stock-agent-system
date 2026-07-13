@@ -416,8 +416,7 @@ def apply_leader_identity(
         for row in state.get("sectors") or []
         if row.get("sector")
     }
-    context = dict(signal_context or {})
-    ladder = context.get("lianban_ladder") or {}
+    ladder = dict(signal_context or {}).get("lianban_ladder") or {}
     output = [dict(item) for item in candidates]
     grouped: dict[str, list[dict[str, Any]]] = {}
     for item in output:
@@ -444,12 +443,8 @@ def apply_leader_identity(
                 item["first_seal"] = ladder_entry["first_seal"]
             item["sector_rank"] = sector_state.get("rank")
             item["sector_state"] = sector_state.get("state")
-            item["sector_evidence_types"] = list(
-                sector_state.get("evidence_types") or []
-            )
-            item["sector_evidence_count"] = int(
-                sector_state.get("evidence_count") or 0
-            )
+            item["sector_evidence_types"] = list(sector_state.get("evidence_types") or [])
+            item["sector_evidence_count"] = int(sector_state.get("evidence_count") or 0)
             item["sector_theme_confirmed"] = bool(
                 sector_state.get("theme_confirmed")
             )

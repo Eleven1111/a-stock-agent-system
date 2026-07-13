@@ -103,6 +103,78 @@ def _reflexivity_for(record: Mapping[str, Any]) -> dict[str, Any]:
     return state
 
 
+def _ablation_rows(
+    records: Sequence[Mapping[str, Any]], outcome_key: str, cost_pct: float,
+    expected_hash: str | None, excluded: dict[str, int],
+) -> list[dict[str, Any]]:
+    rows = []
+    for record in records:
+        if not _is_settled(record):
+            excluded["unresolved"] += 1
+            continue
+        gross = outcome_value(record, outcome_key)
+        if gross is None:
+            excluded["missing_outcome"] += 1
+            continue
+        state = _reflexivity_for(record)
+        if str(state.get("phase") or "unknown") == "unknown":
+            excluded["unknown_reflexivity"] += 1
+            continue
+        if expected_hash is not None and state.get("config_sha256") != expected_hash:
+            excluded["config_mismatch"] += 1
+            continue
+        try:
+            multiplier = max(0.0, min(1.0, float(state.get("risk_multiplier", 1.0))))
+        except (TypeError, ValueError):
+            multiplier = 1.0
+        baseline = gross - cost_pct
+        guarded = (gross - cost_pct) * multiplier
+        rows.append({
+            "code": _code(record.get("code")), "baseline": baseline,
+            "guarded": guarded, "delta": guarded - baseline,
+            "multiplier": multiplier,
+            "guards": list(state.get("defensive_guards") or []),
+            "strategy_version": str(state.get("strategy_version") or "unversioned"),
+            "config_sha256": str(state.get("config_sha256") or "unversioned"),
+        })
+    return rows
+
+
+def _version_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    versions: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        bucket = versions.setdefault(str(row["config_sha256"]), {
+            "strategy_versions": set(), "sample_size": 0,
+        })
+        bucket["strategy_versions"].add(row["strategy_version"])
+        bucket["sample_size"] += 1
+    return {
+        digest: {"strategy_versions": sorted(value["strategy_versions"]),
+                 "sample_size": value["sample_size"]}
+        for digest, value in versions.items()
+    }
+
+
+def _per_guard_metrics(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    groups: dict[str, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        for guard in row["guards"]:
+            groups.setdefault(str(guard), []).append(row)
+    return {
+        guard: {
+            "sample_size": len(group),
+            "mean_baseline_net_ret": _mean_or_none([row["baseline"] for row in group]),
+            "mean_guarded_net_ret": _mean_or_none([row["guarded"] for row in group]),
+            "mean_delta": _mean_or_none([row["delta"] for row in group]),
+            "wrongly_reduced_winner_rate": round(
+                sum(row["baseline"] > 0 and row["multiplier"] < 1 for row in group)
+                / len(group), 4,
+            ),
+        }
+        for guard, group in sorted(groups.items())
+    }
+
+
 def reflexivity_ablation(
     records: Sequence[Mapping[str, Any]],
     *,
@@ -119,7 +191,6 @@ def reflexivity_ablation(
     if float(round_trip_cost_bps) < 0:
         raise ValueError("round_trip_cost_bps must be non-negative")
     cost_pct = float(round_trip_cost_bps) / 100.0
-    rows: list[dict[str, Any]] = []
     if expected_config_sha256 is not None and len(str(expected_config_sha256)) != 64:
         raise ValueError("expected_config_sha256 must be a 64-character digest")
     excluded = {
@@ -128,56 +199,11 @@ def reflexivity_ablation(
         "unknown_reflexivity": 0,
         "config_mismatch": 0,
     }
-    for record in records:
-        if not _is_settled(record):
-            excluded["unresolved"] += 1
-            continue
-        gross = outcome_value(record, outcome_key)
-        if gross is None:
-            excluded["missing_outcome"] += 1
-            continue
-        state = _reflexivity_for(record)
-        if str(state.get("phase") or "unknown") == "unknown":
-            excluded["unknown_reflexivity"] += 1
-            continue
-        if (
-            expected_config_sha256 is not None
-            and str(state.get("config_sha256") or "") != expected_config_sha256
-        ):
-            excluded["config_mismatch"] += 1
-            continue
-        try:
-            multiplier = max(0.0, min(1.0, float(state.get("risk_multiplier", 1.0))))
-        except (TypeError, ValueError):
-            multiplier = 1.0
-        baseline = gross - cost_pct
-        guarded = gross * multiplier - cost_pct * multiplier
-        rows.append({
-            "code": _code(record.get("code")),
-            "baseline": baseline,
-            "guarded": guarded,
-            "delta": guarded - baseline,
-            "multiplier": multiplier,
-            "guards": list(state.get("defensive_guards") or []),
-            "strategy_version": str(state.get("strategy_version") or "unversioned"),
-            "config_sha256": str(state.get("config_sha256") or "unversioned"),
-        })
-
-    versions: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        bucket = versions.setdefault(row["config_sha256"], {
-            "strategy_versions": set(), "sample_size": 0,
-        })
-        bucket["strategy_versions"].add(row["strategy_version"])
-        bucket["sample_size"] += 1
-    serialized_versions = {
-        digest: {
-            "strategy_versions": sorted(value["strategy_versions"]),
-            "sample_size": value["sample_size"],
-        }
-        for digest, value in versions.items()
-    }
-    if len(versions) > 1:
+    rows = _ablation_rows(
+        records, outcome_key, cost_pct, expected_config_sha256, excluded,
+    )
+    serialized_versions = _version_summary(rows)
+    if len(serialized_versions) > 1:
         return {
             "status": "mixed_versions",
             "research_only": True,
@@ -199,23 +225,6 @@ def reflexivity_ablation(
     guarded_values = [row["guarded"] for row in rows]
     baseline_metrics = _portfolio_metrics(baseline_values)
     guarded_metrics = _portfolio_metrics(guarded_values)
-    guard_groups: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        for guard in row["guards"]:
-            guard_groups.setdefault(str(guard), []).append(row)
-    per_guard = {
-        guard: {
-            "sample_size": len(group),
-            "mean_baseline_net_ret": _mean_or_none([row["baseline"] for row in group]),
-            "mean_guarded_net_ret": _mean_or_none([row["guarded"] for row in group]),
-            "mean_delta": _mean_or_none([row["delta"] for row in group]),
-            "wrongly_reduced_winner_rate": round(
-                sum(row["baseline"] > 0 and row["multiplier"] < 1 for row in group) / len(group),
-                4,
-            ),
-        }
-        for guard, group in sorted(guard_groups.items())
-    }
     return {
         "status": "ok" if rows else "insufficient_data",
         "research_only": True,
@@ -236,7 +245,7 @@ def reflexivity_ablation(
             )
             for key in ("mean_net_ret", "worst_case_ret", "downside_deviation")
         },
-        "guards": per_guard,
+        "guards": _per_guard_metrics(rows),
         "note": "counterfactual association only; requires frozen time-split OOS before promotion",
     }
 
