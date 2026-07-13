@@ -402,6 +402,9 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     _persist_shortlist(result, asof)
 
     selected = [item["code"] for item in result["shortlist"]]
+    decisions_by_code = {
+        candidate_pipeline.naked_code(item["code"]): item for item in decisions
+    }
     candidate_lifecycle.transition(
         str(pool["asof"]),
         "auction_shortlist",
@@ -414,6 +417,24 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
                 "auction_score": item["auction_score"],
                 "auction_sector_rank": item.get("auction_sector_rank"),
                 "hot_money_qualified": item.get("hot_money_qualified"),
+                "reflexivity": dict(
+                    (
+                        decisions_by_code.get(candidate_pipeline.naked_code(item["code"]), {})
+                        .get("selection_context", {})
+                        .get("market_timing", {})
+                        .get("reflexivity", {})
+                    )
+                ),
+                "policy_reasons": list(
+                    decisions_by_code.get(candidate_pipeline.naked_code(item["code"]), {})
+                    .get("policy_decision", {})
+                    .get("reasons", [])
+                ),
+                "position_multiplier": (
+                    decisions_by_code.get(candidate_pipeline.naked_code(item["code"]), {})
+                    .get("policy_decision", {})
+                    .get("position_multiplier")
+                ),
             }
             for item in result["shortlist"]
         },

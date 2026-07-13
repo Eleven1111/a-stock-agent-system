@@ -66,6 +66,30 @@
 09:25 竞价与 09:35 开盘确认必须消费同一个 `selection_context.market_timing`，不能在
 竞价阶段绕过退潮状态。
 
+## 玩家反身性状态
+
+`skills/common/reflexivity.py` 在同一不可变快照上生成
+`reflexivity_state_v1`。它严格区分可观测事实与玩家推断：首封时间、板块阶段、
+龙头消融和市场状态属于事实；`algorithmic_pattern` 只是疑似算法化交易形态概率，
+不得表述为已经识别出量化机构。
+
+所有反身性阈值的单一事实源是 `config/reflexivity_strategy.json`。每条状态都携带
+`strategy_version` 与规范化 `config_sha256`；更改任一阈值或版本都会产生新指纹。
+消融报告拒绝混合不同指纹，可用 `--config-sha256 <digest>` 固定只评估预提交版本。
+
+当前反馈阶段为 `ignition / diffusion / saturation / distribution / collapse`；证据
+不足时固定输出 `unknown`，不回填中性状态。第一批策略只允许防守性作用：
+
+| 策略标识 | 触发证据 | live 作用 |
+|---|---|---|
+| `leader_isolation_exit_v1` | 龙头消融后无板块宽度，且板块已 weakening | 禁止新增打板仓 |
+| `algorithmic_false_consensus_guard_v1` | 09:25–09:31 抢封、板块证据不足、高拥挤且高脆弱 | 打板仓位上限减半 |
+| `institution_distribution_guard_v1` | 机构龙虎榜净卖出与市场拥挤同时出现 | 禁止追入 |
+
+反身性处于 `ignition` 或 `diffusion` 不会形成正向准入，也不能绕过
+`strategy_registry`。正向策略只有在独立 point-in-time OOS、shadow、人工晋级后才可
+获得非零权重。
+
 ## D1 确认链路
 
 | 时间 | 作用 | 输出 |
@@ -99,7 +123,19 @@ python skills/daban-stock-picker/scripts/auction_collector.py --finalize --json
 python skills/daban-stock-picker/scripts/open_confirmation.py --json
 python skills/daban-stock-picker/scripts/hot_money_checkpoint.py --profile morning_confirm --json
 python skills/daban-stock-picker/scripts/hot_money_checkpoint.py --profile afternoon_reflow --json
+python scripts/reflexivity_report.py --outcome t3_close_ret --round-trip-cost-bps 20 \
+  --config-sha256 <frozen-config-digest>
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
 
 上线研究验证至少按交易日切分训练/验证/测试区间，并分别检查：主线前二相对全市场、板块龙一/龙二相对板块、竞价确认增量、09:50 和 13:15 确认增量。未通过的子信号保持研究态，不能只因组合分提高就注册实盘。
+
+反身性护栏另做逐层消融：基线、基线+市场阶段、基线+玩家证据、基线+玩家交互。
+报告至少包含成本后 T+1/T+3 期望、最差 5% 收益、最大回撤、炸板率、次日低开率、
+终态覆盖率和不可交易样本；只有收益风险比在冻结测试集上改善，且不是靠无限 pending
+排除困难样本，才允许进入下一 promotion 阶段。
+
+报告复用 `candidate_lifecycle` 的全候选 T+1/T+3 结算，不另建收益账本。它对比“全额
+追入”与当时反身性仓位倍率，分别输出成本后均值、最差样本、下行波动、盈亏比、各护栏
+错杀盈利样本比例，并显式统计 unresolved、缺失收益和未知反身性样本。没有足够结算样本
+时状态必须为 `insufficient_data`，不得用合成数据或零值冒充策略有效。

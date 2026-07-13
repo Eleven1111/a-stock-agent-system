@@ -286,6 +286,27 @@ def test_leader_identity_ranks_within_mainline_sector():
     assert by_code["600007"]["hot_money_qualified"] is False
 
 
+def test_leader_identity_carries_ladder_microstructure_into_reflexivity():
+    context = _context()
+    context["lianban_ladder"]["600001"]["first_seal"] = "09:30"
+    timing = hms.build_market_timing(
+        _quotes(), context, event_asof="2026-06-22", config=_config()
+    )
+    sectors = hms.build_sector_leadership(
+        _quotes(), context, timing, config=_config()
+    )
+    candidates = [
+        {**item, "daban_eligible": True, "hot_money_bonus": 10.0}
+        for item in _quotes()
+    ]
+
+    ranked = hms.apply_leader_identity(candidates, sectors, context, config=_config())
+    leader = next(item for item in ranked if item["code"] == "600001")
+
+    assert leader["first_seal"] == "09:30"
+    assert "open_burst_0925_0931" in leader["reflexivity"]["observed_facts"]
+
+
 def test_strategy_id_never_mislabels_generic_candidate_as_first_board_reseal():
     assert hms.selection_strategy_id({"hot_money_qualified": True}, "daban") == (
         "daban:mainline_leader_confirm"

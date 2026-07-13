@@ -14,6 +14,7 @@ and none are settled, so it is unusable for statistics. Lifecycle is ~200x riche
 from __future__ import annotations
 
 import glob
+import math
 import os
 from statistics import mean, median
 from typing import Any, Iterable, Mapping, Sequence
@@ -41,6 +42,212 @@ OUTCOME_KEYS: tuple[str, ...] = (
     "max_gain",
     "max_drawdown",
 )
+
+
+def _mean_or_none(values: Sequence[float]) -> float | None:
+    return round(mean(values), 1) if values else None
+
+
+def _downside_deviation(values: Sequence[float]) -> float | None:
+    if not values:
+        return None
+    downside = [min(0.0, value) for value in values]
+    return round(math.sqrt(mean(value * value for value in downside)), 3)
+
+
+def _portfolio_metrics(values: Sequence[float]) -> dict[str, Any]:
+    if not values:
+        return {
+            "mean_net_ret": None,
+            "worst_case_ret": None,
+            "downside_deviation": None,
+            "gain_loss_ratio": None,
+        }
+    gains = [value for value in values if value > 0]
+    losses = [-value for value in values if value < 0]
+    return {
+        "mean_net_ret": _mean_or_none(values),
+        "worst_case_ret": round(min(values), 1),
+        "downside_deviation": _downside_deviation(values),
+        "gain_loss_ratio": (
+            round(mean(gains) / mean(losses), 3) if gains and losses else None
+        ),
+    }
+
+
+def _reflexivity_for(record: Mapping[str, Any]) -> dict[str, Any]:
+    direct = record.get("reflexivity")
+    state = dict(direct) if isinstance(direct, Mapping) else {}
+    reason_to_guard = {
+        "reflexivity_leader_isolation": "leader_isolation_exit_v1",
+        "reflexivity_algorithmic_false_consensus": "algorithmic_false_consensus_guard_v1",
+        "reflexivity_institution_distribution": "institution_distribution_guard_v1",
+    }
+    for event in reversed(list(record.get("stage_history") or [])):
+        details = event.get("details") or {}
+        value = details.get("reflexivity")
+        if isinstance(value, Mapping) and not state:
+            state = dict(value)
+        matched = [
+            reason_to_guard[reason]
+            for reason in details.get("policy_reasons") or []
+            if reason in reason_to_guard
+        ]
+        if matched:
+            state["defensive_guards"] = sorted(set(
+                list(state.get("defensive_guards") or []) + matched
+            ))
+            if details.get("position_multiplier") is not None:
+                state["risk_multiplier"] = details["position_multiplier"]
+            break
+    return state
+
+
+def _ablation_rows(
+    records: Sequence[Mapping[str, Any]], outcome_key: str, cost_pct: float,
+    expected_hash: str | None, excluded: dict[str, int],
+) -> list[dict[str, Any]]:
+    rows = []
+    for record in records:
+        if not _is_settled(record):
+            excluded["unresolved"] += 1
+            continue
+        gross = outcome_value(record, outcome_key)
+        if gross is None:
+            excluded["missing_outcome"] += 1
+            continue
+        state = _reflexivity_for(record)
+        if str(state.get("phase") or "unknown") == "unknown":
+            excluded["unknown_reflexivity"] += 1
+            continue
+        if expected_hash is not None and state.get("config_sha256") != expected_hash:
+            excluded["config_mismatch"] += 1
+            continue
+        try:
+            multiplier = max(0.0, min(1.0, float(state.get("risk_multiplier", 1.0))))
+        except (TypeError, ValueError):
+            multiplier = 1.0
+        baseline = gross - cost_pct
+        guarded = (gross - cost_pct) * multiplier
+        rows.append({
+            "code": _code(record.get("code")), "baseline": baseline,
+            "guarded": guarded, "delta": guarded - baseline,
+            "multiplier": multiplier,
+            "guards": list(state.get("defensive_guards") or []),
+            "strategy_version": str(state.get("strategy_version") or "unversioned"),
+            "config_sha256": str(state.get("config_sha256") or "unversioned"),
+        })
+    return rows
+
+
+def _version_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    versions: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        bucket = versions.setdefault(str(row["config_sha256"]), {
+            "strategy_versions": set(), "sample_size": 0,
+        })
+        bucket["strategy_versions"].add(row["strategy_version"])
+        bucket["sample_size"] += 1
+    return {
+        digest: {"strategy_versions": sorted(value["strategy_versions"]),
+                 "sample_size": value["sample_size"]}
+        for digest, value in versions.items()
+    }
+
+
+def _per_guard_metrics(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    groups: dict[str, list[Mapping[str, Any]]] = {}
+    for row in rows:
+        for guard in row["guards"]:
+            groups.setdefault(str(guard), []).append(row)
+    return {
+        guard: {
+            "sample_size": len(group),
+            "mean_baseline_net_ret": _mean_or_none([row["baseline"] for row in group]),
+            "mean_guarded_net_ret": _mean_or_none([row["guarded"] for row in group]),
+            "mean_delta": _mean_or_none([row["delta"] for row in group]),
+            "wrongly_reduced_winner_rate": round(
+                sum(row["baseline"] > 0 and row["multiplier"] < 1 for row in group)
+                / len(group), 4,
+            ),
+        }
+        for guard, group in sorted(groups.items())
+    }
+
+
+def reflexivity_ablation(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    outcome_key: str = "t3_close_ret",
+    round_trip_cost_bps: float = 20.0,
+    expected_config_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Compare full exposure with the point-in-time reflexivity multiplier.
+
+    This is counterfactual research, not a causal claim.  Only resolved records
+    carrying a non-unknown reflexivity phase are included, and every exclusion
+    is counted to make attrition visible.
+    """
+    if float(round_trip_cost_bps) < 0:
+        raise ValueError("round_trip_cost_bps must be non-negative")
+    cost_pct = float(round_trip_cost_bps) / 100.0
+    if expected_config_sha256 is not None and len(str(expected_config_sha256)) != 64:
+        raise ValueError("expected_config_sha256 must be a 64-character digest")
+    excluded = {
+        "unresolved": 0,
+        "missing_outcome": 0,
+        "unknown_reflexivity": 0,
+        "config_mismatch": 0,
+    }
+    rows = _ablation_rows(
+        records, outcome_key, cost_pct, expected_config_sha256, excluded,
+    )
+    serialized_versions = _version_summary(rows)
+    if len(serialized_versions) > 1:
+        return {
+            "status": "mixed_versions",
+            "research_only": True,
+            "live_effect": "none",
+            "outcome_key": outcome_key,
+            "round_trip_cost_bps": float(round_trip_cost_bps),
+            "sample_size": 0,
+            "guarded_count": 0,
+            "excluded": excluded,
+            "versions": serialized_versions,
+            "baseline": _portfolio_metrics([]),
+            "reflexivity": _portfolio_metrics([]),
+            "delta": {},
+            "guards": {},
+            "note": "mixed config hashes must be evaluated separately",
+        }
+
+    baseline_values = [row["baseline"] for row in rows]
+    guarded_values = [row["guarded"] for row in rows]
+    baseline_metrics = _portfolio_metrics(baseline_values)
+    guarded_metrics = _portfolio_metrics(guarded_values)
+    return {
+        "status": "ok" if rows else "insufficient_data",
+        "research_only": True,
+        "live_effect": "none",
+        "outcome_key": outcome_key,
+        "round_trip_cost_bps": float(round_trip_cost_bps),
+        "sample_size": len(rows),
+        "guarded_count": sum(row["multiplier"] < 1 for row in rows),
+        "excluded": excluded,
+        "versions": serialized_versions,
+        "baseline": baseline_metrics,
+        "reflexivity": guarded_metrics,
+        "delta": {
+            key: (
+                round(float(guarded_metrics[key]) - float(baseline_metrics[key]), 1)
+                if guarded_metrics.get(key) is not None and baseline_metrics.get(key) is not None
+                else None
+            )
+            for key in ("mean_net_ret", "worst_case_ret", "downside_deviation")
+        },
+        "guards": _per_guard_metrics(rows),
+        "note": "counterfactual association only; requires frozen time-split OOS before promotion",
+    }
 
 
 def _code(value: Any) -> str:

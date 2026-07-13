@@ -445,6 +445,31 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "32f37759c28fcdfd6eec"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing broad exception in the repository smoke harness; this PR only registers the new defensive module",
+      "violation_id": "f31ead08c4c8af82c0ba"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing sector-leadership builder debt; this PR only attaches defensive reflexivity evidence downstream",
+      "violation_id": "db56b070f5d9be3e1c51"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing selection-context builder debt; this PR adds one bounded defensive evidence field without changing existing control flow",
+      "violation_id": "212310aebcf74b565964"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing auction entrypoint import shim; this PR only records defensive evidence in its output",
+      "violation_id": "e4381a7b9fa29e3d8ca2"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing auction finalization debt; this PR adds a bounded defensive policy field without changing control flow",
+      "violation_id": "db074870deffd506aaef"
     }
   ]
 }

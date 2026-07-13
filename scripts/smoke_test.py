@@ -103,6 +103,10 @@ tests = [
         [PY, "scripts/score_calibration_report.py"],
         "score_calibration_report", 20, True
     ),
+    (  # 14. 反身性护栏成本后反事实消融（无样本时显式 insufficient_data）
+        [PY, "scripts/reflexivity_report.py"],
+        "reflexivity_report", 20, True
+    ),
 ]
 
 print("=" * 50)

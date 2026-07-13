@@ -18,6 +18,7 @@ def test_repository_configs_pass_registry_validation():
         "daban_thresholds",
         "data_access",
         "nl_screening",
+        "reflexivity_strategy",
         "scoring",
     }
 

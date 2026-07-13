@@ -55,6 +55,9 @@ GUARDRAIL_REASON_CODES: dict[str, str] = {
     "market_state_ebbing_reduced": "temperature_gate",
     "crowding_climax_reduced": "temperature_gate",
     "crowding_climax_observed": "temperature_gate",
+    "reflexivity_leader_isolation": "reflexivity_gate",
+    "reflexivity_algorithmic_false_consensus": "reflexivity_gate",
+    "reflexivity_institution_distribution": "reflexivity_gate",
     # 打板纪律熔断
     "day_loss_stop": "discipline_gate",
     "week_trade_cap": "discipline_gate",
@@ -245,6 +248,32 @@ def evaluate_decision(
         ):
             multiplier = min(multiplier, 0.5)
             reasons.append("serenity_stale_reduced")
+
+        intelligence_warnings = set(market_intelligence.get("warnings") or [])
+        crowding_score = _score((market_crowding or {}).get("crowding_score"))
+        if (
+            decision in POSITIVE_ACTIONS
+            and "institutional_lhb_net_sell" in intelligence_warnings
+            and crowding_score is not None
+            and crowding_score >= CROWDING_CLIMAX_THRESHOLD
+        ):
+            decision = "avoid"
+            multiplier = 0.0
+            reasons.append("reflexivity_institution_distribution")
+
+        reflexivity = dict((market_crowding or {}).get("reflexivity") or {})
+        defensive_guards = set(reflexivity.get("defensive_guards") or [])
+        if decision in POSITIVE_ACTIONS and "leader_isolation_exit_v1" in defensive_guards:
+            decision = "watch"
+            multiplier = 0.0
+            reasons.append("reflexivity_leader_isolation")
+        elif (
+            decision in POSITIVE_ACTIONS
+            and strategy_lane == "daban"
+            and "algorithmic_false_consensus_guard_v1" in defensive_guards
+        ):
+            multiplier = min(multiplier, 0.5)
+            reasons.append("reflexivity_algorithmic_false_consensus")
 
         if decision in POSITIVE_ACTIONS and isinstance(market_crowding, Mapping):
             crowding = _score(market_crowding.get("crowding_score"))
