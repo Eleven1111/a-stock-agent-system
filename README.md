@@ -13,7 +13,7 @@
 
 A multi-agent research system for China's A-share market. Fifteen repository skills, a four-dimensional scoring engine, and a full decision pipeline — from global macro surveillance to portfolio risk management, limit-up candidate gating, policy-intent decoding, and offline strategy validation.
 
-**Not a trading bot.** This system analyzes data and produces graded recommendations. It never places orders.
+**Not a trading bot.** This system analyzes data and produces graded recommendations. It never places live orders or connects to a brokerage. Its isolated paper account records simulated fills for research only.
 
 ---
 
@@ -49,7 +49,14 @@ flowchart LR
     CD --> P
     AU --> P
     OC --> P
+    M --> RG["Reflexivity state and defensive research guards"]
+    RG --> P
     P --> L["Append-only signal ledger"]
+    P --> OR["Passed open recommendation"]
+    OR --> CG["Chanlun downstream veto"]
+    CG --> PA["Independent paper account"]
+    PA --> PE["paper.* simulated events"]
+    PE --> L
     L --> ST["T+1 provisional / T+3 final settlement"]
     ST --> E["Performance and strategy gate"]
     E --> P
@@ -87,6 +94,8 @@ flowchart LR
 | **NewsNow aggregator** | Low-rank attention signals (S1/S2, not authoritative evidence) from five default feeds — 财联社热门, 雪球热门股票, 华尔街见闻快讯, 金十数据, 格隆汇事件 — via a self-hostable NewsNow instance; the L1 rule engine still must match keywords before promoting anything | NewsNow (public demo or self-hosted, `NEWSNOW_BASE_URL`) |
 | **strategy-packs (declarative)** | Two built-in, regime-filtered explanatory strategy packs — `dragon_head` and `emotion_cycle` — surfaced as `strategy_pack_hints` in the evidence pack. Explanatory only: `influences_live_ranking=false`; live weight requires the complete research → shadow → manual-pilot → live promotion chain | `config/strategy_packs/*.yaml` |
 | **emotion-cycle features** | Five deterministic, fail-closed technical features (60-day volume percentile, single-day volume-spike ≥5x flag, MA-convergence, ATR-contraction percentile, composite top/bottom detector); zero live weight until `emotion_cycle:v1` completes the promotion chain in `strategy_registry` | Tencent qfq K-line |
+| **reflexivity guard** | Research-only, defensive response to crowding and inferred player interaction. It may veto or reduce exposure when frozen evidence indicates leader isolation, false consensus, or institutional distribution; positive phases never add score or bypass strategy promotion | Immutable candidate snapshots, `config/reflexivity_strategy.json` |
+| **paper-trading** | Independent ¥100,000 research account. Only candidates that already pass recommendation and open confirmation are evaluated; Chanlun is a downstream veto only and cannot select, rank, boost, or place live orders. Simulated fills obey A-share lots, costs, limits, concentration, and T+1 discipline | Open-confirmation signals, Tencent qfq K-line, `paper.*` ledger events |
 | **web-search adapter** | Multi-provider fallback chain (Tavily → Bocha 博查 → SearXNG) with per-provider key rotation on 401/402/429; used by Serenity's Harvest Sources step instead of ad hoc in-session browsing | Tavily, Bocha, SearXNG |
 | **recommendation feedback loop** | `scripts/recommendation_feedback.py` records `useful` / `not_useful` verdicts per signal id; guardrail divergences (raw vs. final action) carry structured machine-readable reason codes, audited by `recommendation_audit.py --audit-violations`; feedback stats feed `score_calibration_report.py` | `signal_ledger.jsonl` |
 
@@ -265,6 +274,16 @@ python skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
 # Offline strategy research gate
 python skills/chanlun-backtest/scripts/research_gate.py --example --json
 
+# Cost-adjusted ablation of defensive reflexivity guards
+python scripts/reflexivity_report.py \
+  --outcome t3_close_ret --round-trip-cost-bps 20
+
+# Isolated paper account: recommendation/open confirmation precede the Chanlun veto
+python skills/paper-trading/scripts/paper_trading_runner.py --phase open --json
+python skills/paper-trading/scripts/paper_trading_runner.py --phase monitor --json
+python skills/paper-trading/scripts/paper_trading_runner.py --phase close --json
+python scripts/paper_trading_report.py
+
 # Point-in-time portfolio replay (requires persisted historical candidate snapshots)
 python scripts/build_portfolio_research_input.py \
   --market-data portfolio_outcome_bars.json \
@@ -274,6 +293,11 @@ python skills/chanlun-backtest/scripts/portfolio_backtest.py \
   --input portfolio_backtest_input.json --split 2025-01-01 \
   --artifact portfolio_backtest_oos.json --json
 ```
+
+See the [hot-money selection protocol](docs/hot-money-selection-protocol.md)
+for the defensive reflexivity boundary and the
+[paper-trading protocol](docs/paper-trading-protocol.md) for entry ordering,
+A-share execution rules, audit events, and research-report semantics.
 
 ## Configuration
 
@@ -330,6 +354,11 @@ T+1 provisional and T+3 final settlements are correlated in the append-only
 `signal_ledger.jsonl`. `agent_state_projector.py` exposes the same current state
 to Hermes and OpenClaw.
 See [`docs/architecture-hardening.md`](docs/architecture-hardening.md).
+
+The isolated paper workflow starts after the 09:35 recommendation and
+tradeability confirmation: 09:37 evaluates the Chanlun downstream veto,
+session monitors apply the existing exit discipline, and 15:25 records NAV.
+It writes only `paper.*` research events and never connects to a brokerage.
 
 ```bash
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
@@ -391,9 +420,11 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 09:26 / 09:27 | Auction finalize / intelligence brief | Workdays |
 | 09:35 | Open confirmation | Workdays |
 | 09:36 | Open intelligence brief | Workdays |
+| 09:37 | Paper-account entry evaluation and simulated open | Workdays |
 | 09:50 | Mainline-leader support checkpoint | Workdays |
 | 13:15 | Mainline-leader afternoon reflow checkpoint | Workdays |
 | 09:30–11:30, 13:00–15:00 | Intraday alerts | Every 5 min (session-guarded) |
+| 10:08–11:53, 13:08–14:53 | Paper-account position monitor | Every 15 min, workdays |
 | 08:00–22:00 | Official policy watch | Every 10 min, calendar days |
 | 09:25–11:30, 13:00–14:55 | Intraday news sweep | Offset every 5 min; stale data is archived without directional signals |
 | 09:45, 13:45, 14:45 | HK-A linkage | Workdays |
@@ -401,7 +432,7 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 15:02 | Cache limit-up ladder and market temperature context | Workdays |
 | 15:07 | Full-market candidate discovery | Workdays |
 | 15:18 | Four-dim review of dynamic top 20 | Workdays |
-| 15:25 | Portfolio risk check | Workdays |
+| 15:25 | Portfolio risk check and paper-account close/NAV | Workdays |
 | 15:35 | Triage → Kanban dispatch | Workdays |
 | 22:30 | Global evening scan | Workdays |
 | Sat 10:00 | Institution weekly | Weekly |
@@ -514,10 +545,12 @@ a-stock-agent-system/
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── config/candidate_selection.json # Dynamic-universe and funnel limits
+├── config/reflexivity_strategy.json # Frozen defensive reflexivity thresholds
+├── config/paper_trading.json   # Isolated paper-account rules and initial capital
 ├── config/nl_screening.yaml     # NL screening condition templates (generic, no hardcoded picks)
 ├── config/web_search.json      # Web-search provider order/timeout/max_results (non-secret)
 ├── config/strategy_packs/       # dragon_head.yaml, emotion_cycle.yaml (explanatory only)
-├── cron/hermes-cron-manifest.json  # 42 runtime-neutral scheduled jobs
+├── cron/hermes-cron-manifest.json  # 47 runtime-neutral scheduled jobs
 ├── scripts/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
 │   ├── run_agent_dag.py        # Dependency ordering, retry, resume
@@ -527,6 +560,8 @@ a-stock-agent-system/
 │   ├── hermes_gateway_doctor.py # Deployment-side Gateway import/schedule diagnostics
 │   ├── generate_system_crontab.py # System cron fallback generator
 │   ├── recommendation_feedback.py # useful/not_useful verdict CLI, feeds calibration report
+│   ├── reflexivity_report.py  # Cost-adjusted defensive-guard ablation
+│   ├── paper_trading_report.py # Paper-account research metrics
 │   ├── smoke_test.py           # 13-test validation suite
 │   ├── snapshot_gc.py          # Snapshot/artifact retention and capacity cleanup
 │   └── validate_cron_manifest.py
@@ -534,13 +569,14 @@ a-stock-agent-system/
 ├── skills/
 │   ├── common/                 # Adapters, snapshots, policy, ledger, shared state,
 │   │                           # nl_screening, interactive_qa, news_sources, strategy_packs,
-│   │                           # emotion_cycle_features, web_search
+│   │                           # emotion_cycle_features, reflexivity, paper_trading, web_search
 │   ├── stock-triage/           # Orchestrator hub
 │   ├── stock-analyst/          # Technical analysis engine
 │   ├── hot-money-tactics/      # Sentiment & limit-up analysis
 │   ├── social-sentiment/       # Cross-platform social attention evidence
 │   ├── daban-stock-picker/     # Main-board 10cm limit-up candidate gate
 │   ├── chanlun-backtest/       # Offline strategy research gate
+│   ├── paper-trading/          # Recommendation-gated simulated execution research
 │   ├── global-market-monitor/  # Macro → A-share impact
 │   ├── policy-intent-decoder/  # Official policy intent and transmission chain
 │   ├── news-to-sector/         # Supply-chain catalyst mapping
