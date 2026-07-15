@@ -920,10 +920,10 @@ def run_discovery(
         },
         "auction_scan_codes": [
             candidate_pipeline.market_code(item.get("code"))
-            for item in evaluated
+            for item in evaluated[:200]
             if item.get("code")
         ],
-        "auction_scan_count": len(evaluated),
+        "auction_scan_count": min(len(evaluated), 200),
     })
     # --- candidate_count > 0 assertion ---
     # Zero deliverable candidates used to mean an upstream data failure. After
