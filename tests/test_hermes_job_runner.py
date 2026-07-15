@@ -166,6 +166,7 @@ def test_adaptive_backoff_enforce_mode_skips_when_not_due(tmp_path, monkeypatch)
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     state_home = tmp_path / "state"
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    monkeypatch.delenv("A_STOCK_STATE_ID", raising=False)
     # streak=21 -> interval=8; ticks_since_run starts at 5, should_run bumps to 6 < 8 -> not due.
     _seed_adaptive_state(state_home, "official-policy-watch", miss_streak=21, ticks_since_run=5)
     monkeypatch.setattr(
@@ -197,6 +198,7 @@ def test_adaptive_backoff_shadow_mode_still_runs_when_not_due(tmp_path, monkeypa
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     state_home = tmp_path / "state"
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    monkeypatch.delenv("A_STOCK_STATE_ID", raising=False)
     _seed_adaptive_state(state_home, "news-monitor", miss_streak=21, ticks_since_run=5)
     # Real shipped default is shadow -- no monkeypatch of delivery_policy here.
 
@@ -221,6 +223,7 @@ def test_adaptive_backoff_records_outcome_after_successful_run(tmp_path, monkeyp
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     state_home = tmp_path / "state"
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    monkeypatch.delenv("A_STOCK_STATE_ID", raising=False)
     _seed_adaptive_state(state_home, "news-monitor-intraday", miss_streak=5, ticks_since_run=0)
 
     result = job_runner.run_job(
@@ -271,6 +274,7 @@ def test_openclaw_runner_writes_artifact_ledger_and_snapshot(tmp_path):
 
     env = os.environ.copy()
     env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
     result = subprocess.run(
         [
             sys.executable,
@@ -315,6 +319,7 @@ def test_runner_local_delivery_suppresses_stdout_but_keeps_artifact(tmp_path):
     # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
     env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
+    env.pop("A_STOCK_STATE_ID", None)
     result = subprocess.run(
         [sys.executable, os.path.join(ROOT, "scripts", "hermes_job_runner.py"), "local-demo", "--manifest", str(manifest)],
         env=env,
@@ -345,6 +350,7 @@ def test_runner_feishu_direct_delivery_suppresses_stdout_and_never_calls_lark_cl
     env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
     env.pop("A_STOCK_FEISHU_CHAT_ID", None)
+    env.pop("A_STOCK_STATE_ID", None)
     result = subprocess.run(
         [sys.executable, os.path.join(ROOT, "scripts", "hermes_job_runner.py"), "feishu-demo", "--manifest", str(manifest)],
         env=env,
@@ -499,6 +505,7 @@ def test_runner_maps_business_block_returncode_to_blocked_artifact(tmp_path):
     # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
     env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
+    env.pop("A_STOCK_STATE_ID", None)
     result = subprocess.run(
         [
             sys.executable,
@@ -541,6 +548,7 @@ def test_runner_blocks_without_starting_worker_when_required_dependency_missing(
     # HERMES_HOME 驱动的路径，必须先弹出继承来的 A_STOCK_STATE_HOME。
     env.pop("A_STOCK_STATE_HOME", None)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
+    env.pop("A_STOCK_STATE_ID", None)
     result = subprocess.run(
         [
             sys.executable,

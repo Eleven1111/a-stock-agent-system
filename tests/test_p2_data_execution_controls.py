@@ -255,8 +255,9 @@ def test_daily_series_provider_attempts_are_date_bound(monkeypatch):
     )
     assert attempts[0][2]() == []
     assert attempts[1][2]()[0]["date"] == "2026-07-09"
-    assert attempts[2][2]() is None
-    assert attempts[3][2]()[0]["date"] == "2026-07-09"
+    assert attempts[2][2]() is None        # mootdx: no TCP in CI
+    assert attempts[3][2]() is None        # tencent_kline: not mocked
+    assert attempts[4][2]()[0]["date"] == "2026-07-09"
 
 
 def test_series_provider_failures_and_cache_hit_are_explicit(monkeypatch):

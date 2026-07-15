@@ -12,6 +12,8 @@ Projector = Callable[[Mapping[str, Any]], None]
 
 def _sequence(event: Mapping[str, Any]) -> int:
     value = event.get("sequence")
+    if value is None:
+        return 0
     if isinstance(value, bool):
         raise ValueError("event sequence must be an integer")
     sequence = int(value)

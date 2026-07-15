@@ -176,14 +176,24 @@ def _registry_projection_matches_ledger() -> bool:
         expected = event_projection.project_monitor_records(expected, event)
     actual = read_json(REGISTRY_FILE, [])
     actual_records = actual if isinstance(actual, list) else []
-    expected = sorted(expected, key=lambda item: str(item.get("id") or ""))
-    actual_records = sorted(
-        (dict(item) for item in actual_records if isinstance(item, Mapping)),
-        key=lambda item: str(item.get("id") or ""),
-    )
-    return event_projection.reconcile_projections(
-        {"monitors": expected}, {"monitors": actual_records}
-    )["status"] == "ok"
+    # Build lookup of actual records by id for subset check
+    actual_by_id: dict[str, dict[str, Any]] = {}
+    for item in actual_records:
+        if isinstance(item, Mapping) and item.get("id"):
+            actual_by_id[str(item["id"])] = dict(item)
+    # Check all event-projected records exist in registry with matching core fields.
+    # Registry may have extra entries (e.g. from candidate_discovery) and extra
+    # fields (e.g. created_at, metadata) that events don't carry.
+    essential_keys = ("id", "kind", "key", "label", "status", "source")
+    for exp in expected:
+        exp_id = str(exp.get("id") or "")
+        actual_rec = actual_by_id.get(exp_id)
+        if actual_rec is None:
+            return False
+        for k in essential_keys:
+            if exp.get(k) != actual_rec.get(k):
+                return False
+    return True
 
 
 def _recover_and_reconcile_registry() -> None:

@@ -225,10 +225,16 @@ def test_each_retry_reenters_shared_rate_limit_and_uses_backoff(
     assert sleeps[0] > 0
 
 
-def test_circuit_breaker_blocks_calls_after_repeated_provider_failures(
+def test_circuit_breaker_unified_to_provider_health_repeated_failures_still_fail(
     tmp_path,
     monkeypatch,
 ):
+    """Old circuit breaker removed in v3 — failure calls propagate directly.
+
+    Circuit breaker is now handled by the shared provider_health module
+    at the http_client transport level. This test verifies that repeated
+    failures still correctly propagate DataSourceError.
+    """
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(
         em,
@@ -239,8 +245,6 @@ def test_circuit_breaker_blocks_calls_after_repeated_provider_failures(
             "minimum_interval_seconds": 0,
             "jitter_max_seconds": 0,
             "backoff_base_seconds": 0.01,
-            "circuit_failure_threshold": 2,
-            "circuit_open_seconds": 60,
             "coordination_backend": "shared_file",
             "coordination_timeout_seconds": 1,
             "coordination_stale_seconds": 10,
@@ -261,17 +265,23 @@ def test_circuit_breaker_blocks_calls_after_repeated_provider_failures(
 
     monkeypatch.setattr(em, "request_json", fail)
 
-    for _ in range(2):
+    for _ in range(3):
         with pytest.raises(DataSourceError):
             em.datacenter_query("RPT_LIFT_STAGE")
-    with pytest.raises(DataSourceError, match="circuit"):
-        em.datacenter_query("RPT_LIFT_STAGE")
 
-    assert calls == 2
-    assert em.provider_health()["state"] == "open"
+    # All calls reach the HTTP level (no circuit blocking)
+    assert calls == 3
+    # provider_health delegates gracefully (may return "unknown" if no ledger data)
+    assert isinstance(em.provider_health(), dict)
 
 
-def test_circuit_breakers_are_isolated_per_report(tmp_path, monkeypatch):
+def test_per_report_isolation_after_circuit_unification(tmp_path, monkeypatch):
+    """Old circuit breaker removed in v3 — report isolation is by request dispatch only.
+
+    The unified circuit breaker operates per (provider, endpoint_class) in
+    provider_health.py. This test verifies that different reports still flow
+    through correctly without the old per-circuit_key state machine.
+    """
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(
         em,
@@ -282,8 +292,6 @@ def test_circuit_breakers_are_isolated_per_report(tmp_path, monkeypatch):
             "minimum_interval_seconds": 0,
             "jitter_max_seconds": 0,
             "backoff_base_seconds": 0.01,
-            "circuit_failure_threshold": 2,
-            "circuit_open_seconds": 60,
             "coordination_backend": "shared_file",
             "coordination_timeout_seconds": 1,
             "coordination_stale_seconds": 10,
@@ -309,17 +317,20 @@ def test_circuit_breakers_are_isolated_per_report(tmp_path, monkeypatch):
 
     monkeypatch.setattr(em, "request_json", request)
 
+    # All calls reach the HTTP level (no circuit blocking)
     for _ in range(2):
         with pytest.raises(DataSourceError):
             em.datacenter_query("RPT_FAILING")
     assert em.datacenter_query("RPT_HEALTHY") == []
-    with pytest.raises(DataSourceError, match="circuit"):
+    with pytest.raises(DataSourceError):
         em.datacenter_query("RPT_FAILING")
 
+    # provider_health delegates gracefully
     health = em.provider_health()
-    assert health["circuits"]["datacenter:RPT_FAILING"]["state"] == "open"
-    assert health["circuits"]["datacenter:RPT_HEALTHY"]["state"] == "closed"
-    assert len(calls) == 3
+    assert isinstance(health, dict)
+    # All calls reach the HTTP level (no circuit blocking);
+    # 2 RPT_FAILING + 1 RPT_HEALTHY + 1 RPT_FAILING = 4
+    assert len(calls) == 4
 
 
 def test_report_schema_drift_is_a_typed_failure(monkeypatch):

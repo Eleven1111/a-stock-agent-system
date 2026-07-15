@@ -48,6 +48,13 @@
       "timeout_seconds": 8,
       "max_attempts": 1
     },
+    "mootdx": {
+      "timeout_seconds": 10,
+      "max_attempts": 2,
+      "circuit_failure_threshold": 3,
+      "circuit_open_seconds": 60,
+      "connection_timeout_seconds": 5
+    },
     "cninfo": {
       "timeout_seconds": 8,
       "max_attempts": 2
@@ -108,7 +115,7 @@
     "sentiment_delta_max": 0.8,
     "theme_min_confirmed_stocks": 1,
     "theme_min_attention_score": 60.0,
-    "baidu_enabled": false
+    "baidu_enabled": true
   },
   "provider_health": {
     "window_size": 200,
@@ -119,8 +126,8 @@
   },
   "field_chains": {
     "capital_flow": ["akshare", "adata", "eastmoney_datacenter", "eastmoney_push2_degraded", "tencent"],
-    "quote": ["akshare", "adata", "eastmoney_datacenter", "eastmoney_push2_degraded", "tencent"],
-    "kline": ["akshare", "adata", "tencent", "eastmoney_push2_degraded"],
+    "quote": ["akshare", "adata", "mootdx", "eastmoney_datacenter", "eastmoney_push2_degraded", "tencent"],
+    "kline": ["akshare", "adata", "mootdx", "tencent", "eastmoney_push2_degraded"],
     "board_quote": ["akshare", "adata", "eastmoney_push2_degraded"]
   },
   "global_market": {

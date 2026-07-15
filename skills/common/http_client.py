@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import socket
 import threading
 import time
@@ -51,19 +52,28 @@ def _build_proxy_aware_opener() -> Any:
 # The half-open probe-limiting is handled by ``provider_health.allow_request``
 # which grants exactly one probe slot per cooldown window; the throttle here
 # complements that by spacing out requests even when the circuit is closed.
-_THROTTLE_INTERVAL: float = 2.0  # seconds
+_THROTTLE_INTERVAL: float = 2.5  # seconds (bumped from 2.0 to reduce push2 WAF trigger)
 _last_request_ts: Dict[str, float] = {}
 _throttle_lock = threading.Lock()
 
 
 def _throttle_wait(source: str) -> None:
     """Block until at least ``_THROTTLE_INTERVAL`` seconds have elapsed since
-    the last request to *source* in this process."""
+    the last request to *source* in this process.
+
+    Eastmoney requests get extra jitter (0.5-1.5s random) on top of the base
+    interval to reduce the chance of triggering WAF sliding-window rate limits.
+    """
     with _throttle_lock:
         last = _last_request_ts.get(source, 0.0)
         elapsed = time.monotonic() - last
-        if elapsed < _THROTTLE_INTERVAL:
-            time.sleep(_THROTTLE_INTERVAL - elapsed)
+        # Extra jitter for eastmoney sources to avoid WAF pattern detection
+        extra_jitter = 0.0
+        if "eastmoney" in source.lower():
+            extra_jitter = random.uniform(0.5, 1.5)
+        total_wait = _THROTTLE_INTERVAL + extra_jitter
+        if elapsed < total_wait:
+            time.sleep(total_wait - elapsed)
         _last_request_ts[source] = time.monotonic()
 
 

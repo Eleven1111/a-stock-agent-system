@@ -594,7 +594,6 @@ def fetch_a_share_spot():
             ("akshare", akshare_sina),
             ("adata", adata_spot),
             ("eastmoney_datacenter", datacenter_spot),
-            ("mootdx", lambda: []),  # mootdx spot is catalog-only; live quotes use bars/quote
             ("eastmoney_push2_degraded", eastmoney_push2_spot),
         ),
         empty=[],
@@ -629,16 +628,6 @@ def fetch_a_share_quote(code: str) -> dict[str, Any]:
     market = _market(normalized)
     quote = fetch_tencent_quote([f"{market}{normalized}"]).get(f"{market}{normalized}") or {}
     return {**quote, "code": normalized, "provider": "tencent_fallback"}
-
-
-def _mootdx_kline(code: str, *, days: int = 60) -> list[dict[str, Any]]:
-    """Thin wrapper so the fallback-chain lambda can call mootdx lazily."""
-    try:
-        from mootdx_adapter import fetch_mootdx_bars
-        bars = fetch_mootdx_bars(code, days=days)
-        return _normalize_bar_records(bars)[-days:] if bars else []
-    except Exception:
-        return []
 
 
 def fetch_a_share_daily_kline(
@@ -707,7 +696,6 @@ def fetch_a_share_daily_kline(
             (
                 ("akshare", akshare_tencent),
                 ("adata", adata_daily),
-                ("mootdx", lambda: _mootdx_kline(normalized, days=days)),
                 ("tencent", tencent_direct),
                 ("eastmoney_push2_degraded", eastmoney_push2_kline),
             ),
@@ -758,11 +746,6 @@ def _daily_series_attempts(
         )
         return _normalize_bar_records(_frame_records(frame))[-days:]
 
-    def mootdx_historical() -> list[dict[str, Any]] | None:
-        from mootdx_adapter import fetch_mootdx_bars
-        bars = fetch_mootdx_bars(code, days=days)
-        return bars or None
-
     def tencent_current_only() -> Any:
         result = fetch_with_replay_contract(
             lambda: _fetch_tencent_kline(code, market=market, days=days, ktype="day"),
@@ -784,7 +767,6 @@ def _daily_series_attempts(
     return (
         ("akshare_tencent", ADAPTER_VERSIONS["akshare_tencent"], akshare_tencent),
         ("adata", ADAPTER_VERSIONS["adata"], adata_daily),
-        ("mootdx", ADAPTER_VERSIONS.get("mootdx", "mootdx-adapter-v1"), mootdx_historical),
         ("tencent_kline", ADAPTER_VERSIONS["tencent_kline"], tencent_current_only),
         (
             "eastmoney_push2_degraded",
@@ -1439,6 +1421,7 @@ def fetch_concept_boards() -> list[dict[str, Any]]:
 
     def akshare_concept() -> list[dict[str, Any]]:
         import akshare as ak
+        import pandas as pd
 
         df = ak.stock_board_concept_name_em()
         time.sleep(_AKSHARE_PACE_SECONDS)
