@@ -22,6 +22,7 @@ from data_provider import fetch_tencent_quote
 from eastmoney_intelligence import eastmoney_json
 from http_client import DataSourceError, request_json
 from market_adapters import (
+    fetch_board_quotes,
     fetch_northbound_flow,
     fetch_sector_fund_flow,
     fetch_stock_fund_flow,
