@@ -13,7 +13,8 @@
 
 A 股多智能体投研系统。15 个仓内专业 Skill、四维打分引擎、覆盖从全球宏观到持仓风控、打板候选池、政策意图解码和离线策略验证的完整决策链路。
 
-**非交易机器人。** 系统只做数据分析和分级建议，不下单、不操盘。
+**非交易机器人。** 系统只做数据分析和分级建议，不向券商发送订单、不操盘。仓内的
+模拟交易账户只用于研究数据积累，与真实持仓完全隔离。
 
 ---
 
@@ -49,7 +50,14 @@ flowchart LR
     CD --> P
     AU --> P
     OC --> P
+    M --> R["反身性状态与防守性研究护栏"]
+    R --> P
     P --> L["Append-only Signal Ledger"]
+    P --> OR["已通过的正式开盘推荐"]
+    OR --> CG["Chanlun 下游二次否决门槛"]
+    CG --> PA["独立研究模拟账户"]
+    PA --> PE["paper.* 审计事件"]
+    PE --> L
     L --> ST["T+1 provisional / T+3 final 结算"]
     ST --> E["绩效评估与策略门控"]
     E --> P
@@ -82,6 +90,8 @@ flowchart LR
 | **event-calendar** | 限售解禁、分红除权、政策窗口 | 东方财富 |
 | **performance-tracker** | 信号胜率统计、分级表现、反馈闭环 | 腾讯 |
 | **discipline-review** | 每日买入建议与实际成交对比（追价/超仓位/未跟单）、尚未处理的持仓纪律信号、账户熔断状态 | 腾讯 |
+| **反身性防守护栏** | 基于当时可见快照识别龙头孤立、疑似算法化虚假共识和机构派发风险；只允许禁止新增、禁止追入或降低仓位，不提供正向准入、不加分、不绕过策略注册，并用成本后消融报告验证 | `config/reflexivity_strategy.json`、候选生命周期与统一账本 |
+| **paper-trading** | 10万元独立研究模拟账户。只消费已通过推荐与开盘确认的标的，再由 Chanlun 看多结构作下游二次否决门槛；Chanlun 不选股、不排序、不加分。复用 A 股 T+1、涨跌停、费用、滑点、止损止盈和集中度纪律，只记录 `paper.*` 事件，绝不发送真实订单 | `config/paper_trading.json`、开盘推荐、Chanlun 结构信号、统一账本 |
 | **nl-screening 召回通道** | 自然语言选股，作为候选发现的第二召回通道：东方财富智能选股（免费，依赖 `EASTMONEY_QGQP_B_ID`；未配置时明确报告为 disabled）+ 同花顺问财 OpenAPI 可选增强（`WENCAI_API_KEY`）。候选带 `recall_source` 标记，仍需经过与收盘发现漏斗相同的候选 FSM/policy 闸门，不绕过任何一道 | 东方财富智能选股、同花顺问财 |
 | **互动易/上证e互动证据** | 深市互动易（fail-closed）+ 沪市上证e互动（best-effort，可能降级为 `sse_unavailable`）投资者问答，接入候选/持仓证据包"投资者关注热点"维度 | 互动易、上证e互动 |
 | **NewsNow 聚合热点源** | 低位阶关注度线索（S1/S2，非权威证据），默认5个源：财联社热门、雪球热门股票、华尔街见闻快讯、金十数据、格隆汇事件；可自建实例替换默认公共实例；L1 规则引擎仍需命中关键词才放行 | NewsNow（公共demo或自建，`NEWSNOW_BASE_URL`） |
@@ -182,6 +192,9 @@ OpenClaw 未显式设置 `A_STOCK_STATE_HOME`，或固定的 `A_STOCK_STATE_ID` 
 
 T+1 约束、推荐质检和动态订阅规则见
 [A股交易与监控生命周期](docs/trading-lifecycle.md)。
+反身性防守研究与模拟账户的详细边界分别见
+[游资主线龙头选股协议](docs/hot-money-selection-protocol.md)和
+[推荐后 Chanlun 门控模拟交易协议](docs/paper-trading-protocol.md)。
 
 两端使用相同执行入口：
 
@@ -225,6 +238,15 @@ python skills/daban-stock-picker/scripts/daban_candidate_api.py --example --json
 
 # 离线策略研究闸门
 python skills/chanlun-backtest/scripts/research_gate.py --example --json
+
+# 反身性防守护栏：成本后消融研究报告
+python scripts/reflexivity_report.py --outcome t3_close_ret --round-trip-cost-bps 20
+
+# 独立模拟账户：推荐/开盘确认先通过，Chanlun 只作下游二次否决门槛
+python skills/paper-trading/scripts/paper_trading_runner.py --phase open --json
+python skills/paper-trading/scripts/paper_trading_runner.py --phase monitor --json
+python skills/paper-trading/scripts/paper_trading_runner.py --phase close --json
+python scripts/paper_trading_report.py
 
 # 组合级无前视回放（必须使用当时落盘的历史候选快照）
 python scripts/build_portfolio_research_input.py \
@@ -291,6 +313,10 @@ artifact v2 还包含 `trading_date`、`batch_id`、`dependency_gate` 和交易�
 `agent_state_projector.py` 向两端提供同一份当前状态。详细契约见
 [`docs/architecture-hardening.md`](docs/architecture-hardening.md)。
 
+研究模拟账户也由同一 DAG 调度，但使用独立账户投影和 `paper.*` 事件命名空间：09:37
+只消费已通过的正式开盘推荐，盘中错峰执行纪律检查，15:25 记录收盘净值。它不连接
+券商，也不会把模拟持仓投影成真实持仓。
+
 ```bash
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
@@ -338,6 +364,9 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 5. **09:50 承接确认**：只复用 09:35 前五候选，单次有界行情刷新验证开盘承接。
 6. **13:15 午后回流**：再次验证主线回流和板块内相对强度；两个检查点都只更新研究状态，不下单、不建议当日卖出。
 
+09:37 的模拟账户开仓位于选股漏斗下游：它只消费已通过推荐和开盘确认的标的，再以
+Chanlun 看多结构作二次否决；它不新增候选、不改变排序或推荐分，也不发送真实订单。
+
 08:50、09:27、09:36 分别推送早盘、集合竞价、开盘情报；被过滤高分票会附带不可成交、数据不足或门禁原因，但不会因此进入执行链路。
 
 所有通过基础过滤的候选都写入 `candidate_lifecycle/YYYY-MM-DD.json`，保留阶段历史、淘汰原因和增量 T+1/T+3 结果。完整状态写入 `HERMES_HOME`，cron artifact 只保留压缩摘要，避免污染主线对话。
@@ -350,9 +379,11 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 | 09:26 / 09:27 | 集合竞价收口 / 情报简报 | 工作日 |
 | 09:35 | 开盘确认+上车判定 | 工作日 |
 | 09:36 | 开盘情报摘要 | 工作日 |
+| 09:37 | 模拟账户开仓（推荐与开盘确认通过后，Chanlun 二次否决） | 工作日 |
 | 09:50 | 主线龙头承接确认 | 工作日 |
 | 13:15 | 主线龙头午后回流确认 | 工作日 |
 | 09:00–15:00 | 盘中异动告警 | 每5分钟 |
+| 10:08–11:53, 13:08–14:53 | 模拟持仓纪律检查 | 错峰每15分钟 |
 | 08:00–22:00 | 官方政策源快扫 | 每10分钟，日历日 |
 | 09:25–11:30, 13:00–14:55 | 盘中资讯快扫 | 错峰每5分钟；超过SLA只归档不推方向信号 |
 | 09:45, 13:45, 14:45 | 港A联动 | 工作日 |
@@ -360,7 +391,7 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 | 15:02 | 缓存涨停梯队和市场温度上下文 | 工作日 |
 | 15:07 | 全市场动态候选发现 | 工作日 |
 | 15:18 | 动态前20只四维复核 | 工作日 |
-| 15:25 | 持仓风控检查 | 工作日 |
+| 15:25 | 持仓风控检查 + 模拟账户收盘净值 | 工作日 |
 | 15:35 | 收盘Triage→Kanban派发 | 工作日 |
 | 16:10 | T+1/T+3 信号结算 | 工作日 |
 | 09:40, 15:40, 16:40 | 统一 Agent 状态投影 | 工作日 |
@@ -441,8 +472,10 @@ a-stock-agent-system/
 ├── config/candidate_selection.json # 动态股票池与漏斗参数
 ├── config/nl_screening.yaml     # 自然语言选股条件模板（通用，无具体股票/板块）
 ├── config/web_search.json      # web-search 供应商顺序/超时/max_results（不含密钥）
+├── config/reflexivity_strategy.json # 反身性防守护栏版本、阈值与配置指纹
+├── config/paper_trading.json   # 10万元模拟账户、Chanlun门槛与成交纪律
 ├── config/strategy_packs/       # dragon_head.yaml、emotion_cycle.yaml（纯解释性）
-├── cron/hermes-cron-manifest.json  # 42个跨运行时隔离任务
+├── cron/hermes-cron-manifest.json  # 47个跨运行时隔离任务
 ├── scripts/
 │   ├── agent_job_runner.py     # Hermes/OpenClaw共用任务入口
 │   ├── run_agent_dag.py        # 依赖排序、重试、断点续跑
@@ -452,6 +485,8 @@ a-stock-agent-system/
 │   ├── hermes_gateway_doctor.py # 部署机Gateway导入/schedule诊断
 │   ├── generate_system_crontab.py # 系统cron兜底生成器
 │   ├── recommendation_feedback.py # useful/not_useful 反馈CLI，反哺 calibration report
+│   ├── reflexivity_report.py  # 防守性反身性护栏的成本后消融报告
+│   ├── paper_trading_report.py # 模拟账户门控、成交与净值研究报告
 │   ├── smoke_test.py           # 13项集成验证
 │   └── validate_cron_manifest.py
 ├── tests/                      # 全量回归测试
@@ -465,6 +500,7 @@ a-stock-agent-system/
 │   ├── social-sentiment/       # 跨平台社交关注度证据
 │   ├── daban-stock-picker/     # 主板10cm打板候选闸门
 │   ├── chanlun-backtest/       # 离线策略研究闸门
+│   ├── paper-trading/          # 推荐后Chanlun二次门控的独立模拟账户
 │   ├── global-market-monitor/  # 全球宏观→A股影响
 │   ├── policy-intent-decoder/  # 官方政策意图与传导链
 │   ├── news-to-sector/         # 产业链催化映射
