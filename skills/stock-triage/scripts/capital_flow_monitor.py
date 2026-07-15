@@ -119,10 +119,21 @@ def _market(code: str) -> str:
     return "sh" if code.startswith("6") else "sz"
 
 
-def load_runtime_stocks() -> list[tuple[str, str, str]]:
+def load_runtime_stocks(max_stocks: int = 20) -> list[tuple[str, str, str]]:
+    """Load stock targets, prioritising portfolio holdings then monitors.
+
+    Capital flow queries are expensive (~10s each via akshare).  Limiting
+    to ``max_stocks`` keeps total runtime under ~3 minutes even when every
+    query is slow.
+    """
+    targets = runtime_targets.load_stock_targets()
+    # Portfolio holdings first, then monitors
+    portfolio = [t for t in targets if t.get("source") == "portfolio"]
+    monitors = [t for t in targets if t.get("source") != "portfolio"]
+    ordered = portfolio + monitors
     return [
         (target["code"], _market(target["code"]), target["name"])
-        for target in runtime_targets.load_stock_targets()
+        for target in ordered[:max_stocks]
     ]
 
 
