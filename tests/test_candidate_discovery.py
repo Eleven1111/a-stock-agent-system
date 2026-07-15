@@ -326,6 +326,7 @@ def test_run_discovery_uses_narrow_cached_industry_as_sector(tmp_path, monkeypat
             item["code"]: klines[item["code"]] for item in candidates
         },
         industry_provider=lambda _asof: sector_map,
+        nl_screening_recall_provider=lambda: {"schema":"nl_screening_recall_v1","channels":[],"candidate_count":0,"candidates":[]},
         settle_previous=False,
     )
 
@@ -383,6 +384,7 @@ def test_run_discovery_does_not_promote_coarse_exchange_industry(tmp_path, monke
             item["code"]: klines[item["code"]] for item in candidates
         },
         industry_provider=lambda _asof: {},
+        nl_screening_recall_provider=lambda: {"schema":"nl_screening_recall_v1","channels":[],"candidate_count":0,"candidates":[]},
         settle_previous=False,
     )
 

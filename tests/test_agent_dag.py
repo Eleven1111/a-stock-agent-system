@@ -47,6 +47,7 @@ def test_dag_reuses_dependencies_but_reruns_scheduled_target(tmp_path):
     manifest.write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
     env = os.environ.copy()
     env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
 
     first = run_agent_dag.execute_dag(
         manifest_path=str(manifest),
@@ -87,6 +88,7 @@ def test_dag_can_explicitly_resume_target(tmp_path):
     }), encoding="utf-8")
     env = os.environ.copy()
     env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
 
     run_agent_dag.execute_dag(
         manifest_path=str(manifest),

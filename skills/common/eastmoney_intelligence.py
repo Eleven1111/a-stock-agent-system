@@ -47,8 +47,7 @@ def _rate_limit_file() -> str:
     return os.path.join(_coordination_dir(), "rate_limit.json")
 
 
-def _health_file() -> str:
-    return os.path.join(_coordination_dir(), "health.json")
+# _health_file() removed in v3 — circuit breaker unified into provider_health.py
 
 
 def _read_json(path: str, default: Any) -> Any:
@@ -274,154 +273,70 @@ def _retryable(error: DataSourceError) -> bool:
     return status == 429 or status >= 500
 
 
-def _health_document() -> dict[str, Any]:
-    document = _read_json(_health_file(), {})
-    if not isinstance(document, dict):
-        document = {}
-    circuits = document.get("circuits")
-    if isinstance(circuits, dict):
-        return document
-    legacy = {
-        key: value
-        for key, value in document.items()
-        if key not in {"schema", "provider"}
-    }
-    return {
-        "schema": "provider_health_v2",
-        "provider": "eastmoney",
-        "circuits": {"provider": legacy} if legacy else {},
-    }
-
-
-def _write_health_document(document: dict[str, Any]) -> None:
-    document["schema"] = "provider_health_v2"
-    document["provider"] = "eastmoney"
-    _write_json(_health_file(), document)
-
-
-def _circuit_before_call(settings: dict[str, Any], circuit_key: str) -> None:
-    now = time.time()
-    with _coordination_lock(
-        "health",
-        timeout=float(settings["coordination_timeout_seconds"]),
-        stale_after=float(settings["coordination_stale_seconds"]),
-    ):
-        document = _health_document()
-        circuits = document.setdefault("circuits", {})
-        state = dict(circuits.get(circuit_key) or {})
-        status = str(state.get("state") or "closed")
-        open_until = float(state.get("open_until_epoch") or 0)
-        if status in {"open", "half_open"} and now < open_until:
-            raise DataSourceError(
-                "eastmoney",
-                f"circuit {status} until {open_until:.0f}",
-                error_type=ErrorType.NETWORK,
-            )
-        if status in {"open", "half_open"}:
-            circuits[circuit_key] = {
-                **state,
-                "state": "half_open",
-                "open_until_epoch": now + float(settings["circuit_open_seconds"]),
-                "probe_started_at": datetime.now(timezone.utc).isoformat(
-                    timespec="seconds"
-                ),
-            }
-            _write_health_document(document)
-
-
-def _circuit_record_success(
-    settings: dict[str, Any],
-    circuit_key: str,
-) -> None:
-    with _coordination_lock(
-        "health",
-        timeout=float(settings["coordination_timeout_seconds"]),
-        stale_after=float(settings["coordination_stale_seconds"]),
-    ):
-        document = _health_document()
-        circuits = document.setdefault("circuits", {})
-        state = dict(circuits.get(circuit_key) or {})
-        circuits[circuit_key] = {
-            **state,
-            "state": "closed",
-            "consecutive_failures": 0,
-            "open_until_epoch": 0,
-            "last_success_at": datetime.now(timezone.utc).isoformat(
-                timespec="seconds"
-            ),
-        }
-        _write_health_document(document)
-
-
-def _circuit_record_failure(
-    settings: dict[str, Any],
-    error: DataSourceError,
-    circuit_key: str,
-) -> None:
-    now = time.time()
-    with _coordination_lock(
-        "health",
-        timeout=float(settings["coordination_timeout_seconds"]),
-        stale_after=float(settings["coordination_stale_seconds"]),
-    ):
-        document = _health_document()
-        circuits = document.setdefault("circuits", {})
-        state = dict(circuits.get(circuit_key) or {})
-        failures = int(state.get("consecutive_failures") or 0) + 1
-        should_open = (
-            state.get("state") == "half_open"
-            or failures >= int(settings["circuit_failure_threshold"])
-        )
-        circuits[circuit_key] = {
-            **state,
-            "state": "open" if should_open else "closed",
-            "consecutive_failures": failures,
-            "open_until_epoch": (
-                now + float(settings["circuit_open_seconds"])
-                if should_open
-                else 0
-            ),
-            "last_failure_at": datetime.now(timezone.utc).isoformat(
-                timespec="seconds"
-            ),
-            "last_error": error.to_dict(),
-        }
-        _write_health_document(document)
+# provider_health functions removed in v3 — circuit breaker unified into provider_health.py
 
 
 def provider_health() -> dict[str, Any]:
+    """Delegate to the shared provider_health circuit breaker (scheme E unification).
+
+    Previously this read per-module health.json; now it routes through
+    the canonical provider_health module
+    (\$A_STOCK_STATE_HOME/runtime/provider_health/).
+    """
     settings = _settings()
-    document = _health_document()
-    circuits = {
-        str(key): dict(value)
-        for key, value in (document.get("circuits") or {}).items()
-        if isinstance(value, dict)
-    }
-    states = {str(value.get("state") or "closed") for value in circuits.values()}
-    state = "open" if "open" in states else "half_open" if "half_open" in states else "closed"
-    return {
-        "schema": "provider_health_v2",
-        "provider": "eastmoney",
-        "state": state,
-        "open_circuits": sorted(
-            key
-            for key, value in circuits.items()
-            if value.get("state") in {"open", "half_open"}
-        ),
-        "circuits": circuits,
-        "coordination_backend": settings["coordination_backend"],
-        "coordination_root": _coordination_dir(),
-    }
+    try:
+        import provider_health as ph
+
+        # Build a backward-compatible response from the real SLO ledger
+        eastmoney_endpoints = ph.summary().get("providers", {}).get("eastmoney", {})
+        circuits = {}
+        open_circuits = []
+        state = "closed"
+        for endpoint_class, score in eastmoney_endpoints.items():
+            circuits[endpoint_class] = {
+                "state": score.get("state", "closed"),
+                "samples": score.get("samples", 0),
+                "successes": score.get("successes", 0),
+                "success_rate": score.get("success_rate"),
+            }
+            if score.get("state") in {"open", "half_open"}:
+                open_circuits.append(endpoint_class)
+                state = score.get("state")
+        return {
+            "schema": "provider_health_v2",
+            "provider": "eastmoney",
+            "state": state,
+            "open_circuits": sorted(open_circuits),
+            "circuits": circuits,
+            "coordination_backend": settings.get("coordination_backend", "shared_file"),
+            "coordination_root": _coordination_dir(),
+        }
+    except Exception:  # noqa: BLE001 — graceful fallback
+        return {
+            "schema": "provider_health_v2",
+            "provider": "eastmoney",
+            "state": "unknown",
+            "open_circuits": [],
+            "circuits": {},
+            "coordination_backend": settings.get("coordination_backend", "shared_file"),
+            "coordination_root": _coordination_dir(),
+        }
 
 
 def _request_payload(
     request,
     *,
     validator: Callable[[Any], Any],
-    circuit_key: str,
+    circuit_key: str = "_",  # kept for caller compatibility; circuit breaker unified into provider_health.py
 ) -> Any:
+    """Execute a provider request with rate limiting, retry, and validation.
+
+    Circuit breaker logic (previously _circuit_before_call / _circuit_record_*)
+    has been removed in v3 — all eastmoney endpoints are now governed by the
+    shared provider_health module via http_client.py's transport-level
+    _record_health() and market_adapters.py's _recorded_call().
+    """
     settings = _settings()
-    _circuit_before_call(settings, circuit_key)
     max_attempts = int(settings["max_attempts"])
     last_error: DataSourceError | None = None
     for attempt in range(1, max_attempts + 1):
@@ -448,7 +363,6 @@ def _request_payload(
                 )
                 time.sleep(delay)
                 continue
-            _circuit_record_failure(settings, exc, circuit_key)
             raise DataSourceError(
                 "eastmoney",
                 exc.message,
@@ -459,7 +373,6 @@ def _request_payload(
                 status_code=exc.status_code,
                 retry_after_seconds=exc.retry_after_seconds,
             ) from exc
-        _circuit_record_success(settings, circuit_key)
         return output
     if last_error is None:
         raise RuntimeError("Eastmoney request failed without an error")
@@ -795,6 +708,77 @@ def fetch_reports(code: str, page_size: int = 30) -> list[dict[str, Any]]:
         "eps_next_year": _number(row.get("predictNextYearEps"), default=0.0),
         "eps_year_after_next": _number(row.get("predictNextTwoYearEps"), default=0.0),
     } for row in rows]
+
+
+def extract_consensus_eps(code: str, *, asof: date | str | None = None) -> dict[str, Any]:
+    """提取个股的一致预期EPS（从东财研报中聚合机构预测）。
+
+    返回当前年度和次年的EPS中位数/平均值/机构覆盖数，
+    是四维评分基本面维度的前瞻性输入。
+
+    Returns:
+        dict with keys:
+            eps_consensus_current: float — 当年EPS一致预期（中位数）
+            eps_consensus_next: float — 次年EPS一致预期（中位数）
+            eps_consensus_after_next: float — 后年EPS一致预期（中位数）
+            eps_mean_current: float — 当年EPS均值
+            eps_mean_next: float — 次年EPS均值
+            coverage_count: int — 覆盖机构数
+            latest_report_date: str — 最新研报日期
+            provider: str — 数据源标识
+    """
+    try:
+        reports = fetch_reports(code, asof=asof)
+    except Exception:  # noqa: BLE001 — graceful fallback
+        return {
+            "eps_consensus_current": None,
+            "eps_consensus_next": None,
+            "eps_consensus_after_next": None,
+            "eps_mean_current": None,
+            "eps_mean_next": None,
+            "coverage_count": 0,
+            "latest_report_date": None,
+            "provider": "eastmoney_intelligence",
+        }
+
+    eps_current = [
+        r["eps_current_year"] for r in reports
+        if isinstance(r.get("eps_current_year"), (int, float)) and r["eps_current_year"] > 0
+    ]
+    eps_next = [
+        r["eps_next_year"] for r in reports
+        if isinstance(r.get("eps_next_year"), (int, float)) and r["eps_next_year"] > 0
+    ]
+    eps_after_next = [
+        r["eps_year_after_next"] for r in reports
+        if isinstance(r.get("eps_year_after_next"), (int, float)) and r["eps_year_after_next"] > 0
+    ]
+
+    def _median(values: list[float]) -> float | None:
+        if not values:
+            return None
+        sorted_v = sorted(values)
+        mid = len(sorted_v) // 2
+        if len(sorted_v) % 2 == 0:
+            return round((sorted_v[mid - 1] + sorted_v[mid]) / 2, 4)
+        return round(sorted_v[mid], 4)
+
+    latest_date = None
+    for r in reports:
+        rd = r.get("date")
+        if rd and (latest_date is None or str(rd) > str(latest_date)):
+            latest_date = str(rd)[:10]
+
+    return {
+        "eps_consensus_current": _median(eps_current),
+        "eps_consensus_next": _median(eps_next),
+        "eps_consensus_after_next": _median(eps_after_next),
+        "eps_mean_current": round(sum(eps_current) / len(eps_current), 4) if eps_current else None,
+        "eps_mean_next": round(sum(eps_next) / len(eps_next), 4) if eps_next else None,
+        "coverage_count": len(set(r.get("institution", "") for r in reports if r.get("institution"))),
+        "latest_report_date": latest_date,
+        "provider": "eastmoney_intelligence",
+    }
 
 
 def fetch_dividend(

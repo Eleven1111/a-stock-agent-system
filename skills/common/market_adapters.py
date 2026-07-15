@@ -9,6 +9,7 @@ routes fail or are unavailable.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import math
@@ -593,6 +594,7 @@ def fetch_a_share_spot():
             ("akshare", akshare_sina),
             ("adata", adata_spot),
             ("eastmoney_datacenter", datacenter_spot),
+            ("mootdx", lambda: []),  # mootdx spot is catalog-only; live quotes use bars/quote
             ("eastmoney_push2_degraded", eastmoney_push2_spot),
         ),
         empty=[],
@@ -695,6 +697,7 @@ def fetch_a_share_daily_kline(
             (
                 ("akshare", akshare_tencent),
                 ("adata", adata_daily),
+                ("mootdx", lambda: _normalize_bar_records(fetch_mootdx_bars(normalized, days=days))[-days:] if fetch_mootdx_bars(normalized, days=days) else []),
                 ("tencent", tencent_direct),
                 ("eastmoney_push2_degraded", eastmoney_push2_kline),
             ),
@@ -745,6 +748,10 @@ def _daily_series_attempts(
         )
         return _normalize_bar_records(_frame_records(frame))[-days:]
 
+    def mootdx_historical() -> list[dict[str, Any]]:
+        from mootdx_adapter import fetch_mootdx_bars
+        return fetch_mootdx_bars(code, days=days)
+
     def tencent_current_only() -> Any:
         result = fetch_with_replay_contract(
             lambda: _fetch_tencent_kline(code, market=market, days=days, ktype="day"),
@@ -766,6 +773,7 @@ def _daily_series_attempts(
     return (
         ("akshare_tencent", ADAPTER_VERSIONS["akshare_tencent"], akshare_tencent),
         ("adata", ADAPTER_VERSIONS["adata"], adata_daily),
+        ("mootdx", ADAPTER_VERSIONS.get("mootdx", "mootdx-adapter-v1"), mootdx_historical),
         ("tencent_kline", ADAPTER_VERSIONS["tencent_kline"], tencent_current_only),
         (
             "eastmoney_push2_degraded",
@@ -1050,8 +1058,60 @@ def _parse_push2_flow_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _northbound_cache_dir() -> str:
+    return os.path.join(cache_dir("stock-triage"), "northbound_cache")
+
+
+def _northbound_csv_path() -> str:
+    d = _northbound_cache_dir()
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "northbound_history.csv")
+
+
+def _save_northbound_snapshot(date_str: str, net_flow_yi: float, provider: str) -> None:
+    """Append a snapshot row to local CSV."""
+    path = _northbound_csv_path()
+    exists = os.path.isfile(path)
+    try:
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not exists:
+                writer.writerow(["date", "net_flow_yi", "provider", "recorded_at"])
+            writer.writerow([date_str, net_flow_yi, provider, datetime.now().isoformat(timespec="seconds")])
+    except Exception:  # noqa: BLE001 — cache writes must not break data flow
+        pass
+
+
+def _load_northbound_history(max_days: int = 30) -> list[dict[str, Any]]:
+    """Load northbound CSV history, dedup by date (last write wins)."""
+    path = _northbound_csv_path()
+    if not os.path.isfile(path):
+        return []
+    records: dict[str, dict[str, Any]] = {}
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                d = row.get("date", "")[:10]
+                if d:
+                    records[d] = {
+                        "date": d,
+                        "net_flow_yi": _number(row.get("net_flow_yi")),
+                        "provider": row.get("provider", "csv_cache"),
+                    }
+    except Exception:  # noqa: BLE001
+        pass
+    result = sorted(records.values(), key=lambda r: r["date"], reverse=True)
+    return result[:max_days]
+
+
 def fetch_northbound_flow() -> dict[str, Any]:
-    """Fetch northbound capital flow; Eastmoney kamt remains allowed as fallback."""
+    """Fetch northbound capital flow with CSV local cache for history.
+
+    Every real-time snapshot is appended to a local CSV.  If the upstream API
+    returns empty or NaN values, the CSV history is used as fallback so daily
+    trend comparison never breaks.
+    """
     cached = _cache_get("northbound", "summary", max_age_seconds=600)
     if isinstance(cached, dict) and cached:
         return cached
@@ -1066,7 +1126,9 @@ def fetch_northbound_flow() -> dict[str, Any]:
                 continue
             if abs(net) > 100000:
                 net /= 100000000
-            return {"date": str(row.get("交易日") or date.today())[:10], "net_flow_yi": round(net, 1), "provider": "akshare"}
+            result = {"date": str(row.get("交易日") or date.today())[:10], "net_flow_yi": round(net, 1), "provider": "akshare"}
+            _save_northbound_snapshot(result["date"], result["net_flow_yi"], result["provider"])
+            return result
         return {}
 
     def eastmoney_kamt() -> dict[str, Any]:
@@ -1089,7 +1151,9 @@ def fetch_northbound_flow() -> dict[str, Any]:
         net = _number(parts[1] if len(parts) > 1 else None)
         if net is None:
             return {}
-        return {"date": parts[0], "net_flow_yi": round(net / 10000, 1), "provider": "eastmoney_kamt"}
+        result = {"date": parts[0], "net_flow_yi": round(net / 10000, 1), "provider": "eastmoney_kamt"}
+        _save_northbound_snapshot(result["date"], result["net_flow_yi"], result["provider"])
+        return result
 
     try:
         value = _fallback_chain(
@@ -1098,7 +1162,15 @@ def fetch_northbound_flow() -> dict[str, Any]:
             empty={},
         )
     except DataSourceError:
-        return {}
+        value = {}
+
+    # If API returned empty/NaN, try CSV history as fallback
+    if not value or value.get("net_flow_yi") is None:
+        history = _load_northbound_history(max_days=5)
+        if history:
+            value = history[0]  # most recent from cache
+            value["provider"] = value.get("provider", "csv_cache") + "_csv_fallback"
+
     _cache_set("northbound", "summary", value)
     return value
 
@@ -1262,6 +1334,170 @@ def fetch_industry_catalog_ths():
             "同花顺行业目录获取失败",
             exc,
         ) from exc
+
+
+def fetch_industry_comparison() -> list[dict[str, Any]]:
+    """获取行业对比排名（涨跌幅/成交额/净流入 TOP 行业）。
+
+    用同花顺行业数据返回按涨跌幅排序的行业排名，
+    包含涨跌幅、成交额、主力净流入等关键指标。
+    用于板块轮动分析和行业筛选。
+
+    Returns:
+        list[dict]: 每行业 {name, code, change_pct, amount, net_inflow, rank}
+        [] on failure.
+    """
+    def akshare_ths_comparison() -> list[dict[str, Any]]:
+        import akshare as ak
+        rows = _frame_records(ak.stock_board_industry_summary_ths())
+        result = []
+        for i, row in enumerate(rows, 1):
+            change_pct = _number(row.get("涨跌幅"))
+            if change_pct is None:
+                continue
+            result.append({
+                "rank": i,
+                "name": str(row.get("板块") or ""),
+                "code": str(row.get("代码") or ""),
+                "change_pct": round(change_pct, 2),
+                "price": _number(row.get("最新价")),
+                "amount_yi": round(_number(row.get("成交额", 0)) / 1e8, 2) if _number(row.get("成交额")) else None,
+                "net_inflow_yi": round(_number(row.get("净流入", 0)) / 1e8, 2) if _number(row.get("净流入")) else None,
+                "amount_change_pct": _number(row.get("量比")),
+                "rising_stocks": int(_number(row.get("上涨股数", 0))),
+                "falling_stocks": int(_number(row.get("下跌股数", 0))),
+                "provider": "akshare_ths",
+            })
+        return result
+
+    def eastmoney_industry_comparison() -> list[dict[str, Any]]:
+        url = (
+            "https://push2.eastmoney.com/api/qt/clist/get?"
+            "pn=1&pz=90&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281"
+            "&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f12,f14,f2,f3,f4,f62,f184,f66,f69"
+        )
+        result = request_bytes(
+            url,
+            source="eastmoney_industry_comparison",
+            timeout=10,
+            max_attempts=1,
+            headers=_EASTMONEY_HEADERS,
+        )
+        payload = json.loads(result.data)
+        rows = ((payload.get("data") or {}).get("diff") or [])
+        result = []
+        for i, row in enumerate(rows, 1):
+            change_pct = _number(row.get("f3"))
+            if change_pct is None:
+                continue
+            result.append({
+                "rank": i,
+                "name": str(row.get("f14") or ""),
+                "code": str(row.get("f12") or ""),
+                "change_pct": round(change_pct, 2),
+                "price": _number(row.get("f2")),
+                "amount_yi": round(_number(row.get("f4", 0)) / 1e8, 2) if _number(row.get("f4")) else None,
+                "net_inflow_yi": round(_number(row.get("f62", 0)) / 1e8, 2) if _number(row.get("f62")) else None,
+                "provider": "eastmoney_push2_degraded",
+            })
+        return result
+
+    try:
+        return _fallback_chain(
+            "industry_comparison",
+            (
+                ("akshare", akshare_ths_comparison),
+                ("adata", eastmoney_industry_comparison),
+            ),
+            empty=[],
+        )
+    except DataSourceError:
+        return []
+
+
+def fetch_concept_boards() -> list[dict[str, Any]]:
+    """获取东财概念板块行情（作为百度PAE禁用的替代）。
+
+    返回概念板块涨跌幅/成交额/净流入排名，
+    用于补充 baidu_attention 禁用的概念板块数据。
+
+    Fallback 链：
+    1. 优先：akshare stock_board_concept_name_em（走 akshare 的东财路由，非 push2）
+    2. 降级：push2.eastmoney.com（m:90+t:3，当前WAF封锁中）
+    """
+
+    def akshare_concept() -> list[dict[str, Any]]:
+        import akshare as ak
+        import pandas as pd
+
+        df = ak.stock_board_concept_name_em()
+        time.sleep(_AKSHARE_PACE_SECONDS)
+        records = _frame_records(df)
+        output = []
+        for i, row in enumerate(records, 1):
+            name = str(row.get("板块名称") or "")
+            code = str(row.get("板块代码") or "")
+            if not name:
+                continue
+            change_pct = _number(row.get("涨跌幅"))
+            price = _number(row.get("最新价"))
+            # stock_board_concept_name_em does not provide amount/成交额 or net_inflow,
+            # so these are left as None (callers handle None gracefully)
+            output.append({
+                "rank": i,
+                "name": name,
+                "code": code,
+                "change_pct": round(change_pct, 2) if change_pct is not None else 0.0,
+                "price": price,
+                "amount_yi": None,
+                "net_inflow_yi": None,
+                "provider": "akshare_concept_name_em",
+            })
+        return output
+
+    def eastmoney_push2_concept() -> list[dict[str, Any]]:
+        url = (
+            "https://push2.eastmoney.com/api/qt/clist/get?"
+            "pn=1&pz=500&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281"
+            "&fltt=2&invt=2&fid=f3&fs=m:90+t:3&fields=f12,f14,f2,f3,f4,f62,f184,f66,f69"
+        )
+        result = request_bytes(
+            url,
+            source="eastmoney_concept_board",
+            timeout=10,
+            max_attempts=1,
+            headers=_EASTMONEY_HEADERS,
+        )
+        payload = json.loads(result.data)
+        rows = ((payload.get("data") or {}).get("diff") or [])
+        output = []
+        for i, row in enumerate(rows, 1):
+            name = str(row.get("f14") or "")
+            if not name:
+                continue
+            output.append({
+                "rank": i,
+                "name": name,
+                "code": str(row.get("f12") or ""),
+                "change_pct": round(_number(row.get("f3")) or 0.0, 2),
+                "price": _number(row.get("f2")),
+                "amount_yi": round(_number(row.get("f4", 0)) / 1e8, 2) if _number(row.get("f4")) else None,
+                "net_inflow_yi": round(_number(row.get("f62", 0)) / 1e8, 2) if _number(row.get("f62")) else None,
+                "provider": "eastmoney_push2_degraded",
+            })
+        return output
+
+    try:
+        return _fallback_chain(
+            "concept_boards",
+            (
+                ("akshare", akshare_concept),
+                ("eastmoney_push2_degraded", eastmoney_push2_concept),
+            ),
+            empty=[],
+        )
+    except DataSourceError:
+        return []
 
 
 def fetch_tencent_index_overview():

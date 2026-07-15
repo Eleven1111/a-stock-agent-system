@@ -16,6 +16,7 @@ def isolated_provider_state(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.delenv("EASTMONEY_QGQP_B_ID", raising=False)
     monkeypatch.delenv("WENCAI_API_KEY", raising=False)
+    monkeypatch.delenv("MIAOXIANG_API_KEY", raising=False)
 
 
 # ─── Eastmoney: normal parsing ───

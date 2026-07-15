@@ -28,6 +28,16 @@ from paths import hermes_home  # noqa: E402
 from state_store import file_lock  # noqa: E402
 import feishu_push  # noqa: E402
 
+# 数据质量门控 (quality_gate.py) 延迟导入 — 只在需要时加载
+try:
+    from quality_gate import (  # type: ignore[import-untyped]  # noqa: E402
+        check_dag_run_quality,
+        quality_gate_summary,
+    )
+    _QUALITY_GATE_AVAILABLE = True
+except ImportError:
+    _QUALITY_GATE_AVAILABLE = False
+
 
 def _load_manifest(path: str) -> dict[str, Any]:
     with open(path, encoding="utf-8") as handle:
@@ -118,6 +128,34 @@ def _wait_for_run_artifact(
     return None
 
 
+def _apply_quality_gate(
+    dag_result: dict[str, Any],
+    jobs: dict[str, Any],
+    targets: list[str],
+) -> dict[str, Any]:
+    """对 DAG 结果进行数据质量门控检查并注入 quality_report。"""
+    if not _QUALITY_GATE_AVAILABLE or not dag_result.get("runs"):
+        return dag_result
+
+    reports: dict[str, dict[str, Any]] = {}
+    for run in dag_result["runs"]:
+        jid = run.get("job_id", "")
+        artifact = run.get("artifact") or {}
+        if artifact:
+            reports[jid] = check_dag_run_quality(artifact, source_key=jid)
+        else:
+            reports[jid] = check_dag_run_quality(None, source_key=jid)
+
+    summary = quality_gate_summary(reports)
+    dag_result["quality_report"] = summary
+    dag_result["_quality_warnings"] = [
+        f"{s}: {reports[s]['failures'][0]}"
+        for s in summary.get("red", [])
+        if reports.get(s, {}).get("failures")
+    ]
+    return dag_result
+
+
 def execute_dag(
     *,
     manifest_path: str,
@@ -195,7 +233,7 @@ def execute_dag(
             if blocked
             else resolve_trading_date(trading_date or calendar_date)
         )
-        return {
+        result = {
             "schema": "a_stock_dag_run_v1",
             "status": "blocked" if blocked else "skipped_non_trading_day",
             "runtime": runtime,
@@ -204,6 +242,7 @@ def execute_dag(
             "targets": targets,
             "runs": runs,
         }
+        return _apply_quality_gate(result, jobs, targets)
 
     day = resolve_trading_date(trading_date or calendar_date)
     batch = batch_id or make_batch_id(day)
@@ -300,7 +339,7 @@ def execute_dag(
             "stderr": (completed.stderr if completed else "")[-1000:],
         })
         if status != "ok":
-            return {
+            result = {
                 "schema": "a_stock_dag_run_v1",
                 "status": status,
                 "runtime": runtime,
@@ -309,8 +348,9 @@ def execute_dag(
                 "targets": targets,
                 "runs": runs,
             }
+            return _apply_quality_gate(result, jobs, targets)
 
-    return {
+    result = {
         "schema": "a_stock_dag_run_v1",
         "status": "ok",
         "runtime": runtime,
@@ -319,6 +359,7 @@ def execute_dag(
         "targets": targets,
         "runs": runs,
     }
+    return _apply_quality_gate(result, jobs, targets)
 
 
 def push_telemetry_path() -> str:

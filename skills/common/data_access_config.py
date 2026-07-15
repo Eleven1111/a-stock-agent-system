@@ -92,7 +92,7 @@ DEFAULTS: Dict[str, Any] = {
         "sentiment_delta_max": 0.8,
         "theme_min_confirmed_stocks": 1,
         "theme_min_attention_score": 60.0,
-        "baidu_enabled": False,
+        "baidu_enabled": True,
     },
     "provider_health": {
         "window_size": 200,

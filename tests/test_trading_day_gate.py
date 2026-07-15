@@ -74,6 +74,7 @@ def test_runner_persists_silent_skip_without_starting_worker(tmp_path):
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     env = os.environ.copy()
     env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
 
     result = subprocess.run(
         [
@@ -108,6 +109,7 @@ def test_runner_blocks_when_calendar_is_uncovered(tmp_path):
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     env = os.environ.copy()
     env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
 
     result = subprocess.run(
         [
@@ -139,13 +141,15 @@ def test_dag_skip_keeps_latest_trading_date_batch(tmp_path):
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     state = tmp_path / "state"
+    env = {**os.environ, "A_STOCK_STATE_HOME": str(state)}
+    env.pop("A_STOCK_STATE_ID", None)
 
     result = execute_dag(
         manifest_path=str(manifest),
         targets=["gate-demo"],
         trading_date="2026-06-19",
         runtime="local",
-        env={**os.environ, "A_STOCK_STATE_HOME": str(state)},
+        env=env,
     )
 
     assert result["status"] == "skipped_non_trading_day"
@@ -158,13 +162,15 @@ def test_dag_calendar_block_is_reported_as_blocked(tmp_path):
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     state = tmp_path / "state"
+    env = {**os.environ, "A_STOCK_STATE_HOME": str(state)}
+    env.pop("A_STOCK_STATE_ID", None)
 
     result = execute_dag(
         manifest_path=str(manifest),
         targets=["gate-demo"],
         trading_date="2027-01-04",
         runtime="local",
-        env={**os.environ, "A_STOCK_STATE_HOME": str(state)},
+        env=env,
     )
 
     assert result["status"] == "blocked"

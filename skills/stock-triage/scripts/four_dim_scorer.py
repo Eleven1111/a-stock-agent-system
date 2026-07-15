@@ -495,18 +495,66 @@ def _pe_snapshot_score(pe: Optional[float]) -> float:
     return max(0, min(10, score))
 
 
+def _fetch_eps_consensus(code: str) -> dict[str, Any]:
+    """Fetch EPS consensus from eastmoney_intelligence, return key fields."""
+    try:
+        from eastmoney_intelligence import extract_consensus_eps
+        eps = extract_consensus_eps(code)
+        return {
+            "eps_consensus_current": eps.get("eps_consensus_current"),
+            "eps_consensus_next": eps.get("eps_consensus_next"),
+            "eps_consensus_after_next": eps.get("eps_consensus_after_next"),
+            "eps_coverage_count": eps.get("coverage_count", 0),
+            "eps_latest_report_date": eps.get("latest_report_date"),
+        }
+    except Exception:  # noqa: BLE001 — graceful fallback
+        return {
+            "eps_consensus_current": None,
+            "eps_consensus_next": None,
+            "eps_consensus_after_next": None,
+            "eps_coverage_count": 0,
+            "eps_latest_report_date": None,
+        }
+
+
+def _eps_score(eps_current: float | None, eps_next: float | None) -> float:
+    """EPS一致预期评分（0~2分附加分）。
+
+    加分逻辑：
+    - 有当年EPS预期且>0 → +0.5
+    - 有次年EPS预期且同比增长 → +1.0
+    - 有次年EPS预期且同比降幅<20% → +0.5
+    - 覆盖机构>=3 → +0.5
+    """
+    score = 0.0
+    if eps_current and eps_current > 0:
+        score += 0.5
+    if eps_next and eps_current:
+        growth = (eps_next - eps_current) / abs(eps_current)
+        if growth > 0.05:
+            score += 1.0
+        elif growth > -0.2:
+            score += 0.5
+    elif eps_next and eps_next > 0:
+        score += 0.5
+    return round(min(score, 2.0), 2)
+
+
 def score_deep(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """深度面评分（0-10）——优先读 Serenity 投研缓存，过期衰减，缺失回退 PE 快照。
 
-    断点修复：原实现仅做 PE 分桶，让"深度面 20%"形同虚设。现在优先消费
-    serenity-investment-research 产出的六维 scorecard（经 deep_research_cache 映射），
-    深研一次、日评复用；缓存过期则按新鲜度向 PE 快照线性回归。
+    升级：新增长期 EPS 一致预期作为基本面前瞻指标，附加 0~2 分。
+    当 PE 估值与 EPS 预期给出一致方向时提升置信度。
     """
     market = "sz" if code.startswith(("0", "3")) else "sh"
     rt = quote if quote is not None else fetch_tencent_realtime(code, market)
     pe = rt.get("pe")
     cap = rt.get("market_cap")
     pe_score = _pe_snapshot_score(pe)
+
+    # ── EPS 一致预期（前瞻基本面）──
+    eps_data = _fetch_eps_consensus(code)
+    eps_bonus = _eps_score(eps_data["eps_consensus_current"], eps_data["eps_consensus_next"])
 
     deep = read_deep_research(code)
     if deep and deep.get("deep_score") is not None:
@@ -520,9 +568,12 @@ def score_deep(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> 
             score = raw
             source = "serenity_deep"
             tag = ""
+        # EPS bonus 叠加
+        score = round(min(score + eps_bonus, 10.0), 1)
         up = deep.get("valuation_upside_pct")
         up_str = f", 中性赔率{up:+.0f}%" if isinstance(up, (int, float)) else ""
         pe_str = f"; PE={pe:.1f}" if pe is not None else ""
+        eps_str = f"; EPS预期{eps_data['eps_consensus_current']}/{eps_data['eps_consensus_next']}" if eps_data['eps_consensus_current'] else ""
         return {
             "score": round(score, 1),
             "source": source,
@@ -535,21 +586,28 @@ def score_deep(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> 
             "dimensions": deep.get("dimensions", {}),
             "pe": pe,
             "market_cap_yi": round(cap, 1) if cap else None,
+            "eps_bonus": eps_bonus,
+            **eps_data,
             "detail": f"{tag}投研{deep.get('rating') or ''}"
-                      f"({deep.get('scorecard_total')}/100→{raw}){up_str}{pe_str}",
+                      f"({deep.get('scorecard_total')}/100→{raw}){up_str}{pe_str}{eps_str}",
         }
 
-    # 回退：PE 估值快照
+    # 回退：PE 估值快照 + EPS 预期
     signals_detail = f"PE={pe:.1f}" if pe is not None else "PE缺失"
     if cap:
         signals_detail += f", 市值={cap:.0f}亿"
+    score = round(min(pe_score + eps_bonus, 10.0), 1)
+    eps_str = f"; 预期EPS={eps_data['eps_consensus_current']}/{eps_data['eps_consensus_next']}" if eps_data['eps_consensus_current'] else ""
+    signals_detail += eps_str
     signals_detail += "（无深研缓存，估值快照）"
     return {
-        "score": round(pe_score, 1),
+        "score": score,
         "source": "valuation_snapshot",
         "stale": False,
         "pe": pe,
         "market_cap_yi": round(cap, 1) if cap else None,
+        "eps_bonus": eps_bonus,
+        **eps_data,
         "detail": signals_detail,
     }
 

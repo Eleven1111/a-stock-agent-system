@@ -276,18 +276,31 @@ SECTOR_BOARD_PAGE_SIZE = 100  # push2delay 每页上限
 SECTOR_BOARD_MAX_PAGES = 8
 
 
-def _fetch_sector_board_page(page: int) -> Dict[str, Any]:
-    query = (
-        f"/api/qt/clist/get?pn={page}&pz={SECTOR_BOARD_PAGE_SIZE}&po=1&np=1"
-        "&fltt=2&invt=2&fid=f3&fs=m:90+t:2&"
-        "fields=f3,f8,f12,f14,f62,f104,f105,f109,f164"
-    )
-    observation = fetch_eastmoney_observation(f"https://push2.eastmoney.com{query}")
-    if observation.get("status") != "ok":
-        observation = fetch_eastmoney_observation(
-            f"https://push2delay.eastmoney.com{query}"
-        )
-    return observation
+def _fetch_sector_board_page() -> Dict[str, Any]:
+    """Fetch industry board data through market_adapters fallback chain.
+
+    Replaced direct push2 calls with fetch_board_quotes() which routes through
+    akshare(THS) → adata → eastmoney_push2_degraded fallback chain.
+    This avoids the WAF-blocked push2.eastmoney.com endpoint.
+    """
+    try:
+        boards = fetch_board_quotes()
+        if boards:
+            diff = []
+            for row in boards:
+                diff.append({
+                    "f3": row.get("f3"),
+                    "f12": row.get("f12"),
+                    "f14": row.get("f14"),
+                    "f62": row.get("f62"),
+                    "provider": row.get("provider", "market_adapters"),
+                })
+            return observation_ok("market_adapters", {
+                "data": {"data": {"total": len(diff), "diff": diff}}
+            })
+    except Exception as exc:
+        return observation_error("market_adapters", exc)
+    return observation_error("market_adapters", Exception("fetch_board_quotes returned empty"))
 
 
 def fetch_all_sector_boards() -> Dict[str, Any]:
@@ -297,23 +310,13 @@ def fetch_all_sector_boards() -> Dict[str, Any]:
     实时主机失败时回退延时镜像 push2delay（板块动量是日级信号，可接受）；
     延时主机每页上限 100，按 total 翻页直到取全。
     """
-    first = _fetch_sector_board_page(1)
-    if first.get("status") != "ok":
-        return first
-    body = (first.get("data") or {}).get("data") or {}
+    result = _fetch_sector_board_page()
+    if result.get("status") != "ok":
+        return result
+    body = (result.get("data") or {}).get("data") or {}
     diff = list(body.get("diff") or [])
-    total = int(body.get("total") or len(diff))
-    page = 2
-    while len(diff) < total and page <= SECTOR_BOARD_MAX_PAGES:
-        follow = _fetch_sector_board_page(page)
-        if follow.get("status") != "ok":
-            break  # 已取到的页仍可用，降级为部分覆盖
-        rows = (((follow.get("data") or {}).get("data")) or {}).get("diff") or []
-        if not rows:
-            break
-        diff.extend(rows)
-        page += 1
-    return observation_ok("eastmoney", {"data": {"total": total, "diff": diff}})
+    # fetch_board_quotes returns complete list (not paginated), no need for pagination loop
+    return observation_ok("market_adapters", {"data": {"total": len(diff), "diff": diff}})
 
 
 def fetch_index_return_5d() -> Optional[float]:
