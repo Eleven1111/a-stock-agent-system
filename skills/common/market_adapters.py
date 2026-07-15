@@ -758,9 +758,10 @@ def _daily_series_attempts(
         )
         return _normalize_bar_records(_frame_records(frame))[-days:]
 
-    def mootdx_historical() -> list[dict[str, Any]]:
+    def mootdx_historical() -> list[dict[str, Any]] | None:
         from mootdx_adapter import fetch_mootdx_bars
-        return fetch_mootdx_bars(code, days=days)
+        bars = fetch_mootdx_bars(code, days=days)
+        return bars or None
 
     def tencent_current_only() -> Any:
         result = fetch_with_replay_contract(

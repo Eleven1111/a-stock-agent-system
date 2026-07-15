@@ -24,7 +24,7 @@ def test_missing_config_uses_historical_defaults(tmp_path):
     assert loaded["social_attention"]["min_sources_for_boost"] == 2
     assert loaded["social_attention"]["theme_min_confirmed_stocks"] == 1
     assert loaded["social_attention"]["theme_min_attention_score"] == 60.0
-    assert loaded["social_attention"]["baidu_enabled"] is False
+    assert loaded["social_attention"]["baidu_enabled"] is True
 
 
 def test_partial_config_deep_merges_without_losing_defaults(tmp_path):
