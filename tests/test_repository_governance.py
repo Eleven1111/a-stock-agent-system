@@ -86,6 +86,17 @@ def test_codeql_is_pinned_and_covers_pull_requests_and_main():
     assert all(len(value.rsplit("@", 1)[1]) == 40 for value in uses)
     assert any(value.startswith("github/codeql-action/init@") for value in uses)
     assert any(value.startswith("github/codeql-action/analyze@") for value in uses)
+    init_revision = next(
+        value.rsplit("@", 1)[1]
+        for value in uses
+        if value.startswith("github/codeql-action/init@")
+    )
+    analyze_revision = next(
+        value.rsplit("@", 1)[1]
+        for value in uses
+        if value.startswith("github/codeql-action/analyze@")
+    )
+    assert init_revision == analyze_revision
 
 
 def test_versioned_main_ruleset_has_no_bypass_and_requires_ci_and_pr():
