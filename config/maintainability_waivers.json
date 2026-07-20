@@ -250,6 +250,36 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "4ad836575e2290248a01"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "24c1d3598cecd556fb86"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "dd51b4643e1cd6dcc57b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "a2bd950b2ae97677f385"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "4311e73eb23b8a5c7e60"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "8ce23e94b14133b9aa9a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "c87df31c35ad82c8a6f0"
     }
   ]
 }
