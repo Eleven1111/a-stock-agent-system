@@ -182,10 +182,46 @@ def tracked_universe() -> Dict[str, str]:
     return tracked
 
 
-def load_sector_watchlist(asof: str) -> Dict[str, Dict[str, str]]:
+def _same_day_shortlist(asof: str) -> Dict[str, Any]:
     payload = read_json(SHORTLIST_FILE, {})
     if not isinstance(payload, dict) or str(payload.get("asof") or "")[:10] != asof:
         return {}
+    return payload
+
+
+def sector_watchlist_degradation(asof: str) -> str:
+    """竞价短名单降级原因；未降级返回空串。
+
+    降级时刻意不猜测板块成员（回退前一日短名单会用过期池子产生假信号，
+    改用持仓板块则改变了监控语义）。板块告警确实停发，但必须显式告知——
+    否则运维看不出盘中板块监控今天根本没在工作（issue #115）。
+    """
+    payload = _same_day_shortlist(asof)
+    if str(payload.get("status")) != "degraded":
+        return ""
+    reasons = "；".join(str(item) for item in payload.get("degraded_reasons") or [])
+    collection = payload.get("collection_status") or "unknown"
+    return f"竞价短名单降级（collection_status={collection}）：{reasons or '原因未记录'}"
+
+
+def _sector_degradation_alerts(
+    reason: str,
+    cache: Dict[str, Any],
+    now_str: str,
+) -> list[Dict[str, str]]:
+    """降级提示；每日只发一次（盘中每几分钟一 tick，不能刷屏）。"""
+    if not reason or "sector_degraded" in cache:
+        return []
+    cache["sector_degraded"] = now_str
+    return [{
+        "level": "⚠️",
+        "type": "板块监控降级",
+        "msg": f"板块加速告警今日停用｜{reason}",
+    }]
+
+
+def load_sector_watchlist(asof: str) -> Dict[str, Dict[str, str]]:
+    payload = _same_day_shortlist(asof)
     members: Dict[str, Dict[str, str]] = {}
     for item in payload.get("shortlist") or []:
         code = runtime_targets.normalize_stock_code(item.get("code"))
@@ -272,7 +308,10 @@ def check_intraday() -> Dict:
         cache = {"_date": today}
 
     universe = tracked_universe()
-    sector_members = load_sector_watchlist(now.date().isoformat())
+    today_iso = now.date().isoformat()
+    sector_members = load_sector_watchlist(today_iso)
+    sector_degradation = sector_watchlist_degradation(today_iso)
+    alerts.extend(_sector_degradation_alerts(sector_degradation, cache, now_str))
     quote_by_code = fetch_realtime_many(list(universe) + list(sector_members))
     for code, name in universe.items():
         data = quote_by_code.get(code) or {}
@@ -420,6 +459,7 @@ def check_intraday() -> Dict:
         "tracked_count": len(universe),
         "tracked_stocks": universe,
         "sector_member_count": len(sector_members),
+        "sector_monitor_status": "degraded" if sector_degradation else "ok",
         "sector_alerts": sector_alerts,
         "alerts": alerts,
         "exit_signals": exit_alerts,

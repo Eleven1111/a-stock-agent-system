@@ -58,6 +58,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/stock-triage/scripts/intraday_monitor.py touched by #115 sector-monitor degradation notice",
+      "violation_id": "41c94388cc72d82f72a4"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
       "violation_id": "4311e73eb23b8a5c7e60"
     },
@@ -70,6 +75,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "4ad836575e2290248a01"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/stock-triage/scripts/intraday_monitor.py touched by #115 sector-monitor degradation notice",
+      "violation_id": "5514a8644c3abcd824e0"
     },
     {
       "expires_on": "2026-10-31",
@@ -105,6 +115,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "668b2de12594eac05bba"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/stock-triage/scripts/intraday_monitor.py touched by #115 sector-monitor degradation notice",
+      "violation_id": "67cd13c2f5709fbccbc9"
     },
     {
       "expires_on": "2026-10-31",
