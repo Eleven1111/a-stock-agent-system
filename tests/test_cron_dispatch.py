@@ -103,9 +103,10 @@ def test_job_env_puts_repo_venv_first_on_path():
     import os
 
     env = cd.job_env()
-    first = env["PATH"].split(os.pathsep)[0]
-    assert first.endswith("/.venv/bin")
-    assert os.path.isdir(first), "仓库 venv 必须存在，否则子任务无法解析 python"
+    parts = env["PATH"].split(os.pathsep)
+    assert parts[0] == os.path.join(cd.ROOT, ".venv", "bin")
+    # 原有 PATH 必须保留在后面：venv 里没有的工具（git 等）仍要能找到
+    assert parts[1:], "原有 PATH 不能被丢弃"
     assert env["PYTHONPATH"] == cd.COMMON
 
 
