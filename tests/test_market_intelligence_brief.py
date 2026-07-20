@@ -60,6 +60,35 @@ def test_auction_brief_warns_on_degraded_collection():
     assert "无盘中观测" in text
 
 
+def test_open_brief_warns_on_degraded_and_does_not_advertise_tier_as_actionable():
+    """降级时打印"温度=发酵｜无可执行信号"会被读成"市场不错，只是今天没标的"。
+
+    实际含义是"没有观测，风险预算已归零"——比空榜单更有误导性，因为它
+    主动给出了一个正面读数。
+    """
+    text = brief.format_brief(
+        "open",
+        {
+            "asof": "2026-07-20",
+            "status": "degraded",
+            "degraded_reasons": ["竞价短名单降级（collection_status=empty）：竞价采集为空"],
+            "market_temperature": {
+                "tier": "发酵",
+                "context_status": "degraded",
+                "allow_new_daban": False,
+                "position_multiplier": 0.0,
+            },
+            "market_regime": {"regime": "weak"},
+            "signals": [],
+        },
+    )
+
+    assert "⚠️" in text
+    assert "竞价短名单降级" in text
+    # 档位仍可显示（诊断信息），但必须同时标明风险预算已归零
+    assert "新仓已阻断" in text
+
+
 def test_open_brief_includes_filtered_high_score_reason():
     text = brief.format_brief(
         "open",

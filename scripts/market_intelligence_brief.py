@@ -65,6 +65,21 @@ def _sector_momentum_lines() -> list[str]:
     return lines
 
 
+def _degraded_lines(result: Mapping[str, Any], *, tail: str) -> list[str]:
+    """降级警示行；未降级返回空列表。
+
+    空榜单/无信号有两种含义：真的没有机会，或根本没采到数据。后者必须说出来，
+    否则读者会把"没有观测"读成"没有行情"（issue #112 / #113）。
+    """
+    if str(result.get("status")) != "degraded":
+        return []
+    lines = [f"⚠️ 数据降级，{tail}"]
+    reasons = "；".join(str(item) for item in result.get("degraded_reasons") or [])
+    if reasons:
+        lines.append(f"原因：{reasons}")
+    return lines
+
+
 def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400) -> str:
     asof = result.get("asof") or "unknown"
     lines: list[str] = []
@@ -95,16 +110,11 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
             f"## 集合竞价简报 | {asof}",
             f"全市场有效竞价因子：{digest['full_market_factor_count']}",
         ])
-        # 空榜单有两种含义：竞价平静，或根本没采到数据。后者必须说出来，
-        # 否则读者会把"没有观测"读成"没有行情"（issue #112 / #113）。
-        if str(result.get("status")) == "degraded":
-            reasons = "；".join(str(item) for item in result.get("degraded_reasons") or [])
-            lines.append(
-                f"⚠️ 竞价数据降级（collection_status="
-                f"{result.get('collection_status') or 'unknown'}），以下榜单不可用作决策依据"
-            )
-            if reasons:
-                lines.append(f"原因：{reasons}")
+        lines.extend(_degraded_lines(
+            result,
+            tail=f"collection_status={result.get('collection_status') or 'unknown'}，"
+                 "以下榜单不可用作决策依据",
+        ))
         lines.append("### 竞价涨幅 TOP")
         for item in digest["market_gainers"]:
             scope = "执行短名单" if item["in_execution_shortlist"] else "池外研究情报"
@@ -127,8 +137,13 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
             f"## 开盘摘要 | {asof}",
             f"市场概况：温度={temperature.get('tier') or 'N/A'}｜"
             f"状态={regime.get('regime') or regime.get('label') or 'N/A'}",
-            "### 门禁后信号",
         ])
+        # 降级时档位仍如实显示（诊断线索），但必须点明风险预算已归零——
+        # 否则"温度=发酵｜无可执行信号"会被读成"市场不错，只是今天没标的"。
+        lines.extend(_degraded_lines(
+            result, tail="上方温度档位不代表可参与，新仓已阻断",
+        ))
+        lines.append("### 门禁后信号")
         if digest["signals"]:
             lines.extend(
                 f"- {_label(item)}：{item.get('decision') or item.get('action')}｜"
