@@ -183,6 +183,67 @@ def test_intraday_check_consumes_same_day_auction_shortlist_for_sector_alert(
     assert result["sector_alerts"][0]["action"] == "watch"
 
 
+def test_degraded_shortlist_reports_sector_monitor_inactive(tmp_path, monkeypatch):
+    """竞价降级时板块告警确实发不出来，但不能静默——运维要知道监控没在工作。"""
+    today = date.today().isoformat()
+    monkeypatch.setattr(im, "TRACKED_CODES", [])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {})
+    monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(im.PORTFOLIO_FILE, {"positions": []})
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {
+            "asof": today,
+            "status": "degraded",
+            "collection_status": "empty",
+            "degraded_reasons": ["竞价采集为空（0 只标的），无盘中观测，拒绝输出可执行结论"],
+            "shortlist": [],
+        },
+    )
+    monkeypatch.setattr(im, "fetch_realtime_many", lambda codes: {})
+
+    result = im.check_intraday()
+
+    assert result["sector_member_count"] == 0
+    assert result["sector_alerts"] == []          # 不猜测成员，确实不发板块告警
+    assert result["sector_monitor_status"] == "degraded"
+    degraded = [a for a in result["alerts"] if a["type"] == "板块监控降级"]
+    assert len(degraded) == 1
+    assert "竞价采集为空" in degraded[0]["msg"]
+    assert result["has_alerts"] is True           # 必须让运维看见
+
+
+def test_degraded_shortlist_alert_is_deduped_across_ticks(tmp_path, monkeypatch):
+    """盘中每几分钟跑一次，降级提示不能每 tick 刷屏。"""
+    today = date.today().isoformat()
+    monkeypatch.setattr(im, "TRACKED_CODES", [])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {})
+    monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(im.PORTFOLIO_FILE, {"positions": []})
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {
+            "asof": today, "status": "degraded", "collection_status": "empty",
+            "degraded_reasons": ["竞价采集为空"], "shortlist": [],
+        },
+    )
+    monkeypatch.setattr(im, "fetch_realtime_many", lambda codes: {})
+
+    first = im.check_intraday()
+    second = im.check_intraday()
+
+    assert len([a for a in first["alerts"] if a["type"] == "板块监控降级"]) == 1
+    assert [a for a in second["alerts"] if a["type"] == "板块监控降级"] == []
+    # 但状态字段仍如实反映，不因去重而消失
+    assert second["sector_monitor_status"] == "degraded"
+
+
 def test_sold_stock_is_removed_from_dynamic_universe(tmp_path, monkeypatch):
     monkeypatch.setattr(im, "TRACKED_CODES", [])
     monkeypatch.setattr(im, "TRACKED_NAMES", {})
