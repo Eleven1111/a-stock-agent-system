@@ -405,6 +405,29 @@ def _record_target_output_telemetry(
         return
 
 
+def _compress_stdout(job: Mapping[str, Any], artifact: Mapping[str, Any], raw_len: int) -> str:
+    """超长 stdout 压成一行摘要。
+
+    各 skill 的 summary 结构不统一，message 可能是 dict/None，直接进 join 会
+    TypeError 并让整个作业失败——压缩摘要不值得这个代价，一律按字符串兜底。
+    """
+    raw_summary = artifact.get("summary")
+    summary = raw_summary if isinstance(raw_summary, Mapping) else {}
+    raw_message = summary.get("message")
+    parts = [
+        raw_message if isinstance(raw_message, str) and raw_message
+        else f"{job.get('id', 'job')} 运行完成"
+    ]
+    status = summary.get("status")
+    if status and status != "ok":
+        parts.append(f"状态={status}")
+    counts = {k: v for k, v in summary.items() if k.endswith("_count") and v is not None}
+    if counts:
+        parts.append(" | ".join(f"{k.replace('_count','')}={v}" for k, v in counts.items()))
+    parts.append(f"(输出{raw_len}字符，已压缩)")
+    return "\n".join(parts)
+
+
 def target_output(
     job: Mapping[str, Any],
     artifact: Mapping[str, Any],
@@ -458,20 +481,9 @@ def target_output(
         # Fall through to default delivery (OpenClaw announce channel)
     stdout = str(artifact.get("stdout") or "")
     max_chars = max(200, int(job.get("max_output_chars") or 4000))
-    was_compressed = False
-    if len(stdout) > max_chars:
-        was_compressed = True
-        raw_summary = artifact.get("summary")
-        summary = raw_summary if isinstance(raw_summary, Mapping) else {}
-        parts = [summary.get("message", f"{job.get('id', 'job')} 运行完成")]
-        status = summary.get("status")
-        if status and status != "ok":
-            parts.append(f"状态={status}")
-        count_keys = {k: v for k, v in summary.items() if k.endswith("_count") and v is not None}
-        if count_keys:
-            parts.append(" | ".join(f"{k.replace('_count','')}={v}" for k, v in count_keys.items()))
-        parts.append(f"(输出{len(stdout)}字符，已压缩)")
-        stdout = "\n".join(parts)[:max_chars]
+    was_compressed = len(stdout) > max_chars
+    if was_compressed:
+        stdout = _compress_stdout(job, artifact, len(stdout))[:max_chars]
     output = stdout + ("\n" if stdout and not stdout.endswith("\n") else "")
     if record_telemetry:
         _record_target_output_telemetry(
