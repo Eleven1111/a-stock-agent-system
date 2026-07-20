@@ -257,6 +257,31 @@ def _unavailable_temperature(
     }
 
 
+def block_new_risk(
+    temperature: Mapping[str, Any],
+    reason: str,
+    *,
+    status: str = "degraded",
+) -> Dict[str, Any]:
+    """在既有温度结论上叠加一层阻断：归零新增风险预算，保留档位与诊断信息。
+
+    供消费方在"温度本身算得出来，但支撑它的观测不可信"时使用（如竞价短名单
+    降级）。刻意不改写 tier —— 把档位抹成 unknown 会丢掉排查线索，真正要
+    失效的是风险预算而非诊断。
+    """
+    blocked = dict(temperature)
+    blocked.update({
+        "context_status": status,
+        "context_fresh": False,
+        "allow_new_daban": False,
+        "position_multiplier": 0.0,
+        "top_n_limit": 0,
+        "advice": f"{reason}｜阻断新增风险",
+        "notes": [*(temperature.get("notes") or []), reason],
+    })
+    return blocked
+
+
 def temperature_from_context(
     ctx: Optional[Mapping[str, Any]],
     morning_quotes: Optional[Mapping[str, Mapping[str, Any]]] = None,

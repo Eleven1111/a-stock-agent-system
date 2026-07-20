@@ -489,6 +489,86 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
     assert [item["code"] for item in result["signals"]] == ["sz300001"]
 
 
+def test_degraded_shortlist_blocks_new_risk_instead_of_reading_as_no_opportunity(
+    tmp_path, monkeypatch
+):
+    """竞价采集为空产出的 degraded 短名单，不能被当成"今天没有机会"照常放行。
+
+    空短名单 + 新鲜梯队时，退潮检查仍会跑（用的是梯队码，不依赖竞价），
+    所以温度会正常算出档位并发放风险预算——降级信息若不透传就彻底丢失。
+    """
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "MIRROR_LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
+    monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    atomic_write_json(
+        oc._shortlist_path(event_asof),
+        {
+            "schema": "auction_finalize_v2",
+            "asof": event_asof,
+            "source_asof": source_asof,
+            "status": "degraded",
+            "collection_status": "empty",
+            "research_only": True,
+            "degraded_reasons": ["竞价采集为空（0 只标的），无盘中观测，拒绝输出可执行结论"],
+            "shortlist": [],
+        },
+    )
+    # 梯队新鲜且无退潮 → 温度本会算出正常档位并放行
+    monkeypatch.setattr(
+        oc,
+        "read_signal_context",
+        lambda **_kwargs: {
+            "ladder_asof": source_asof,
+            "lianban_ladder": {
+                "600001": {"lianban": 5},
+                "000002": {"lianban": 2},
+                "000003": {"lianban": 1},
+                "000004": {"lianban": 1},
+                "000005": {"lianban": 1},
+            },
+            "prev_lianban_ladder": {
+                "600001": {"lianban": 4},
+                "000002": {"lianban": 1},
+                "000003": {"lianban": 1},
+                "000004": {"lianban": 1},
+                "000005": {"lianban": 1},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        oc,
+        "fetch_tencent_snapshot",
+        lambda codes: {
+            code: {
+                "name": code, "price": 10.5, "prev_close": 10.0, "open": 10.4,
+                "high": 10.6, "low": 10.3, "volume": 100_000,
+                "change_pct": 5.0, "directional_eligible": True,
+            }
+            for code in codes
+        },
+    )
+
+    result = oc.build_confirmation([], event_asof, limit=2)
+
+    temperature = result["market_temperature"]
+    assert temperature["retreat_signal"] is None       # 确实没有退潮证据
+    assert temperature["allow_new_daban"] is False     # 但仍须阻断
+    assert temperature["position_multiplier"] == 0.0
+    assert temperature["top_n_limit"] == 0
+    assert temperature["context_status"] == "degraded"
+    assert result["status"] == "degraded"
+    assert any("竞价短名单降级" in note for note in temperature.get("notes") or [])
+
+
 def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeypatch):
     import market_temperature
 
