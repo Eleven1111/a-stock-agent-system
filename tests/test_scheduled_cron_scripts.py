@@ -167,6 +167,7 @@ def test_scheduled_news_monitor_has_no_static_user_topic_queries():
     assert monitor.DEFAULT_QUERIES == [
         "国务院 发改委 工信部 证监会 A股 产业政策",
         "地缘冲突 制裁 关税 大宗商品 A股 风险",
+        "国有资本 央企 增持 回购 再贷款 ETF A股",
     ]
 
 

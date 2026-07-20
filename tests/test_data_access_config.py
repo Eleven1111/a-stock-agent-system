@@ -11,10 +11,11 @@ def test_missing_config_uses_historical_defaults(tmp_path):
     assert loaded["providers"]["tencent"] == {"timeout_seconds": 10, "max_attempts": 2}
     assert loaded["risk"]["stop_loss_pct"] == -8.0
     assert loaded["risk"]["max_single_position_pct"] == 25
-    assert loaded["news_monitor"]["default_limit"] == 3
+    assert loaded["news_monitor"]["default_limit"] == 5
     assert loaded["news_monitor"]["queries"] == [
         "国务院 发改委 工信部 证监会 A股 产业政策",
         "地缘冲突 制裁 关税 大宗商品 A股 风险",
+        "国有资本 央企 增持 回购 再贷款 ETF A股",
     ]
     assert loaded["storage"]["snapshot_input_retention_days"] == 30
     assert loaded["storage"]["snapshot_max_total_mb"] == 4096
@@ -45,7 +46,7 @@ def test_partial_config_deep_merges_without_losing_defaults(tmp_path):
     assert loaded["risk"]["stop_loss_pct"] == -6.5
     assert "portfolio_size" not in loaded["risk"]
     assert loaded["news_monitor"]["queries"] == ["自定义查询"]
-    assert loaded["news_monitor"]["default_limit"] == 3
+    assert loaded["news_monitor"]["default_limit"] == 5
     assert loaded["social_attention"]["candidate_bonus_max"] == 3.0
 
 
@@ -83,7 +84,7 @@ def test_invalid_values_fall_back_to_safe_defaults(tmp_path):
     assert loaded["risk"]["stop_loss_pct"] == -8.0
     assert "portfolio_size" not in loaded["risk"]
     assert loaded["intraday_monitor"]["surge_pct"] == 5.0
-    assert loaded["news_monitor"]["default_limit"] == 3
+    assert loaded["news_monitor"]["default_limit"] == 5
     assert loaded["news_monitor"]["queries"] == config.DEFAULTS["news_monitor"]["queries"]
     assert loaded["storage"] == config.DEFAULTS["storage"]
     assert loaded["social_attention"] == config.DEFAULTS["social_attention"]
@@ -108,7 +109,7 @@ def test_invalid_top_level_sections_fall_back_without_crashing(tmp_path):
     assert loaded["providers"]["tencent"]["timeout_seconds"] == 10
     assert "portfolio_size" not in loaded["risk"]
     assert loaded["intraday_monitor"]["surge_pct"] == 5.0
-    assert loaded["news_monitor"]["default_limit"] == 3
+    assert loaded["news_monitor"]["default_limit"] == 5
     assert loaded["global_market"]["switches"]["yfinance"] is True
     assert loaded["storage"]["cron_artifact_retention_days"] == 30
 

@@ -22,6 +22,7 @@ RSS_DOC = """<?xml version="1.0" encoding="UTF-8"?>
     <title>国务院部署进一步扩大内需若干措施</title>
     <link>https://example.gov.cn/zhengce/2026-07/03/content_1.htm</link>
     <pubDate>Fri, 03 Jul 2026 08:30:00 +0800</pubDate>
+    <description>中国国新拟使用回购增持专项再贷款，继续增持中央企业股票。</description>
   </item>
   <item>
     <title>央行开展公开市场操作</title>
@@ -51,6 +52,8 @@ def test_parse_rss_extracts_items_with_source_fields():
     assert first["source_id"] == "gov_test_rss"
     assert first["source_rank"] == "S5"
     assert first["published_hint"] and first["published_hint"].startswith("2026-07-03")
+    assert first["summary"] == "中国国新拟使用回购增持专项再贷款，继续增持中央企业股票。"
+    assert first["detail_status"] == "summary"
 
 
 def test_parse_rss_handles_atom_feeds():
@@ -101,6 +104,16 @@ def test_repo_catalog_is_loadable_and_ranked():
     assert len(ids) == len(set(ids))
 
 
+def test_repo_catalog_includes_state_capital_sources_with_bounded_authority():
+    catalog = news_sources.load_catalog()
+    sources = {source["id"]: source for source in catalog["sources"]}
+
+    assert sources["sasac_state_assets_news"]["source_type"] == "state_assets_regulator"
+    for source_id in ("china_reform_news", "china_chengtong_news", "sdic_news"):
+        assert sources[source_id]["source_type"] == "state_capital_operator"
+        assert sources[source_id]["authority_scope"] == "self_disclosed_capital_action"
+
+
 NEWSNOW_SOURCE = {
     "id": "cls_hot_newsnow",
     "name": "财联社热门",
@@ -118,6 +131,7 @@ NEWSNOW_DOC = json.dumps({
             "title": "两部门发布新能源产业支持政策",
             "url": "https://www.cls.cn/detail/100001",
             "pubDate": 1783123200000,
+            "description": "支持储能和新能源产业链发展。",
         },
         {
             "title": "某上市公司公告重大资产重组",
@@ -146,6 +160,8 @@ def test_parse_newsnow_extracts_items_with_source_fields():
     assert first["source_id"] == "cls_hot_newsnow"
     assert first["source_rank"] == "S2"
     assert first["source_type"] == "financial_hotlist"
+    assert first["summary"] == "支持储能和新能源产业链发展。"
+    assert first["detail_status"] == "summary"
 
 
 def test_parse_newsnow_mobile_url_and_extra_date_fallback():

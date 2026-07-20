@@ -74,7 +74,7 @@ DEFAULTS: Dict[str, Any] = {
         "sector_min_acceleration_pct": 0.8,
     },
     "news_monitor": {
-        "default_limit": 3,
+        "default_limit": 5,
         "intraday_limit": 2,
         "freshness_sla_minutes": 180,
         "intraday_freshness_sla_minutes": 10,
@@ -82,6 +82,7 @@ DEFAULTS: Dict[str, Any] = {
         "queries": [
             "国务院 发改委 工信部 证监会 A股 产业政策",
             "地缘冲突 制裁 关税 大宗商品 A股 风险",
+            "国有资本 央企 增持 回购 再贷款 ETF A股",
         ],
     },
     "social_attention": {

@@ -84,13 +84,14 @@ def test_pure_notification_jobs_push_feishu_direct_and_skip_agent_context():
         "event-calendar",
         "official-policy-watch",
         "news-monitor",
+        "news-monitor-weekend",
         "news-monitor-intraday",
     ):
         assert _manifest_job(job_id)["deliver"] == "feishu_direct"
 
 
 def test_high_frequency_idle_prone_jobs_opt_into_adaptive_backoff():
-    for job_id in ("official-policy-watch", "news-monitor", "news-monitor-intraday"):
+    for job_id in ("official-policy-watch", "news-monitor", "news-monitor-weekend", "news-monitor-intraday"):
         assert _manifest_job(job_id)["adaptive_backoff"] is True
 
 
@@ -305,6 +306,8 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
             "hot-money-afternoon-checkpoint",
             "closing-triage",
             "news-monitor-intraday",
+            "news-l1-scan",
+            "news-monitor-weekend",
             "official-policy-watch",
             "market-pulse-1314",
             "market-pulse-1500",
@@ -337,6 +340,12 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "2,17,32,47 9-11,13-14 * * 1-5"
     )
     assert jobs["news-monitor-intraday"]["run"]["command"].endswith("--mode intraday --json")
+    assert jobs["news-l1-scan"]["trading_day_policy"] == "calendar_day"
+    assert jobs["news-l1-scan"]["context_from"] == []
+    assert jobs["news-l1-scan"]["run"]["command"] == "python scripts/news_l1_scan.py --silent --json"
+    assert jobs["news-monitor-weekend"]["trading_day_policy"] == "calendar_day"
+    assert jobs["news-monitor-weekend"]["context_from"] == []
+    assert jobs["news-monitor-weekend"]["schedule"] == "0 9,12,18,22 * * 0,6"
     assert any("catalyst_context.json" in path for path in jobs["news-monitor"]["allowed_state_writes"])
     assert any("catalyst_context.json" in path for path in jobs["news-monitor-intraday"]["allowed_state_writes"])
     assert jobs["official-policy-watch"]["trading_day_policy"] == "calendar_day"
@@ -455,7 +464,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["provider-health"]["deliver"] == "local"
     assert jobs["provider-health"]["run"]["command"] == "python scripts/provider_doctor.py --json"
     assert manifest["default_trading_day_policy"] == "required"
-    for job_id in ("institution-weekly", "event-calendar", "performance-weekly", "official-policy-watch"):
+    for job_id in ("institution-weekly", "event-calendar", "performance-weekly", "official-policy-watch", "news-l1-scan", "news-monitor-weekend"):
         assert jobs[job_id]["trading_day_policy"] == "calendar_day"
     assert "pulse_engine" not in manifest.get("external_dependencies", {})
     assert "builderpulse" not in manifest.get("external_dependencies", {})

@@ -89,6 +89,27 @@ def test_next_emits_bounded_work_order(monkeypatch, capsys):
     assert order["instructions"].strip()
 
 
+def test_next_includes_source_url_and_preserved_summary(monkeypatch, capsys):
+    scored = news_pipeline.score_item({
+        "title": "两大央企宣布增持A股股票资产",
+        "summary": "中国国新超500亿元，中国诚通近百亿元。",
+        "url": "https://example.gov.cn/state-capital",
+        "source_id": "state_capital_test",
+        "source_name": "测试资本源",
+        "source_rank": "S5",
+    }, {**L1_CONFIG, "materiality_keywords": {"critical": ["增持"]}})
+    fresh, _ = news_pipeline.dedupe_items([scored])
+    news_pipeline.enqueue_l1_items(fresh)
+
+    code, order = _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
+
+    assert code == 0
+    item = order["items"][0]
+    assert item["url"] == "https://example.gov.cn/state-capital"
+    assert item["summary"] == "中国国新超500亿元，中国诚通近百亿元。"
+    assert item["detail_status"] == "summary"
+
+
 def test_validate_grades_enforces_contract():
     expected = {"fp1", "fp2"}
     payload = {
