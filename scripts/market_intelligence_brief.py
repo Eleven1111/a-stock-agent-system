@@ -80,6 +80,67 @@ def _degraded_lines(result: Mapping[str, Any], *, tail: str) -> list[str]:
     return lines
 
 
+def _auction_lines(result: Mapping[str, Any], asof: str) -> list[str]:
+    digest = stage_intelligence.auction_digest(result)
+    lines = [
+        f"## 集合竞价简报 | {asof}",
+        f"全市场有效竞价因子：{digest['full_market_factor_count']}",
+    ]
+    lines.extend(_degraded_lines(
+        result,
+        tail=f"collection_status={result.get('collection_status') or 'unknown'}，"
+             "以下榜单不可用作决策依据",
+    ))
+    for title, items in (
+        ("### 竞价涨幅 TOP", digest["market_gainers"]),
+        ("### 竞价跌幅 TOP", digest["market_decliners"]),
+    ):
+        lines.append(title)
+        for item in items:
+            scope = "执行短名单" if item["in_execution_shortlist"] else "池外研究情报"
+            lines.append(f"- {_label(item)}：{_score(item, 'auction_gap_pct')}%｜{scope}")
+    if digest["high_daban_candidates"]:
+        lines.append("### 打板评分≥90")
+        lines.extend(
+            f"- {_label(item)}：{_score(item, 'daban_score')}"
+            for item in digest["high_daban_candidates"]
+        )
+    return lines
+
+
+def _open_lines(result: Mapping[str, Any], asof: str) -> list[str]:
+    digest = stage_intelligence.open_digest(result)
+    temperature = result.get("market_temperature") or {}
+    regime = result.get("market_regime") or {}
+    lines = [
+        f"## 开盘摘要 | {asof}",
+        f"市场概况：温度={temperature.get('tier') or 'N/A'}｜"
+        f"状态={regime.get('regime') or regime.get('label') or 'N/A'}",
+    ]
+    # 降级时档位仍如实显示（诊断线索），但必须点明风险预算已归零——
+    # 否则"温度=发酵｜无可执行信号"会被读成"市场不错，只是今天没标的"。
+    lines.extend(_degraded_lines(
+        result, tail="上方温度档位不代表可参与，新仓已阻断",
+    ))
+    lines.append("### 门禁后信号")
+    if digest["signals"]:
+        lines.extend(
+            f"- {_label(item)}：{item.get('decision') or item.get('action')}｜"
+            f"开盘分{_score(item, 'open_score')}"
+            for item in digest["signals"]
+        )
+    else:
+        lines.append("- 无可执行信号")
+    if digest["filtered_highlights"]:
+        lines.append("### 被过滤高分票（研究情报）")
+        for item in digest["filtered_highlights"]:
+            reasons = "；".join(item.get("filter_reasons") or [])
+            lines.append(
+                f"- {_label(item)}：打板{_score(item, 'daban_score', 'auction_daban_score')}｜{reasons}"
+            )
+    return lines
+
+
 def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400) -> str:
     asof = result.get("asof") or "unknown"
     lines: list[str] = []
@@ -105,60 +166,9 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
             lines.append("")
             lines.append("⚠️ 极端弱市，所有候选已降级为 research_only，无可操作标的")
     elif stage == "auction":
-        digest = stage_intelligence.auction_digest(result)
-        lines.extend([
-            f"## 集合竞价简报 | {asof}",
-            f"全市场有效竞价因子：{digest['full_market_factor_count']}",
-        ])
-        lines.extend(_degraded_lines(
-            result,
-            tail=f"collection_status={result.get('collection_status') or 'unknown'}，"
-                 "以下榜单不可用作决策依据",
-        ))
-        lines.append("### 竞价涨幅 TOP")
-        for item in digest["market_gainers"]:
-            scope = "执行短名单" if item["in_execution_shortlist"] else "池外研究情报"
-            lines.append(f"- {_label(item)}：{_score(item, 'auction_gap_pct')}%｜{scope}")
-        lines.append("### 竞价跌幅 TOP")
-        for item in digest["market_decliners"]:
-            scope = "执行短名单" if item["in_execution_shortlist"] else "池外研究情报"
-            lines.append(f"- {_label(item)}：{_score(item, 'auction_gap_pct')}%｜{scope}")
-        if digest["high_daban_candidates"]:
-            lines.append("### 打板评分≥90")
-            lines.extend(
-                f"- {_label(item)}：{_score(item, 'daban_score')}"
-                for item in digest["high_daban_candidates"]
-            )
+        lines.extend(_auction_lines(result, asof))
     elif stage == "open":
-        digest = stage_intelligence.open_digest(result)
-        temperature = result.get("market_temperature") or {}
-        regime = result.get("market_regime") or {}
-        lines.extend([
-            f"## 开盘摘要 | {asof}",
-            f"市场概况：温度={temperature.get('tier') or 'N/A'}｜"
-            f"状态={regime.get('regime') or regime.get('label') or 'N/A'}",
-        ])
-        # 降级时档位仍如实显示（诊断线索），但必须点明风险预算已归零——
-        # 否则"温度=发酵｜无可执行信号"会被读成"市场不错，只是今天没标的"。
-        lines.extend(_degraded_lines(
-            result, tail="上方温度档位不代表可参与，新仓已阻断",
-        ))
-        lines.append("### 门禁后信号")
-        if digest["signals"]:
-            lines.extend(
-                f"- {_label(item)}：{item.get('decision') or item.get('action')}｜"
-                f"开盘分{_score(item, 'open_score')}"
-                for item in digest["signals"]
-            )
-        else:
-            lines.append("- 无可执行信号")
-        if digest["filtered_highlights"]:
-            lines.append("### 被过滤高分票（研究情报）")
-            for item in digest["filtered_highlights"]:
-                reasons = "；".join(item.get("filter_reasons") or [])
-                lines.append(
-                    f"- {_label(item)}：打板{_score(item, 'daban_score', 'auction_daban_score')}｜{reasons}"
-                )
+        lines.extend(_open_lines(result, asof))
     else:
         raise ValueError(f"unknown stage: {stage}")
     text = "\n".join(lines).strip()

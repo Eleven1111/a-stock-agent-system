@@ -4,17 +4,242 @@
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "7e70ae577267fe04b288"
+      "violation_id": "06d8ccfe4f39ffb9d4ea"
     },
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "ee020c32a71e38d45ff7"
+      "violation_id": "0c7bb541ac06ebf2bb84"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "16e1534ef9958fa25300"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "18b15abfa8f067a07fb1"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "1a4ca28d2bf6f834c573"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "1bedcefe44fa24e0a061"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "24c1d3598cecd556fb86"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "27cfc837fe4e5f54521d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "2ef6dcf42e87a54ca02a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "3caff1b13ad07da6708b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "40953b6c990a6b34c2e8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "4311e73eb23b8a5c7e60"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "46009e43e1ac0732e46d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "4ad836575e2290248a01"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "596721ffb119aa0829e6"
     },
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "5c791ee4fbc5f8344cd4"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "5cf254dd067c7bf5e3b1"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "5f46a797893280aee2eb"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/daban-stock-picker/scripts/open_confirmation.py touched by #112/#113 fail-closed fix",
+      "violation_id": "618262066dc6ea9072fe"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "628ca709910d9be859df"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "668b2de12594eac05bba"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "6c0bd34a1b61f9cf5506"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/daban-stock-picker/scripts/open_confirmation.py touched by #112/#113 fail-closed fix",
+      "violation_id": "6e999e0bcea4140e6619"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "72ad698a7dc9bdcfd220"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "74cd5e53532376f53efa"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "75d639b53e5b53ad0358"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "77b6dc84e656ca810a80"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "7a0d4a82e6544417b408"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "7e70ae577267fe04b288"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "7f791a9a66b47ec3c3ab"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "833b287919476a938883"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "8aef716f23e30ba1fa1b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "8ce23e94b14133b9aa9a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "987bb9e9545a5776f9e0"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "98fa622dc596dd4fa005"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "9b909ac56a3494f8e7c3"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/daban-stock-picker/scripts/open_confirmation.py touched by #112/#113 fail-closed fix",
+      "violation_id": "9d1eb6cfb5766b61fe83"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/daban-stock-picker/scripts/open_confirmation.py touched by #112/#113 fail-closed fix",
+      "violation_id": "9e1d0982299dc9fc2726"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "a074fd7c3b60a9ade47a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in scripts/market_intelligence_brief.py touched by #112/#113 fail-closed fix",
+      "violation_id": "a0dbe4b7027e3be60c1c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/daban-stock-picker/scripts/open_confirmation.py touched by #112/#113 fail-closed fix",
+      "violation_id": "a1e37e884eb5e7a51a1e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "a2bd950b2ae97677f385"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "a3826d18ee892efa5bd0"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "a6397a707953b0d5b948"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "af2bc6f5da834fb80962"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "afb8f6e8a39904a43fe7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "ba8636e9c01807b7c348"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "bcd3c1fe5508a8389536"
     },
     {
       "expires_on": "2026-10-31",
@@ -28,23 +253,48 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/common/market_temperature.py touched by #112/#113 fail-closed fix",
+      "violation_id": "c1f79748e671c1604acc"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "c566b0878530007b5956"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/daban-stock-picker/scripts/open_confirmation.py touched by #112/#113 fail-closed fix",
+      "violation_id": "c66285a3d1feb526a061"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "c6b9138f9442ec054f40"
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "e15045c49e5994926bd4"
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "c87df31c35ad82c8a6f0"
     },
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "afb8f6e8a39904a43fe7"
+      "violation_id": "cc665af84ba2d784cd92"
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "06d8ccfe4f39ffb9d4ea"
+      "reason": "pre-existing debt in scripts/market_intelligence_brief.py touched by #112/#113 fail-closed fix",
+      "violation_id": "d7e8dccc1c34c398f486"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in skills/daban-stock-picker/scripts/auction_collector.py touched by #112/#113 fail-closed fix",
+      "violation_id": "db074870deffd506aaef"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
+      "violation_id": "dd51b4643e1cd6dcc57b"
     },
     {
       "expires_on": "2026-10-31",
@@ -54,137 +304,12 @@
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "ba8636e9c01807b7c348"
+      "violation_id": "e15045c49e5994926bd4"
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "18b15abfa8f067a07fb1"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "40953b6c990a6b34c2e8"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "833b287919476a938883"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "7a0d4a82e6544417b408"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "987bb9e9545a5776f9e0"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "af2bc6f5da834fb80962"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "fee0fda7fb28d94c38d1"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "cc665af84ba2d784cd92"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "72ad698a7dc9bdcfd220"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "668b2de12594eac05bba"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "1bedcefe44fa24e0a061"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "5f46a797893280aee2eb"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "a3826d18ee892efa5bd0"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "8aef716f23e30ba1fa1b"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "3caff1b13ad07da6708b"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "bcd3c1fe5508a8389536"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "a074fd7c3b60a9ade47a"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "edf01c8a378d356fce91"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "596721ffb119aa0829e6"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "75d639b53e5b53ad0358"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "628ca709910d9be859df"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "2ef6dcf42e87a54ca02a"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "1a4ca28d2bf6f834c573"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "0c7bb541ac06ebf2bb84"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "98fa622dc596dd4fa005"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "fa4fa719166da01a91c3"
+      "reason": "pre-existing debt in skills/daban-stock-picker/scripts/auction_collector.py touched by #112/#113 fail-closed fix",
+      "violation_id": "e4381a7b9fa29e3d8ca2"
     },
     {
       "expires_on": "2026-10-31",
@@ -194,92 +319,22 @@
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "c566b0878530007b5956"
+      "violation_id": "edf01c8a378d356fce91"
     },
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "9b909ac56a3494f8e7c3"
+      "violation_id": "ee020c32a71e38d45ff7"
     },
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "46009e43e1ac0732e46d"
+      "violation_id": "fa4fa719166da01a91c3"
     },
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "16e1534ef9958fa25300"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "5cf254dd067c7bf5e3b1"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "7f791a9a66b47ec3c3ab"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "77b6dc84e656ca810a80"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "6c0bd34a1b61f9cf5506"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "27cfc837fe4e5f54521d"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "74cd5e53532376f53efa"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "a6397a707953b0d5b948"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "4ad836575e2290248a01"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
-      "violation_id": "24c1d3598cecd556fb86"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
-      "violation_id": "dd51b4643e1cd6dcc57b"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
-      "violation_id": "a2bd950b2ae97677f385"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
-      "violation_id": "4311e73eb23b8a5c7e60"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
-      "violation_id": "8ce23e94b14133b9aa9a"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
-      "violation_id": "c87df31c35ad82c8a6f0"
+      "violation_id": "fee0fda7fb28d94c38d1"
     }
   ]
 }
