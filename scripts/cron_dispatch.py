@@ -133,6 +133,23 @@ def claim(state_path: str, job_id: str, moment: datetime) -> bool:
     return True
 
 
+def job_env() -> Dict[str, str]:
+    """子任务的执行环境。
+
+    manifest 里的命令写的是裸 `python`，而 Popen(shell=True) 走 /bin/sh
+    （非登录 shell，PATH 极简），裸 `python` 解析不到会直接 command not found。
+    因此把仓库 venv 的 bin 目录置于 PATH 首位，让 `python` 稳定指向本仓库
+    虚拟环境，而不依赖调度器继承到的 PATH。
+    """
+    venv_bin = os.path.join(ROOT, ".venv", "bin")
+    path = os.environ.get("PATH") or "/usr/bin:/bin"
+    return {
+        **os.environ,
+        "PATH": f"{venv_bin}{os.pathsep}{path}",
+        "PYTHONPATH": COMMON,
+    }
+
+
 def launch(job: Mapping[str, Any], *, log_path: str) -> Optional[int]:
     """派生作业子进程（脱离进程组）。返回 pid；启动失败返回 None。"""
     command = str(job.get("command") or "").strip()
@@ -154,7 +171,7 @@ def launch(job: Mapping[str, Any], *, log_path: str) -> Optional[int]:
             stdout=handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-            env={**os.environ, "PYTHONPATH": COMMON},
+            env=job_env(),
         )
         return proc.pid
     except (OSError, ValueError) as exc:

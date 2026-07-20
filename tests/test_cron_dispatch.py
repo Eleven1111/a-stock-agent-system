@@ -96,3 +96,32 @@ def test_claim_prunes_stale_entries(tmp_path):
     kept = json.loads(state.read_text(encoding="utf-8"))
     assert "fresh" in kept
     assert len(kept) < 50
+
+
+def test_job_env_puts_repo_venv_first_on_path():
+    """manifest 命令用裸 python；/bin/sh 的极简 PATH 解析不到会 command not found。"""
+    import os
+
+    env = cd.job_env()
+    parts = env["PATH"].split(os.pathsep)
+    assert parts[0] == os.path.join(cd.ROOT, ".venv", "bin")
+    # 原有 PATH 必须保留在后面：venv 里没有的工具（git 等）仍要能找到
+    assert parts[1:], "原有 PATH 不能被丢弃"
+    assert env["PYTHONPATH"] == cd.COMMON
+
+
+def test_launched_job_resolves_bare_python(tmp_path):
+    """端到端：裸 python 命令必须能在派生环境里跑起来。"""
+    import time
+
+    log = tmp_path / "jobs.log"
+    pid = cd.launch(
+        {"id": "probe", "command": "python -c \"print('PY_OK')\"", "cwd": "."},
+        log_path=str(log),
+    )
+    assert pid is not None
+    for _ in range(50):
+        if log.exists() and "PY_OK" in log.read_text(encoding="utf-8"):
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"bare python did not resolve: {log.read_text(encoding='utf-8') if log.exists() else '<no log>'}")
