@@ -134,6 +134,21 @@ def test_auction_scan_codes_prefer_full_eligible_universe():
     ]
 
 
+def test_auction_scan_codes_falls_back_when_weak_regime_empties_candidates():
+    """弱市门禁把候选降级为 research_only 时 candidates 为空，不能扫 0 只股票。"""
+    pool = {
+        "candidates": [],
+        "auction_scan_codes": ["sh600001", "sz000811", "sh600001"],
+    }
+
+    assert ac.auction_scan_codes(pool, full_universe=False) == ["sh600001", "sz000811"]
+
+
+def test_auction_scan_codes_empty_pool_returns_empty():
+    assert ac.auction_scan_codes({}, full_universe=False) == []
+    assert ac.auction_scan_codes({}, full_universe=True) == []
+
+
 def test_full_universe_single_snapshot_keeps_pool_outsider_for_research(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(

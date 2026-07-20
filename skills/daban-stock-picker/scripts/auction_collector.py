@@ -181,10 +181,21 @@ def auction_scan_codes(
     *,
     full_universe: bool,
 ) -> List[str]:
-    """Return deep-pool codes or the full eligible one-shot scan universe."""
+    """Return deep-pool codes or the full eligible one-shot scan universe.
+
+    弱市时 candidate-discovery 会把候选整体降级为 research_only，此时
+    ``candidates`` 为空而 ``auction_scan_codes`` 仍有数据。若直接返回空列表，
+    竞价将扫 0 只股票，市场温度退化为 stale 值（issue #112 / #113）。
+    因此深池模式在 ``candidates`` 为空时回退到 ``auction_scan_codes``。
+    """
     source = pool.get("auction_scan_codes") if full_universe else None
     if not source:
-        return watch_pool_codes(pool)
+        codes = watch_pool_codes(pool)
+        if codes:
+            return codes
+        source = pool.get("auction_scan_codes")
+    if not source:
+        return []
     return list(dict.fromkeys(
         candidate_pipeline.market_code(code)
         for code in source
