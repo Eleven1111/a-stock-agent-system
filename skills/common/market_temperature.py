@@ -177,7 +177,13 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
                         morning_quotes: Optional[Mapping[str, Mapping[str, Any]]] = None,
                         retreat_ladder: Optional[Mapping[str, Any]] = None,
                         ) -> Dict[str, Any]:
-    """完整温度计（纯函数）。数据缺失时阻断新风险。"""
+    """完整温度计（纯函数）。数据缺失时阻断新风险。
+
+    ``morning_quotes`` 区分两种语义，不可混为一谈：
+    - ``None``：调用方本就不做盘中修正（开盘前批次），退潮检查 not_requested；
+    - 空映射：调用方请求了盘中修正却拿到零观测（竞价采集失败，issue #112/#113），
+      此时"未检出退潮"是没有证据而非有证据，必须 fail closed 而不是沿用档位风险预算。
+    """
     if not ladder:
         return _unavailable_temperature(
             "unknown",
@@ -192,6 +198,7 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
     notes = cls["notes"]
     rules = dict(TIER_RULES[tier])
 
+    observation_missing = morning_quotes is not None and not morning_quotes
     retreat = detect_retreat(retreat_ladder or prev_ladder, morning_quotes)
     if retreat:
         rules["allow_new_daban"] = False
@@ -199,14 +206,28 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
         rules["top_n_limit"] = 0
         rules["advice"] = f"退潮信号触发：{retreat}｜只出不进"
         notes.append(retreat)
+    elif observation_missing:
+        rules["allow_new_daban"] = False
+        rules["position_multiplier"] = 0.0
+        rules["top_n_limit"] = 0
+        rules["advice"] = "盘中观测缺失，无法确认退潮与否｜阻断新增风险"
+        notes.append("盘中观测缺失（竞价快照为空），退潮检查未执行，按无证据处理")
+
+    if morning_quotes is None:
+        retreat_check = "not_requested"
+    elif observation_missing:
+        retreat_check = "observation_missing"
+    else:
+        retreat_check = "checked"
 
     return {
         "tier": tier,
-        "context_status": "fresh",
+        "context_status": "degraded" if observation_missing else "fresh",
         "height": height,
         "promotion_rate": promo,
         "limitup_total": limitup_total,
         "retreat_signal": retreat,
+        "retreat_check": retreat_check,
         "notes": notes,
         **rules,
     }
@@ -228,6 +249,7 @@ def _unavailable_temperature(
         "position_multiplier": 0.0,
         "top_n_limit": 0,
         "retreat_signal": None,
+        "retreat_check": "not_requested",
         "advice": f"温度上下文{status}，阻断新增风险",
         "context_asof": context_asof,
         "context_fresh": False,
@@ -276,10 +298,12 @@ def temperature_from_context(
         morning_quotes=morning_quotes,
         retreat_ladder=context.get("lianban_ladder") if morning_quotes else None,
     )
+    degraded = result.get("context_status") == "degraded"
     result.update({
         "context_asof": context_asof or None,
-        "context_fresh": True,
-        "context_status": "fresh",
+        # 上下文日期新鲜不代表观测完整：盘中观测缺失时不得回填 fresh
+        "context_fresh": not degraded,
+        "context_status": "degraded" if degraded else "fresh",
     })
     return result
 
