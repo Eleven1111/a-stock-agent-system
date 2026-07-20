@@ -87,8 +87,13 @@ def cmd_next(args: argparse.Namespace, config: dict[str, Any]) -> int:
         {
             "fingerprint": entry.get("fingerprint"),
             "title": entry.get("title"),
+            "summary": entry.get("summary") or "",
+            "detail_status": entry.get("detail_status") or "title_only",
+            "url": entry.get("url"),
             "source_name": entry.get("source_name"),
             "source_rank": entry.get("source_rank"),
+            "source_type": entry.get("source_type"),
+            "authority_scope": entry.get("authority_scope"),
             "matched_keywords": entry.get("matched_keywords"),
             "excerpt": entry.get("excerpt"),
             "published_hint": entry.get("published_hint"),

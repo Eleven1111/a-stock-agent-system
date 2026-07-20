@@ -3,8 +3,8 @@
 Reads the source catalog from ``config/news_pipeline.json`` (or an injected
 path), fetches each source through ``http_client`` (so every request is
 recorded by the provider-health ledger), and normalizes results into a flat
-list of ``{title, url, published_hint, source_id, source_name, source_rank,
-source_type}`` items. Parsing is stdlib-only: ``xml.etree.ElementTree`` for
+list of ``{title, summary, detail_status, url, published_hint, source_id,
+source_name, source_rank, source_type, authority_scope}`` items. Parsing is stdlib-only: ``xml.etree.ElementTree`` for
 RSS/Atom, a small regex-based anchor scan (matching the technique already
 used by ``watch_official_policy.py``) for plain HTML listing pages, and
 ``json`` for NewsNow aggregator payloads (``GET {base}/api/s?id=<source>``).
@@ -113,6 +113,13 @@ def _entry_date(pub_raw: str, title: str) -> str | None:
     return _parse_date_hint(title)
 
 
+def _element_text(element: Any) -> str:
+    """Return normalized text from an XML element, including CDATA/nested text."""
+    if element is None:
+        return ""
+    return _normalize_text(" ".join(element.itertext()))
+
+
 def _parse_rfc822(value: str) -> tuple[int, int, int, int, int, int]:
     from email.utils import parsedate
 
@@ -146,7 +153,7 @@ def parse_rss(document: str, source: dict[str, Any]) -> list[dict[str, Any]]:
             local = child.tag.rsplit("}", 1)[-1].lower()
             children.setdefault(local, child)
         title_el = children.get("title")
-        title = _normalize_text(title_el.text or "") if title_el is not None else ""
+        title = _element_text(title_el)
         link = ""
         link_el = children.get("link")
         if link_el is not None:
@@ -160,14 +167,22 @@ def parse_rss(document: str, source: dict[str, Any]) -> list[dict[str, Any]]:
                 pub_raw = el.text.strip()
                 break
         published_hint = _entry_date(pub_raw, title)
+        summary = ""
+        for summary_key in ("description", "summary", "encoded", "content"):
+            summary = _element_text(children.get(summary_key))
+            if summary:
+                break
         items.append({
             "title": title,
+            "summary": summary,
+            "detail_status": "summary" if summary else "title_only",
             "url": _canonical_url(urljoin(str(source["url"]), link)),
             "published_hint": published_hint,
             "source_id": source["id"],
             "source_name": source["name"],
             "source_rank": source["source_rank"],
             "source_type": source.get("source_type"),
+            "authority_scope": source.get("authority_scope"),
         })
     return items
 
@@ -208,12 +223,15 @@ def parse_html_anchors(
         nearby = document[max(0, match.start() - 80): match.end() + 120]
         items.append({
             "title": title,
+            "summary": "",
+            "detail_status": "title_only",
             "url": url,
             "published_hint": _parse_date_hint(title, url, nearby),
             "source_id": source["id"],
             "source_name": source["name"],
             "source_rank": source["source_rank"],
             "source_type": source.get("source_type"),
+            "authority_scope": source.get("authority_scope"),
         })
     return items
 
@@ -269,17 +287,32 @@ def parse_newsnow(document: str, source: dict[str, Any]) -> list[dict[str, Any]]
         if not title or not link:
             continue
         extra = entry.get("extra") if isinstance(entry.get("extra"), dict) else {}
+        summary = ""
+        for value in (
+            entry.get("description"),
+            entry.get("summary"),
+            entry.get("content"),
+            extra.get("description"),
+            extra.get("summary"),
+            extra.get("content"),
+        ):
+            summary = _normalize_text(str(value or ""))
+            if summary:
+                break
         published_hint = _newsnow_date(entry.get("pubDate")) or _newsnow_date(
             extra.get("date")
         )
         items.append({
             "title": title,
+            "summary": summary,
+            "detail_status": "summary" if summary else "title_only",
             "url": _canonical_url(urljoin(str(source["url"]), link)),
             "published_hint": published_hint,
             "source_id": source["id"],
             "source_name": source["name"],
             "source_rank": source["source_rank"],
             "source_type": source.get("source_type"),
+            "authority_scope": source.get("authority_scope"),
         })
     return items
 

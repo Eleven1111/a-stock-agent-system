@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 import news_pipeline
@@ -24,9 +27,10 @@ def state_home(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _item(title, rank="S5", url="https://example.gov.cn/a"):
+def _item(title, rank="S5", url="https://example.gov.cn/a", summary=""):
     return {
         "title": title,
+        "summary": summary,
         "url": url,
         "source_id": "gov_test",
         "source_name": "测试官方源",
@@ -46,6 +50,42 @@ def test_score_item_requires_keyword_not_just_rank():
     scored = news_pipeline.score_item(_item("今日天气晴朗适合出行"), L1_CONFIG)
     assert scored["passed"] is False
     assert scored["matched_keywords"] == []
+
+
+def test_score_item_matches_keywords_in_preserved_summary():
+    scored = news_pipeline.score_item(
+        _item(
+            "两大央企宣布增持A股股票资产",
+            rank="S2",
+            summary="中国国新使用回购增持专项再贷款及配套资金超500亿元。",
+        ),
+        {
+            **L1_CONFIG,
+            "materiality_keywords": {"critical": ["增持", "再贷款"]},
+            "pass_threshold_score": 4,
+        },
+    )
+    assert scored["passed"] is True
+    assert set(scored["matched_keywords"]) == {"增持", "再贷款"}
+    assert scored["excerpt"] == "中国国新使用回购增持专项再贷款及配套资金超500亿元。"
+    assert scored["detail_status"] == "summary"
+
+
+def test_repo_l1_accepts_state_capital_increase_with_preserved_summary():
+    config_path = Path(__file__).resolve().parents[1] / "config" / "news_pipeline.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    scored = news_pipeline.score_item(
+        _item(
+            "两大央企宣布增持A股股票资产",
+            rank="S2",
+            summary="中国国新拟使用回购增持专项再贷款继续增持中央企业股票。",
+        ),
+        config["l1"],
+    )
+
+    assert scored["passed"] is True
+    assert {"增持", "再贷款"} <= set(scored["matched_keywords"])
 
 
 def test_score_item_low_rank_with_weak_keyword_fails_threshold():
@@ -98,6 +138,21 @@ def test_enqueue_claim_and_submit_cycle():
     assert result["missing"] == []
     summary = news_pipeline.queue_summary()
     assert summary["by_status"] == {"graded": 2}
+
+
+def test_enqueue_preserves_summary_and_detail_status_for_l2():
+    scored = news_pipeline.score_item(
+        _item(
+            "两大央企宣布增持A股股票资产",
+            summary="中国国新超500亿元，中国诚通近百亿元。",
+        ),
+        {**L1_CONFIG, "materiality_keywords": {"critical": ["增持"]}},
+    )
+    fresh, _ = news_pipeline.dedupe_items([scored])
+    news_pipeline.enqueue_l1_items(fresh, now="2026-07-19T20:00:00+08:00")
+    claimed = news_pipeline.claim_l1_batch("openclaw", now="2026-07-19T20:01:00+08:00")
+    assert claimed[0]["summary"] == "中国国新超500亿元，中国诚通近百亿元。"
+    assert claimed[0]["detail_status"] == "summary"
 
 
 def test_claim_ttl_recovers_lost_batch():

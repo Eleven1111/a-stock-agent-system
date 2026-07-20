@@ -1,6 +1,6 @@
 {
   "schema": "official_policy_source_catalog_v1",
-  "updated_at": "2026-06-25",
+  "updated_at": "2026-07-20",
   "source_contract": "Only use primary official sites and official wire/party-state media as policy-intent sources. Market media, broker notes, social media, and search snippets are reaction signals only.",
   "sources": [
     {
@@ -98,6 +98,14 @@
       "source_rank": "S2",
       "source_type": "exchange",
       "market_relevance": ["trading_rules", "listed_company", "market_operation"]
+    },
+    {
+      "id": "sasac_state_assets_news",
+      "name": "国务院国资委国资新闻",
+      "url": "https://www.sasac.gov.cn/n2588025/n2643314/index.html",
+      "source_rank": "S4",
+      "source_type": "state_assets_regulator",
+      "market_relevance": ["state_capital", "capital_market", "central_enterprise"]
     }
   ]
 }

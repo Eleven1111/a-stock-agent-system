@@ -77,6 +77,7 @@ def score_item(item: dict[str, Any], l1_config: dict[str, Any]) -> dict[str, Any
     """
     cfg = {**_default_l1_config(), **(l1_config or {})}
     title = str(item.get("title") or "").strip()
+    summary = str(item.get("summary") or "").strip()
     if len(title) < int(cfg["min_title_len"]):
         return None
     if title in set(cfg.get("generic_titles") or []):
@@ -89,8 +90,9 @@ def score_item(item: dict[str, Any], l1_config: dict[str, Any]) -> dict[str, Any
     tier_scores = {"critical": 3, "high": 2, "medium": 1}
     best_tier = None
     matched: list[str] = []
+    search_text = f"{title}\n{summary}" if summary else title
     for tier, words in keywords_cfg.items():
-        hits = [word for word in (words or []) if word in title]
+        hits = [word for word in (words or []) if word in search_text]
         if hits:
             matched.extend(hits)
             if best_tier is None or tier_scores.get(tier, 0) > tier_scores.get(best_tier, 0):
@@ -108,7 +110,9 @@ def score_item(item: dict[str, Any], l1_config: dict[str, Any]) -> dict[str, Any
         "rank_weight": rank_weight,
         "l1_score": l1_score,
         "passed": passed,
-        "excerpt": title[:excerpt_max],
+        "summary": summary,
+        "detail_status": str(item.get("detail_status") or ("summary" if summary else "title_only")),
+        "excerpt": (summary or title)[:excerpt_max],
     })
     return enriched
 
@@ -210,10 +214,14 @@ def enqueue_l1_items(
                 "schema": "news_l1_entry_v1",
                 "fingerprint": fp,
                 "title": item.get("title"),
+                "summary": item.get("summary") or "",
+                "detail_status": item.get("detail_status") or "title_only",
                 "url": item.get("url"),
                 "source_id": item.get("source_id"),
                 "source_name": item.get("source_name"),
                 "source_rank": item.get("source_rank"),
+                "source_type": item.get("source_type"),
+                "authority_scope": item.get("authority_scope"),
                 "matched_keywords": item.get("matched_keywords") or [],
                 "keyword_tier": item.get("keyword_tier"),
                 "l1_score": item.get("l1_score"),

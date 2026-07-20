@@ -1,7 +1,7 @@
 {
   "schema": "news_pipeline_config_v1",
-  "updated_at": "2026-07-04",
-  "source_contract": "Primary-source RSS/HTML polling for official releases and wire copy, plus mid/low-rank NewsNow aggregator hotlists (financial wire hot items and attention signals). Aggregator items are recall/attention leads, never authority-grade evidence: their source_rank stays at S2 or below so L1 requires keyword materiality before they pass. Social/secondary sources beyond these hotlists remain out of scope; use agent-reach style tooling separately for sentiment evidence.",
+  "updated_at": "2026-07-20",
+  "source_contract": "Primary-source RSS/HTML polling for official releases, state-capital disclosures, and wire copy, plus mid/low-rank NewsNow aggregator hotlists (financial wire hot items and attention signals). Aggregator items are recall/attention leads, never authority-grade evidence: their source_rank stays at S2 or below so L1 requires keyword materiality before they pass. A state-capital operator can evidence only its own disclosed action; it is not a policy authority and cannot independently justify a directional recommendation. Social/secondary sources beyond these hotlists remain out of scope; use agent-reach style tooling separately for sentiment evidence.",
   "sources": [
     {
       "id": "gov_yaowen_rss",
@@ -76,6 +76,42 @@
       "source_type": "exchange"
     },
     {
+      "id": "sasac_state_assets_news",
+      "name": "国务院国资委国资新闻",
+      "url": "https://www.sasac.gov.cn/n2588025/n2643314/index.html",
+      "kind": "html",
+      "source_rank": "S4",
+      "source_type": "state_assets_regulator",
+      "authority_scope": "state_capital_oversight"
+    },
+    {
+      "id": "china_reform_news",
+      "name": "中国国新新闻资讯",
+      "url": "https://www.crhc.cn/",
+      "kind": "html",
+      "source_rank": "S2",
+      "source_type": "state_capital_operator",
+      "authority_scope": "self_disclosed_capital_action"
+    },
+    {
+      "id": "china_chengtong_news",
+      "name": "中国诚通新闻资讯",
+      "url": "https://www.cctgroup.com.cn/",
+      "kind": "html",
+      "source_rank": "S2",
+      "source_type": "state_capital_operator",
+      "authority_scope": "self_disclosed_capital_action"
+    },
+    {
+      "id": "sdic_news",
+      "name": "国家开发投资集团新闻资讯",
+      "url": "https://www.sdic.com.cn/",
+      "kind": "html",
+      "source_rank": "S2",
+      "source_type": "state_capital_operator",
+      "authority_scope": "self_disclosed_capital_action"
+    },
+    {
       "id": "newsnow_cls_hot",
       "name": "财联社热门（NewsNow）",
       "url": "https://newsnow.busiyi.world/api/s?id=cls-hot",
@@ -118,7 +154,8 @@
   ],
   "source_notes": {
     "cninfo": "Per-stock cninfo announcement scans are already covered by skills/common/announcement_risk.py; this pipeline does not duplicate that machinery and only tracks market-wide official releases/wire copy.",
-    "newsnow": "NewsNow entries hit GET {base}/api/s?id=<source>. The default base https://newsnow.busiyi.world is a PUBLIC DEMO instance (upstream: https://github.com/ourongxing/newsnow) with no availability or rate-limit guarantees; production deployments should self-host and set the NEWSNOW_BASE_URL environment variable, which rewrites the origin of every kind=newsnow source at fetch time without config edits. Hotlist items are attention/recall leads (S2 and below), not authority-grade evidence."
+    "newsnow": "NewsNow entries hit GET {base}/api/s?id=<source>. The default base https://newsnow.busiyi.world is a PUBLIC DEMO instance (upstream: https://github.com/ourongxing/newsnow) with no availability or rate-limit guarantees; production deployments should self-host and set the NEWSNOW_BASE_URL environment variable, which rewrites the origin of every kind=newsnow source at fetch time without config edits. Hotlist items are attention/recall leads (S2 and below), not authority-grade evidence.",
+    "state_capital": "国务院国资委 is an oversight source. 中国国新、中国诚通、国家开发投资集团 are first-party disclosure sources: rank captures retrieval priority, while authority_scope limits their evidence to the operator's own disclosed action. All such items remain research-only until announcement, data-quality, tradeability, price-plan, and portfolio-risk checks pass."
   },
   "l1": {
     "rank_weight": {
@@ -137,7 +174,7 @@
       "high": [
         "政策", "监管", "证监会", "人民银行", "发改委", "财政部",
         "工业和信息化部", "金融监管总局", "问询函", "监管函", "警示函",
-        "重组", "定增", "减持", "解禁", "回购", "退市", "停牌",
+        "重组", "定增", "增持", "减持", "解禁", "回购", "再贷款", "ETF", "退市", "停牌",
         "专项整治", "依法查处", "反内卷"
       ],
       "medium": [

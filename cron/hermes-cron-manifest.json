@@ -1181,6 +1181,37 @@
       "external_note": "watching 超时淘汰(stale_watch)、confirmed 超时回退(confirm_stall)；纯确定性代码，零模型调用"
     },
     {
+      "id": "news-l1-scan",
+      "name": "新闻 L1 自然日扫描",
+      "schedule": "4,19,34,49 8-22 * * *",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "calendar_day",
+      "command": "python scripts/run_agent_dag.py news-l1-scan --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 3000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/news-pipeline/data/",
+        "$A_STOCK_STATE_HOME/cron/output/news-l1-scan/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/news_l1_scan.py --silent --json",
+        "cwd": ".",
+        "timeout_seconds": 180
+      },
+      "external_note": "自然日每15分钟采集官方、国资监管与国资运营主体公开信息；仅写入研究队列，不触发交易或直接推送",
+      "adaptive_backoff": true
+    },
+    {
       "id": "news-monitor",
       "name": "资讯监控 — 政策/产业/地缘触发",
       "schedule": "0 9,11,15,20,22 * * 1-5",
@@ -1217,6 +1248,40 @@
         "timeout_seconds": 180
       },
       "external_note": "需 Hermes Agent + SerpAPI；固定宏观查询 + 当前股票/板块/主题动态订阅，无触发静默",
+      "adaptive_backoff": true
+    },
+    {
+      "id": "news-monitor-weekend",
+      "name": "资讯监控 — 非交易日政策/国资事件",
+      "schedule": "0 9,12,18,22 * * 0,6",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "calendar_day",
+      "command": "python scripts/run_agent_dag.py news-monitor-weekend --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "text",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "feishu_direct",
+      "max_output_chars": 3000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
+        "$A_STOCK_STATE_HOME/cron/output/news-monitor-weekend/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
+        "$A_STOCK_STATE_HOME/delivery/"
+      ],
+      "run": {
+        "command": "python skills/news-to-sector/scripts/scheduled_monitor.py --json",
+        "cwd": ".",
+        "timeout_seconds": 180
+      },
+      "external_note": "周末/非交易日独立运行，不依赖交易日前置任务；无触发静默，输出仅作研究与风险提示",
       "adaptive_backoff": true
     },
     {
