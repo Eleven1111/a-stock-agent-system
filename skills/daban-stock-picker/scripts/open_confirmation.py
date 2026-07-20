@@ -13,7 +13,7 @@ import json
 import os
 import sys
 from datetime import date, datetime
-from typing import Any, Dict, List, Mapping, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 SCRIPT_DIR = os.path.dirname(__file__)
 sys.path.insert(0, SCRIPT_DIR)
@@ -31,7 +31,7 @@ import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
 import stage_intelligence  # noqa: E402
 from weak_market_delivery import assess_delivery_quality  # noqa: E402
-from market_temperature import temperature_from_context  # noqa: E402
+from market_temperature import block_new_risk, temperature_from_context  # noqa: E402
 import monitor_registry  # noqa: E402
 from paths import data_file  # noqa: E402
 from config_registry import load_registered  # noqa: E402
@@ -415,6 +415,21 @@ def load_shortlist(asof: str) -> Dict[str, Any]:
     return shortlist
 
 
+def shortlist_degradation(shortlist_result: Mapping[str, Any]) -> Optional[str]:
+    """竞价短名单的降级原因；未降级返回 None。
+
+    空短名单有两种截然相反的含义：竞价跑完了但无人入选（今天没有机会），
+    或竞价根本没采到数据（今天没有观测，issue #112 / #113）。后者由
+    auction-finalize 标记 status=degraded；不透传就会被误读成前者。
+    """
+    if str(shortlist_result.get("status")) != "degraded":
+        return None
+    reasons = [str(item) for item in shortlist_result.get("degraded_reasons") or []]
+    detail = "；".join(reasons) or "原因未记录"
+    collection = shortlist_result.get("collection_status") or "unknown"
+    return f"竞价短名单降级（collection_status={collection}）：{detail}"
+
+
 def score_confirmations(
     shortlist: Sequence[Mapping[str, Any]],
     confirmations: Sequence[Mapping[str, Any]],
@@ -676,6 +691,9 @@ def build_confirmation(
         event_asof=asof,
         max_age_days=4,
     )
+    degradation = shortlist_degradation(shortlist_result)
+    if degradation:
+        temperature = block_new_risk(temperature, degradation)
     evidence_sources = _evidence_sources(
         input_snapshot=input_snapshot,
         shortlist_result=shortlist_result,
@@ -846,7 +864,8 @@ def build_confirmation(
         "schema": "open_confirmation_v3",
         "asof": asof,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "status": "ready",
+        "status": "degraded" if degradation else "ready",
+        "degraded_reasons": [degradation] if degradation else [],
         "source_asof": shortlist_result.get("source_asof"),
         "market_temperature": temperature,
         "market_regime": regime,

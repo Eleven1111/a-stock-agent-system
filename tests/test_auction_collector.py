@@ -134,6 +134,21 @@ def test_auction_scan_codes_prefer_full_eligible_universe():
     ]
 
 
+def test_auction_scan_codes_falls_back_when_weak_regime_empties_candidates():
+    """弱市门禁把候选降级为 research_only 时 candidates 为空，不能扫 0 只股票。"""
+    pool = {
+        "candidates": [],
+        "auction_scan_codes": ["sh600001", "sz000811", "sh600001"],
+    }
+
+    assert ac.auction_scan_codes(pool, full_universe=False) == ["sh600001", "sz000811"]
+
+
+def test_auction_scan_codes_empty_pool_returns_empty():
+    assert ac.auction_scan_codes({}, full_universe=False) == []
+    assert ac.auction_scan_codes({}, full_universe=True) == []
+
+
 def test_full_universe_single_snapshot_keeps_pool_outsider_for_research(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(
@@ -253,6 +268,83 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
     assert {item["source_group"] for item in monitors} == {"auction_shortlist"}
     lifecycle = candidate_lifecycle.load_day(source_asof)
     assert sum(record["current_stage"] == "auction_shortlist" for record in lifecycle["records"]) == 5
+
+
+def test_finalize_flags_empty_collection_instead_of_reporting_ready(tmp_path, monkeypatch):
+    """采集到 0 只股票时 finalize 不能报 ready，否则下游把空结果当成有效观测。"""
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    monkeypatch.setattr(
+        ac,
+        "read_market_context",
+        lambda: {
+            "status": "ok",
+            "context_status": "fresh",
+            "context_fresh": True,
+            "sector_impact": {},
+            "alerts": [],
+        },
+    )
+    atomic_write_json(
+        str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
+        {"cash": 20000, "positions": [], "cash_reconciled": True},
+    )
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    candidates = [{
+        "code": "600001",
+        "name": "股票1",
+        "sector": "半导体",
+        "daban_score": 90,
+        "trend_score": 70,
+        "selected_by": {"daban": True, "trend": False},
+    }]
+    atomic_write_json(ac._pool_path(), {
+        "status": "ready",
+        "asof": source_asof,
+        "candidates": candidates,
+    })
+    candidate_lifecycle.initialize_day(source_asof, candidates)
+    # 竞价采集彻底失败：series 为空
+    atomic_write_json(ac._state_path(event_asof), {"asof": event_asof, "series": {}})
+
+    result = ac.finalize(event_asof, shortlist_limit=5)
+
+    assert result["status"] == "degraded"
+    assert result["collection_status"] == "empty"
+    assert result["factor_count"] == 0
+    assert result["research_only"] is True
+    assert result["preopen_decisions"] == []
+    assert any("竞价采集为空" in note for note in result.get("degraded_reasons") or [])
+    # 空采集不得注册监控，否则下游把空观测当成有效标的
+    assert ac.monitor_registry.active_entries("stock", asof=event_asof) == []
+
+
+def test_json_report_passes_through_research_only_instead_of_hardcoding_false():
+    """research_only 曾被硬编码 False，使降级报告自相矛盾（status=degraded 却 research_only=False）。"""
+    degraded = {
+        "schema": "auction_finalize_v2",
+        "asof": "2026-07-20",
+        "status": "degraded",
+        "collection_status": "empty",
+        "research_only": True,
+        "degraded_reasons": ["竞价采集为空（0 只标的），无盘中观测，拒绝输出可执行结论"],
+        "input_count": 0,
+        "shortlist": [],
+        "preopen_decisions": [],
+    }
+
+    report = ac.json_report(degraded)
+
+    assert report["status"] == "degraded"
+    assert report["research_only"] is True
+    assert report["degraded_reasons"] == degraded["degraded_reasons"]
+    # 正常结果仍应是 False
+    assert ac.json_report({"status": "ready", "shortlist": []})["research_only"] is False
 
 
 def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch):

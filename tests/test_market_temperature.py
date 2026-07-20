@@ -58,6 +58,52 @@ def test_retreat_signal_forces_exit_only():
     assert out["position_multiplier"] == 0.0
 
 
+def _fermenting_pair():
+    """构造落在"发酵"档的梯队对：高度板 5，晋级率 2/5=0.4（该档默认放行新仓）。"""
+    today = _ladder({"a": 5, "b": 2, "c": 1, "d": 1, "e": 1})
+    prev = _ladder({"a": 4, "b": 1, "c": 1, "d": 1, "e": 1})
+    return today, prev
+
+
+def test_empty_morning_quotes_degrades_and_blocks_new_risk():
+    """请求了盘中修正却零观测（竞价采集失败）不能当作"无退潮"通过。"""
+    today, prev = _fermenting_pair()
+    assert mt.compute_temperature(today, prev)["allow_new_daban"] is True  # 基线：该档本会放行
+    out = mt.compute_temperature(today, prev, morning_quotes={})
+    assert out["context_status"] == "degraded"
+    assert out["retreat_check"] == "observation_missing"
+    assert out["allow_new_daban"] is False
+    assert out["position_multiplier"] == 0.0
+    assert out["top_n_limit"] == 0
+    assert any("盘中观测缺失" in n for n in out["notes"])
+    # 档位本身仍要如实报告，只是风险预算归零
+    assert out["tier"] == "发酵"
+
+
+def test_omitted_morning_quotes_keeps_preopen_behaviour():
+    """morning_quotes=None 表示本就不做盘中修正（开盘前批次），不应被降级。"""
+    today, prev = _fermenting_pair()
+    out = mt.compute_temperature(today, prev)
+    assert out["context_status"] == "fresh"
+    assert out["retreat_check"] == "not_requested"
+    assert out["allow_new_daban"] is True
+    assert out["position_multiplier"] > 0.0
+
+
+def test_context_degraded_survives_temperature_from_context():
+    """降级状态不能被 temperature_from_context 的 fresh 覆写掉。"""
+    today, prev = _fermenting_pair()
+    ctx = {
+        "ladder_asof": "2026-06-15",
+        "lianban_ladder": today,
+        "prev_lianban_ladder": prev,
+    }
+    out = mt.temperature_from_context(ctx, morning_quotes={}, event_asof="2026-06-16")
+    assert out["context_status"] == "degraded"
+    assert out["allow_new_daban"] is False
+    assert out["position_multiplier"] == 0.0
+
+
 def test_missing_ladder_is_unknown_and_blocks_new_risk():
     out = mt.compute_temperature(None)
     assert out["tier"] == "unknown"

@@ -181,10 +181,21 @@ def auction_scan_codes(
     *,
     full_universe: bool,
 ) -> List[str]:
-    """Return deep-pool codes or the full eligible one-shot scan universe."""
+    """Return deep-pool codes or the full eligible one-shot scan universe.
+
+    弱市时 candidate-discovery 会把候选整体降级为 research_only，此时
+    ``candidates`` 为空而 ``auction_scan_codes`` 仍有数据。若直接返回空列表，
+    竞价将扫 0 只股票，市场温度退化为 stale 值（issue #112 / #113）。
+    因此深池模式在 ``candidates`` 为空时回退到 ``auction_scan_codes``。
+    """
     source = pool.get("auction_scan_codes") if full_universe else None
     if not source:
-        return watch_pool_codes(pool)
+        codes = watch_pool_codes(pool)
+        if codes:
+            return codes
+        source = pool.get("auction_scan_codes")
+    if not source:
+        return []
     return list(dict.fromkeys(
         candidate_pipeline.market_code(code)
         for code in source
@@ -235,9 +246,47 @@ def _persist_shortlist(result: Mapping[str, Any], asof: str) -> None:
     atomic_write_json(_shortlist_latest_path(), dict(result))
 
 
+def _degraded_finalize(result: Dict[str, Any], asof: str, reason: str) -> Dict[str, Any]:
+    """竞价采集为空时的 fail-closed 结果。
+
+    零因子不等于"今天没有机会"，而是"今天没有观测"。若照常报 ready，下游
+    （市场温度、仓位乘数、打板门禁）会把空结果当成有效观测并沿用 stale 上下文
+    （issue #112 / #113）。因此显式降级，且不注册任何监控、不推进候选生命周期。
+    """
+    try:
+        pool: Mapping[str, Any] = load_watch_pool(asof)
+    except DataSourceError:
+        pool = {}
+    result.update({
+        "schema": "auction_finalize_v2",
+        "asof": asof,
+        "status": "degraded",
+        "collection_status": "empty",
+        "research_only": True,
+        "degraded_reasons": [reason],
+        "source_asof": pool.get("asof"),
+        "input_count": len(pool.get("candidates") or []),
+        "factor_count": 0,
+        "shortlist": [],
+        "shortlist_count": 0,
+        "rejected": [],
+        "preopen_decisions": [],
+        "decision_count": 0,
+        "discipline_state": None,
+    })
+    _persist_shortlist(result, asof)
+    return result
+
+
 def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[str, Any]:
     state = read_json(_state_path(asof), default={"series": {}})
     result = _build_result(state.get("series", {}), asof)
+    if not result["factors"]:
+        return _degraded_finalize(
+            result,
+            asof,
+            "竞价采集为空（0 只标的），无盘中观测，拒绝输出可执行结论",
+        )
     pool = load_watch_pool(asof)
     signal_ctx = read_signal_context(max_age_hours=8) or {}
     shortlist = candidate_pipeline.rank_auction_shortlist(
@@ -487,7 +536,10 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "asof": result.get("asof"),
         "generated_at": result.get("generated_at"),
         "source_asof": result.get("source_asof"),
-        "research_only": False,
+        # 曾硬编码 False，使降级报告自相矛盾（status=degraded 却 research_only=False）
+        "research_only": bool(result.get("research_only", False)),
+        "degraded_reasons": list(result.get("degraded_reasons") or []),
+        "collection_status": result.get("collection_status"),
         "input_count": result.get("input_count"),
         "shortlist_count": result.get("shortlist_count", len(result.get("shortlist") or [])),
         "decision_count": result.get("decision_count", len(decisions)),
