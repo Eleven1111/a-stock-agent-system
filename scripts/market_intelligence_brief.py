@@ -94,8 +94,18 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
         lines.extend([
             f"## 集合竞价简报 | {asof}",
             f"全市场有效竞价因子：{digest['full_market_factor_count']}",
-            "### 竞价涨幅 TOP",
         ])
+        # 空榜单有两种含义：竞价平静，或根本没采到数据。后者必须说出来，
+        # 否则读者会把"没有观测"读成"没有行情"（issue #112 / #113）。
+        if str(result.get("status")) == "degraded":
+            reasons = "；".join(str(item) for item in result.get("degraded_reasons") or [])
+            lines.append(
+                f"⚠️ 竞价数据降级（collection_status="
+                f"{result.get('collection_status') or 'unknown'}），以下榜单不可用作决策依据"
+            )
+            if reasons:
+                lines.append(f"原因：{reasons}")
+        lines.append("### 竞价涨幅 TOP")
         for item in digest["market_gainers"]:
             scope = "执行短名单" if item["in_execution_shortlist"] else "池外研究情报"
             lines.append(f"- {_label(item)}：{_score(item, 'auction_gap_pct')}%｜{scope}")

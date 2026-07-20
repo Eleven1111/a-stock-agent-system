@@ -324,6 +324,29 @@ def test_finalize_flags_empty_collection_instead_of_reporting_ready(tmp_path, mo
     assert ac.monitor_registry.active_entries("stock", asof=event_asof) == []
 
 
+def test_json_report_passes_through_research_only_instead_of_hardcoding_false():
+    """research_only 曾被硬编码 False，使降级报告自相矛盾（status=degraded 却 research_only=False）。"""
+    degraded = {
+        "schema": "auction_finalize_v2",
+        "asof": "2026-07-20",
+        "status": "degraded",
+        "collection_status": "empty",
+        "research_only": True,
+        "degraded_reasons": ["竞价采集为空（0 只标的），无盘中观测，拒绝输出可执行结论"],
+        "input_count": 0,
+        "shortlist": [],
+        "preopen_decisions": [],
+    }
+
+    report = ac.json_report(degraded)
+
+    assert report["status"] == "degraded"
+    assert report["research_only"] is True
+    assert report["degraded_reasons"] == degraded["degraded_reasons"]
+    # 正常结果仍应是 False
+    assert ac.json_report({"status": "ready", "shortlist": []})["research_only"] is False
+
+
 def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch):
     # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 为隔离测试
     # 状态无条件设置了它；这里要用 HERMES_HOME 驱动每个用例独立的

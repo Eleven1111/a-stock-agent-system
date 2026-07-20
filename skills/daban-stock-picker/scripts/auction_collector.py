@@ -536,7 +536,10 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "asof": result.get("asof"),
         "generated_at": result.get("generated_at"),
         "source_asof": result.get("source_asof"),
-        "research_only": False,
+        # 曾硬编码 False，使降级报告自相矛盾（status=degraded 却 research_only=False）
+        "research_only": bool(result.get("research_only", False)),
+        "degraded_reasons": list(result.get("degraded_reasons") or []),
+        "collection_status": result.get("collection_status"),
         "input_count": result.get("input_count"),
         "shortlist_count": result.get("shortlist_count", len(result.get("shortlist") or [])),
         "decision_count": result.get("decision_count", len(decisions)),

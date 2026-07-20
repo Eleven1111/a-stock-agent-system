@@ -39,6 +39,27 @@ def test_auction_brief_marks_pool_outsider_as_research_only():
     assert "池外研究情报" in text
 
 
+def test_auction_brief_warns_on_degraded_collection():
+    """空榜单不能读成"今天很平静"——采集失败必须在简报里说出来。"""
+    text = brief.format_brief(
+        "auction",
+        {
+            "asof": "2026-07-20",
+            "status": "degraded",
+            "collection_status": "empty",
+            "degraded_reasons": ["竞价采集为空（0 只标的），无盘中观测，拒绝输出可执行结论"],
+            "factors": [],
+            "shortlist": [],
+            "preopen_decisions": [],
+        },
+    )
+
+    assert "⚠️" in text
+    assert "竞价采集为空" in text
+    # 不得让读者以为这是一个正常的空榜
+    assert "无盘中观测" in text
+
+
 def test_open_brief_includes_filtered_high_score_reason():
     text = brief.format_brief(
         "open",
