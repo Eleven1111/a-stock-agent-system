@@ -118,7 +118,7 @@ def test_dry_run_replaces_bare_python_with_current_interpreter(
     worker = tmp_path / "worker.py"
     worker.write_text("print('ok')\n", encoding="utf-8")
     job = _base_job("python-path")
-    job["run"]["command"] = f"python {worker}"
+    job["run"]["argv"] = ["python", str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
@@ -161,7 +161,7 @@ def test_adaptive_backoff_enforce_mode_skips_when_not_due(tmp_path, monkeypatch)
     worker.write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n", encoding="utf-8")
     job = _base_job("official-policy-watch")
     job["adaptive_backoff"] = True
-    job["run"]["command"] = f"{sys.executable} {worker}"
+    job["run"]["argv"] = [sys.executable, str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     state_home = tmp_path / "state"
@@ -193,7 +193,7 @@ def test_adaptive_backoff_shadow_mode_still_runs_when_not_due(tmp_path, monkeypa
     worker.write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n", encoding="utf-8")
     job = _base_job("news-monitor")
     job["adaptive_backoff"] = True
-    job["run"]["command"] = f"{sys.executable} {worker}"
+    job["run"]["argv"] = [sys.executable, str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     state_home = tmp_path / "state"
@@ -218,7 +218,7 @@ def test_adaptive_backoff_records_outcome_after_successful_run(tmp_path, monkeyp
     )
     job = _base_job("news-monitor-intraday")
     job["adaptive_backoff"] = True
-    job["run"]["command"] = f"{sys.executable} {worker}"
+    job["run"]["argv"] = [sys.executable, str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     state_home = tmp_path / "state"
@@ -243,7 +243,7 @@ def _base_job(job_id, deliver="origin"):
         "name": job_id,
         "schedule": "0 9 * * 1-5",
         "timezone": "Asia/Shanghai",
-        "command": f"python scripts/agent_job_runner.py {job_id}",
+        "command_argv": ["python", "scripts/agent_job_runner.py", job_id],
         "cwd": ".",
         "enabled": True,
         "external": True,
@@ -257,7 +257,7 @@ def _base_job(job_id, deliver="origin"):
         "trading_day_policy": "calendar_day",
         "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
         "allowed_state_writes": [f"$HERMES_HOME/cron/output/{job_id}/"],
-        "run": {"command": "", "cwd": ".", "timeout_seconds": 10},
+        "run": {"argv": [sys.executable, "-c", "pass"], "cwd": ".", "timeout_seconds": 10},
     }
 
 
@@ -268,7 +268,7 @@ def test_openclaw_runner_writes_artifact_ledger_and_snapshot(tmp_path):
         encoding="utf-8",
     )
     job = _base_job("demo")
-    job["run"]["command"] = f"{sys.executable} {worker}"
+    job["run"]["argv"] = [sys.executable, str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
@@ -309,7 +309,7 @@ def test_runner_local_delivery_suppresses_stdout_but_keeps_artifact(tmp_path):
     worker = tmp_path / "worker.py"
     worker.write_text("print('{\"schema\":\"demo_v1\",\"message\":\"archived\"}')\n", encoding="utf-8")
     job = _base_job("local-demo", deliver="local")
-    job["run"]["command"] = f"{sys.executable} {worker}"
+    job["run"]["argv"] = [sys.executable, str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
@@ -339,7 +339,7 @@ def test_runner_feishu_direct_delivery_suppresses_stdout_and_never_calls_lark_cl
     worker = tmp_path / "worker.py"
     worker.write_text("print('{\"schema\":\"demo_v1\",\"message\":\"routine\"}')\n", encoding="utf-8")
     job = _base_job("feishu-demo", deliver="feishu_direct")
-    job["run"]["command"] = f"{sys.executable} {worker}"
+    job["run"]["argv"] = [sys.executable, str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
@@ -495,7 +495,7 @@ def test_runner_maps_business_block_returncode_to_blocked_artifact(tmp_path):
         encoding="utf-8",
     )
     job = _base_job("blocked-business")
-    job["run"]["command"] = f"{sys.executable} {worker}"
+    job["run"]["argv"] = [sys.executable, str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 
@@ -538,7 +538,7 @@ def test_runner_blocks_without_starting_worker_when_required_dependency_missing(
     )
     job = _base_job("downstream")
     job["context_from"] = ["missing-upstream"]
-    job["run"]["command"] = f"{sys.executable} {worker}"
+    job["run"]["argv"] = [sys.executable, str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
 

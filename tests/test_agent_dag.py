@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import sys
 
 from scripts import run_agent_dag
@@ -11,7 +12,7 @@ def _job(job_id, command, dependencies=None, mode="same_trading_date"):
         "name": job_id,
         "schedule": "0 9 * * 1-5",
         "timezone": "Asia/Shanghai",
-        "command": f"python scripts/agent_job_runner.py {job_id}",
+        "command_argv": ["python", "scripts/agent_job_runner.py", job_id],
         "cwd": ".",
         "enabled": True,
         "external": True,
@@ -25,7 +26,7 @@ def _job(job_id, command, dependencies=None, mode="same_trading_date"):
         "dependency_policy": {"trading_date": mode, "max_age_minutes": 60},
         "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
         "allowed_state_writes": [],
-        "run": {"command": command, "cwd": ".", "timeout_seconds": 10},
+        "run": {"argv": shlex.split(command), "cwd": ".", "timeout_seconds": 10},
     }
 
 

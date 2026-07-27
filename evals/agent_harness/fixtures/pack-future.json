@@ -1,0 +1,35 @@
+{
+  "schema": "research_evidence_pack_v1",
+  "ref": "pack-future",
+  "builder_version": "evidence_pack_v1",
+  "payload": {
+    "task_id": "eval-task",
+    "kind": "candidate_review",
+    "subject": {
+      "code": "000000",
+      "name": "FIXTURE"
+    },
+    "trading_date": "2026-06-12",
+    "fact_artifacts": [
+      {
+        "job_id": "candidate-discovery",
+        "missing": true,
+        "captured_at": "2099-01-01T09:00:00+08:00"
+      }
+    ],
+    "subject_data": {
+      "close": 10.0,
+      "turnover_pct": 3.2,
+      "source_grade": "S2"
+    },
+    "quality": {
+      "status": "insufficient",
+      "missing": [
+        "fact_artifacts"
+      ],
+      "degraded": [
+        "future_dated:candidate-discovery"
+      ]
+    }
+  }
+}

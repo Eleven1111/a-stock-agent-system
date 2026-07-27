@@ -21,7 +21,7 @@ def _job(policy: str = "required") -> dict:
         "name": "gate-demo",
         "schedule": "0 9 * * 1-5",
         "timezone": "Asia/Shanghai",
-        "command": "python scripts/run_agent_dag.py gate-demo --emit-target",
+        "command_argv": ["python", "scripts/run_agent_dag.py", "gate-demo", "--emit-target"],
         "cwd": ".",
         "enabled": True,
         "external": True,
@@ -36,7 +36,7 @@ def _job(policy: str = "required") -> dict:
         "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
         "allowed_state_writes": ["$A_STOCK_STATE_HOME/cron/output/gate-demo/"],
         "run": {
-            "command": f"{sys.executable} -c \"print('should-not-run')\"",
+            "argv": [sys.executable, "-c", "print('should-not-run')"],
             "cwd": ".",
             "timeout_seconds": 10,
         },
@@ -69,7 +69,7 @@ def test_runner_persists_silent_skip_without_starting_worker(tmp_path):
         encoding="utf-8",
     )
     job = _job()
-    job["run"]["command"] = f"{sys.executable} {worker}"
+    job["run"]["argv"] = [sys.executable, str(worker)]
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
     env = os.environ.copy()

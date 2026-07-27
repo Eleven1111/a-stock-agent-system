@@ -38,6 +38,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "dispatcher swallows any trace-import failure on purpose: observability must never stop all scheduling",
+      "violation_id": "2538c8dd9a7283f65041"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "27cfc837fe4e5f54521d"
     },
@@ -48,13 +53,28 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
+      "violation_id": "3219b91b88a26545f3cf"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "3caff1b13ad07da6708b"
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "new script follows the repository-wide skills/common sys.path convention",
+      "violation_id": "3fb4ab6f6c0d2a96df71"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "40953b6c990a6b34c2e8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "dispatcher duplicates sys.path setup on purpose: it must not hard-import repo modules before it can launch anything (see _trace_module)",
+      "violation_id": "414370d32a7c171275fc"
     },
     {
       "expires_on": "2026-10-31",
@@ -83,6 +103,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
+      "violation_id": "583a9f46e3bde094aec8"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "596721ffb119aa0829e6"
     },
@@ -100,6 +125,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "5f46a797893280aee2eb"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
+      "violation_id": "602fc42e9347f501ddbe"
     },
     {
       "expires_on": "2026-10-31",
@@ -125,6 +155,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "6c0bd34a1b61f9cf5506"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
+      "violation_id": "6d5483b1ae4be283b73f"
     },
     {
       "expires_on": "2026-10-31",
@@ -168,6 +203,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "new script follows the repository-wide skills/common sys.path convention",
+      "violation_id": "822f08a11b3e95a2499f"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "833b287919476a938883"
     },
@@ -183,6 +223,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
+      "violation_id": "944712e9fab0cf807f6b"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "987bb9e9545a5776f9e0"
     },
@@ -190,6 +235,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "98fa622dc596dd4fa005"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
+      "violation_id": "9ab3af0ec61591283fc7"
     },
     {
       "expires_on": "2026-10-31",
@@ -245,6 +295,16 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "afb8f6e8a39904a43fe7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
+      "violation_id": "b2fb962378b17c6508fa"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "an agent runtime crash must map to a terminal failed state, not propagate out of the adapter",
+      "violation_id": "b42a2c325734d2dbdfd3"
     },
     {
       "expires_on": "2026-10-31",
@@ -313,8 +373,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
+      "violation_id": "dd8050b60d8c27c0b09f"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "ddf40dc31ea55741f4bd"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "validator now imports manifest_command via the repository-wide sys.path convention",
+      "violation_id": "e061efe19eba948b86ef"
     },
     {
       "expires_on": "2026-10-31",
@@ -340,6 +410,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "ee020c32a71e38d45ff7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
+      "violation_id": "fa3d2cd7ea6d9371e4f6"
     },
     {
       "expires_on": "2026-10-31",

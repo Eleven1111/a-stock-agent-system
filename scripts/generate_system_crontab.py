@@ -39,8 +39,9 @@ def crontab_lines(
     for job in manifest.get("jobs", []):
         if not job.get("enabled", True):
             continue
-        if "{" in job.get("command", "") or "}" in job.get("command", ""):
-            raise ValueError(f"job {job['id']} is not self-contained: {job['command']}")
+        entry_argv = job.get("command_argv") or shlex.split(str(job.get("command") or ""))
+        if any("{" in item or "}" in item for item in entry_argv):
+            raise ValueError(f"job {job['id']} is not self-contained: {entry_argv}")
         schedule = job["schedule"]
         command = (
             f"cd {repo} && A_STOCK_RUNTIME=hermes {py} scripts/run_agent_dag.py "

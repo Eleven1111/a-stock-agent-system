@@ -26,6 +26,7 @@ from runtime_context import (  # noqa: E402
 from trading_day_gate import evaluate_job_trading_day  # noqa: E402
 from paths import hermes_home  # noqa: E402
 from state_store import file_lock  # noqa: E402
+import execution_trace  # noqa: E402
 import feishu_push  # noqa: E402
 
 # 数据质量门控 (quality_gate.py) 延迟导入 — 只在需要时加载
@@ -177,6 +178,11 @@ def execute_dag(
     run_env = dict(env or os.environ)
     runtime = resolve_runtime_name(runtime, run_env)
     run_env["A_STOCK_RUNTIME"] = runtime
+    # One DAG run, one trace id. Every job runner spawned below inherits it, so
+    # dependency jobs share the trace while keeping their own run_id.
+    run_env[execution_trace.TRACE_ID_ENV] = str(
+        execution_trace.resolve_trace_id(run_env) or ""
+    )
     calendar_date = (
         str(trading_date)[:10]
         if trading_date
@@ -428,6 +434,47 @@ def _compress_stdout(job: Mapping[str, Any], artifact: Mapping[str, Any], raw_le
     return "\n".join(parts)
 
 
+def _deliver_feishu_direct(
+    job: Mapping[str, Any],
+    artifact: Mapping[str, Any],
+    *,
+    record_telemetry: bool,
+    telemetry_path: str | None,
+) -> bool:
+    """Push to Feishu and report whether the channel accepted the request.
+
+    Acceptance suppresses the fallback delivery; it is not evidence that the
+    user received anything, and the trace records it as acceptance only.
+    """
+    job_id = str(job.get("id") or artifact.get("job_id") or "")
+    stdout = str(artifact.get("stdout") or "")
+    max_chars = max(200, int(job.get("max_output_chars") or 4000))
+    text = stdout[:max_chars]
+    trace_ctx = {
+        "trace_id": execution_trace.resolve_trace_id(create=False),
+        "job_id": job_id,
+        "run_id": artifact.get("run_id"),
+        "batch_id": artifact.get("batch_id"),
+        "trading_date": artifact.get("trading_date"),
+        "runtime": artifact.get("runtime"),
+    }
+    execution_trace.delivery_attempted(channel="feishu_direct", **trace_ctx)
+    result = feishu_push.push_text(job_id, text)
+    status = str(result.get("status") or "unknown")
+    execution_trace.delivery_result(status, channel="feishu_direct", **trace_ctx)
+    if record_telemetry:
+        _record_target_output_telemetry(
+            job,
+            artifact,
+            delivered=status == "sent",
+            output_chars=len(text),
+            was_compressed=len(stdout) > max_chars,
+            silent_reason="none" if status == "sent" else f"feishu_{status}",
+            telemetry_path=telemetry_path,
+        )
+    return status == "sent"
+
+
 def target_output(
     job: Mapping[str, Any],
     artifact: Mapping[str, Any],
@@ -461,22 +508,12 @@ def target_output(
             )
         return "NO_REPLY\n"
     if job.get("deliver") == "feishu_direct":
-        stdout = str(artifact.get("stdout") or "")
-        max_chars = max(200, int(job.get("max_output_chars") or 4000))
-        text = stdout[:max_chars]
-        result = feishu_push.push_text(str(job.get("id") or artifact.get("job_id") or ""), text)
-        if record_telemetry:
-            _record_target_output_telemetry(
-                job,
-                artifact,
-                delivered=result["status"] == "sent",
-                output_chars=len(text),
-                was_compressed=len(stdout) > max_chars,
-                silent_reason="none" if result["status"] == "sent" else f"feishu_{result['status']}",
-                telemetry_path=telemetry_path,
-            )
-        # If feishu push succeeded, suppress stdout; otherwise let OpenClaw deliver
-        if result["status"] == "sent":
+        if _deliver_feishu_direct(
+            job,
+            artifact,
+            record_telemetry=record_telemetry,
+            telemetry_path=telemetry_path,
+        ):
             return "NO_REPLY\n"
         # Fall through to default delivery (OpenClaw announce channel)
     stdout = str(artifact.get("stdout") or "")

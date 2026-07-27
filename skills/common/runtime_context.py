@@ -317,6 +317,7 @@ def build_artifact(
     snapshot_ref: Optional[Dict[str, Any]] = None,
     calendar_gate: Optional[Dict[str, Any]] = None,
     adaptive_schedule: Optional[Dict[str, Any]] = None,
+    trace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     parsed = try_parse_json(stdout)
     has_signal = output_has_signal(parsed, stdout)
@@ -333,6 +334,9 @@ def build_artifact(
         "job_id": job["id"],
         "run_id": run_id,
         "batch_id": batch_id,
+        # Links the artifact to the run-scoped execution trace without giving
+        # the trace any ownership of business facts.
+        "trace_id": trace_id or os.environ.get("A_STOCK_TRACE_ID") or None,
         "trading_date": trading_date,
         "context_scope": job.get("context_scope", "cron"),
         "runtime": runtime or os.environ.get("A_STOCK_RUNTIME") or "local",
@@ -373,6 +377,7 @@ def record_run(artifact: Dict[str, Any], max_items: int = 1000) -> None:
         "job_id": artifact["job_id"],
         "run_id": artifact["run_id"],
         "batch_id": artifact.get("batch_id"),
+        "trace_id": artifact.get("trace_id"),
         "trading_date": artifact.get("trading_date"),
         "runtime": artifact.get("runtime"),
         "status": artifact["status"],

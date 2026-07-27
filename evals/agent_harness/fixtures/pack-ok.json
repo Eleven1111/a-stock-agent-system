@@ -1,0 +1,36 @@
+{
+  "schema": "research_evidence_pack_v1",
+  "ref": "pack-ok",
+  "builder_version": "evidence_pack_v1",
+  "payload": {
+    "task_id": "eval-task",
+    "kind": "candidate_review",
+    "subject": {
+      "code": "000000",
+      "name": "FIXTURE"
+    },
+    "trading_date": "2026-06-12",
+    "fact_artifacts": [
+      {
+        "job_id": "candidate-discovery",
+        "status": "ok",
+        "captured_at": "2026-06-12T15:10:00+08:00"
+      },
+      {
+        "job_id": "hot-money-context",
+        "status": "ok",
+        "captured_at": "2026-06-12T15:05:00+08:00"
+      }
+    ],
+    "subject_data": {
+      "close": 10.0,
+      "turnover_pct": 3.2,
+      "source_grade": "S2"
+    },
+    "quality": {
+      "status": "ok",
+      "missing": [],
+      "degraded": []
+    }
+  }
+}

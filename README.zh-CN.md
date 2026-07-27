@@ -22,12 +22,15 @@ A 股多智能体投研系统。15 个仓内专业 Skill、四维打分引擎、
 
 ```mermaid
 flowchart LR
+    HB["launchd 每60秒心跳"] --> DS["cron_dispatch.py manifest 调度器"]
+    MF["Cron manifest<br/>49个登记任务 / 42个启用"] --> DS
+    DS --> O["跨运行时可恢复 DAG"]
     S["外部数据源"] --> A["统一 Data Adapters"]
     PS["一手官方政策源"] --> PW["official-policy-watch"]
     PW --> PI["policy-intent-decoder"]
     NS["新闻和舆情源"] --> NW["news/social monitors"]
     A --> M["带交易日和来源版本的不可变市场快照"]
-    C["A股交易日历"] --> O["跨运行时可恢复 DAG"]
+    C["A股交易日历"] --> O
     O --> HM["情绪和涨停梯队"]
     O --> SA["跨平台社交关注度"]
     O --> CD["候选发现"]
@@ -66,6 +69,13 @@ flowchart LR
     X --> W["OpenClaw"]
 ```
 
+当前生产入口包含两层调度。launchd 用户代理每 60 秒唤醒一次
+`scripts/cron_dispatch.py`；dispatcher 读取 manifest、匹配已启用且到期的任务、按任务和
+分钟去重，并把仓库虚拟环境放到 `PATH` 首位后，以脱离进程组的方式启动任务。每条命令随后
+仍进入 `run_agent_dag.py`，因此 launchd、Hermes、OpenClaw、system cron 和人工运行共用
+同一套交易日、依赖、快照、租约、Policy 和账本规则。已安装后台任务的启停方式与运行约束
+登记在 [`AUTOPILOT.md`](AUTOPILOT.md)。
+
 ## 能力矩阵
 
 | 模块 | 功能 | 数据源 |
@@ -75,7 +85,7 @@ flowchart LR
 | **eod-anomaly-scanner** | 全A尾盘(14:30-15:00)量比+涨幅异动扫描，估值/60日位置过滤；次日开盘 `--confirm` 模式对比跳空 | 腾讯、AkShare |
 | **social-sentiment** | 东方财富人气/飙升榜 + 雪球讨论/关注榜；跨源互证、变化速率与拥挤度背离 | 东方财富、雪球，可选百度 |
 | **daban-stock-picker** | 主板10cm打板候选闸门：首板回封、二板弱转强、六问否决、可成交性。阈值与回测引擎共用同一份配置源 | `config/daban_thresholds.yaml`、结构化行情/板块/持仓 JSON |
-| **chanlun-backtest** | 离线研究闸门（IS/OOS、成本、对照组、统计检验）**+** `chan_structure` 信号生成器：分型→笔→中枢→三买三卖→MACD背驰。信号只有过闸后才获得实盘权重 | 腾讯前复权K线、本地研究状态 JSON |
+| **chanlun-backtest** | 离线研究闸门（IS/OOS、成本、对照组、统计检验）**+** `chan_structure` 信号生成器：分型→笔→中枢→三买三卖→MACD背驰。研究通过只是获得实盘权重的必要条件，之后还需通过 shadow、实证、券商对账和人工晋级门槛 | 腾讯前复权K线、本地研究状态 JSON |
 | **global-market-monitor** | 美股/VIX/美债/期货/外汇/自然灾害 → A股板块方向与个股观察映射 | yfinance、USGS、GDACS |
 | **policy-intent-decoder** | 官方政策来源位阶、真实意图、传导链、受益/承压方向和选股辅助维度 | 政府/官媒官方来源 |
 | **news-to-sector** | 实时资讯→18条产业链映射 + 预期差分析 | SerpAPI |
@@ -95,7 +105,7 @@ flowchart LR
 | **nl-screening 召回通道** | 自然语言选股，作为候选发现的第二召回通道：东方财富智能选股（免费，依赖 `EASTMONEY_QGQP_B_ID`；未配置时明确报告为 disabled）+ 同花顺问财 OpenAPI 可选增强（`WENCAI_API_KEY`）。候选带 `recall_source` 标记，仍需经过与收盘发现漏斗相同的候选 FSM/policy 闸门，不绕过任何一道 | 东方财富智能选股、同花顺问财 |
 | **互动易/上证e互动证据** | 深市互动易（fail-closed）+ 沪市上证e互动（best-effort，可能降级为 `sse_unavailable`）投资者问答，接入候选/持仓证据包"投资者关注热点"维度 | 互动易、上证e互动 |
 | **NewsNow 聚合热点源** | 低位阶关注度线索（S1/S2，非权威证据），默认5个源：财联社热门、雪球热门股票、华尔街见闻快讯、金十数据、格隆汇事件；可自建实例替换默认公共实例；L1 规则引擎仍需命中关键词才放行 | NewsNow（公共demo或自建，`NEWSNOW_BASE_URL`） |
-| **策略包解释层（声明式）** | 内置 `dragon_head`（龙头策略）、`emotion_cycle`（情绪周期）两个按市场 regime 过滤的解释性策略包，输出证据包中的 `strategy_pack_hints`。纯解释性：`influences_live_ranking=false`，升级实盘权重需过 `research_gate` 样本外验证 | `config/strategy_packs/*.yaml` |
+| **策略包解释层（声明式）** | 内置 `dragon_head`（龙头策略）、`emotion_cycle`（情绪周期）两个按市场 regime 过滤的解释性策略包，输出证据包中的 `strategy_pack_hints`。纯解释性：`influences_live_ranking=false`，升级实盘权重需完成研究、shadow、人工试运行与正式晋级链路 | `config/strategy_packs/*.yaml` |
 | **情绪周期确定性特征** | 5个确定性、fail-closed 技术特征（成交量60日时序分位、单日爆量≥5x出货嫌疑标记、均线粘合度、ATR波动收缩分位、顶底多条件合成判定）；`emotion_cycle:v1` 未注册进 `strategy_registry` 前默认0权重 | 腾讯前复权K线 |
 | **web-search 适配层** | 多供应商降级链（Tavily → 博查 → SearXNG），单 key 401/402/429 自动轮换到下一个 key；Serenity 研究 Harvest Sources 环节用它替代会话内浏览 | Tavily、博查、SearXNG |
 | **推荐反馈闭环** | `scripts/recommendation_feedback.py` 按信号 id 记录 `useful`/`not_useful`；建议动作与最终动作背离时携带结构化机器可读理由码，由 `recommendation_audit.py --audit-violations` 审计；反馈统计进入 `score_calibration_report.py` | `signal_ledger.jsonl` |
@@ -299,6 +309,19 @@ export SEARXNG_BASE_URLS=https://searxng1.example.com,https://searxng2.example.c
 所有任务定义在 [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json)。
 文件名为历史兼容命名，manifest 实际由 Hermes、OpenClaw、system cron 和本地运行共用。
 
+当前 manifest 共登记 **49 个任务，其中 42 个启用**。在文档登记的 macOS 部署中，
+launchd 每分钟调用一次 `scripts/cron_dispatch.py`；dispatcher 负责 cron 匹配和同分钟去重，
+然后启动到期任务对应的 DAG 命令。`AUTOPILOT.md` 是已安装后台进程的事实源，manifest
+仍是任务定义、启用状态、时间表、交付方式和执行命令的事实源。
+
+### 类型化命令
+
+所有启用任务都用 argv 数组定义，不再是 shell 字符串：外层入口是 `command_argv`，
+隔离业务进程是 `run.argv`，两者都以 `shell=False` 执行。校验器直接拒绝管道、重定向、
+命令替换、未声明环境变量展开和未声明模板变量，而不是执行它们；dispatcher 在可执行文件
+缺失或 cwd 越出仓库时 fail closed。旧的字符串 `command` / `run.command` 只作为一个版本的
+迁移兼容保留，且只允许出现在 disabled 任务上，永远不会被自动提升回 shell 执行路径。
+
 每个定时任务都先进入 `scripts/run_agent_dag.py`。DAG 复用成功依赖、重跑计划目标，
 并在原子运行租约下调用 `agent_job_runner.py` 执行真实业务脚本。runner 写入
 `$A_STOCK_STATE_HOME/cron/output/{job_id}/{run_id}.json`，为 JSON 输出创建不可变
@@ -312,6 +335,73 @@ artifact v2 还包含 `trading_date`、`batch_id`、`dependency_gate` 和交易�
 监控、T+1 provisional 和 T+3 final 结算统一写入 `signal_ledger.jsonl`；
 `agent_state_projector.py` 向两端提供同一份当前状态。详细契约见
 [`docs/architecture-hardening.md`](docs/architecture-hardening.md)。
+
+### 统一执行事件（Execution Trace）
+
+一次调度运行现在会写出一条只追加的事件流：
+`$A_STOCK_STATE_HOME/cron/execution_trace.jsonl`，由
+[`skills/common/execution_trace.py`](skills/common/execution_trace.py) 负责。事件类型为
+`dispatch.claimed`、`job.started`、`gate.passed`、`gate.blocked`、`agent.started`、
+`agent.finished`、`job.finished`、`delivery.attempted`、`delivery.provider_accepted`、
+`delivery.failed`。每条事件统一携带 `trace_id`、`batch_id`、`run_id`、`job_id`、
+`correlation_id`、`trading_date`、`runtime`、`event_type`、`occurred_at`、`status`、
+`artifact_ref`、`source_versions`、`reason_codes`。
+
+dispatcher 每次启动生成一个 `trace_id` 并通过环境变量下传，因此一个 DAG 及其全部依赖
+作业共享同一个 `trace_id`，而各自保留不同的 `run_id`。字段集是严格白名单：prompt、
+stdout、stderr、密钥和外部响应正文没有可写入的位置。
+
+三条刻意设计的边界：
+
+- **Trace 不是事实账本。** 业务事实仍归 `signal_ledger.jsonl` 所有。Trace 写入失败只产生
+  显式 `trace_degraded` 告警，不改变任何门控、推荐或交付决策。
+- **交付有三个不同状态。**「进程返回成功」「渠道接受请求」「用户实际收到」是三件事。
+  当前没有真实送达回执源，因此根本不存在 `delivery.received` 事件类型，任何代码路径都
+  无法伪造它。
+- **先 Shadow。** Trace 只做观测。用 `A_STOCK_EXECUTION_TRACE=off` 即可回退，作业只写原
+  artifact。
+
+诊断命令：
+
+```bash
+python scripts/execution_trace_report.py --coverage
+```
+
+报告输出任务完成率、blocked/failed 分布、dispatch→start 与运行耗时分位、交付尝试与渠道
+接受率，以及 `trace_gaps`（缺开始事件、缺终结事件、重复终结事件）。Shadow 门通过的条件
+是：无重复终结事件、无缺开始事件的终结事件，且连续五个交易日 P95 运行耗时相对接入前基线
+无回归。
+
+### 有界研究 Agent 运行时
+
+研究平面的 Agent 调用统一走
+[`skills/common/agent_runtime_adapter.py`](skills/common/agent_runtime_adapter.py)，
+契约定义在 [`agent_run_contract.py`](skills/common/agent_run_contract.py)。Hermes 与
+OpenClaw 实现同一接口，由同一套 conformance 测试覆盖。
+
+一次调用的输入包含 task_id、role、证据包引用、允许工具、允许读取的状态、禁止写入的状态、
+输出 schema、输出长度上限和 deadline；输出只有四个终态之一 —— `completed`、`abstained`、
+`blocked`、`failed` —— 外加 evidence_refs、confidence、reason_codes、工具使用摘要和模型用量。
+
+**Agent 调用不能变成事实。** 只有 `completed` 和 `abstained` 会产出 finding；超时、schema
+错误、证据引用无法解析、输出过长、使用未声明工具、以及任何声明过的事实平面写入，都会映射
+到具名的 `blocked`/`failed` 终态且不产出 finding，因此一次失败永远不会被合成为中性或支持性
+证据。声称获得实盘权重、要求绕过 T+1 或要求策略晋级的 finding 一律直接 blocked。
+
+回放固定评测集：
+
+```bash
+python scripts/evaluate_agent_harness.py --quiet
+```
+
+[`evals/agent_harness/`](evals/agent_harness) 内置 32 个固定案例，覆盖缺失/过期/未来日期
+证据、多专家结论冲突、单一低位阶来源、evidence ref 不存在、绕过 T+1 与策略晋级、
+research-only 越权进入实盘排名、无信号、Provider 降级、超长输出、正确 abstain，以及正常的
+支持/反对/中性 finding。CI 强制以下硬指标：输出 Schema 合法率 100%、Evidence Ref 可解析率
+100%、事实平面写入 0 次、应 fail-closed 案例阻断率 100%、research-only 越权 0 次、应 abstain
+案例正确率 100%、Hermes 与 OpenClaw 适配器零分歧。回放完全确定：冻结时钟、fixture 证据包、
+不读生产状态、不联网、不调用真实模型。**该数据集只验证证据纪律与权限边界，不宣称能证明
+投资收益或开放世界预测准确率。**
 
 研究模拟账户也由同一 DAG 调度，但使用独立账户投影和 `paper.*` 事件命名空间：09:37
 只消费已通过的正式开盘推荐，盘中错峰执行纪律检查，15:25 记录收盘净值。它不连接
@@ -359,10 +449,10 @@ python scripts/generate_system_crontab.py --repo-dir "$PWD" --hermes-home "$HERM
 
 1. **15:02 游资上下文**：缓存当日涨停梯队、板块集群和梯队日期。消费端拒绝缺失、未来或过期缓存，避免历史梯队污染新一轮选股。
 2. **15:07 候选发现**：读取上交所/深交所官方股票列表，批量获取腾讯全市场行情，完成流动性与可交易性过滤，再用前复权 K 线增强；同一不可变输入同时计算市场广度、主线板块前二和板块内龙头。择时或板块证据不足时只关闭打板通道，趋势通道继续运行。
-3. **09:15–09:25 集合竞价**：09:15-09:23 对 500 只深度观察池采集分钟级腾讯五档；09:24 对全部合格股票补一张轻量竞价快照。全市场池外异动只进入研究简报，打板/趋势通道仍经门禁收敛为配置指定的竞价短名单。
-4. **09:35 开盘确认**：结合实时行情、公告质检和可成交性留下不超过 5 只策略门禁后的观察标的；报告明确展示市场时点、板块排名、龙头排名、研究态/实盘态和 T+1 约束。
-5. **09:50 承接确认**：只复用 09:35 前五候选，单次有界行情刷新验证开盘承接。
-6. **13:15 午后回流**：再次验证主线回流和板块内相对强度；两个检查点都只更新研究状态，不下单、不建议当日卖出。
+3. **08:45 盘前冷启动守卫**：优先复用有效的 D0 候选池；只有冷启动或池已过期时才重新全市场扫描，不用不完整的盘前价格结算历史候选。
+4. **09:15–09:25 集合竞价**：09:15-09:23 对 500 只深度观察池采集分钟级腾讯五档；09:24 对全部合格股票补一张轻量竞价快照。全市场池外异动只进入研究简报，打板/趋势通道仍经门禁收敛为配置指定的竞价短名单。
+5. **09:35 开盘确认**：结合实时行情、公告质检和可成交性留下不超过 5 只策略门禁后的观察标的；报告明确展示市场时点、板块排名、龙头排名、研究态/实盘态和 T+1 约束。
+6. **09:50 / 13:15 研究确认**：只复用 09:35 前五候选，以有界行情刷新验证开盘承接、午后回流和板块内相对强度；两个检查点都只更新研究状态，不下单、不建议当日卖出。
 
 09:37 的模拟账户开仓位于选股漏斗下游：它只消费已通过推荐和开盘确认的标的，再以
 Chanlun 看多结构作二次否决；它不新增候选、不改变排序或推荐分，也不发送真实订单。
@@ -374,6 +464,7 @@ Chanlun 看多结构作二次否决；它不新增候选、不改变排序或推
 | 时间 | 任务 | 频率 |
 |------|------|------|
 | 08:15 | 全球盘前扫描 | 工作日 |
+| 08:45 | 候选池冷启动守卫 | 工作日 |
 | 08:50 | 早盘情报简报 | 工作日 |
 | 09:15–09:24 | 集合竞价快照 | 工作日每分钟 |
 | 09:26 / 09:27 | 集合竞价收口 / 情报简报 | 工作日 |
@@ -382,17 +473,19 @@ Chanlun 看多结构作二次否决；它不新增候选、不改变排序或推
 | 09:37 | 模拟账户开仓（推荐与开盘确认通过后，Chanlun 二次否决） | 工作日 |
 | 09:50 | 主线龙头承接确认 | 工作日 |
 | 13:15 | 主线龙头午后回流确认 | 工作日 |
-| 09:00–15:00 | 盘中异动告警 | 每5分钟 |
+| 09:00–11:45, 13:00–14:45 | 盘中异动告警 | 每15分钟，脚本内交易时段守卫 |
 | 10:08–11:53, 13:08–14:53 | 模拟持仓纪律检查 | 错峰每15分钟 |
 | 08:00–22:00 | 官方政策源快扫 | 每10分钟，日历日 |
-| 09:25–11:30, 13:00–14:55 | 盘中资讯快扫 | 错峰每5分钟；超过SLA只归档不推方向信号 |
+| 09:02–11:47, 13:02–14:47 | 盘中资讯快扫 | 每15分钟；脚本另做交易时段/SLA守卫，过期数据只归档不推方向信号 |
 | 09:45, 13:45, 14:45 | 港A联动 | 工作日 |
 | 10:30, 14:30 | 资金流向监控 | 工作日 |
 | 15:02 | 缓存涨停梯队和市场温度上下文 | 工作日 |
 | 15:07 | 全市场动态候选发现 | 工作日 |
+| 15:15 | 候选池新鲜度检查 | 工作日 |
 | 15:18 | 动态前20只四维复核 | 工作日 |
 | 15:25 | 持仓风控检查 + 模拟账户收盘净值 | 工作日 |
-| 15:35 | 收盘Triage→Kanban派发 | 工作日 |
+| 15:35 | 收盘 Triage 摘要 | 工作日 |
+| 15:50 | 队列研究任务派发 | 工作日 |
 | 16:10 | T+1/T+3 信号结算 | 工作日 |
 | 09:40, 15:40, 16:40 | 统一 Agent 状态投影 | 工作日 |
 | 22:30 | 全球晚间扫描 | 工作日 |
@@ -467,6 +560,7 @@ Chanlun 看多结构作二次否决；它不新增候选、不改变排序或推
 
 ```
 a-stock-agent-system/
+├── AUTOPILOT.md                # 已安装后台调度器及启停契约
 ├── pyproject.toml              # 依赖管理
 ├── config/scoring.yaml         # 评分权重 & 风控参数
 ├── config/candidate_selection.json # 动态股票池与漏斗参数
@@ -475,8 +569,9 @@ a-stock-agent-system/
 ├── config/reflexivity_strategy.json # 反身性防守护栏版本、阈值与配置指纹
 ├── config/paper_trading.json   # 10万元模拟账户、Chanlun门槛与成交纪律
 ├── config/strategy_packs/       # dragon_head.yaml、emotion_cycle.yaml（纯解释性）
-├── cron/hermes-cron-manifest.json  # 47个跨运行时隔离任务
+├── cron/hermes-cron-manifest.json  # 49个登记任务（当前42个启用）
 ├── scripts/
+│   ├── cron_dispatch.py        # launchd心跳→到期manifest任务
 │   ├── agent_job_runner.py     # Hermes/OpenClaw共用任务入口
 │   ├── run_agent_dag.py        # 依赖排序、重试、断点续跑
 │   ├── agent_state_projector.py # 账本到Agent当前状态投影
@@ -523,7 +618,7 @@ a-stock-agent-system/
 **状态可恢复。** JSON 写入保持原子性；关键账户状态另存有限版本的独立备份，主文件缺失或
 损坏时从已验证快照恢复，不再静默重置为默认空状态。
 
-**权重要靠自己挣。** 缠论结构信号、情绪周期特征、调优阈值和声明式策略包（`dragon_head`、`emotion_cycle`）在通过离线研究闸门（样本外墙）并被 `strategy_registry` 收录之前，一律**零实盘权重**。策略包更是明确标注 `influences_live_ranking=false`——纯解释性，未升级前不影响排序。实盘表现只能*淘汰*策略（按期望值门控），永远不能*反向修改*其入场规则——这个隔离是防止系统对近期噪声过拟合的关键。
+**权重要靠自己挣。** 缠论结构信号、情绪周期特征、调优阈值和声明式策略包（`dragon_head`、`emotion_cycle`）在完成带版本的研究、OOS、shadow、券商对账和人工晋级链路之前，一律**零实盘权重**。策略包明确标注 `influences_live_ranking=false`，未晋级前不影响排序。实盘表现只能*淘汰*策略，永远不能*反向修改*其入场规则——这个隔离是防止系统对近期噪声过拟合的关键。
 
 ## 两套评分引擎——不要混用
 
@@ -575,7 +670,28 @@ pip install -e ".[dev]"
 python -m pytest -q tests/        # 全量回归测试
 python scripts/smoke_test.py      # 13项集成检查
 python scripts/validate_cron_manifest.py
+python scripts/check_maintainability_budget.py --base-ref origin/main
+python scripts/evaluate_agent_harness.py --quiet   # 固定 Agent 回放评测集
 ```
+
+## 验证与发布状态
+
+仓库已经具备用于收集和评估 point-in-time OOS、walk-forward、独立样本簇、成本/容量、
+shadow 和券商对账证据的 P2 控制平面；这些控制不会凭空产生有效证据。正式晋级仍至少要求
+60 个已验证的 A 股交易日、带版本的 shadow 窗口、仓库计算的统计结果、券商对账全部通过，
+并取得明确人工批准。在这些门槛完成前，策略保持零实盘权重。
+
+以下限制持续有效，写在这里是为了避免 README 被读成比代码更强的承诺：
+
+- 状态是单机文件。本地文件锁不提供跨机器排他语义；多机运行需要共享状态后端和跨机器
+  租约，目前都不存在。
+- 任何代码路径都不下单，也不连接券商。
+- Agent 只在有界研究平面工作。它只能提出提案，决策权在确定性的 policy、账本和结算层。
+- 执行 Trace 是可观测性，不是业务账本，不能作为某条推荐或成交的事实来源。
+- `delivery.provider_accepted` 只表示渠道接受了请求，不等于用户已收到；系统当前没有
+  真实送达回执源。
+- 执行 Trace 与类型化命令路径已有单测和集成测试覆盖；**连续五个交易日的生产 Shadow 窗口
+  是运行期门槛，需靠真实运行积累，本轮不宣称已通过。**
 
 ## 免责声明
 

@@ -21,12 +21,15 @@ A multi-agent research system for China's A-share market. Fifteen repository ski
 
 ```mermaid
 flowchart LR
+    HB["launchd 60-second heartbeat"] --> DS["cron_dispatch.py manifest scheduler"]
+    MF["Cron manifest<br/>49 registered / 42 enabled"] --> DS
+    DS --> O["Runtime-neutral resumable DAG"]
     S["External data"] --> A["Shared data adapters"]
     PS["Official policy sources"] --> PW["official-policy-watch"]
     PW --> PI["policy-intent-decoder"]
     NS["News and social feeds"] --> NF["news/social monitors"]
     A --> M["Versioned immutable market snapshots"]
-    C["A-share calendar"] --> O["Runtime-neutral resumable DAG"]
+    C["A-share calendar"] --> O
     O --> HM["Sentiment and limit-up ladder"]
     O --> SA["Cross-platform social attention"]
     O --> CD["Candidate discovery"]
@@ -64,6 +67,16 @@ flowchart LR
     X --> H["Hermes"]
     X --> W["OpenClaw"]
 ```
+
+The committed production entry has two scheduling layers. A launchd user agent
+wakes every 60 seconds and invokes `scripts/cron_dispatch.py`; the dispatcher
+reads the manifest, matches due enabled jobs, deduplicates each job per minute,
+and launches it in a detached process with the repository virtual environment
+first on `PATH`. Every launched command then re-enters `run_agent_dag.py`, so
+calendar, dependency, snapshot, lease, policy, and ledger rules remain shared
+across launchd, Hermes, OpenClaw, system cron, and manual runs. The installed
+background-task contract and stop/start instructions live in
+[`AUTOPILOT.md`](AUTOPILOT.md).
 
 ## Capabilities
 
@@ -338,6 +351,24 @@ All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-mani
 Despite the historical filename, the manifest is shared by Hermes, OpenClaw,
 system cron, and local runs.
 
+The current manifest registers **49 jobs, 42 enabled**. On the documented macOS
+deployment, launchd invokes `scripts/cron_dispatch.py` once per minute; the
+dispatcher handles cron matching and same-minute deduplication before starting
+the due DAG command. `AUTOPILOT.md` is the source of truth for the installed
+background process, while the manifest remains the source of truth for job
+definitions, enabled state, schedules, delivery mode, and commands.
+
+### Typed commands
+
+Every enabled job is defined by argv arrays, not shell strings:
+`command_argv` for the scheduler entry and `run.argv` for the isolated business
+process. Both execute with `shell=False`. The validator rejects pipes,
+redirection, command substitution, undeclared environment expansion, and
+undeclared template variables instead of executing them, and the dispatcher
+fails closed on a missing executable or a cwd outside the repository. The legacy
+string `command` / `run.command` form is accepted for one migration release, and
+only on disabled jobs; it is never auto-promoted back to a shell execution path.
+
 The manifest routes every scheduled job through `scripts/run_agent_dag.py`.
 The DAG reuses successful dependencies, reruns the scheduled target, and invokes
 `agent_job_runner.py` internally under an atomic run lease. The runner writes
@@ -353,6 +384,89 @@ executions, monitor lifecycle changes, and
 T+1 provisional and T+3 final settlements are correlated in the append-only
 `signal_ledger.jsonl`. `agent_state_projector.py` exposes the same current state
 to Hermes and OpenClaw.
+
+### Execution trace
+
+One scheduled run now emits a single append-only event stream at
+`$A_STOCK_STATE_HOME/cron/execution_trace.jsonl`, written by
+[`skills/common/execution_trace.py`](skills/common/execution_trace.py). Event
+types are `dispatch.claimed`, `job.started`, `gate.passed`, `gate.blocked`,
+`agent.started`, `agent.finished`, `job.finished`, `delivery.attempted`,
+`delivery.provider_accepted` and `delivery.failed`. Every event carries
+`trace_id`, `batch_id`, `run_id`, `job_id`, `correlation_id`, `trading_date`,
+`runtime`, `event_type`, `occurred_at`, `status`, `artifact_ref`,
+`source_versions` and `reason_codes`.
+
+The dispatcher mints one `trace_id` per launch and exports it, so a DAG and all
+of its dependency jobs share a trace while keeping distinct `run_id`s. The field
+set is a strict allowlist: prompts, stdout, stderr, secrets and external response
+bodies have no representable slot.
+
+Three properties are deliberate:
+
+- **The trace is not a fact ledger.** `signal_ledger.jsonl` keeps ownership of
+  business events. A trace write failure emits an explicit `trace_degraded`
+  warning and changes no gate, recommendation or delivery decision.
+- **Delivery has three distinct states.** "the process returned success", "the
+  channel accepted the request" and "the user received it" are different facts.
+  There is no receipt source today, so there is no `delivery.received` event
+  type at all and no code path can fabricate one.
+- **Shadow first.** The trace is observational. Roll it back with
+  `A_STOCK_EXECUTION_TRACE=off`; jobs then write only their original artifacts.
+
+Diagnose a window with:
+
+```bash
+python scripts/execution_trace_report.py --coverage
+```
+
+The report gives completion rate, blocked/failed distribution, dispatch-to-start
+and run-duration percentiles, delivery attempts versus provider acceptances, and
+`trace_gaps` (missing start, missing terminal, duplicate terminal). The shadow
+gate is passed only when there are no duplicate terminals, no terminal without a
+start, and the P95 run duration has not regressed against the pre-trace baseline
+over five consecutive trading days.
+
+### Bounded research agents
+
+Research-plane agent turns run through
+[`skills/common/agent_runtime_adapter.py`](skills/common/agent_runtime_adapter.py)
+against the contract in
+[`agent_run_contract.py`](skills/common/agent_run_contract.py). Hermes and
+OpenClaw implement the same interface and are covered by one conformance suite.
+
+A turn receives a task id, role, evidence-pack reference, allowed tools, allowed
+state reads, forbidden state writes, an output schema, an output-size cap and a
+deadline. It returns exactly one terminal status — `completed`, `abstained`,
+`blocked` or `failed` — plus evidence refs, confidence, reason codes, tool usage
+and model usage.
+
+An agent turn cannot become a fact. Only a `completed` or `abstained` turn
+produces a finding; timeouts, schema errors, unresolvable evidence refs,
+over-long output, undeclared tool use and any declared fact-plane write map to a
+named `blocked`/`failed` state with no finding, so a failure can never be merged
+into a synthesis as neutral or supporting evidence. Findings that claim live
+ranking weight, request a T+1 bypass or ask for a strategy promotion are blocked
+outright.
+
+Replay the frozen evaluation set with:
+
+```bash
+python scripts/evaluate_agent_harness.py --quiet
+```
+
+The dataset in [`evals/agent_harness/`](evals/agent_harness) holds 32 fixed
+cases covering missing / stale / future-dated evidence, conflicting experts,
+single low-grade sources, unresolvable evidence refs, T+1 and promotion bypass
+attempts, research-only overreach, no-signal, provider degradation, over-long
+output, correct abstention, and normal support / oppose / neutral findings. Hard
+metrics are enforced in CI: 100% schema validity, 100% evidence-ref
+resolvability, zero fact-plane writes, 100% correct blocking on fail-closed
+cases, zero research-only leaks into live ranking, 100% correct abstention, and
+zero divergence between the Hermes and OpenClaw adapters. Replay is deterministic
+— a frozen clock, fixture packs, no production state, no network and no model
+call. **The set validates evidence discipline and authority boundaries only; it
+makes no claim about investment returns or prediction accuracy.**
 See [`docs/architecture-hardening.md`](docs/architecture-hardening.md).
 
 The isolated paper workflow starts after the 09:35 recommendation and
@@ -423,17 +537,19 @@ Every eligible candidate is written to `candidate_lifecycle/YYYY-MM-DD.json`, in
 | 09:37 | Paper-account entry evaluation and simulated open | Workdays |
 | 09:50 | Mainline-leader support checkpoint | Workdays |
 | 13:15 | Mainline-leader afternoon reflow checkpoint | Workdays |
-| 09:30–11:30, 13:00–15:00 | Intraday alerts | Every 5 min (session-guarded) |
+| 09:00–11:45, 13:00–14:45 | Intraday alerts | Every 15 min (session-guarded) |
 | 10:08–11:53, 13:08–14:53 | Paper-account position monitor | Every 15 min, workdays |
 | 08:00–22:00 | Official policy watch | Every 10 min, calendar days |
-| 09:25–11:30, 13:00–14:55 | Intraday news sweep | Offset every 5 min; stale data is archived without directional signals |
+| 09:02–11:47, 13:02–14:47 | Intraday news sweep | Every 15 min; the script applies its own session/SLA guard and archives stale data without directional signals |
 | 09:45, 13:45, 14:45 | HK-A linkage | Workdays |
 | 10:30, 14:30 | Capital flow monitor | Workdays |
 | 15:02 | Cache limit-up ladder and market temperature context | Workdays |
 | 15:07 | Full-market candidate discovery | Workdays |
+| 15:15 | Candidate-pool freshness check | Workdays |
 | 15:18 | Four-dim review of dynamic top 20 | Workdays |
 | 15:25 | Portfolio risk check and paper-account close/NAV | Workdays |
-| 15:35 | Triage → Kanban dispatch | Workdays |
+| 15:35 | Closing triage digest | Workdays |
+| 15:50 | Queued research-task dispatch | Workdays |
 | 22:30 | Global evening scan | Workdays |
 | Sat 10:00 | Institution weekly | Weekly |
 | 16:10 | T+1/T+3 signal settlement | Workdays |
@@ -542,6 +658,7 @@ If critical data is missing:
 
 ```
 a-stock-agent-system/
+├── AUTOPILOT.md                # Installed background scheduler and stop/start contract
 ├── pyproject.toml              # Dependencies
 ├── config/scoring.yaml         # Scoring weights & risk parameters
 ├── config/candidate_selection.json # Dynamic-universe and funnel limits
@@ -550,10 +667,14 @@ a-stock-agent-system/
 ├── config/nl_screening.yaml     # NL screening condition templates (generic, no hardcoded picks)
 ├── config/web_search.json      # Web-search provider order/timeout/max_results (non-secret)
 ├── config/strategy_packs/       # dragon_head.yaml, emotion_cycle.yaml (explanatory only)
-├── cron/hermes-cron-manifest.json  # 47 runtime-neutral scheduled jobs
+├── cron/hermes-cron-manifest.json  # 49 registered jobs (42 currently enabled), typed argv
+├── evals/agent_harness/        # Frozen agent replay cases + evidence-pack fixtures
 ├── scripts/
+│   ├── cron_dispatch.py        # launchd heartbeat → due manifest jobs (shell=False)
 │   ├── agent_job_runner.py     # Hermes/OpenClaw shared job entrypoint
 │   ├── run_agent_dag.py        # Dependency ordering, retry, resume
+│   ├── execution_trace_report.py  # Shadow-gate report over the execution trace
+│   ├── evaluate_agent_harness.py  # Deterministic agent replay evaluation
 │   ├── agent_state_projector.py # Ledger-to-agent current-state projection
 │   ├── agent_runtime_context.py # Required state refresh for agent reasoning
 │   ├── hermes_job_runner.py    # Backward-compatible runner implementation
@@ -568,6 +689,8 @@ a-stock-agent-system/
 ├── tests/                      # Full regression suite
 ├── skills/
 │   ├── common/                 # Adapters, snapshots, policy, ledger, shared state,
+│   │                           # execution_trace, manifest_command, agent_run_contract,
+│   │                           # agent_runtime_adapter,
 │   │                           # nl_screening, interactive_qa, news_sources, strategy_packs,
 │   │                           # emotion_cycle_features, reflexivity, paper_trading, web_search
 │   ├── stock-triage/           # Orchestrator hub
@@ -661,6 +784,7 @@ python -m pytest -q tests/        # Full regression suite
 python scripts/smoke_test.py      # 13 integration checks
 python scripts/validate_cron_manifest.py
 python scripts/check_maintainability_budget.py --base-ref origin/main
+python scripts/evaluate_agent_harness.py --quiet   # frozen agent replay set
 ```
 
 ## Validation and release status
@@ -672,6 +796,23 @@ evidence. Production promotion remains blocked until at least 60 verified
 A-share trading days, the versioned shadow window, repository-computed
 statistics, and broker reconciliation all pass. A strategy has zero live
 weight before those gates and explicit human approval.
+
+Standing limitations, restated so the README cannot be read as claiming more
+than the code does:
+
+- State is single-machine files. Local file locks give no cross-machine
+  exclusion; multi-machine operation needs a shared store and cross-machine
+  leases that do not exist yet.
+- No order placement, no brokerage connectivity, in any code path.
+- Agents operate only on the bounded research plane. They propose; the
+  deterministic policy, ledger and settlement layers decide.
+- The execution trace is observability, not a business ledger. It cannot be
+  cited as the source of truth for a recommendation or a trade.
+- `delivery.provider_accepted` means the channel accepted the request. It is
+  not a user receipt, and this system currently has no receipt source.
+- The execution trace and typed-command paths have unit and integration
+  coverage; the five-trading-day production shadow window is an operational
+  gate that accumulates from real runs and is **not** claimed as passed here.
 
 ## Disclaimer
 

@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional
 from zoneinfo import ZoneInfo
@@ -133,30 +135,97 @@ def claim(state_path: str, job_id: str, moment: datetime) -> bool:
     return True
 
 
-def job_env() -> Dict[str, str]:
+def _trace_module():
+    """Best-effort import of the execution trace.
+
+    The dispatcher deliberately avoids hard repo imports (see `_state_home`):
+    it starts everything, so an import error here would stop all scheduling
+    silently. Observability is worth strictly less than that, so a failed
+    import degrades to "no trace" and the job still launches.
+    """
+    if COMMON not in sys.path:
+        sys.path.insert(0, COMMON)
+    try:
+        import execution_trace  # type: ignore[import-not-found]
+    except Exception as exc:  # noqa: BLE001 — never let tracing break dispatch
+        _log(f"warn: execution trace unavailable: {exc}")
+        return None
+    return execution_trace
+
+
+def job_env(trace_id: Optional[str] = None) -> Dict[str, str]:
     """子任务的执行环境。
 
-    manifest 里的命令写的是裸 `python`，而 Popen(shell=True) 走 /bin/sh
-    （非登录 shell，PATH 极简），裸 `python` 解析不到会直接 command not found。
-    因此把仓库 venv 的 bin 目录置于 PATH 首位，让 `python` 稳定指向本仓库
-    虚拟环境，而不依赖调度器继承到的 PATH。
+    manifest 里 argv[0] 写的是裸 `python`；调度器继承到的 PATH 极简，解析不到
+    就是 command not found。把仓库 venv 的 bin 目录置于 PATH 首位，让 `python`
+    稳定指向本仓库虚拟环境，`_resolve_argv` 再据此解析出具体可执行文件路径。
     """
     venv_bin = os.path.join(ROOT, ".venv", "bin")
     path = os.environ.get("PATH") or "/usr/bin:/bin"
-    return {
+    env = {
         **os.environ,
         "PATH": f"{venv_bin}{os.pathsep}{path}",
         "PYTHONPATH": COMMON,
     }
+    if trace_id:
+        env["A_STOCK_TRACE_ID"] = trace_id
+    return env
 
 
-def launch(job: Mapping[str, Any], *, log_path: str) -> Optional[int]:
-    """派生作业子进程（脱离进程组）。返回 pid；启动失败返回 None。"""
-    command = str(job.get("command") or "").strip()
-    if not command:
-        _log(f"skip job {job.get('id')!r}: empty command")
+def _resolve_argv(job: Mapping[str, Any], env: Mapping[str, str]) -> List[str]:
+    """作业 argv，argv[0] 解析为具体可执行文件；缺失即 fail closed。
+
+    这里刻意复刻 `skills/common/manifest_command.py` 的最小子集而不 import 它 ——
+    理由与 `_state_home` 相同：dispatcher 是启动一切的组件，任何仓库内导入失败
+    都会让整个调度静默停摆。两处若变更需同步。
+    """
+    raw = job.get("command_argv")
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("enabled job must define a non-empty command_argv array")
+    argv = [str(item) for item in raw]
+    for item in argv:
+        if any(token in item for token in ("|", ">", "<", "$", "`", ";", "&", "\n")):
+            raise ValueError(f"command_argv contains a shell metacharacter: {item!r}")
+    head = argv[0]
+    resolved = (
+        head if os.path.sep in head
+        else shutil.which(head, path=env.get("PATH"))
+    )
+    if not resolved or not os.access(resolved, os.X_OK):
+        raise ValueError(f"executable not found: {head}")
+    return [resolved, *argv[1:]]
+
+
+def _resolve_cwd(job: Mapping[str, Any]) -> str:
+    """作业工作目录必须落在仓库内；越界或不存在即 fail closed。"""
+    root = os.path.abspath(ROOT)
+    cwd = os.path.abspath(os.path.join(root, str(job.get("cwd") or ".")))
+    if cwd != root and not cwd.startswith(root + os.sep):
+        raise ValueError(f"job cwd escapes the repository: {job.get('cwd')!r}")
+    if not os.path.isdir(cwd):
+        raise ValueError(f"job cwd does not exist: {cwd}")
+    return cwd
+
+
+def launch(
+    job: Mapping[str, Any],
+    *,
+    log_path: str,
+    trace_id: Optional[str] = None,
+) -> Optional[int]:
+    """派生作业子进程（脱离进程组）。返回 pid；启动失败返回 None。
+
+    启用任务只接受 `command_argv` 数组并以 shell=False 执行：manifest 是仓库内
+    受控配置，但"受控"不等于"应当拥有 shell"。argv 形式让管道、重定向和命令替换
+    在校验期就被拒绝，而不是在运行期被执行。
+    """
+    env = job_env(trace_id)
+    try:
+        argv = _resolve_argv(job, env)
+        cwd = _resolve_cwd(job)
+    except (ValueError, OSError) as exc:
+        _log(f"skip job {job.get('id')!r}: {exc}")
         return None
-    cwd = os.path.abspath(os.path.join(ROOT, str(job.get("cwd") or ".")))
     try:
         os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
         handle = open(log_path, "a", encoding="utf-8")
@@ -164,14 +233,14 @@ def launch(job: Mapping[str, Any], *, log_path: str) -> Optional[int]:
         _log(f"warn: cannot open job log {log_path}: {exc}")
         handle = subprocess.DEVNULL
     try:
-        proc = subprocess.Popen(  # noqa: S602 — manifest 是仓库内受控配置
-            command,
-            shell=True,
+        proc = subprocess.Popen(
+            argv,
+            shell=False,
             cwd=cwd,
             stdout=handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-            env=job_env(),
+            env=env,
         )
         return proc.pid
     except (OSError, ValueError) as exc:
@@ -213,11 +282,21 @@ def main() -> int:
     cron_dir = os.path.join(_state_home(), "cron")
     state_path = os.path.join(cron_dir, "dispatch_state.json")
     log_path = os.path.join(cron_dir, "dispatch-jobs.log")
+    trace = _trace_module()
     for job in jobs:
         job_id = str(job.get("id") or "")
         if not job_id or not claim(state_path, job_id, now):
             continue
-        pid = launch(job, log_path=log_path)
+        trace_id = trace.new_trace_id() if trace is not None else None
+        if trace is not None:
+            trace.emit(
+                "dispatch.claimed",
+                trace_id=trace_id,
+                job_id=job_id,
+                status="claimed",
+                reason_codes=["cron_due"],
+            )
+        pid = launch(job, log_path=log_path, trace_id=trace_id)
         if pid is not None:
             _log(f"launched {job_id} pid={pid}")
     return 0
