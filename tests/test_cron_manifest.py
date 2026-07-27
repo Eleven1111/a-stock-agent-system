@@ -9,12 +9,21 @@ from scripts.validate_cron_manifest import validate
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 MANIFEST_PATH = os.path.join(ROOT, "cron", "hermes-cron-manifest.json")
 
+
+def _entry_command(job):
+    """Render command_argv back to a readable string for assertions."""
+    return " ".join(job.get("command_argv") or [])
+
+
+def _run_command(job):
+    return " ".join((job.get("run") or {}).get("argv") or [])
+
 VALID_JOB = {
     "id": "test-job",
     "name": "Test",
     "schedule": "0 9 * * 1-5",
     "timezone": "Asia/Shanghai",
-    "command": "python scripts/run_agent_dag.py test-job --emit-target",
+    "command_argv": ["python", "scripts/run_agent_dag.py", "test-job", "--emit-target"],
     "cwd": ".",
     "enabled": True,
     "silent_when_no_signal": True,
@@ -28,7 +37,7 @@ VALID_JOB = {
     "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
     "allowed_state_writes": ["$A_STOCK_STATE_HOME/cron/output/test-job/"],
     "run": {
-        "command": "python skills/stock-triage/scripts/context_digest.py --json",
+        "argv": ["python", "skills/stock-triage/scripts/context_digest.py", "--json"],
         "cwd": ".",
         "timeout_seconds": 10,
     },
@@ -74,7 +83,7 @@ def test_paper_trading_jobs_are_research_only_and_dag_ordered():
     assert close_job["context_from"] == ["paper-trading-monitor"]
     for job in (open_job, monitor_job, close_job):
         assert job["deliver"] == "local"
-        assert "paper_trading_runner.py" in job["run"]["command"]
+        assert "paper_trading_runner.py" in _run_command(job)
         assert "signal_ledger.jsonl" in " ".join(job["allowed_state_writes"])
 
 
@@ -121,7 +130,7 @@ def test_duplicate_ids():
 
 def test_placeholders_are_rejected_without_vars():
     j = dict(VALID_JOB)
-    j["command"] = "python scripts/run_agent_dag.py test-job --emit-target --var code={code}"
+    j["command_argv"] = ["python", "scripts/run_agent_dag.py", "test-job", "--emit-target", "--var", "code={code}"]
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(manifest, f)
@@ -134,7 +143,7 @@ def test_placeholders_are_rejected_without_vars():
 
 def test_placeholders_are_rejected_even_with_vars():
     j = dict(VALID_JOB)
-    j["command"] = "python scripts/run_agent_dag.py test-job --var code={code}"
+    j["command_argv"] = ["python", "scripts/run_agent_dag.py", "test-job", "--var", "code={code}"]
     j["template_vars"] = ["code"]
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -147,10 +156,10 @@ def test_placeholders_are_rejected_even_with_vars():
 
 
 def test_run_command_placeholders_are_rejected():
-    """run.command 也必须自包含，不能依赖 Gateway 动态注入。"""
+    """run.argv 也必须自包含，不能依赖 Gateway 动态注入。"""
     j = dict(VALID_JOB)
     j["run"] = dict(VALID_JOB["run"])
-    j["run"]["command"] = "python script.py {code}"
+    j["run"]["argv"] = ["python", "script.py", "{code}"]
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(manifest, f)
@@ -177,7 +186,7 @@ def test_template_vars_are_rejected_without_placeholders():
 def test_direct_business_command_rejected():
     """Hermes command 必须先进 runner，不能直接跑业务脚本污染主上下文。"""
     j = dict(VALID_JOB)
-    j["command"] = "python skills/stock-triage/scripts/intraday_monitor.py --json"
+    j["command_argv"] = ["python", "skills/stock-triage/scripts/intraday_monitor.py", "--json"]
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(manifest, f)
@@ -202,10 +211,10 @@ def test_business_state_writes_cannot_use_hermes_install_home():
 
 
 def test_top_level_duplicate_runtime_script_rejected():
-    """run.command 必须指向 canonical skills 路径，不能用顶层重复脚本。"""
+    """run.argv 必须指向 canonical skills 路径，不能用顶层重复脚本。"""
     j = dict(VALID_JOB)
     j["run"] = dict(VALID_JOB["run"])
-    j["run"]["command"] = "python scripts/intraday_monitor.py --json"
+    j["run"]["argv"] = ["python", "scripts/intraday_monitor.py", "--json"]
     manifest = {"jobs": [j]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         json.dump(manifest, f)
@@ -263,11 +272,11 @@ def test_unknown_dependency_rejected():
 def test_dependency_cycle_rejected():
     first = dict(VALID_JOB)
     first["id"] = "first"
-    first["command"] = "python scripts/run_agent_dag.py first --emit-target"
+    first["command_argv"] = ["python", "scripts/run_agent_dag.py", "first", "--emit-target"]
     first["context_from"] = ["second"]
     second = dict(VALID_JOB)
     second["id"] = "second"
-    second["command"] = "python scripts/run_agent_dag.py second --emit-target"
+    second["command_argv"] = ["python", "scripts/run_agent_dag.py", "second", "--emit-target"]
     second["context_from"] = ["first"]
     manifest = {"jobs": [first, second]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -315,34 +324,34 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
             "serenity-refresh-plan",
     ]:
         assert required in jobs
-        assert jobs[required]["command"] == (
+        assert _entry_command(jobs[required]) == (
             f"python scripts/run_agent_dag.py {required} --emit-target"
         )
         assert jobs[required]["context_scope"] == "cron"
 
-    assert "--codes" not in jobs["auction-snapshot"]["run"]["command"]
-    assert "--codes" not in jobs["auction-finalize"]["run"]["command"]
-    assert "--codes" not in jobs["open-confirmation"]["run"]["command"]
+    assert "--codes" not in _run_command(jobs["auction-snapshot"])
+    assert "--codes" not in _run_command(jobs["auction-finalize"])
+    assert "--codes" not in _run_command(jobs["open-confirmation"])
     assert jobs["candidate-discovery"]["context_from"][0] == "hot-money-context"
     assert "social-attention-close" in jobs["candidate-discovery"]["context_from"]
     assert jobs["candidate-discovery"]["dependency_policy"]["optional_jobs"] == [
         "social-attention-close",
     ]
     assert jobs["candidate-preopen"]["schedule"] == "45 8 * * 1-5"
-    assert jobs["candidate-preopen"]["run"]["command"].endswith(
+    assert _run_command(jobs["candidate-preopen"]).endswith(
         "candidate_discovery.py --bootstrap-if-missing --no-settle --json"
     )
-    assert jobs["hot-money-context"]["run"]["command"].endswith("--cache-only")
+    assert _run_command(jobs["hot-money-context"]).endswith("--cache-only")
     assert jobs["social-attention-preopen"]["schedule"] == "42 8 * * 1-5"
     assert jobs["social-attention-midday"]["schedule"] == "37 11 * * 1-5"
     assert jobs["social-attention-close"]["schedule"] == "4 15 * * 1-5"
     assert jobs["news-monitor-intraday"]["schedule"] == (
         "2,17,32,47 9-11,13-14 * * 1-5"
     )
-    assert jobs["news-monitor-intraday"]["run"]["command"].endswith("--mode intraday --json")
+    assert _run_command(jobs["news-monitor-intraday"]).endswith("--mode intraday --json")
     assert jobs["news-l1-scan"]["trading_day_policy"] == "calendar_day"
     assert jobs["news-l1-scan"]["context_from"] == []
-    assert jobs["news-l1-scan"]["run"]["command"] == "python scripts/news_l1_scan.py --silent --json"
+    assert _run_command(jobs["news-l1-scan"]) == "python scripts/news_l1_scan.py --silent --json"
     assert jobs["news-monitor-weekend"]["trading_day_policy"] == "calendar_day"
     assert jobs["news-monitor-weekend"]["context_from"] == []
     assert jobs["news-monitor-weekend"]["schedule"] == "0 9,12,18,22 * * 0,6"
@@ -350,7 +359,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert any("catalyst_context.json" in path for path in jobs["news-monitor-intraday"]["allowed_state_writes"])
     assert jobs["official-policy-watch"]["trading_day_policy"] == "calendar_day"
     assert jobs["official-policy-watch"]["schedule"] == "3,13,23,33,43,53 8-22 * * *"
-    assert jobs["official-policy-watch"]["run"]["command"] == (
+    assert _run_command(jobs["official-policy-watch"]) == (
         "python skills/policy-intent-decoder/scripts/watch_official_policy.py --json"
     )
     assert jobs["official-policy-watch"]["silent_when_no_signal"] is True
@@ -359,14 +368,14 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         for path in jobs["official-policy-watch"]["allowed_state_writes"]
     )
     # intraday-alert is an origin-push job: it emits human-readable text, not --json.
-    assert jobs["intraday-alert"]["run"]["command"] == "python skills/stock-triage/scripts/intraday_monitor.py"
+    assert _run_command(jobs["intraday-alert"]) == "python skills/stock-triage/scripts/intraday_monitor.py"
     assert jobs["intraday-alert"]["run"]["timeout_seconds"] >= 120
     assert jobs["news-monitor"]["run"]["timeout_seconds"] >= 180
     for job_id, profile in (
         ("market-pulse-1314", "midday"),
         ("market-pulse-1500", "close"),
     ):
-        command = jobs[job_id]["run"]["command"]
+        command = _run_command(jobs[job_id])
         # market-pulse is an origin-push job: it emits the human-readable summary, not --json.
         assert command == f"python scripts/market_pulse_digest.py --profile {profile} --max-chars 200"
         assert jobs[job_id]["run"]["timeout_seconds"] == 120
@@ -379,7 +388,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "social-attention-close",
     ):
         assert jobs[job_id]["enabled"] is True
-        assert jobs[job_id]["run"]["command"].endswith("--json")
+        assert _run_command(jobs[job_id]).endswith("--json")
         assert jobs[job_id]["deliver"] == "local"
         assert any(
             "social_attention.json" in path
@@ -406,7 +415,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["open-confirmation"]["deliver"] == "local"
     assert jobs["open-intelligence-brief"]["deliver"] == "origin"
     assert jobs["auction-market-snapshot"]["schedule"] == "24 9 * * 1-5"
-    assert "--full-universe" in jobs["auction-market-snapshot"]["run"]["command"]
+    assert "--full-universe" in _run_command(jobs["auction-market-snapshot"])
     for job_id, schedule, stage, deliver in (
         ("preopen-intelligence-brief", "50 8 * * 1-5", "preopen", "origin"),
         ("auction-intelligence-brief", "27 9 * * 1-5", "auction", "origin"),
@@ -415,7 +424,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         assert jobs[job_id]["schedule"] == schedule
         assert jobs[job_id]["deliver"] == deliver
         assert jobs[job_id]["context_from"] == []
-        assert jobs[job_id]["run"]["command"].endswith(f"--stage {stage}")
+        assert _run_command(jobs[job_id]).endswith(f"--stage {stage}")
     assert jobs["hot-money-morning-checkpoint"]["context_from"] == ["open-confirmation"]
     assert jobs["hot-money-morning-checkpoint"]["schedule"] == "50 9 * * 1-5"
     assert jobs["hot-money-afternoon-checkpoint"]["context_from"] == ["open-confirmation"]
@@ -424,7 +433,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         ("hot-money-morning-checkpoint", "morning_confirm"),
         ("hot-money-afternoon-checkpoint", "afternoon_reflow"),
     ):
-        assert jobs[job_id]["run"]["command"] == (
+        assert _run_command(jobs[job_id]) == (
             f"python skills/daban-stock-picker/scripts/hot_money_checkpoint.py "
             f"--profile {profile} --json"
         )
@@ -454,15 +463,15 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert set(jobs["closing-triage"]["context_from"]) >= {"four-dim-scorer", "portfolio-check"}
     assert jobs["performance-weekly"]["dependency_policy"]["trading_date"] == "same_trading_date"
     assert jobs["performance-weekly"]["context_from"] == ["performance-daily"]
-    assert jobs["performance-weekly"]["run"]["command"].endswith("--json --gate")
+    assert _run_command(jobs["performance-weekly"]).endswith("--json --gate")
     assert any("strategy_registry.json" in path for path in jobs["performance-weekly"]["allowed_state_writes"])
-    assert jobs["performance-daily"]["run"]["command"].endswith("--json")
-    assert jobs["ledger-projector"]["run"]["command"].startswith("python scripts/agent_state_projector.py")
+    assert _run_command(jobs["performance-daily"]).endswith("--json")
+    assert _run_command(jobs["ledger-projector"]).startswith("python scripts/agent_state_projector.py")
     assert jobs["snapshot-gc"]["context_from"] == []
     assert jobs["snapshot-gc"]["deliver"] == "local"
-    assert jobs["snapshot-gc"]["run"]["command"].endswith("--apply --json")
+    assert _run_command(jobs["snapshot-gc"]).endswith("--apply --json")
     assert jobs["provider-health"]["deliver"] == "local"
-    assert jobs["provider-health"]["run"]["command"] == "python scripts/provider_doctor.py --json"
+    assert _run_command(jobs["provider-health"]) == "python scripts/provider_doctor.py --json"
     assert manifest["default_trading_day_policy"] == "required"
     for job_id in ("institution-weekly", "event-calendar", "performance-weekly", "official-policy-watch", "news-l1-scan", "news-monitor-weekend"):
         assert jobs[job_id]["trading_day_policy"] == "calendar_day"

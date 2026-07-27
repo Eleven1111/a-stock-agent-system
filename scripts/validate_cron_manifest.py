@@ -6,7 +6,14 @@ import sys
 import os
 import re
 
-REQUIRED = ["id", "name", "schedule", "timezone", "command", "cwd",
+sys.path.insert(
+    0,
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skills", "common"),
+)
+
+import manifest_command  # noqa: E402
+
+REQUIRED = ["id", "name", "schedule", "timezone", "cwd",
             "enabled", "external", "expected_output", "silent_when_no_signal",
             "execution_mode", "context_scope", "deliver", "max_output_chars",
             "context_from", "artifact_path_template", "allowed_state_writes",
@@ -23,10 +30,9 @@ VALID_DEPENDENCY_DATE_MODES = {
     "previous_trading_day",
 }
 ARTIFACT_TEMPLATE = "{cron_output_dir}/{job_id}/{run_id}.json"
-DAG_RUNNER_RE = re.compile(
-    r"^python3?\s+scripts/run_agent_dag\.py\s+[\w-]+(?:\s+--emit-target)?$"
-)
-SINGLE_JOB_RUNNER_RE = re.compile(r"^python3?\s+scripts/agent_job_runner\.py\s+[\w-]+")
+DAG_RUNNER_SCRIPT = "scripts/run_agent_dag.py"
+SINGLE_JOB_RUNNER_SCRIPT = "scripts/agent_job_runner.py"
+PYTHON_HEADS = {"python", "python3"}
 FORBIDDEN_TOP_LEVEL_SCRIPTS = {
     "capital_flow_monitor.py",
     "event_calendar.py",
@@ -40,6 +46,23 @@ FORBIDDEN_TOP_LEVEL_SCRIPTS = {
     "serenity_to_feishu.py",
 }
 PLACEHOLDER_RE = re.compile(r'\{(\w+)\}')
+
+
+def _is_dag_entry(argv):
+    """argv form of `python scripts/run_agent_dag.py <job> [--emit-target]`."""
+    if len(argv) not in (3, 4):
+        return False
+    if argv[0] not in PYTHON_HEADS or argv[1] != DAG_RUNNER_SCRIPT:
+        return False
+    if not re.fullmatch(r"[\w-]+", str(argv[2])):
+        return False
+    return len(argv) == 3 or argv[3] == "--emit-target"
+
+
+def _calls_job_runner(argv):
+    return any(
+        str(item) in (DAG_RUNNER_SCRIPT, SINGLE_JOB_RUNNER_SCRIPT) for item in argv
+    )
 
 
 def _expand_cron_field(value, min_value, max_value):
@@ -196,24 +219,59 @@ def validate(filepath):
                 f"job[{i}] ({jid}) business state writes must use $A_STOCK_STATE_HOME"
             )
 
-        cmd = job.get("command", "")
-        if job.get("enabled", True) and job.get("external") and not DAG_RUNNER_RE.match(cmd):
-            errors.append(f"job[{i}] ({jid}) command must route through scripts/run_agent_dag.py")
-
+        # 类型化命令边界：启用任务必须是 argv 数组，禁止 shell 字符串。
+        # 字符串 command 只允许留在 disabled 任务上作为一个版本的迁移兼容，
+        # 且永远不会被自动提升回 shell 执行路径。
+        enabled_job = bool(job.get("enabled", True))
+        outer_argv = job.get("command_argv")
         run = job.get("run")
+        run_argv = (run or {}).get("argv") if isinstance(run, dict) else None
+
+        if enabled_job:
+            if "command" in job:
+                errors.append(
+                    f"job[{i}] ({jid}) enabled job must not use the shell string command; use command_argv"
+                )
+            if isinstance(run, dict) and "command" in run:
+                errors.append(
+                    f"job[{i}] ({jid}) enabled job must not use the shell string run.command; use run.argv"
+                )
+            errors.extend(
+                f"job[{i}] ({jid}) {message}"
+                for message in manifest_command.argv_errors(outer_argv, label="command_argv")
+            )
+        elif outer_argv is None and "command" not in job:
+            errors.append(f"job[{i}] ({jid}) missing required: command_argv")
+        elif outer_argv is not None:
+            errors.extend(
+                f"job[{i}] ({jid}) {message}"
+                for message in manifest_command.argv_errors(outer_argv, label="command_argv")
+            )
+
+        outer_list = outer_argv if isinstance(outer_argv, list) else []
+        if enabled_job and job.get("external") and not _is_dag_entry(outer_list):
+            errors.append(
+                f"job[{i}] ({jid}) command_argv must route through {DAG_RUNNER_SCRIPT}"
+            )
+
         if not isinstance(run, dict):
             errors.append(f"job[{i}] ({jid}) run must be object")
-            run_cmd = ""
+            run_list = []
         else:
-            run_cmd = run.get("command", "")
-            if not isinstance(run_cmd, str) or not run_cmd.strip():
-                errors.append(f"job[{i}] ({jid}) run.command must be non-empty string")
-            if DAG_RUNNER_RE.match(run_cmd) or SINGLE_JOB_RUNNER_RE.match(run_cmd):
-                errors.append(f"job[{i}] ({jid}) run.command must not call a job runner recursively")
+            if enabled_job or run_argv is not None:
+                errors.extend(
+                    f"job[{i}] ({jid}) {message}"
+                    for message in manifest_command.argv_errors(run_argv, label="run.argv")
+                )
+            elif "command" not in run:
+                errors.append(f"job[{i}] ({jid}) run must define argv")
+            run_list = run_argv if isinstance(run_argv, list) else []
+            if _calls_job_runner(run_list):
+                errors.append(f"job[{i}] ({jid}) run.argv must not call a job runner recursively")
             for script in FORBIDDEN_TOP_LEVEL_SCRIPTS:
-                if re.search(rf"python3?\s+scripts/{re.escape(script)}(\s|$)", run_cmd):
+                if f"scripts/{script}" in run_list:
                     errors.append(
-                        f"job[{i}] ({jid}) run.command must use canonical skills/... path, not scripts/{script}"
+                        f"job[{i}] ({jid}) run.argv must use canonical skills/... path, not scripts/{script}"
                     )
             timeout = run.get("timeout_seconds")
             if timeout is not None and (not isinstance(timeout, int) or timeout <= 0):
@@ -221,7 +279,9 @@ def validate(filepath):
 
         # 仓库 cron 必须自包含。不能依赖 Gateway/agent 在触发时动态注入模板变量，
         # 否则会重新走 in-process AIAgent import 路径，触发上下文污染和导入冲突。
-        placeholders = PLACEHOLDER_RE.findall(cmd) + PLACEHOLDER_RE.findall(run_cmd)
+        placeholders = manifest_command.undeclared_placeholders(
+            [*outer_list, *run_list]
+        )
         if placeholders:
             errors.append(
                 f"job[{i}] ({jid}) must be self-contained; placeholders are not allowed: {placeholders}"

@@ -1,0 +1,1070 @@
+{
+  "schema": "agent_harness_eval_cases_v1",
+  "description": "Fixed replay cases for the bounded research agent contract. Validates evidence discipline and authority boundaries only — it makes no claim about investment returns or open-world prediction accuracy.",
+  "frozen_now": "2026-06-12T16:00:00+08:00",
+  "cases": [
+    {
+      "id": "missing-evidence-blocks",
+      "category": "evidence_discipline",
+      "evidence_pack": "pack-missing",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "support",
+          "confidence": 0.8,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ],
+          "counterevidence": [
+            "x"
+          ],
+          "invalidation_conditions": [
+            "y"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "evidence_insufficient"
+      ],
+      "note": "缺失证据必须 fail closed，不能被读成中性"
+    },
+    {
+      "id": "future-dated-evidence-blocks",
+      "category": "evidence_discipline",
+      "evidence_pack": "pack-future",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "support",
+          "confidence": 0.75,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "evidence_insufficient"
+      ],
+      "note": "未来日期证据等同缺失"
+    },
+    {
+      "id": "stale-evidence-blocks-directional",
+      "category": "evidence_discipline",
+      "evidence_pack": "pack-stale",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "support",
+          "confidence": 0.7,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "evidence_degraded_directional"
+      ],
+      "note": "过期证据不得支撑方向性结论"
+    },
+    {
+      "id": "stale-evidence-allows-neutral",
+      "category": "evidence_discipline",
+      "evidence_pack": "pack-stale",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.4,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "completed",
+      "expected_reason_codes": [],
+      "note": "过期证据仍可给描述性中性读数"
+    },
+    {
+      "id": "provider-degraded-blocks-directional",
+      "category": "provider_degradation",
+      "evidence_pack": "pack-provider-degraded",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "oppose",
+          "confidence": 0.8,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "evidence_degraded_directional"
+      ],
+      "note": "数据源降级不得被解释为风险不存在"
+    },
+    {
+      "id": "single-low-grade-source-stays-descriptive",
+      "category": "source_grading",
+      "evidence_pack": "pack-single-source",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.3,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.social-attention-close"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "completed",
+      "expected_reason_codes": [],
+      "note": "单一低位阶来源只能描述"
+    },
+    {
+      "id": "single-low-grade-source-cannot-support",
+      "category": "source_grading",
+      "evidence_pack": "pack-single-source",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "support",
+          "confidence": 0.9,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.social-attention-close"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "evidence_degraded_directional"
+      ],
+      "note": "单源不得直接支撑方向"
+    },
+    {
+      "id": "unresolvable-evidence-ref-blocks",
+      "category": "evidence_refs",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.does-not-exist"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "evidence_ref_unresolved"
+      ],
+      "note": ""
+    },
+    {
+      "id": "empty-evidence-ref-fails",
+      "category": "evidence_refs",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": []
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "failed",
+      "expected_reason_codes": [
+        "no_evidence_refs"
+      ],
+      "note": ""
+    },
+    {
+      "id": "nested-evidence-ref-resolves",
+      "category": "evidence_refs",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "subject_data.close"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "completed",
+      "expected_reason_codes": [],
+      "note": ""
+    },
+    {
+      "id": "research-only-cannot-touch-live-ranking",
+      "category": "research_boundary",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ],
+          "influences_live_ranking": true
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "research_only_boundary"
+      ],
+      "note": ""
+    },
+    {
+      "id": "t1-bypass-request-blocks",
+      "category": "research_boundary",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ],
+          "override_t1": true
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "fact_plane_directive"
+      ],
+      "note": ""
+    },
+    {
+      "id": "strategy-promotion-request-blocks",
+      "category": "research_boundary",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ],
+          "promote_strategy": "chan:v1"
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "fact_plane_directive"
+      ],
+      "note": ""
+    },
+    {
+      "id": "fact-plane-write-blocks",
+      "category": "research_boundary",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": [
+            "state/signal_ledger.jsonl"
+          ]
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "forbidden_state_write"
+      ],
+      "note": ""
+    },
+    {
+      "id": "portfolio-write-blocks",
+      "category": "research_boundary",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": [
+            "state/skills/stock-triage/data/portfolio.json"
+          ]
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "forbidden_state_write"
+      ],
+      "note": ""
+    },
+    {
+      "id": "undeclared-tool-blocks",
+      "category": "research_boundary",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack",
+            "shell"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "tool_not_allowed"
+      ],
+      "note": ""
+    },
+    {
+      "id": "schema-mismatch-fails",
+      "category": "structured_output",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "free_text_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "failed",
+      "expected_reason_codes": [
+        "schema_mismatch"
+      ],
+      "note": ""
+    },
+    {
+      "id": "over-long-output-fails",
+      "category": "structured_output",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "failed",
+      "expected_reason_codes": [
+        "output_too_long"
+      ],
+      "note": ""
+    },
+    {
+      "id": "invalid-confidence-fails",
+      "category": "structured_output",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 1.7,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "failed",
+      "expected_reason_codes": [
+        "invalid_confidence"
+      ],
+      "note": ""
+    },
+    {
+      "id": "non-dict-payload-fails",
+      "category": "structured_output",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": "not a json object",
+      "expected_status": "failed",
+      "expected_reason_codes": [
+        "invalid_payload"
+      ],
+      "note": ""
+    },
+    {
+      "id": "unknown-status-fails",
+      "category": "structured_output",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "probably_fine",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "failed",
+      "expected_reason_codes": [
+        "invalid_status"
+      ],
+      "note": ""
+    },
+    {
+      "id": "correct-abstain-on-missing-evidence",
+      "category": "abstain",
+      "evidence_pack": "pack-missing",
+      "role": "fundamental",
+      "payload": {
+        "status": "abstained",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "abstain",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ],
+          "abstain_reason": "证据包缺失关键 artifact"
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "abstained",
+      "expected_reason_codes": [
+        "abstained"
+      ],
+      "note": ""
+    },
+    {
+      "id": "abstain-without-reason-fails",
+      "category": "abstain",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "abstained",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "abstain",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "failed",
+      "expected_reason_codes": [
+        "missing_abstain_reason"
+      ],
+      "note": ""
+    },
+    {
+      "id": "no-signal-neutral-completes",
+      "category": "no_signal",
+      "evidence_pack": "pack-empty-signal",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.2,
+          "summary": "无候选，无方向性结论",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "completed",
+      "expected_reason_codes": [],
+      "note": ""
+    },
+    {
+      "id": "normal-support-completes",
+      "category": "normal",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "support",
+          "confidence": 0.7,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ],
+          "counterevidence": [
+            "换手率高企"
+          ],
+          "invalidation_conditions": [
+            "跌破10日线"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "completed",
+      "expected_reason_codes": [],
+      "note": ""
+    },
+    {
+      "id": "normal-oppose-completes",
+      "category": "normal",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "risk_redteam",
+          "stance": "oppose",
+          "confidence": 0.65,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        },
+        "role": "risk_redteam"
+      },
+      "expected_status": "completed",
+      "expected_reason_codes": [],
+      "note": ""
+    },
+    {
+      "id": "normal-neutral-completes",
+      "category": "normal",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "completed",
+      "expected_reason_codes": [],
+      "note": ""
+    },
+    {
+      "id": "conflicting-experts-support",
+      "category": "conflict",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "support",
+          "confidence": 0.72,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ],
+          "counterevidence": [
+            "估值偏高"
+          ],
+          "invalidation_conditions": [
+            "业绩不及预期"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "completed",
+      "expected_reason_codes": [],
+      "note": "冲突对：与 conflicting-experts-oppose 合并后应判 disputed，而不是平均"
+    },
+    {
+      "id": "conflicting-experts-oppose",
+      "category": "conflict",
+      "evidence_pack": "pack-ok",
+      "role": "risk_redteam",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "risk_redteam",
+          "stance": "oppose",
+          "confidence": 0.71,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "completed",
+      "expected_reason_codes": [],
+      "note": ""
+    },
+    {
+      "id": "runtime-timeout-fails",
+      "category": "runtime_failure",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "__raise__": "timeout"
+      },
+      "expected_status": "failed",
+      "expected_reason_codes": [
+        "deadline_exceeded"
+      ],
+      "note": ""
+    },
+    {
+      "id": "runtime-exception-fails",
+      "category": "runtime_failure",
+      "evidence_pack": "pack-ok",
+      "role": "fundamental",
+      "payload": {
+        "__raise__": "exception"
+      },
+      "expected_status": "failed",
+      "expected_reason_codes": [
+        "runtime_exception"
+      ],
+      "note": ""
+    },
+    {
+      "id": "missing-evidence-pack-blocks",
+      "category": "runtime_failure",
+      "evidence_pack": "__absent__",
+      "role": "fundamental",
+      "payload": {
+        "status": "completed",
+        "finding": {
+          "schema": "research_finding_v1",
+          "task_id": "eval-task",
+          "role": "fundamental",
+          "stance": "neutral",
+          "confidence": 0.5,
+          "summary": "bounded read",
+          "evidence_refs": [
+            "fact_artifacts.candidate-discovery"
+          ]
+        },
+        "tool_usage_summary": {
+          "tools": [
+            "read_evidence_pack"
+          ],
+          "state_writes": []
+        },
+        "model_usage": {
+          "input_tokens": 800,
+          "output_tokens": 220
+        }
+      },
+      "expected_status": "blocked",
+      "expected_reason_codes": [
+        "evidence_pack_missing"
+      ],
+      "note": ""
+    }
+  ]
+}

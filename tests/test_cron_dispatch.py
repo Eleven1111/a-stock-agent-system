@@ -116,7 +116,7 @@ def test_launched_job_resolves_bare_python(tmp_path):
 
     log = tmp_path / "jobs.log"
     pid = cd.launch(
-        {"id": "probe", "command": "python -c \"print('PY_OK')\"", "cwd": "."},
+        {"id": "probe", "command_argv": ["python", "-c", "print('PY_OK')"], "cwd": "."},
         log_path=str(log),
     )
     assert pid is not None

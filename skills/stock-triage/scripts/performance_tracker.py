@@ -471,7 +471,10 @@ def _known_evidence_pipelines() -> set[str]:
         if not isinstance(job, dict):
             continue
         job_id = str(job.get("id") or "")
-        command = str((job.get("run") or {}).get("command") or job.get("command") or "")
+        run = job.get("run") or {}
+        command = " ".join(
+            str(item) for item in (run.get("argv") or job.get("command_argv") or [])
+        ) or str(run.get("command") or job.get("command") or "")
         haystack = f"{job_id} {command}"
         if any(keyword in haystack for keyword in EVIDENCE_PIPELINE_KEYWORDS):
             pipelines.add(job_id)

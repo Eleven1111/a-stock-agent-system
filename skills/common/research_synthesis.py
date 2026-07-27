@@ -281,6 +281,26 @@ _TERMINAL_STATUS = {
 }
 
 
+def _persist_synthesis(
+    task: dict[str, Any],
+    task_id: str,
+    synthesis: dict[str, Any],
+) -> str:
+    """Write the human report and the board copy; return the board path."""
+    report_path = os.path.join(
+        research_bus.reports_dir(),
+        f"{task.get('trading_date')}-{task_id}.md",
+    )
+    os.makedirs(os.path.dirname(report_path), exist_ok=True)
+    with open(report_path, "w", encoding="utf-8") as handle:
+        handle.write(_render_report(task, synthesis))
+    synthesis["report_path"] = report_path
+
+    board_path = os.path.join(research_bus.board_dir(task_id), "synthesis.json")
+    atomic_write_json(board_path, synthesis)
+    return board_path
+
+
 def synthesize_task(
     task_id: str,
     *,
@@ -298,6 +318,20 @@ def synthesize_task(
     ]
     if missing:
         return {"ok": False, "error": f"findings missing for roles: {missing}"}
+
+    # A failed agent turn is an absence of evidence, not neutral evidence. If a
+    # role failed after writing a finding on an earlier attempt, the stale
+    # finding must not be reduced into a verdict.
+    failed_roles = sorted(
+        role
+        for role, state in (task.get("roles") or {}).items()
+        if isinstance(state, dict) and str(state.get("status")) == "failed"
+    )
+    if failed_roles:
+        return {
+            "ok": False,
+            "error": f"agent failure is not neutral evidence; failed roles: {failed_roles}",
+        }
 
     timestamp = _now_text(now)
     findings = _revalidate_model_manifests(task, findings, config, timestamp)
@@ -325,19 +359,7 @@ def synthesize_task(
     if decision["verdict"] == "advance":
         synthesis["proposal_path"] = _write_proposal(task, synthesis, timestamp)
 
-    report_path = os.path.join(
-        research_bus.reports_dir(),
-        f"{task.get('trading_date')}-{task_id}.md",
-    )
-    os.makedirs(os.path.dirname(report_path), exist_ok=True)
-    with open(report_path, "w", encoding="utf-8") as handle:
-        handle.write(_render_report(task, synthesis))
-    synthesis["report_path"] = report_path
-
-    board_path = os.path.join(
-        research_bus.board_dir(task_id), "synthesis.json",
-    )
-    atomic_write_json(board_path, synthesis)
+    board_path = _persist_synthesis(task, task_id, synthesis)
     research_bus.update_task(task_id, {
         "status": _TERMINAL_STATUS[decision["verdict"]],
         "verdict": decision["verdict"],

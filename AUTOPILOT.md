@@ -16,6 +16,7 @@
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
 | 作业输出日志 | `$A_STOCK_STATE_HOME/cron/dispatch-jobs.log` |
 | 去重状态 | `$A_STOCK_STATE_HOME/cron/dispatch_state.json` |
+| 执行事件流 | `$A_STOCK_STATE_HOME/cron/execution_trace.jsonl`（只追加，shadow 观测） |
 
 **停止：**
 
@@ -30,6 +31,29 @@ launchctl unload ~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist
 ```bash
 launchctl load ~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist
 ```
+
+### 诊断与回滚
+
+```bash
+# 一次运行的完整重建 + 全 manifest 覆盖检查
+python scripts/execution_trace_report.py --coverage
+```
+
+关注三项：`trace_gaps` 必须为空；`shadow_gate` 三项必须全 true；`duration_seconds.p95`
+相对接入 trace 前的基线不得回归超过 5%。连续五个交易日满足这三项，才算通过 Shadow 门。
+
+回滚开关（作业行为不受影响，只停止写 trace）：
+
+```bash
+# 在 launchd plist 的 EnvironmentVariables 中加入，然后 unload / load
+A_STOCK_EXECUTION_TRACE=off
+```
+
+**不要**为了回滚删除已经写入的 `execution_trace.jsonl` 或 `signal_ledger.jsonl`。
+
+类型化命令：dispatcher 只接受 `command_argv` 数组并以 `shell=False` 执行。作业启动失败时
+先看 `dispatch-jobs.log` 与调度器 err 日志里的 `skip job ...` 行 —— 可执行文件缺失、cwd
+越界、argv 里出现 shell 元字符都会 fail closed 并记录原因，不会静默降级回 shell。
 
 ### 历史与注意事项
 

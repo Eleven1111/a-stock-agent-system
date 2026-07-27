@@ -10,11 +10,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shlex
 import subprocess
 import sys
 import time
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
@@ -33,6 +32,8 @@ from runtime_context import (  # noqa: E402
     resolve_trading_date,
     write_artifact,
 )
+import execution_trace  # noqa: E402
+import manifest_command  # noqa: E402
 from market_snapshot import write_snapshot  # noqa: E402
 from run_lease import claim  # noqa: E402
 from agent_state import agent_state_path  # noqa: E402
@@ -72,15 +73,6 @@ def _parse_vars(items: list[str]) -> Dict[str, str]:
     return result
 
 
-class _SafeDict(dict):
-    def __missing__(self, key: str) -> str:
-        return "{" + key + "}"
-
-
-def _format_command(command: str, values: Dict[str, str]) -> str:
-    return command.format_map(_SafeDict(values))
-
-
 def build_runtime_env(runtime: str) -> Dict[str, str]:
     """Copy scheduler state without fabricating a state home or identity.
 
@@ -112,7 +104,42 @@ def _producer_version() -> str:
     return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
-def _emit(job: Dict[str, Any], artifact: Dict[str, Any], emit_local: bool) -> None:
+def _push_feishu(
+    job_id: str,
+    text: str,
+    *,
+    trace_ctx: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Push to Feishu with the delivery boundary recorded on the trace."""
+    ctx = dict(trace_ctx or {})
+    execution_trace.delivery_attempted(channel="feishu_direct", **ctx)
+    result = feishu_push.push_text(job_id, text)
+    execution_trace.delivery_result(
+        str(result.get("status") or "unknown"),
+        channel="feishu_direct",
+        **ctx,
+    )
+    return result
+
+
+def _dependency_reason_codes(dependency_gate: Optional[Dict[str, Any]]) -> List[str]:
+    """Compress a dependency gate result into short, non-sensitive slugs."""
+    codes: List[str] = []
+    for entry in (dependency_gate or {}).get("dependencies", []):
+        if entry.get("gate_status") == "passed":
+            continue
+        job_id = str(entry.get("job_id") or "unknown")
+        for reason in entry.get("reasons") or ["unknown"]:
+            codes.append(f"dep.{job_id}.{reason}")
+    return codes[:20]
+
+
+def _emit(
+    job: Dict[str, Any],
+    artifact: Dict[str, Any],
+    emit_local: bool,
+    trace_ctx: Optional[Dict[str, Any]] = None,
+) -> None:
     if job.get("silent_when_no_signal") and not artifact.get("has_signal"):
         return
 
@@ -123,9 +150,10 @@ def _emit(job: Dict[str, Any], artifact: Dict[str, Any], emit_local: bool) -> No
         return
     if deliver == "feishu_direct":
         max_chars = int(job.get("max_output_chars") or 4000)
-        feishu_push.push_text(
+        _push_feishu(
             str(job.get("id") or artifact.get("job_id") or ""),
             str(artifact.get("stdout") or "")[:max_chars],
+            trace_ctx=trace_ctx,
         )
         return
 
@@ -156,15 +184,16 @@ def run_job(args: argparse.Namespace) -> int:
     variables = _parse_vars(args.var or [])
 
     run = job.get("run") or {}
-    raw_command = run.get("command")
-    if not raw_command:
-        raise SystemExit(f"job {args.job_id} missing run.command")
-
-    command = _format_command(raw_command, variables)
-    # Replace bare 'python' with sys.executable so cron jobs work without PATH
-    if command.startswith("python ") or command == "python":
-        command = sys.executable + command[6:]
-    cwd = os.path.abspath(os.path.join(ROOT, run.get("cwd", job.get("cwd", "."))))
+    try:
+        raw_argv = manifest_command.business_argv(job)
+        argv = manifest_command.substitute_argv(raw_argv, variables)
+        # Bare 'python' resolves to this interpreter, so a job never depends on
+        # whichever PATH the scheduler happened to inherit.
+        argv = manifest_command.resolve_executable(argv, python=sys.executable)
+        cwd = manifest_command.resolve_cwd(ROOT, run.get("cwd", job.get("cwd", ".")))
+    except manifest_command.CommandContractError as exc:
+        raise SystemExit(f"job {args.job_id} command contract error: {exc}") from exc
+    command = manifest_command.display_command(argv)
     timeout = int(run.get("timeout_seconds") or job.get("timeout_seconds") or 120)
     started_at = now_iso()
     run_id = args.run_id or make_run_id(job["id"], started_at)
@@ -204,6 +233,36 @@ def run_job(args: argparse.Namespace) -> int:
         }, ensure_ascii=False, indent=2))
         return 0
 
+    # Trace is shadow-only: it observes the run, it never gates it. Every exit
+    # path below therefore pairs exactly one job.finished with this start event.
+    trace_ctx: Dict[str, Any] = {
+        "trace_id": execution_trace.resolve_trace_id(),
+        "batch_id": batch_id,
+        "run_id": run_id,
+        "job_id": job["id"],
+        "trading_date": trading_date,
+        "runtime": runtime,
+    }
+    execution_trace.emit("job.started", **trace_ctx)
+
+    def _finish(
+        artifact: Dict[str, Any],
+        *,
+        reason_codes: Optional[List[str]] = None,
+    ) -> None:
+        path = write_artifact(artifact)
+        record_run(artifact)
+        execution_trace.emit(
+            "job.finished",
+            status=str(artifact.get("status") or ""),
+            artifact_ref=path,
+            duration_seconds=artifact.get("duration_seconds"),
+            source_versions=(artifact.get("market_snapshot") or {}).get("source_versions"),
+            reason_codes=reason_codes,
+            **trace_ctx,
+        )
+        _emit(job, artifact, args.emit_local, trace_ctx)
+
     state_check = ensure_state_identity(runtime, env=run_env)
 
     if state_check["status"] != "ok":
@@ -226,9 +285,14 @@ def run_job(args: argparse.Namespace) -> int:
             runtime=runtime,
             calendar_gate=calendar_gate,
         )
-        write_artifact(artifact)
-        record_run(artifact)
-        _emit(job, artifact, args.emit_local)
+        execution_trace.emit(
+            "gate.blocked",
+            gate="state_identity",
+            status=str(state_check.get("status") or "unknown"),
+            reason_codes=[f"state_{state_check.get('status') or 'unknown'}"],
+            **trace_ctx,
+        )
+        _finish(artifact, reason_codes=["state_identity_blocked"])
         return 78
 
     if calendar_gate["action"] != "run":
@@ -261,10 +325,20 @@ def run_job(args: argparse.Namespace) -> int:
             runtime=runtime,
             calendar_gate=calendar_gate,
         )
-        write_artifact(artifact)
-        record_run(artifact)
-        _emit(job, artifact, args.emit_local)
+        if calendar_gate["action"] == "block":
+            execution_trace.emit(
+                "gate.blocked",
+                gate="trading_calendar",
+                status=status,
+                reason_codes=["calendar_block"],
+                **trace_ctx,
+            )
+        _finish(artifact, reason_codes=[f"calendar_{calendar_gate['action']}"])
         return returncode
+
+    execution_trace.emit(
+        "gate.passed", gate="trading_calendar", status="run", **trace_ctx
+    )
 
     dependency_gate = evaluate_dependencies(
         job.get("context_from", []),
@@ -296,10 +370,20 @@ def run_job(args: argparse.Namespace) -> int:
             runtime=runtime,
             calendar_gate=calendar_gate,
         )
-        write_artifact(artifact)
-        record_run(artifact)
-        _emit(job, artifact, args.emit_local)
+        dependency_codes = _dependency_reason_codes(dependency_gate)
+        execution_trace.emit(
+            "gate.blocked",
+            gate="dependency",
+            status="blocked",
+            reason_codes=dependency_codes,
+            **trace_ctx,
+        )
+        _finish(artifact, reason_codes=dependency_codes)
         return 75
+
+    execution_trace.emit(
+        "gate.passed", gate="dependency", status="passed", **trace_ctx
+    )
 
     adaptive_decision = None
     if job.get("adaptive_backoff"):
@@ -330,10 +414,8 @@ def run_job(args: argparse.Namespace) -> int:
                 calendar_gate=calendar_gate,
                 adaptive_schedule=adaptive_decision,
             )
-            write_artifact(artifact)
-            record_run(artifact)
             adaptive_schedule.record_outcome(job["id"], ran=False, has_signal=None)
-            _emit(job, artifact, args.emit_local)
+            _finish(artifact, reason_codes=["adaptive_backoff"])
             return 0
 
     env = run_env.copy()
@@ -350,6 +432,7 @@ def run_job(args: argparse.Namespace) -> int:
         "A_STOCK_BATCH_ID": batch_id,
         "A_STOCK_TRADING_DATE": trading_date,
         "A_STOCK_AGENT_STATE_PATH": agent_state_path(),
+        execution_trace.TRACE_ID_ENV: str(trace_ctx["trace_id"] or ""),
     })
 
     start = time.monotonic()
@@ -371,10 +454,17 @@ def run_job(args: argparse.Namespace) -> int:
                 "batch_id": batch_id,
                 "holder": lease.get("holder"),
             }, ensure_ascii=False))
+            execution_trace.emit(
+                "job.finished",
+                status="duplicate_skipped",
+                reason_codes=["run_lease_held"],
+                **trace_ctx,
+            )
             return 76
         try:
             completed = subprocess.run(
-                shlex.split(command),
+                argv,
+                shell=False,
                 cwd=cwd,
                 env=env,
                 capture_output=True,
@@ -442,13 +532,14 @@ def run_job(args: argparse.Namespace) -> int:
         status_override=status_override,
         adaptive_schedule=adaptive_decision,
     )
-    write_artifact(artifact)
-    record_run(artifact)
     if job.get("adaptive_backoff") and artifact["status"] == "ok":
         adaptive_schedule.record_outcome(
             job["id"], ran=True, has_signal=artifact["has_signal"]
         )
-    _emit(job, artifact, args.emit_local)
+    _finish(
+        artifact,
+        reason_codes=(["timeout"] if timed_out else None),
+    )
     return returncode
 
 

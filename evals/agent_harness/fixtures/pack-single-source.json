@@ -1,0 +1,33 @@
+{
+  "schema": "research_evidence_pack_v1",
+  "ref": "pack-single-source",
+  "builder_version": "evidence_pack_v1",
+  "payload": {
+    "task_id": "eval-task",
+    "kind": "candidate_review",
+    "subject": {
+      "code": "000000",
+      "name": "FIXTURE"
+    },
+    "trading_date": "2026-06-12",
+    "fact_artifacts": [
+      {
+        "job_id": "social-attention-close",
+        "status": "ok",
+        "source_grade": "S3"
+      }
+    ],
+    "subject_data": {
+      "close": 10.0,
+      "turnover_pct": 3.2,
+      "source_grade": "S2"
+    },
+    "quality": {
+      "status": "degraded",
+      "missing": [],
+      "degraded": [
+        "single_source:social_attention"
+      ]
+    }
+  }
+}
