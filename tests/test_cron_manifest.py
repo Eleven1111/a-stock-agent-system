@@ -87,6 +87,38 @@ def test_paper_trading_jobs_are_research_only_and_dag_ordered():
         assert "signal_ledger.jsonl" in " ".join(job["allowed_state_writes"])
 
 
+def test_tail_close_jobs_are_disabled_research_only_and_dag_ordered():
+    prepare = _manifest_job("tail-close-prepare")
+    decision = _manifest_job("tail-close-decision")
+    after_hours = _manifest_job("tail-close-after-hours-shadow")
+    after_hours_reconcile = _manifest_job("tail-close-after-hours-reconcile")
+    reconcile = _manifest_job("tail-close-reconcile")
+
+    assert prepare["schedule"] == "35 14 * * 1-5"
+    assert decision["schedule"] == "50 14 * * 1-5"
+    assert decision["context_from"] == ["tail-close-prepare"]
+    assert reconcile["context_from"] == ["tail-close-decision"]
+    assert after_hours["context_from"] == []
+    assert after_hours_reconcile["schedule"] == "31 15 * * 1-5"
+    assert after_hours_reconcile["context_from"] == [
+        "tail-close-after-hours-shadow"
+    ]
+    for job in (
+        prepare,
+        decision,
+        after_hours,
+        after_hours_reconcile,
+        reconcile,
+    ):
+        assert job["enabled"] is False
+        assert job["deliver"] == "local"
+        assert job["silent_when_no_signal"] is True
+        assert _entry_command(job) == (
+            f"python scripts/run_agent_dag.py {job['id']} --emit-target"
+        )
+        assert "tail_close_signal.py" in _run_command(job)
+
+
 def test_pure_notification_jobs_push_feishu_direct_and_skip_agent_context():
     for job_id in (
         "capital-flow",

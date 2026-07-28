@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import string
 import uuid
 from datetime import datetime
 from typing import Any, Iterable, Mapping, Optional
@@ -28,6 +30,45 @@ EVIDENCE_WEIGHT_HINTS = {"primary", "supporting", "context"}
 UNKNOWN_EVIDENCE_SOURCES = [
     {"source": "unknown", "artifact": "unknown", "weight_hint": "context"}
 ]
+TAIL_CLOSE_PROVENANCE_FIELDS = (
+    "decision_mode",
+    "snapshot_id",
+    "snapshot_hash",
+    "config_hash",
+    "code_version",
+)
+TAIL_CLOSE_EVENT_TYPES = {
+    "research_signal": "tail_close.signal_created",
+    "simulated_order": "tail_close.order_simulated",
+    "simulated_fill": "tail_close.fill_simulated",
+    "simulation_reconciliation": "tail_close.simulation_reconciled",
+    "manual_reconciliation": "tail_close.manual_reconciled",
+}
+_REAL_EXECUTION_ID_FIELDS = {
+    "broker_order_id",
+    "broker_trade_id",
+    "exchange_order_id",
+    "exchange_trade_id",
+    "live_order_id",
+    "real_order_id",
+    "real_trade_id",
+}
+_EXECUTION_MODE_FIELDS = {
+    "account_mode",
+    "execution_mode",
+    "order_mode",
+    "trade_mode",
+}
+_REAL_EXECUTION_MODES = {"broker", "live", "real", "production"}
+_REAL_EXECUTION_BOOLEAN_FIELDS = {
+    "broker_called",
+    "live_execution",
+    "real_execution",
+}
+_REAL_EXECUTION_COUNT_FIELDS = {
+    "automatic_order_count",
+    "broker_call_count",
+}
 
 
 class SignalLedgerCorruptionError(RuntimeError):
@@ -314,10 +355,11 @@ def append_events(
         if not os.path.exists(path):
             _restore_ledger_unlocked(path)
         existing_events = _read_events_unlocked(path)
-        existing_ids = {
-            event.get("event_id")
+        existing_by_id = {
+            event.get("event_id"): event
             for event in existing_events
         }
+        existing_ids = set(existing_by_id)
         last_sequence = max(
             [
                 int(event.get("sequence") or index)
@@ -328,11 +370,37 @@ def append_events(
         appended = []
         for event in normalized:
             if event["event_id"] in existing_ids:
+                existing = existing_by_id[event["event_id"]]
+                if str(event["event_type"]).startswith("tail_close."):
+                    existing_fact = {
+                        key: existing.get(key)
+                        for key in ("event_type", "links", "payload")
+                    }
+                    incoming_fact = {
+                        key: event.get(key)
+                        for key in ("event_type", "links", "payload")
+                    }
+                    if json.dumps(
+                        existing_fact,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    ) != json.dumps(
+                        incoming_fact,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    ):
+                        raise ValueError(
+                            "tail-close idempotency conflict for "
+                            f"{event['event_id']}"
+                        )
                 continue
             last_sequence += 1
             event["sequence"] = last_sequence
             appended.append(event)
             existing_ids.add(event["event_id"])
+            existing_by_id[event["event_id"]] = event
         if not appended:
             return []
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -396,6 +464,275 @@ def signal_opened_event(
         "payload": payload,
         "idempotency_key": f"signal.opened:{signal_id}",
     }
+
+
+def _is_sha256(value: Any) -> bool:
+    text = str(value or "").strip()
+    return len(text) == 64 and all(
+        character in string.hexdigits for character in text
+    )
+
+
+def _tail_close_provenance(record: Mapping[str, Any]) -> dict[str, Any]:
+    raw = record.get("provenance")
+    if not isinstance(raw, Mapping):
+        raise ValueError("tail-close event requires provenance")
+    provenance = dict(raw)
+    for field in TAIL_CLOSE_PROVENANCE_FIELDS:
+        value = str(raw.get(field) or "").strip()
+        if not value:
+            raise ValueError(f"tail-close event requires provenance.{field}")
+        provenance[field] = value
+    if provenance["decision_mode"] not in {"live", "replay"}:
+        raise ValueError("tail-close provenance.decision_mode must be live or replay")
+    for field in ("snapshot_hash", "config_hash"):
+        if not _is_sha256(provenance[field]):
+            raise ValueError(
+                f"tail-close provenance.{field} must be a SHA-256 digest"
+            )
+        provenance[field] = provenance[field].lower()
+    return provenance
+
+
+def _contains_real_execution_marker(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        for raw_key, item in value.items():
+            key = str(raw_key).strip().lower()
+            if (
+                key in _REAL_EXECUTION_ID_FIELDS
+                and item is not None
+                and item is not False
+                and item != ""
+            ):
+                return True
+            if (
+                key in _EXECUTION_MODE_FIELDS
+                and str(item or "").strip().lower() in _REAL_EXECUTION_MODES
+            ):
+                return True
+            if key == "live_order_sent" and item is not False:
+                return True
+            if key in _REAL_EXECUTION_BOOLEAN_FIELDS and item is not False:
+                return True
+            if key in _REAL_EXECUTION_COUNT_FIELDS:
+                try:
+                    if int(item) != 0:
+                        return True
+                except (TypeError, ValueError):
+                    return True
+            if key == "live_weight":
+                try:
+                    if float(item) != 0.0:
+                        return True
+                except (TypeError, ValueError):
+                    return True
+            if _contains_real_execution_marker(item):
+                return True
+    elif isinstance(value, (list, tuple)):
+        return any(_contains_real_execution_marker(item) for item in value)
+    return False
+
+
+def _tail_close_event(
+    kind: str,
+    record: Mapping[str, Any],
+    links: Mapping[str, Any],
+) -> dict[str, Any]:
+    if kind not in TAIL_CLOSE_EVENT_TYPES:
+        raise ValueError(f"unsupported tail-close event kind: {kind}")
+    if not isinstance(record, Mapping):
+        raise ValueError("tail-close event record must be a mapping")
+    if not isinstance(links, Mapping):
+        raise ValueError("tail-close event links must be a mapping")
+    normalized_links = dict(links)
+    if not str(normalized_links.get("correlation_id") or "").strip():
+        raise ValueError("tail-close event requires correlation_id")
+
+    strategy_id = str(record.get("strategy_id") or "").strip()
+    if not strategy_id:
+        raise ValueError("tail-close event requires strategy_id")
+    signal_date = str(
+        record.get("signal_date")
+        or record.get("trading_date")
+        or record.get("date")
+        or record.get("asof")
+        or ""
+    ).strip()
+    if not signal_date:
+        raise ValueError("tail-close event requires signal date")
+    try:
+        datetime.fromisoformat(signal_date.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("tail-close event signal date is invalid") from exc
+
+    signal_anchor = str(
+        record.get("signal_id")
+        or normalized_links.get("signal_id")
+        or record.get("code")
+        or ""
+    ).strip()
+    if not signal_anchor:
+        raise ValueError("tail-close event requires signal identity")
+    if (
+        record.get("signal_id")
+        and normalized_links.get("signal_id")
+        and str(record["signal_id"]) != str(normalized_links["signal_id"])
+    ):
+        raise ValueError("tail-close event signal_id conflicts with links")
+    provenance = _tail_close_provenance(record)
+    if _contains_real_execution_marker(record):
+        raise ValueError("tail-close simulation event contains real execution marker")
+    if (
+        kind not in {"research_signal", "manual_reconciliation"}
+        and (
+            record.get("simulation") is False
+            or record.get("simulated") is False
+        )
+    ):
+        raise ValueError("tail-close simulation event contains real execution marker")
+
+    payload = {
+        **dict(record),
+        "strategy_id": strategy_id,
+        "provenance": provenance,
+        "research_only": True,
+        "live_policy_effect": "none",
+        "live_order_sent": False,
+    }
+    if kind == "research_signal":
+        payload.update({
+            "execution_action": "none",
+            "execution_mode": "research",
+            "simulation": False,
+        })
+    else:
+        payload.update({
+            "execution_mode": "simulated",
+            "simulation": True,
+        })
+    if kind == "manual_reconciliation":
+        for field in (
+            "pilot_gate_hash",
+            "simulation_fill_hash",
+            "evidence_hash",
+        ):
+            if not _is_sha256(record.get(field)):
+                raise ValueError(
+                    f"tail-close manual reconciliation requires {field}"
+                )
+        for field in ("human_approval_id", "human_approved_at"):
+            if not str(record.get(field) or "").strip():
+                raise ValueError(
+                    f"tail-close manual reconciliation requires {field}"
+                )
+        try:
+            approved_at = datetime.fromisoformat(
+                str(record["human_approved_at"]).replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "tail-close manual reconciliation human_approved_at invalid"
+            ) from exc
+        if approved_at.tzinfo is None or approved_at.utcoffset() is None:
+            raise ValueError(
+                "tail-close manual reconciliation human_approved_at timezone missing"
+            )
+        if isinstance(record.get("actual_filled_quantity"), bool):
+            raise ValueError(
+                "tail-close manual reconciliation actual fill invalid"
+            )
+        try:
+            actual_quantity = int(record.get("actual_filled_quantity"))
+            actual_price = float(record.get("actual_fill_price"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "tail-close manual reconciliation actual fill invalid"
+            ) from exc
+        if (
+            actual_quantity < 0
+            or not math.isfinite(actual_price)
+            or actual_price <= 0
+        ):
+            raise ValueError(
+                "tail-close manual reconciliation actual fill invalid"
+            )
+        if record.get("external_broker_evidence_confirmed") is not True:
+            raise ValueError(
+                "tail-close manual reconciliation broker evidence unconfirmed"
+            )
+        payload.update({
+            "reconciliation_mode": "manual_external_evidence",
+            "execution_mode": "manual_external_reconciliation",
+            "simulation": False,
+            "system_ordering": "forbidden",
+            "broker_confirmed": True,
+        })
+    elif kind == "simulation_reconciliation":
+        for field in ("decision_hash", "fill_hash"):
+            if not _is_sha256(record.get(field)):
+                raise ValueError(
+                    f"tail-close simulation reconciliation requires {field}"
+                )
+        payload.update({
+            "reconciliation_mode": "automatic_simulation",
+            "broker_confirmed": False,
+        })
+
+    idempotency_seed = "|".join([
+        strategy_id,
+        signal_date,
+        signal_anchor,
+        provenance["snapshot_id"],
+        provenance["snapshot_hash"],
+        provenance["config_hash"],
+    ])
+    event_type = TAIL_CLOSE_EVENT_TYPES[kind]
+    return {
+        "event_type": event_type,
+        "links": normalized_links,
+        "payload": payload,
+        "idempotency_key": f"{event_type}:{_stable_id('tail', idempotency_seed)}",
+    }
+
+
+def research_signal_event(
+    record: Mapping[str, Any],
+    links: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build an auditable research signal with no live-policy side effect."""
+    return _tail_close_event("research_signal", record, links)
+
+
+def simulated_order_event(
+    record: Mapping[str, Any],
+    links: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build an explicitly simulated order event; real markers fail closed."""
+    return _tail_close_event("simulated_order", record, links)
+
+
+def simulated_fill_event(
+    record: Mapping[str, Any],
+    links: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build an explicitly simulated fill event; real markers fail closed."""
+    return _tail_close_event("simulated_fill", record, links)
+
+
+def simulation_reconciliation_event(
+    record: Mapping[str, Any],
+    links: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Close one simulated lifecycle without claiming a broker reconciliation."""
+    return _tail_close_event("simulation_reconciliation", record, links)
+
+
+def manual_reconciliation_event(
+    record: Mapping[str, Any],
+    links: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build a manual reconciliation of simulation state, never broker state."""
+    return _tail_close_event("manual_reconciliation", record, links)
 
 
 def settlement_event(
@@ -477,6 +814,108 @@ def project_signals(
             records[signal_id].update(
                 {key: value for key, value in links.items() if value is not None}
             )
+    return [records[signal_id] for signal_id in order]
+
+
+def project_tail_close_lifecycle(
+    events: Optional[Iterable[Mapping[str, Any]]] = None,
+    *,
+    ledger_file: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Build a research-only tail-close audit view from the canonical ledger."""
+    stream = list(events) if events is not None else read_events(ledger_file)
+    records: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    stage_by_type = {
+        "tail_close.signal_created": "signal",
+        "tail_close.order_simulated": "order",
+        "tail_close.fill_simulated": "fill",
+        "tail_close.simulation_reconciled": "reconciliation",
+        "tail_close.manual_reconciled": "manual_reconciliation",
+    }
+    for event in stream:
+        event_type = str(event.get("event_type") or "")
+        stage = stage_by_type.get(event_type)
+        if stage is None:
+            continue
+        links = dict(event.get("links") or {})
+        signal_id = str(links.get("signal_id") or "")
+        if not signal_id:
+            continue
+        if signal_id not in records:
+            order.append(signal_id)
+            records[signal_id] = {
+                "schema": "tail_close_lifecycle_projection_v1",
+                "signal_id": signal_id,
+                "correlation_id": links.get("correlation_id"),
+                "strategy_id": None,
+                "stages": {},
+                "violations": [],
+            }
+        record = records[signal_id]
+        if record["correlation_id"] != links.get("correlation_id"):
+            record["violations"].append("correlation_id_mismatch")
+        if stage in record["stages"]:
+            record["violations"].append(f"duplicate_{stage}")
+            continue
+        payload = dict(event.get("payload") or {})
+        strategy_id = str(payload.get("strategy_id") or "")
+        if record["strategy_id"] is None:
+            record["strategy_id"] = strategy_id
+        elif record["strategy_id"] != strategy_id:
+            record["violations"].append("strategy_id_mismatch")
+        record["stages"][stage] = {
+            "event_id": event.get("event_id"),
+            "sequence": event.get("sequence"),
+            "payload": payload,
+        }
+
+    for signal_id in order:
+        record = records[signal_id]
+        stages = record["stages"]
+        violations = record["violations"]
+        for required in ("signal", "order", "fill", "reconciliation"):
+            if required not in stages:
+                violations.append(f"{required}_missing")
+        fill = (stages.get("fill") or {}).get("payload") or {}
+        reconciliation = (stages.get("reconciliation") or {}).get("payload") or {}
+        manual = (stages.get("manual_reconciliation") or {}).get("payload") or {}
+        if reconciliation:
+            if reconciliation.get("fill_hash") != fill.get("fill_hash"):
+                violations.append("fill_hash_mismatch")
+            if not _is_sha256(reconciliation.get("decision_hash")):
+                violations.append("decision_hash_invalid")
+            if (
+                reconciliation.get("reconciliation_mode")
+                != "automatic_simulation"
+                or reconciliation.get("broker_confirmed") is not False
+            ):
+                violations.append("simulation_reconciliation_mode_invalid")
+        if manual:
+            if manual.get("simulation_fill_hash") != fill.get("fill_hash"):
+                violations.append("manual_fill_hash_mismatch")
+            if (
+                manual.get("reconciliation_mode")
+                != "manual_external_evidence"
+                or manual.get("broker_confirmed") is not True
+            ):
+                violations.append("manual_reconciliation_mode_invalid")
+            for field in (
+                "pilot_gate_hash",
+                "simulation_fill_hash",
+                "evidence_hash",
+            ):
+                if not _is_sha256(manual.get(field)):
+                    violations.append(f"manual_{field}_invalid")
+        sequences = [
+            int(stages[name]["sequence"])
+            for name in ("signal", "order", "fill", "reconciliation")
+            if name in stages and stages[name].get("sequence") is not None
+        ]
+        if sequences != sorted(sequences):
+            violations.append("stage_order_invalid")
+        record["violations"] = sorted(set(violations))
+        record["complete"] = not record["violations"]
     return [records[signal_id] for signal_id in order]
 
 

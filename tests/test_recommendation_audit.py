@@ -620,3 +620,62 @@ def test_sell_recommendation_is_blocked_for_same_day_buy(tmp_path, monkeypatch):
 
     assert result["code"] == "T1_LOCKED"
     assert result["earliest_sell_date"] == "2026-06-15"
+
+
+def test_strategy_lane_keeps_tail_close_independent():
+    assert ra.strategy_lane("tail_close:mainline_continuation_v1") == "tail_close"
+    assert ra.strategy_lane("daban:first_board_reseal") == "daban"
+    assert ra.strategy_lane("trend_pullback") == "trend"
+
+
+def test_tail_close_audit_rebuilds_complete_lifecycle_from_ledger(
+    tmp_path,
+    monkeypatch,
+):
+    _wire(tmp_path, monkeypatch)
+    links = ra.signal_ledger.make_links(
+        correlation_id="corr-tail-audit",
+        signal_id="tail-signal-audit",
+    )
+    provenance = {
+        "decision_mode": "replay",
+        "snapshot_id": "snapshot-tail-audit",
+        "snapshot_hash": "a" * 64,
+        "config_hash": "b" * 64,
+        "code_version": "test-commit",
+    }
+    record = {
+        "strategy_id": "tail_close:mainline_continuation_v1",
+        "trading_date": "2026-07-28",
+        "code": "600001",
+        "provenance": provenance,
+    }
+    events = [
+        ra.signal_ledger.research_signal_event(record, links),
+        ra.signal_ledger.simulated_order_event(
+            {**record, "requested_quantity": 100},
+            links,
+        ),
+        ra.signal_ledger.simulated_fill_event(
+            {**record, "filled_quantity": 100, "fill_hash": "d" * 64},
+            links,
+        ),
+        ra.signal_ledger.simulation_reconciliation_event(
+            {
+                **record,
+                "decision_hash": "c" * 64,
+                "fill_hash": "d" * 64,
+                "status": "FULL_FILL",
+            },
+            links,
+        ),
+    ]
+    ra.signal_ledger.append_events(events, ledger_file=ra.LEDGER_FILE)
+
+    audit = ra.audit_tail_close_lifecycle()
+
+    assert audit["source"] == "signal_ledger"
+    assert audit["lifecycle_count"] == 1
+    assert audit["complete_count"] == 1
+    assert audit["violation_count"] == 0
+    assert ra.signal_ledger.project_signals(ledger_file=ra.LEDGER_FILE) == []

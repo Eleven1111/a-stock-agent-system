@@ -22,7 +22,7 @@ A multi-agent research system for China's A-share market. Fifteen repository ski
 ```mermaid
 flowchart LR
     HB["launchd 60-second heartbeat"] --> DS["cron_dispatch.py manifest scheduler"]
-    MF["Cron manifest<br/>49 registered / 42 enabled"] --> DS
+    MF["Cron manifest<br/>54 registered / 42 enabled"] --> DS
     DS --> O["Runtime-neutral resumable DAG"]
     S["External data"] --> A["Shared data adapters"]
     PS["Official policy sources"] --> PW["official-policy-watch"]
@@ -351,12 +351,19 @@ All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-mani
 Despite the historical filename, the manifest is shared by Hermes, OpenClaw,
 system cron, and local runs.
 
-The current manifest registers **49 jobs, 42 enabled**. On the documented macOS
+The current manifest registers **54 jobs, 42 enabled**. On the documented macOS
 deployment, launchd invokes `scripts/cron_dispatch.py` once per minute; the
 dispatcher handles cron matching and same-minute deduplication before starting
 the due DAG command. `AUTOPILOT.md` is the source of truth for the installed
 background process, while the manifest remains the source of truth for job
 definitions, enabled state, schedules, delivery mode, and commands.
+
+Five disabled, research-only jobs define the new tail-close lane: 14:35 PIT
+preparation, 14:50 decision, 15:05 independent after-hours capability audit,
+15:06 simulated-fill reconciliation, and 15:31 after-hours reconciliation.
+They stay disabled until the strict
+PIT input capability, precommitted OOS gate, and real shadow evidence pass;
+their runtime has zero live weight and no broker or automatic-order path.
 
 ### Typed commands
 
@@ -667,7 +674,7 @@ a-stock-agent-system/
 ├── config/nl_screening.yaml     # NL screening condition templates (generic, no hardcoded picks)
 ├── config/web_search.json      # Web-search provider order/timeout/max_results (non-secret)
 ├── config/strategy_packs/       # dragon_head.yaml, emotion_cycle.yaml (explanatory only)
-├── cron/hermes-cron-manifest.json  # 49 registered jobs (42 currently enabled), typed argv
+├── cron/hermes-cron-manifest.json  # 54 registered jobs (42 currently enabled), typed argv
 ├── evals/agent_harness/        # Frozen agent replay cases + evidence-pack fixtures
 ├── scripts/
 │   ├── cron_dispatch.py        # launchd heartbeat → due manifest jobs (shell=False)
