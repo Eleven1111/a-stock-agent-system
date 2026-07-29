@@ -1,7 +1,7 @@
 """Candidate discovery integration tests with injected data sources."""
 
 import importlib.util
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -27,6 +27,73 @@ def _bars(start):
         }
         for i in range(60)
     ]
+
+
+def test_is_auction_window():
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 14)) is False
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 15)) is True
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 20)) is True
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 25)) is True
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 26)) is False
+
+
+def test_fetch_universe_quotes_uses_cache_in_auction_window(monkeypatch):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    cached = {
+        item["code"]: {
+            "price": 10.0,
+            "volume": 1_000,
+            "amount": 100_000_000,
+        }
+        for item in universe
+    }
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: True)
+    monkeypatch.setattr(discovery, "load_cached_quotes", lambda: cached)
+    monkeypatch.setattr(
+        discovery,
+        "fetch_tencent_quote",
+        lambda _codes: pytest.fail("竞价窗口不应调用腾讯实时行情"),
+    )
+
+    quotes = discovery.fetch_universe_quotes(universe)
+
+    assert len(quotes) == len(universe)
+    assert all(item["quote_source"] == "cache" for item in quotes.values())
+    assert quotes["600000"]["price"] == 10.0
+
+
+def test_fetch_universe_quotes_saves_cache(monkeypatch, tmp_path):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: False)
+    monkeypatch.setattr(discovery, "quotes_cache_file", lambda: str(tmp_path / "quotes.json"))
+    monkeypatch.setattr(
+        discovery,
+        "load_config",
+        lambda: {
+            "network": {
+                "quote_batch_size": 500,
+                "quote_workers": 1,
+                "request_retries": 0,
+                "quote_min_coverage": 0.95,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        discovery,
+        "fetch_tencent_quote",
+        lambda codes: {
+            code: {"price": 10.0, "volume": 1_000, "amount": 100_000_000}
+            for code in codes
+        },
+    )
+
+    quotes = discovery.fetch_universe_quotes(universe)
+    cached = read_json(str(tmp_path / "quotes.json"), {})
+
+    assert len(quotes) == 500
+    assert cached["schema"] == "universe_quotes_cache_v1"
+    assert len(cached["quotes"]) == 500
+    assert cached["quotes"]["600000"]["quote_source"] == "live"
 
 
 def test_preopen_bootstrap_reuses_only_ready_recent_nonfuture_pool():

@@ -21,7 +21,7 @@ import time
 import xml.etree.ElementTree as ET
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime
+from datetime import date, datetime, time as dtime
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
@@ -72,6 +72,44 @@ def dated_pool_file(asof: str) -> str:
 
 def universe_cache_file() -> str:
     return data_file("stock-triage", "exchange_universe.json")
+
+
+def quotes_cache_file() -> str:
+    return data_file("stock-triage", "universe_quotes_cache.json")
+
+
+def is_auction_window(now: datetime | None = None) -> bool:
+    """Return whether A-share opening-auction quotes are not yet tradeable."""
+    now = now or datetime.now(ZoneInfo("Asia/Shanghai"))
+    current_time = now.time()
+    return dtime(9, 15) <= current_time <= dtime(9, 25)
+
+
+def load_cached_quotes(max_age_minutes: int = 1440) -> Dict[str, Dict[str, Any]]:
+    """Load the last complete quote cache when it is not older than the limit."""
+    cached = read_json(quotes_cache_file(), {})
+    if not isinstance(cached, Mapping):
+        return {}
+    updated_at = cached.get("updated_at")
+    try:
+        captured = datetime.fromisoformat(str(updated_at))
+        if captured.tzinfo is None:
+            captured = captured.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+        age_minutes = (
+            datetime.now(ZoneInfo("Asia/Shanghai")) - captured
+        ).total_seconds() / 60
+    except (TypeError, ValueError):
+        return {}
+    if age_minutes < 0 or age_minutes > max_age_minutes:
+        return {}
+    quotes = cached.get("quotes")
+    if not isinstance(quotes, Mapping):
+        return {}
+    return {
+        candidate_pipeline.naked_code(code): dict(fields)
+        for code, fields in quotes.items()
+        if isinstance(fields, Mapping) and candidate_pipeline.naked_code(code)
+    }
 
 
 def hot_money_selection_file() -> str:
@@ -321,6 +359,10 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
     batch_size = int(config["quote_batch_size"])
     workers = int(config["quote_workers"])
     retries = int(config["request_retries"])
+    minimum_coverage = max(
+        500,
+        int(len(universe) * float(config["quote_min_coverage"])),
+    )
     metadata = {
         candidate_pipeline.naked_code(item["code"]): {
             **dict(item),
@@ -332,6 +374,17 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
         }
         for item in universe
     }
+    if is_auction_window():
+        cached_quotes = load_cached_quotes()
+        if len(cached_quotes) >= minimum_coverage:
+            result = {
+                code: {**metadata.get(code, {}), **fields, "code": code, "quote_source": "cache"}
+                for code, fields in cached_quotes.items()
+                if code in metadata
+            }
+            if len(result) >= minimum_coverage:
+                fetch_universe_quotes.last_quote_source = "cache"
+                return result
     batches = [
         [candidate_pipeline.market_code(item["code"]) for item in batch]
         for batch in _chunks(list(universe), batch_size)
@@ -360,12 +413,18 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
             for prefixed, fields in batch_quotes.items():
                 code = candidate_pipeline.naked_code(prefixed)
                 quotes[code] = {**metadata.get(code, {}), **fields, "code": code}
-    minimum_coverage = max(
-        500,
-        int(len(universe) * float(config["quote_min_coverage"])),
-    )
     if len(quotes) < minimum_coverage:
         raise DataSourceError("tencent", f"全市场行情覆盖不足: {len(quotes)}/{len(universe)}")
+    quotes = {
+        code: {**fields, "quote_source": "live"}
+        for code, fields in quotes.items()
+    }
+    atomic_write_json(quotes_cache_file(), {
+        "schema": "universe_quotes_cache_v1",
+        "updated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+        "quotes": quotes,
+    })
+    fetch_universe_quotes.last_quote_source = "live"
     return quotes
 
 
@@ -763,6 +822,17 @@ def run_discovery(
             }
     universe = merge_nl_screening_recall(universe, nl_recall_report or {})
     quote_map = dict(quote_fetcher(universe))
+    quote_source = str(
+        getattr(quote_fetcher, "last_quote_source", "")
+        or next(
+            (
+                item.get("quote_source")
+                for item in quote_map.values()
+                if item.get("quote_source")
+            ),
+            "live",
+        )
+    )
 
     # 游资因子只能消费当日收盘缓存，避免历史梯队污染新的候选排名。
     signal_ctx, temperature = load_signal_context_for_discovery(asof)
@@ -909,6 +979,7 @@ def run_discovery(
         "asof": asof,
         "status": "ready",
         "universe_source": "SSE+SZSE listings / Tencent quotes",
+        "quote_source": quote_source,
         "enriched_count": len(kline_by_code),
         "market_temperature": temperature,
         "hot_money_selection": selection_state,
@@ -1085,6 +1156,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "asof": result.get("asof"),
         "status": result.get("status"),
         "bootstrap_status": result.get("bootstrap_status"),
+        "quote_source": result.get("quote_source", "live"),
         "scanned_count": result.get("scanned_count", 0),
         "eligible_count": result.get("eligible_count", 0),
         "rejected_count": result.get("rejected_count", 0),
@@ -1236,6 +1308,11 @@ def main() -> None:
         help="Reuse a recent closing pool and scan only for cold start or expiry",
     )
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--warmup-cache",
+        action="store_true",
+        help="Refresh the full-market quote cache without generating a candidate pool",
+    )
     parser.add_argument("--max-ladder-age-days", type=int)
     parser.add_argument(
         "--check-freshness",
@@ -1248,6 +1325,26 @@ def main() -> None:
         help="In freshness mode, report unhealthy pools as alert payloads and exit 0 for delivery",
     )
     args = parser.parse_args()
+
+    if args.warmup_cache:
+        try:
+            universe = fetch_exchange_universe()
+            quotes = fetch_universe_quotes(universe)
+            result = {
+                "schema": "universe_quotes_cache_warmup_v1",
+                "status": "ok",
+                "quote_source": getattr(fetch_universe_quotes, "last_quote_source", "live"),
+                "quote_count": len(quotes),
+            }
+        except Exception as exc:  # noqa: BLE001 - cron reports warmup failures as data errors
+            result = {"schema": "universe_quotes_cache_warmup_v1", "status": "error", "error": str(exc)}
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False))
+            else:
+                print(f"行情缓存预热失败：{exc}")
+            raise SystemExit(75)
+        print(json.dumps(result, ensure_ascii=False) if args.json else f"行情缓存预热完成：{result['quote_count']} 只")
+        return
 
     # --- freshness heartbeat mode ---
     if args.check_freshness:
