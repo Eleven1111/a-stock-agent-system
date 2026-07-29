@@ -114,35 +114,43 @@ def _file_sha256(path: str | Path) -> str:
     return digest.hexdigest()
 
 
-def _load_registered_oos_evidence(
-    *,
-    registry_path: str | Path,
-    precommit_id: str,
-    reveal_record_sha256: str,
-    dataset_path: str | Path,
-    outcomes: Sequence[Mapping[str, Any]],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Resolve immutable OOS evidence from the shared append-only registry."""
+def _load_oos_registry_records(registry_path: str | Path) -> list[dict[str, Any]]:
     persisted_registry = Path(registry_path)
     if not persisted_registry.is_file():
         raise TailCloseValidationError("oos_registry_invalid")
     try:
         with _locked_jsonl(persisted_registry) as handle:
-            records = _read_locked_records(handle)
+            return _read_locked_records(handle)
     except (OSError, ValidationError) as exc:
         raise TailCloseValidationError("oos_registry_invalid") from exc
 
-    precommit = next(
+
+def _find_oos_registry_record(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    record_type: str,
+    precommit_id: str,
+    record_sha256: str | None = None,
+) -> Mapping[str, Any] | None:
+    return next(
         (
             item
             for item in records
-            if item.get("record_type") == "precommit"
+            if item.get("record_type") == record_type
             and item.get("precommit_id") == precommit_id
+            and (
+                record_sha256 is None
+                or item.get("record_sha256") == record_sha256
+            )
         ),
         None,
     )
-    if precommit is None:
-        raise TailCloseValidationError("precommit_missing")
+
+
+def _validate_precommit_record(
+    precommit: Mapping[str, Any],
+    precommit_id: str,
+) -> None:
     if not verify_oos_precommit_record(precommit):
         raise TailCloseValidationError("precommit_record_invalid")
     precommit_core = {
@@ -166,18 +174,11 @@ def _load_registered_oos_evidence(
     ):
         raise TailCloseValidationError("precommit_identity_invalid")
 
-    reveal = next(
-        (
-            item
-            for item in records
-            if item.get("record_type") == "result"
-            and item.get("precommit_id") == precommit_id
-            and item.get("record_sha256") == reveal_record_sha256
-        ),
-        None,
-    )
-    if reveal is None:
-        raise TailCloseValidationError("reveal_record_missing")
+
+def _validate_reveal_record(
+    reveal: Mapping[str, Any],
+    precommit: Mapping[str, Any],
+) -> None:
     if (
         reveal.get("schema_version") != "oos-result-v1"
         or reveal.get("status") != "registered"
@@ -197,6 +198,12 @@ def _load_registered_oos_evidence(
     if reveal.get("artifact_sha256") != canonical_hash(reveal_core):
         raise TailCloseValidationError("reveal_artifact_invalid")
 
+
+def _validate_registered_outcomes(
+    dataset_path: str | Path,
+    precommit: Mapping[str, Any],
+    outcomes: Sequence[Mapping[str, Any]],
+) -> None:
     try:
         dataset_sha256 = _file_sha256(dataset_path)
         dataset_payload = json.loads(Path(dataset_path).read_text(encoding="utf-8"))
@@ -214,6 +221,36 @@ def _load_registered_oos_evidence(
         or canonical_hash(registered_outcomes) != canonical_hash(list(outcomes))
     ):
         raise TailCloseValidationError("outcomes_not_bound_to_dataset")
+
+
+def _load_registered_oos_evidence(
+    *,
+    registry_path: str | Path,
+    precommit_id: str,
+    reveal_record_sha256: str,
+    dataset_path: str | Path,
+    outcomes: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve immutable OOS evidence from the shared append-only registry."""
+    records = _load_oos_registry_records(registry_path)
+    precommit = _find_oos_registry_record(
+        records,
+        record_type="precommit",
+        precommit_id=precommit_id,
+    )
+    if precommit is None:
+        raise TailCloseValidationError("precommit_missing")
+    _validate_precommit_record(precommit, precommit_id)
+    reveal = _find_oos_registry_record(
+        records,
+        record_type="result",
+        precommit_id=precommit_id,
+        record_sha256=reveal_record_sha256,
+    )
+    if reveal is None:
+        raise TailCloseValidationError("reveal_record_missing")
+    _validate_reveal_record(reveal, precommit)
+    _validate_registered_outcomes(dataset_path, precommit, outcomes)
     return dict(precommit), dict(reveal)
 
 
@@ -261,29 +298,11 @@ def _classify_outcomes(
     return trades, counts
 
 
-def evaluate_oos_family(
-    *,
-    strategy_id: str,
-    outcomes: Sequence[Mapping[str, Any]],
-    variant_returns: Mapping[str, Sequence[float]],
-    precommit_registry_path: str | Path,
-    precommit_id: str,
-    reveal_record_sha256: str,
-    dataset_path: str | Path,
+def _validate_frozen_thresholds(
     validation_thresholds_path: str | Path,
-    strategy_config: Mapping[str, Any],
+    precommit: Mapping[str, Any],
     validation_thresholds: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Evaluate one strategy family without borrowing evidence from its sibling."""
-    if strategy_id not in STRATEGY_FAMILIES:
-        raise TailCloseValidationError("strategy_family_unknown")
-    precommit, reveal = _load_registered_oos_evidence(
-        registry_path=precommit_registry_path,
-        precommit_id=precommit_id,
-        reveal_record_sha256=reveal_record_sha256,
-        dataset_path=dataset_path,
-        outcomes=outcomes,
-    )
+) -> None:
     try:
         frozen_thresholds = json.loads(
             Path(validation_thresholds_path).read_text(encoding="utf-8")
@@ -313,6 +332,14 @@ def evaluate_oos_family(
         )
     ):
         raise TailCloseValidationError("validation_thresholds_payload_mismatch")
+
+
+def _validate_oos_registration(
+    precommit: Mapping[str, Any],
+    strategy_id: str,
+    strategy_config: Mapping[str, Any],
+    variant_returns: Mapping[str, Sequence[float]],
+) -> tuple[Mapping[str, Any], str, str, list[Any]]:
     registration = precommit.get("split") or {}
     if str(registration.get("strategy_id") or "") != strategy_id:
         raise TailCloseValidationError("precommit_strategy_mismatch")
@@ -327,6 +354,15 @@ def evaluate_oos_family(
         or set(variant_returns) != set(registered_variants)
     ):
         raise TailCloseValidationError("precommit_variants_mismatch")
+    return registration, family_config_hash, primary_variant, registered_variants
+
+
+def _validate_oos_outcomes(
+    outcomes: Sequence[Mapping[str, Any]],
+    variant_returns: Mapping[str, Sequence[float]],
+    primary_variant: str,
+    strategy_id: str,
+) -> tuple[list[dict[str, Any]], dict[str, int], list[float]]:
     trades, outcome_counts = _classify_outcomes(outcomes)
     raw_returns = list(float(value) for value in variant_returns[primary_variant])
     if len(raw_returns) != len(trades):
@@ -339,6 +375,15 @@ def evaluate_oos_family(
         for item in outcomes
     ):
         raise TailCloseValidationError("cross_family_outcome")
+    return trades, outcome_counts, raw_returns
+
+
+def _validate_revealed_returns(
+    reveal: Mapping[str, Any],
+    registered_variants: Sequence[Any],
+    variant_returns: Mapping[str, Sequence[float]],
+    trade_count: int,
+) -> None:
     revealed_variants = {
         str(item.get("variant_id") or ""): item
         for item in (reveal.get("variants") or [])
@@ -351,7 +396,7 @@ def evaluate_oos_family(
         normalised_values = list(map(float, values))
         sample_count = reveal_variant.get("sample_count")
         if (
-            len(normalised_values) != len(trades)
+            len(normalised_values) != trade_count
             or reveal_variant.get("returns_hash") != canonical_hash(normalised_values)
             or isinstance(sample_count, bool)
             or not isinstance(sample_count, int)
@@ -359,6 +404,14 @@ def evaluate_oos_family(
         ):
             raise TailCloseValidationError("returns_not_bound_to_reveal")
 
+
+def _compute_oos_statistics(
+    raw_returns: Sequence[float],
+    variant_returns: Mapping[str, Sequence[float]],
+    primary_variant: str,
+    validation_thresholds: Mapping[str, Any],
+    registration: Mapping[str, Any],
+) -> dict[str, Any]:
     p_values = {
         variant: _normal_mean_p_value(list(map(float, values)))
         for variant, values in variant_returns.items()
@@ -386,6 +439,32 @@ def evaluate_oos_family(
             config=statistics_config,
             seed=int(registration.get("seed") or 0),
         )
+    return statistics_result
+
+
+def _compute_history_years(
+    eligible_outcomes: Sequence[Mapping[str, Any]],
+) -> float:
+    outcome_dates = []
+    for item in eligible_outcomes:
+        try:
+            outcome_dates.append(date.fromisoformat(str(item.get("trading_date") or "")))
+        except ValueError as exc:
+            raise TailCloseValidationError("outcome_trading_date_invalid") from exc
+    if len(outcome_dates) < 2:
+        return 0.0
+    return (max(outcome_dates) - min(outcome_dates)).days / 365.25
+
+
+def _compute_oos_metrics(
+    outcomes: Sequence[Mapping[str, Any]],
+    trades: Sequence[Mapping[str, Any]],
+    outcome_counts: Mapping[str, int],
+    raw_returns: Sequence[float],
+    registration: Mapping[str, Any],
+    strategy_config: Mapping[str, Any],
+    validation_thresholds: Mapping[str, Any],
+) -> dict[str, Any]:
     effective = compute_effective_samples(trades)
     profit_factor = _profit_factor(raw_returns)
     oos_config = strategy_config["validation"]["oos"]
@@ -413,17 +492,7 @@ def evaluate_oos_family(
         for item in eligible_outcomes
         if item.get("incremental_net_return") is not None
     ]
-    outcome_dates = []
-    for item in eligible_outcomes:
-        try:
-            outcome_dates.append(date.fromisoformat(str(item.get("trading_date") or "")))
-        except ValueError as exc:
-            raise TailCloseValidationError("outcome_trading_date_invalid") from exc
-    history_years = (
-        (max(outcome_dates) - min(outcome_dates)).days / 365.25
-        if len(outcome_dates) >= 2
-        else 0.0
-    )
+    history_years = _compute_history_years(eligible_outcomes)
     protocol_frozen = all(
         (
             registration.get("method") == "walk_forward",
@@ -441,10 +510,39 @@ def evaluate_oos_family(
         (float(item.get("live_weight") or 0) for item in outcomes),
         default=0.0,
     )
+    return {
+        "effective": effective,
+        "profit_factor": profit_factor,
+        "oos_config": oos_config,
+        "raw_minimum": raw_minimum,
+        "empirical": empirical,
+        "cost_stress_bps": cost_stress_bps,
+        "stressed_expectancy": stressed_expectancy,
+        "blocked_count": blocked_count,
+        "censored_count": censored_count,
+        "incremental": incremental,
+        "history_years": history_years,
+        "protocol_frozen": protocol_frozen,
+        "observed_broker_calls": observed_broker_calls,
+        "observed_automatic_orders": observed_automatic_orders,
+        "maximum_live_weight": maximum_live_weight,
+    }
+
+
+def _build_oos_checks(
+    outcomes: Sequence[Mapping[str, Any]],
+    trades: Sequence[Mapping[str, Any]],
+    outcome_counts: Mapping[str, int],
+    statistics_result: Mapping[str, Any],
+    metrics: Mapping[str, Any],
+) -> dict[str, bool]:
+    effective = metrics["effective"]
+    empirical = metrics["empirical"]
+    oos_config = metrics["oos_config"]
     checks = {
-        "history_coverage_sufficient": history_years
+        "history_coverage_sufficient": metrics["history_years"]
         >= float(oos_config["minimum_history_years"]),
-        "precommit_protocol_frozen": protocol_frozen,
+        "precommit_protocol_frozen": metrics["protocol_frozen"],
         "outcome_accounting_conserved": (
             outcome_counts["submitted"]
             == outcome_counts["eligible"]
@@ -459,11 +557,11 @@ def evaluate_oos_family(
         ),
         "research_execution_isolated": (
             all(item.get("research_only") is True for item in outcomes)
-            and observed_broker_calls == 0
-            and observed_automatic_orders == 0
-            and maximum_live_weight == 0
+            and metrics["observed_broker_calls"] == 0
+            and metrics["observed_automatic_orders"] == 0
+            and metrics["maximum_live_weight"] == 0
         ),
-        "raw_sample_sufficient": len(trades) >= raw_minimum,
+        "raw_sample_sufficient": len(trades) >= metrics["raw_minimum"],
         "effective_trade_sufficient": (
             effective.get("status") == "evaluated"
             and float(effective.get("trade") or 0)
@@ -481,24 +579,42 @@ def evaluate_oos_family(
         ),
         "statistics_passed": statistics_result.get("status") == "passed",
         "profit_factor_passed": (
-            profit_factor is not None
-            and profit_factor >= float(oos_config["minimum_profit_factor"])
+            metrics["profit_factor"] is not None
+            and metrics["profit_factor"]
+            >= float(oos_config["minimum_profit_factor"])
         ),
         "cost_stress_passed": (
-            stressed_expectancy is not None and stressed_expectancy > 0
+            metrics["stressed_expectancy"] is not None
+            and metrics["stressed_expectancy"] > 0
         ),
         "incremental_passed": (
-            len(incremental) == len(trades)
-            and bool(incremental)
-            and statistics.fmean(incremental) > 0
+            len(metrics["incremental"]) == len(trades)
+            and bool(metrics["incremental"])
+            and statistics.fmean(metrics["incremental"]) > 0
         ),
         "censoring_within_limit": (
-            censored_count / outcome_counts["submitted"]
+            metrics["censored_count"] / outcome_counts["submitted"]
             if outcome_counts["submitted"]
             else 1.0
         )
         <= float(oos_config["maximum_censored_ratio"]),
     }
+    return checks
+
+
+def _build_oos_result(
+    *,
+    strategy_id: str,
+    precommit_id: str,
+    precommit: Mapping[str, Any],
+    reveal: Mapping[str, Any],
+    family_config_hash: str,
+    trades: Sequence[Mapping[str, Any]],
+    outcome_counts: Mapping[str, int],
+    statistics_result: Mapping[str, Any],
+    metrics: Mapping[str, Any],
+    checks: Mapping[str, bool],
+) -> dict[str, Any]:
     reasons = sorted(name for name, passed in checks.items() if not passed)
     result = {
         "schema": SCHEMA,
@@ -519,33 +635,108 @@ def evaluate_oos_family(
         "submitted_outcomes": outcome_counts["submitted"],
         "pending_outcomes": outcome_counts["pending"],
         "invalid_outcomes": outcome_counts["invalid"],
-        "effective_samples": effective,
+        "effective_samples": metrics["effective"],
         "statistics": statistics_result,
-        "profit_factor": profit_factor,
-        "cost_stress_bps": cost_stress_bps,
-        "stressed_expectancy": stressed_expectancy,
-        "blocked_count": blocked_count,
-        "right_censored_count": censored_count,
-        "incremental_observations": len(incremental),
-        "history_years": round(history_years, 4),
-        "live_weight": maximum_live_weight,
-        "broker_call_count": observed_broker_calls,
-        "automatic_order_count": observed_automatic_orders,
+        "profit_factor": metrics["profit_factor"],
+        "cost_stress_bps": metrics["cost_stress_bps"],
+        "stressed_expectancy": metrics["stressed_expectancy"],
+        "blocked_count": metrics["blocked_count"],
+        "right_censored_count": metrics["censored_count"],
+        "incremental_observations": len(metrics["incremental"]),
+        "history_years": round(metrics["history_years"], 4),
+        "live_weight": metrics["maximum_live_weight"],
+        "broker_call_count": metrics["observed_broker_calls"],
+        "automatic_order_count": metrics["observed_automatic_orders"],
     }
     result["artifact_hash"] = canonical_hash(result)
     return result
 
 
-def evaluate_shadow_readiness(
+def evaluate_oos_family(
     *,
     strategy_id: str,
-    observations: Sequence[Mapping[str, Any]],
-    oos_result: Mapping[str, Any],
+    outcomes: Sequence[Mapping[str, Any]],
+    variant_returns: Mapping[str, Sequence[float]],
+    precommit_registry_path: str | Path,
+    precommit_id: str,
+    reveal_record_sha256: str,
+    dataset_path: str | Path,
+    validation_thresholds_path: str | Path,
     strategy_config: Mapping[str, Any],
     validation_thresholds: Mapping[str, Any],
 ) -> dict[str, Any]:
+    """Evaluate one strategy family without borrowing evidence from its sibling."""
     if strategy_id not in STRATEGY_FAMILIES:
         raise TailCloseValidationError("strategy_family_unknown")
+    precommit, reveal = _load_registered_oos_evidence(
+        registry_path=precommit_registry_path,
+        precommit_id=precommit_id,
+        reveal_record_sha256=reveal_record_sha256,
+        dataset_path=dataset_path,
+        outcomes=outcomes,
+    )
+    _validate_frozen_thresholds(
+        validation_thresholds_path, precommit, validation_thresholds
+    )
+    registration, config_hash, primary_variant, registered_variants = (
+        _validate_oos_registration(
+            precommit, strategy_id, strategy_config, variant_returns
+        )
+    )
+    trades, outcome_counts, raw_returns = _validate_oos_outcomes(
+        outcomes,
+        variant_returns,
+        primary_variant,
+        strategy_id,
+    )
+    _validate_revealed_returns(
+        reveal,
+        registered_variants,
+        variant_returns,
+        len(trades),
+    )
+    statistics_result = _compute_oos_statistics(
+        raw_returns,
+        variant_returns,
+        primary_variant,
+        validation_thresholds,
+        registration,
+    )
+    metrics = _compute_oos_metrics(
+        outcomes,
+        trades,
+        outcome_counts,
+        raw_returns,
+        registration,
+        strategy_config,
+        validation_thresholds,
+    )
+    checks = _build_oos_checks(
+        outcomes,
+        trades,
+        outcome_counts,
+        statistics_result,
+        metrics,
+    )
+    return _build_oos_result(
+        strategy_id=strategy_id,
+        precommit_id=precommit_id,
+        precommit=precommit,
+        reveal=reveal,
+        family_config_hash=config_hash,
+        trades=trades,
+        outcome_counts=outcome_counts,
+        statistics_result=statistics_result,
+        metrics=metrics,
+        checks=checks,
+    )
+
+
+def _compute_shadow_metrics(
+    observations: Sequence[Mapping[str, Any]],
+    strategy_config: Mapping[str, Any],
+    validation_thresholds: Mapping[str, Any],
+) -> dict[str, Any]:
     unique_days = set()
     for item in observations:
         trading_date = str(item.get("trading_date") or "")
@@ -585,7 +776,26 @@ def evaluate_shadow_readiness(
         (float(item.get("live_weight") or 0) for item in observations),
         default=0.0,
     )
-    checks = {
+    return {
+        "trading_days": len(unique_days),
+        "minimum_days": minimum_days,
+        "major_incidents": major_incidents,
+        "maximum_error": maximum_error,
+        "observed_broker_calls": observed_broker_calls,
+        "observed_automatic_orders": observed_automatic_orders,
+        "maximum_live_weight": maximum_live_weight,
+    }
+
+
+def _build_shadow_checks(
+    strategy_id: str,
+    observations: Sequence[Mapping[str, Any]],
+    oos_result: Mapping[str, Any],
+    strategy_config: Mapping[str, Any],
+    validation_thresholds: Mapping[str, Any],
+    metrics: Mapping[str, Any],
+) -> dict[str, bool]:
+    return {
         "matching_oos_passed": (
             _artifact_valid(oos_result, SCHEMA)
             and oos_result.get("strategy_id") == strategy_id
@@ -597,9 +807,11 @@ def evaluate_shadow_readiness(
         "observation_family_isolated": all(
             item.get("strategy_id") == strategy_id for item in observations
         ),
-        "trading_days_sufficient": len(unique_days) >= minimum_days,
-        "no_major_incidents": major_incidents == 0,
-        "simulation_error_within_limit": maximum_error
+        "trading_days_sufficient": (
+            metrics["trading_days"] >= metrics["minimum_days"]
+        ),
+        "no_major_incidents": metrics["major_incidents"] == 0,
+        "simulation_error_within_limit": metrics["maximum_error"]
         <= float(validation_thresholds["shadow"]["maximum_simulation_error"]),
         "shadow_contract_complete": all(
             all(
@@ -633,6 +845,15 @@ def evaluate_shadow_readiness(
             for item in observations
         ),
     }
+
+
+def _build_shadow_result(
+    strategy_id: str,
+    oos_result: Mapping[str, Any],
+    strategy_config: Mapping[str, Any],
+    metrics: Mapping[str, Any],
+    checks: Mapping[str, bool],
+) -> dict[str, Any]:
     reasons = sorted(name for name, passed in checks.items() if not passed)
     result = {
         "schema": "tail_close_shadow_readiness_v1",
@@ -645,16 +866,48 @@ def evaluate_shadow_readiness(
         ),
         "checks": checks,
         "reasons": reasons,
-        "trading_days": len(unique_days),
-        "minimum_trading_days": minimum_days,
-        "major_incidents": major_incidents,
-        "maximum_simulation_error": maximum_error,
-        "live_weight": maximum_live_weight,
-        "broker_call_count": observed_broker_calls,
-        "automatic_order_count": observed_automatic_orders,
+        "trading_days": metrics["trading_days"],
+        "minimum_trading_days": metrics["minimum_days"],
+        "major_incidents": metrics["major_incidents"],
+        "maximum_simulation_error": metrics["maximum_error"],
+        "live_weight": metrics["maximum_live_weight"],
+        "broker_call_count": metrics["observed_broker_calls"],
+        "automatic_order_count": metrics["observed_automatic_orders"],
     }
     result["artifact_hash"] = canonical_hash(result)
     return result
+
+
+def evaluate_shadow_readiness(
+    *,
+    strategy_id: str,
+    observations: Sequence[Mapping[str, Any]],
+    oos_result: Mapping[str, Any],
+    strategy_config: Mapping[str, Any],
+    validation_thresholds: Mapping[str, Any],
+) -> dict[str, Any]:
+    if strategy_id not in STRATEGY_FAMILIES:
+        raise TailCloseValidationError("strategy_family_unknown")
+    metrics = _compute_shadow_metrics(
+        observations,
+        strategy_config,
+        validation_thresholds,
+    )
+    checks = _build_shadow_checks(
+        strategy_id,
+        observations,
+        oos_result,
+        strategy_config,
+        validation_thresholds,
+        metrics,
+    )
+    return _build_shadow_result(
+        strategy_id,
+        oos_result,
+        strategy_config,
+        metrics,
+        checks,
+    )
 
 
 def evaluate_manual_pilot_eligibility(

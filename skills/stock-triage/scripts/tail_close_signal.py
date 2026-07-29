@@ -6,16 +6,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
-import sys
+import site
 from datetime import date
 from pathlib import Path
 from typing import Any, Mapping
 
-sys.path.insert(
-    0,
-    os.path.join(os.path.dirname(__file__), "..", "..", "common"),
-)
+site.addsitedir(str(Path(__file__).resolve().parents[2] / "common"))
 
 from paths import data_file  # noqa: E402
 from decision_policy import evaluate_decision  # noqa: E402
@@ -404,13 +400,67 @@ def run_manual_reconcile(args: argparse.Namespace) -> dict[str, Any]:
     if config["safety"].get("manual_pilot_reconciliation_enabled") is not True:
         raise TailCloseContractError("manual_reconciliation_not_enabled")
     payload = _read_mapping(args.input or _default_input("manual_reconcile"))
+    fill, manual = _manual_execution_inputs(payload)
+    strategy_id = str(fill.get("strategy_id") or "")
+    verified_oos, verified_shadow = _verify_manual_pilot_evidence(
+        payload=payload,
+        config=config,
+        strategy_id=strategy_id,
+    )
+    approval = _verify_manual_approval(
+        payload=payload,
+        strategy_id=strategy_id,
+        verified_oos=verified_oos,
+        verified_shadow=verified_shadow,
+    )
+    pilot = _verify_manual_pilot_eligibility(
+        strategy_id,
+        verified_oos,
+        verified_shadow,
+    )
+    provenance = _verify_manual_fill(fill)
+    signal_id = str(fill.get("signal_id") or "")
+    trading_date = str(fill.get("trading_date") or "")
+    links = _verify_manual_ledger(fill, signal_id, trading_date)
+    evidence_hash = _file_sha256(str(manual.get("evidence_path") or ""))
+    record = _manual_reconciliation_record(
+        fill=fill,
+        manual=manual,
+        approval=approval,
+        provenance=provenance,
+        pilot=pilot,
+        evidence_hash=evidence_hash,
+    )
+    appended = signal_ledger.append_events(
+        [signal_ledger.manual_reconciliation_event(record, links)]
+    )
+    result = _manual_reconciliation_result(record, len(appended))
+    output = args.output or _state_path(
+        "manual_reconciliations",
+        f"{trading_date}-{signal_id}",
+    )
+    atomic_write_json(output, result)
+    return {**result, "artifact_path": output}
+
+
+def _manual_execution_inputs(
+    payload: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
     fill = payload.get("simulation_fill")
     manual = payload.get("manual_execution")
     if not isinstance(fill, Mapping) or not isinstance(manual, Mapping):
         raise TailCloseContractError("manual_reconcile_payload_invalid")
+    return dict(fill), dict(manual)
+
+
+def _verify_manual_pilot_evidence(
+    *,
+    payload: Mapping[str, Any],
+    config: Mapping[str, Any],
+    strategy_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     oos_result = _read_mapping(str(payload.get("oos_result_path") or ""))
     shadow_result = _read_mapping(str(payload.get("shadow_result_path") or ""))
-    approval = _read_mapping(str(payload.get("human_approval_path") or ""))
     oos_dataset_path = str(payload.get("oos_dataset_path") or "")
     oos_dataset = _read_mapping(oos_dataset_path)
     oos_evaluation = _read_mapping(
@@ -419,9 +469,6 @@ def run_manual_reconcile(args: argparse.Namespace) -> dict[str, Any]:
     shadow_observations = _read_mapping(
         str(payload.get("shadow_observations_path") or "")
     )
-    evidence_path = str(manual.get("evidence_path") or "")
-    evidence_hash = _file_sha256(evidence_path)
-    strategy_id = str(fill.get("strategy_id") or "")
     if (
         oos_result.get("config_hash")
         != strategy_family_config_hash(config, strategy_id)
@@ -469,6 +516,17 @@ def run_manual_reconcile(args: argparse.Namespace) -> dict[str, Any]:
     )
     if verified_shadow.get("artifact_hash") != shadow_result.get("artifact_hash"):
         raise TailCloseContractError("manual_shadow_artifact_not_reproducible")
+    return verified_oos, verified_shadow
+
+
+def _verify_manual_approval(
+    *,
+    payload: Mapping[str, Any],
+    strategy_id: str,
+    verified_oos: Mapping[str, Any],
+    verified_shadow: Mapping[str, Any],
+) -> dict[str, Any]:
+    approval = _read_mapping(str(payload.get("human_approval_path") or ""))
     approval_core = {
         key: value
         for key, value in approval.items()
@@ -480,11 +538,19 @@ def run_manual_reconcile(args: argparse.Namespace) -> dict[str, Any]:
         approval.get("schema") != "tail_close_human_approval_v1"
         or approval.get("strategy_id") != strategy_id
         or approval.get("explicit_human_approval") is not True
-        or approval.get("oos_artifact_hash") != oos_result.get("artifact_hash")
+        or approval.get("oos_artifact_hash") != verified_oos.get("artifact_hash")
         or approval.get("shadow_artifact_hash")
-        != shadow_result.get("artifact_hash")
+        != verified_shadow.get("artifact_hash")
     ):
         raise TailCloseContractError("manual_human_approval_invalid")
+    return approval
+
+
+def _verify_manual_pilot_eligibility(
+    strategy_id: str,
+    verified_oos: Mapping[str, Any],
+    verified_shadow: Mapping[str, Any],
+) -> dict[str, Any]:
     pilot = evaluate_manual_pilot_eligibility(
         strategy_id=strategy_id,
         oos_result=verified_oos,
@@ -493,6 +559,10 @@ def run_manual_reconcile(args: argparse.Namespace) -> dict[str, Any]:
     )
     if pilot["status"] != "eligible_for_manual_pilot":
         raise TailCloseContractError("manual_pilot_not_eligible")
+    return pilot
+
+
+def _verify_manual_fill(fill: Mapping[str, Any]) -> dict[str, Any]:
     fill_core = {
         key: value
         for key, value in fill.items()
@@ -503,8 +573,14 @@ def run_manual_reconcile(args: argparse.Namespace) -> dict[str, Any]:
     provenance = fill.get("provenance")
     if not isinstance(provenance, Mapping):
         raise TailCloseContractError("manual_reconcile_provenance_missing")
-    signal_id = str(fill.get("signal_id") or "")
-    trading_date = str(fill.get("trading_date") or "")
+    return dict(provenance)
+
+
+def _verify_manual_ledger(
+    fill: Mapping[str, Any],
+    signal_id: str,
+    trading_date: str,
+) -> dict[str, Any]:
     links = signal_ledger.make_links(
         correlation_id=f"tail-close:{trading_date}",
         signal_id=signal_id,
@@ -529,10 +605,22 @@ def run_manual_reconcile(args: argparse.Namespace) -> dict[str, Any]:
         or ledger_fill.get("fill_hash") != fill.get("fill_hash")
     ):
         raise TailCloseContractError("manual_ledger_lifecycle_not_reconciled")
-    record = {
-        "strategy_id": strategy_id,
-        "signal_id": signal_id,
-        "trading_date": trading_date,
+    return links
+
+
+def _manual_reconciliation_record(
+    *,
+    fill: Mapping[str, Any],
+    manual: Mapping[str, Any],
+    approval: Mapping[str, Any],
+    provenance: Mapping[str, Any],
+    pilot: Mapping[str, Any],
+    evidence_hash: str,
+) -> dict[str, Any]:
+    return {
+        "strategy_id": str(fill.get("strategy_id") or ""),
+        "signal_id": str(fill.get("signal_id") or ""),
+        "trading_date": str(fill.get("trading_date") or ""),
         "status": "reconciled",
         "pilot_gate_hash": pilot["artifact_hash"],
         "simulation_fill_hash": fill["fill_hash"],
@@ -550,18 +638,21 @@ def run_manual_reconcile(args: argparse.Namespace) -> dict[str, Any]:
         "automatic_order_count": 0,
         "broker_call_count": 0,
     }
-    appended = signal_ledger.append_events(
-        [signal_ledger.manual_reconciliation_event(record, links)]
-    )
+
+
+def _manual_reconciliation_result(
+    record: Mapping[str, Any],
+    appended_count: int,
+) -> dict[str, Any]:
     result = {
         "schema": "tail_close_manual_reconciliation_v1",
-        "strategy_id": strategy_id,
-        "signal_id": signal_id,
-        "trading_date": trading_date,
+        "strategy_id": record["strategy_id"],
+        "signal_id": record["signal_id"],
+        "trading_date": record["trading_date"],
         "status": "reconciled",
-        "pilot_gate_hash": pilot["artifact_hash"],
-        "simulation_fill_hash": fill["fill_hash"],
-        "ledger_events_appended": len(appended),
+        "pilot_gate_hash": record["pilot_gate_hash"],
+        "simulation_fill_hash": record["simulation_fill_hash"],
+        "ledger_events_appended": appended_count,
         "system_ordering": "forbidden",
         "human_decision_and_order_required": True,
         "research_only": True,
@@ -571,12 +662,7 @@ def run_manual_reconcile(args: argparse.Namespace) -> dict[str, Any]:
         "has_signal": False,
     }
     result["artifact_hash"] = canonical_hash(result)
-    output = args.output or _state_path(
-        "manual_reconciliations",
-        f"{trading_date}-{signal_id}",
-    )
-    atomic_write_json(output, result)
-    return {**result, "artifact_path": output}
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:

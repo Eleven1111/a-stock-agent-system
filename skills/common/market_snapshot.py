@@ -73,24 +73,14 @@ def _aware_datetime(value: str, field: str) -> datetime:
     return parsed
 
 
-def validate_point_in_time(
+def _validate_base_point_in_time(
     *,
     event_asof: str,
     evidence_time: str,
     captured_at: str,
     decision_mode: str,
     stage_policy: Mapping[str, Any],
-    event_time: Optional[str] = None,
-    available_time: Optional[str] = None,
-    watermark: Optional[Mapping[str, Any]] = None,
-    sealed_at: Optional[str] = None,
-    max_clock_drift_seconds: Optional[float] = None,
-) -> dict[str, Any]:
-    """Validate evidence availability against a versioned decision-stage cutoff."""
-    if stage_policy.get("schema") != PIT_STAGE_SCHEMA:
-        raise PointInTimeViolation("stage_policy_invalid")
-    if decision_mode not in DECISION_MODES:
-        raise PointInTimeViolation("decision_mode_invalid")
+) -> tuple[dict[str, Any], datetime, Optional[timedelta]]:
     try:
         event_day = date.fromisoformat(str(event_asof))
         zone = ZoneInfo(str(stage_policy["timezone"]))
@@ -109,35 +99,39 @@ def validate_point_in_time(
     available_evidence_cutoff = cutoff - timedelta(seconds=delay)
     if evidence > available_evidence_cutoff or evidence > captured:
         raise PointInTimeViolation("future_evidence")
-    result = {
-        "schema": PIT_STAGE_SCHEMA,
-        "decision_mode": decision_mode,
-        "event_asof": event_day.isoformat(),
-        "evidence_time": evidence.isoformat(),
-        "captured_at": captured.isoformat(),
-        "stage_policy": dict(stage_policy),
-        "available_evidence_cutoff": available_evidence_cutoff.isoformat(),
-    }
-    strict_fields = (
-        event_time,
-        available_time,
-        watermark,
-        sealed_at,
-        max_clock_drift_seconds,
+    return (
+        {
+            "schema": PIT_STAGE_SCHEMA,
+            "decision_mode": decision_mode,
+            "event_asof": event_day.isoformat(),
+            "evidence_time": evidence.isoformat(),
+            "captured_at": captured.isoformat(),
+            "stage_policy": dict(stage_policy),
+            "available_evidence_cutoff": available_evidence_cutoff.isoformat(),
+        },
+        cutoff,
+        expected_offset,
     )
-    if not any(value is not None for value in strict_fields):
-        return result
-    if not all(value is not None for value in strict_fields):
-        raise PointInTimeViolation("strict_point_in_time_contract_incomplete")
-    if not isinstance(watermark, Mapping):
-        raise PointInTimeViolation("watermark_invalid")
+
+
+def _parse_strict_point_in_time(
+    *,
+    event_time: str,
+    available_time: str,
+    watermark: Mapping[str, Any],
+    sealed_at: str,
+    max_clock_drift_seconds: float,
+) -> tuple[datetime, datetime, datetime, datetime, datetime, float]:
     try:
         max_drift = float(max_clock_drift_seconds)
     except (TypeError, ValueError) as exc:
         raise PointInTimeViolation("clock_drift_limit_invalid") from exc
-    if isinstance(max_clock_drift_seconds, bool) or not math.isfinite(max_drift) or max_drift < 0:
+    if (
+        isinstance(max_clock_drift_seconds, bool)
+        or not math.isfinite(max_drift)
+        or max_drift < 0
+    ):
         raise PointInTimeViolation("clock_drift_limit_invalid")
-
     event = _aware_datetime(str(event_time), "event_time")
     available = _aware_datetime(str(available_time), "available_time")
     sealed = _aware_datetime(str(sealed_at), "sealed_at")
@@ -154,7 +148,20 @@ def validate_point_in_time(
         raise PointInTimeViolation("watermark_invalid") from exc
     if watermark.get("complete") is not True:
         raise PointInTimeViolation("watermark_incomplete")
+    return event, available, coverage, provider_published, sealed, max_drift
 
+
+def _validate_strict_time_ordering(
+    *,
+    event: datetime,
+    available: datetime,
+    coverage: datetime,
+    provider_published: datetime,
+    sealed: datetime,
+    cutoff: datetime,
+    expected_offset: Optional[timedelta],
+    max_drift: float,
+) -> None:
     strict_times = (event, available, coverage, provider_published, sealed)
     if any(value.utcoffset() != expected_offset for value in strict_times):
         raise PointInTimeViolation("timezone_mismatch")
@@ -173,6 +180,36 @@ def validate_point_in_time(
     if provider_published > available:
         raise PointInTimeViolation("watermark_publication_after_availability")
 
+
+def _validate_strict_point_in_time(
+    *,
+    event_time: str,
+    available_time: str,
+    watermark: Mapping[str, Any],
+    sealed_at: str,
+    max_clock_drift_seconds: float,
+    cutoff: datetime,
+    expected_offset: Optional[timedelta],
+) -> dict[str, Any]:
+    event, available, coverage, provider_published, sealed, max_drift = (
+        _parse_strict_point_in_time(
+            event_time=event_time,
+            available_time=available_time,
+            watermark=watermark,
+            sealed_at=sealed_at,
+            max_clock_drift_seconds=max_clock_drift_seconds,
+        )
+    )
+    _validate_strict_time_ordering(
+        event=event,
+        available=available,
+        coverage=coverage,
+        provider_published=provider_published,
+        sealed=sealed,
+        cutoff=cutoff,
+        expected_offset=expected_offset,
+        max_drift=max_drift,
+    )
     normalized_watermark = dict(watermark)
     normalized_watermark.update(
         {
@@ -181,14 +218,63 @@ def validate_point_in_time(
             "complete": True,
         }
     )
+    return {
+        "event_time": event.isoformat(),
+        "available_time": available.isoformat(),
+        "watermark": normalized_watermark,
+        "sealed_at": sealed.isoformat(),
+        "max_clock_drift_seconds": max_drift,
+    }
+
+
+def validate_point_in_time(
+    *,
+    event_asof: str,
+    evidence_time: str,
+    captured_at: str,
+    decision_mode: str,
+    stage_policy: Mapping[str, Any],
+    event_time: Optional[str] = None,
+    available_time: Optional[str] = None,
+    watermark: Optional[Mapping[str, Any]] = None,
+    sealed_at: Optional[str] = None,
+    max_clock_drift_seconds: Optional[float] = None,
+) -> dict[str, Any]:
+    """Validate evidence availability against a versioned decision-stage cutoff."""
+    if stage_policy.get("schema") != PIT_STAGE_SCHEMA:
+        raise PointInTimeViolation("stage_policy_invalid")
+    if decision_mode not in DECISION_MODES:
+        raise PointInTimeViolation("decision_mode_invalid")
+    result, cutoff, expected_offset = _validate_base_point_in_time(
+        event_asof=event_asof,
+        evidence_time=evidence_time,
+        captured_at=captured_at,
+        decision_mode=decision_mode,
+        stage_policy=stage_policy,
+    )
+    strict_fields = (
+        event_time,
+        available_time,
+        watermark,
+        sealed_at,
+        max_clock_drift_seconds,
+    )
+    if not any(value is not None for value in strict_fields):
+        return result
+    if not all(value is not None for value in strict_fields):
+        raise PointInTimeViolation("strict_point_in_time_contract_incomplete")
+    if not isinstance(watermark, Mapping):
+        raise PointInTimeViolation("watermark_invalid")
     result.update(
-        {
-            "event_time": event.isoformat(),
-            "available_time": available.isoformat(),
-            "watermark": normalized_watermark,
-            "sealed_at": sealed.isoformat(),
-            "max_clock_drift_seconds": max_drift,
-        }
+        _validate_strict_point_in_time(
+            event_time=str(event_time),
+            available_time=str(available_time),
+            watermark=watermark,
+            sealed_at=str(sealed_at),
+            max_clock_drift_seconds=max_clock_drift_seconds,
+            cutoff=cutoff,
+            expected_offset=expected_offset,
+        )
     )
     return result
 
@@ -265,6 +351,92 @@ def infer_source_versions(payload: Any) -> dict[str, str]:
     }
 
 
+def _snapshot_point_in_time(
+    *,
+    captured_at: str,
+    event_asof: Optional[str],
+    evidence_time: Optional[str],
+    decision_mode: Optional[str],
+    stage_policy: Optional[Mapping[str, Any]],
+    event_time: Optional[str],
+    available_time: Optional[str],
+    watermark: Optional[Mapping[str, Any]],
+    sealed_at: Optional[str],
+    max_clock_drift_seconds: Optional[float],
+) -> tuple[Optional[dict[str, Any]], bool]:
+    strict_fields = (
+        event_time,
+        available_time,
+        watermark,
+        sealed_at,
+        max_clock_drift_seconds,
+    )
+    pit_fields = (event_asof, evidence_time, decision_mode, stage_policy)
+    if not any(value is not None for value in pit_fields + strict_fields):
+        return None, False
+    if not all(value is not None for value in pit_fields):
+        raise PointInTimeViolation("point_in_time_contract_incomplete")
+    point_in_time = validate_point_in_time(
+        event_asof=str(event_asof),
+        evidence_time=str(evidence_time),
+        captured_at=captured_at,
+        decision_mode=str(decision_mode),
+        stage_policy=stage_policy or {},
+        event_time=event_time,
+        available_time=available_time,
+        watermark=watermark,
+        sealed_at=sealed_at,
+        max_clock_drift_seconds=max_clock_drift_seconds,
+    )
+    return point_in_time, any(value is not None for value in strict_fields)
+
+
+def _build_snapshot_record(
+    *,
+    identity: Mapping[str, Any],
+    snapshot_id: str,
+    captured_at: str,
+    payload: Any,
+    snapshot_path: str,
+    seal_hash: Optional[str],
+) -> dict[str, Any]:
+    record = {
+        "schema": SCHEMA,
+        "snapshot_id": snapshot_id,
+        "dataset": identity["dataset"],
+        "trading_date": identity["trading_date"],
+        "batch_id": identity["batch_id"],
+        "producer": identity["producer"],
+        "producer_version": identity["producer_version"],
+        "captured_at": captured_at,
+        "point_in_time": identity["point_in_time"],
+        "payload_schema": payload.get("schema") if isinstance(payload, Mapping) else None,
+        "payload_hash": identity["payload_hash"],
+        "source_versions": identity["source_versions"],
+        "payload": payload,
+        "snapshot_path": snapshot_path,
+    }
+    if seal_hash is not None:
+        record["seal_hash"] = seal_hash
+    return record
+
+
+def _persist_snapshot(
+    *,
+    path: str,
+    record: dict[str, Any],
+    payload_hash: str,
+    snapshot_id: str,
+) -> dict[str, Any]:
+    existing = read_json(path, None) if os.path.exists(path) else None
+    if isinstance(existing, dict):
+        if existing.get("payload_hash") != payload_hash:
+            raise ValueError(f"immutable snapshot collision: {snapshot_id}")
+        return read_snapshot(path)
+    atomic_write_json(path, record)
+    return record
+
+
 def write_snapshot(
     dataset: str,
     payload: Any,
@@ -287,36 +459,22 @@ def write_snapshot(
 ) -> dict[str, Any]:
     """Write a content-addressed snapshot; identical input reuses the same file."""
     captured = captured_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
-    strict_fields = (
-        event_time,
-        available_time,
-        watermark,
-        sealed_at,
-        max_clock_drift_seconds,
+    point_in_time, strict_requested = _snapshot_point_in_time(
+        captured_at=captured,
+        event_asof=event_asof,
+        evidence_time=evidence_time,
+        decision_mode=decision_mode,
+        stage_policy=stage_policy,
+        event_time=event_time,
+        available_time=available_time,
+        watermark=watermark,
+        sealed_at=sealed_at,
+        max_clock_drift_seconds=max_clock_drift_seconds,
     )
-    pit_fields = (event_asof, evidence_time, decision_mode, stage_policy)
-    point_in_time = None
-    if any(value is not None for value in pit_fields + strict_fields):
-        if not all(value is not None for value in pit_fields):
-            raise PointInTimeViolation("point_in_time_contract_incomplete")
-        point_in_time = validate_point_in_time(
-            event_asof=str(event_asof),
-            evidence_time=str(evidence_time),
-            captured_at=captured,
-            decision_mode=str(decision_mode),
-            stage_policy=stage_policy or {},
-            event_time=event_time,
-            available_time=available_time,
-            watermark=watermark,
-            sealed_at=sealed_at,
-            max_clock_drift_seconds=max_clock_drift_seconds,
-        )
     versions = dict(source_versions or infer_source_versions(payload))
     payload_hash = _hash(payload)
     seal_hash = None
-    if point_in_time is not None and any(
-        value is not None for value in strict_fields
-    ):
+    if point_in_time is not None and strict_requested:
         seal_hash = _seal_hash(payload_hash, point_in_time)
         point_in_time = {**point_in_time, "seal_hash": seal_hash}
     identity = {
@@ -332,31 +490,20 @@ def write_snapshot(
     snapshot_id = f"snap-{_hash(identity)[:24]}"
     directory = os.path.join(snapshot_root(), trading_date, dataset)
     path = os.path.join(directory, f"{snapshot_id}.json")
-    record = {
-        "schema": SCHEMA,
-        "snapshot_id": snapshot_id,
-        "dataset": dataset,
-        "trading_date": trading_date,
-        "batch_id": batch_id,
-        "producer": producer,
-        "producer_version": producer_version or "unknown",
-        "captured_at": captured,
-        "point_in_time": point_in_time,
-        "payload_schema": payload.get("schema") if isinstance(payload, Mapping) else None,
-        "payload_hash": payload_hash,
-        "source_versions": versions,
-        "payload": payload,
-        "snapshot_path": path,
-    }
-    if seal_hash is not None:
-        record["seal_hash"] = seal_hash
-    existing = read_json(path, None) if os.path.exists(path) else None
-    if isinstance(existing, dict):
-        if existing.get("payload_hash") != payload_hash:
-            raise ValueError(f"immutable snapshot collision: {snapshot_id}")
-        return read_snapshot(path)
-    atomic_write_json(path, record)
-    return record
+    record = _build_snapshot_record(
+        identity=identity,
+        snapshot_id=snapshot_id,
+        captured_at=captured,
+        payload=payload,
+        snapshot_path=path,
+        seal_hash=seal_hash,
+    )
+    return _persist_snapshot(
+        path=path,
+        record=record,
+        payload_hash=payload_hash,
+        snapshot_id=snapshot_id,
+    )
 
 
 def read_snapshot(snapshot: str | Mapping[str, Any]) -> dict[str, Any]:

@@ -339,6 +339,56 @@ def _research_priority_key(signal: Mapping[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _allocate_research_signal(
+    signal: Mapping[str, Any],
+    *,
+    remaining_capacity: dict[str, float],
+    sector_allocated: dict[str, float],
+    max_single_pct: float,
+    max_sector_pct: float,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    code = str(signal["code"])
+    available = float(remaining_capacity.get(code, 0.0))
+    requested = float(signal["requested_capacity"])
+    sector = str(signal["sector"])
+    remaining_sector_pct = max(
+        0.0,
+        max_sector_pct - sector_allocated.get(sector, 0.0),
+    )
+    allowed_position_pct = min(max_single_pct, remaining_sector_pct)
+    if allowed_position_pct <= 0:
+        return None, _research_rejection(signal, "sector_exposure_limit")
+    concentration_capacity = (
+        requested
+        * allowed_position_pct
+        / float(signal["proposed_position_pct"])
+    )
+    allocated_capacity = min(requested, available, concentration_capacity)
+    if allocated_capacity <= 0:
+        return None, _research_rejection(signal, "capacity_exhausted")
+    proposed_position_pct = float(signal["proposed_position_pct"])
+    allocated_pct = proposed_position_pct * allocated_capacity / requested
+    sector_allocated[sector] = sector_allocated.get(sector, 0.0) + allocated_pct
+    remaining_capacity[code] = available - allocated_capacity
+    return {
+        **signal,
+        "allocated_capacity": allocated_capacity,
+        "allocated_position_pct": allocated_pct,
+        "limited_by": sorted(
+            reason
+            for reason, limited in {
+                "security_capacity": allocated_capacity < requested
+                and available < requested,
+                "single_position_limit": allocated_capacity < requested
+                and max_single_pct < proposed_position_pct,
+                "sector_exposure_limit": allocated_capacity < requested
+                and remaining_sector_pct < proposed_position_pct,
+            }.items()
+            if limited
+        ),
+    }, None
+
+
 def _select_research_allocations(
     signals: Iterable[Mapping[str, Any]],
     *,
@@ -361,67 +411,17 @@ def _select_research_allocations(
     sector_allocated: dict[str, float] = {}
     remaining_capacity = dict(security_capacity)
     for signal in winners:
-        code = str(signal["code"])
-        available = float(remaining_capacity.get(code, 0.0))
-        requested = float(signal["requested_capacity"])
-        sector = str(signal["sector"])
-        remaining_sector_pct = max(
-            0.0,
-            max_sector_pct - sector_allocated.get(sector, 0.0),
+        allocation, rejection = _allocate_research_signal(
+            signal,
+            remaining_capacity=remaining_capacity,
+            sector_allocated=sector_allocated,
+            max_single_pct=max_single_pct,
+            max_sector_pct=max_sector_pct,
         )
-        allowed_position_pct = min(max_single_pct, remaining_sector_pct)
-        if allowed_position_pct <= 0:
-            rejections.append(
-                _research_rejection(signal, "sector_exposure_limit")
-            )
-            continue
-        concentration_capacity = (
-            requested
-            * allowed_position_pct
-            / float(signal["proposed_position_pct"])
-        )
-        allocated_capacity = min(
-            requested,
-            available,
-            concentration_capacity,
-        )
-        if allocated_capacity <= 0:
-            rejections.append(
-                _research_rejection(signal, "capacity_exhausted")
-            )
-            continue
-        allocated_pct = (
-            float(signal["proposed_position_pct"])
-            * allocated_capacity
-            / requested
-        )
-        sector_allocated[sector] = (
-            sector_allocated.get(sector, 0.0) + allocated_pct
-        )
-        remaining_capacity[code] = available - allocated_capacity
-        allocations.append({
-            **signal,
-            "allocated_capacity": allocated_capacity,
-            "allocated_position_pct": allocated_pct,
-            "limited_by": sorted(
-                reason
-                for reason, limited in {
-                    "security_capacity": allocated_capacity < requested
-                    and available < requested,
-                    "single_position_limit": (
-                        allocated_capacity < requested
-                        and max_single_pct
-                        < float(signal["proposed_position_pct"])
-                    ),
-                    "sector_exposure_limit": (
-                        allocated_capacity < requested
-                        and remaining_sector_pct
-                        < float(signal["proposed_position_pct"])
-                    ),
-                }.items()
-                if limited
-            ),
-        })
+        if allocation is not None:
+            allocations.append(allocation)
+        if rejection is not None:
+            rejections.append(rejection)
     return allocations, rejections
 
 
@@ -451,6 +451,122 @@ def _normalize_security_capacity(
     return normalized
 
 
+def _normalize_research_limits(
+    max_single_pct: float,
+    max_sector_pct: float,
+) -> tuple[float, float]:
+    try:
+        single_limit = float(max_single_pct)
+        sector_limit = float(max_sector_pct)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("portfolio research limits must be numeric") from exc
+    if not math.isfinite(single_limit) or not math.isfinite(sector_limit) or single_limit <= 0 or sector_limit <= 0:
+        raise ValueError("portfolio research limits must be positive and finite")
+    return single_limit, sector_limit
+
+
+def _normalize_research_signals(
+    signals: Iterable[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    normalized: list[dict[str, Any]] = []
+    input_rejections: list[dict[str, Any]] = []
+    for signal in signals:
+        item, rejection = _normalize_research_signal(signal)
+        if item is not None:
+            normalized.append(item)
+        if rejection is not None:
+            input_rejections.append(rejection)
+    normalized.sort(key=_research_priority_key)
+    return normalized, input_rejections
+
+
+def _standalone_research_codes(
+    signals: Iterable[Mapping[str, Any]],
+    *,
+    security_capacity: Mapping[str, float],
+    max_single_pct: float,
+    max_sector_pct: float,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, set[str]]]:
+    by_strategy: dict[str, list[dict[str, Any]]] = {}
+    for signal in signals:
+        by_strategy.setdefault(signal["strategy_id"], []).append(dict(signal))
+    standalone_codes: dict[str, set[str]] = {}
+    for strategy_id in sorted(by_strategy):
+        selected, _ = _select_research_allocations(
+            by_strategy[strategy_id],
+            security_capacity=security_capacity,
+            max_single_pct=max_single_pct,
+            max_sector_pct=max_sector_pct,
+        )
+        standalone_codes[strategy_id] = {str(signal["code"]) for signal in selected}
+    return by_strategy, standalone_codes
+
+
+def _format_research_allocations(
+    selected: Iterable[Mapping[str, Any]],
+    normalized: Iterable[Mapping[str, Any]],
+    standalone_codes: Mapping[str, set[str]],
+) -> list[dict[str, Any]]:
+    strategies_by_code: dict[str, set[str]] = {}
+    for signal in normalized:
+        strategies_by_code.setdefault(signal["code"], set()).add(signal["strategy_id"])
+    allocations: list[dict[str, Any]] = []
+    for signal in selected:
+        code = str(signal["code"])
+        contributing = sorted(strategies_by_code[code])
+        standalone = [strategy_id for strategy_id in contributing if code in standalone_codes.get(strategy_id, set())]
+        allocations.append(
+            {
+                "code": code,
+                "sector": signal["sector"],
+                "strategy_id": signal["strategy_id"],
+                "signal_id": signal["signal_id"],
+                "priority": signal["priority"],
+                "requested_capacity": signal["requested_capacity"],
+                "allocated_capacity": signal["allocated_capacity"],
+                "proposed_position_pct": signal["proposed_position_pct"],
+                "allocated_position_pct": signal["allocated_position_pct"],
+                "limited_by": signal["limited_by"],
+                "attribution": {
+                    "primary_strategy_id": signal["strategy_id"],
+                    "contributing_strategy_ids": contributing,
+                    "standalone_strategy_ids": standalone,
+                    "incremental_strategy_id": signal["strategy_id"],
+                },
+            }
+        )
+    return allocations
+
+
+def _research_shared_capacity(
+    allocations: Iterable[Mapping[str, Any]],
+    capacity_by_code: Mapping[str, float],
+    *,
+    single_limit: float,
+    sector_limit: float,
+) -> dict[str, Any]:
+    allocation_list = list(allocations)
+    sector_allocated: dict[str, float] = {}
+    allocated_by_code = {code: 0.0 for code in capacity_by_code}
+    for allocation in allocation_list:
+        sector = str(allocation["sector"])
+        sector_allocated[sector] = sector_allocated.get(sector, 0.0) + float(allocation["allocated_position_pct"])
+        allocated_by_code[allocation["code"]] = float(allocation["allocated_capacity"])
+    remaining_by_code = {code: capacity_by_code[code] - allocated_by_code[code] for code in capacity_by_code}
+    return {
+        "initial_by_code": {code: capacity_by_code[code] for code in sorted(capacity_by_code)},
+        "allocated_by_code": {code: allocated_by_code[code] for code in sorted(allocated_by_code)},
+        "remaining_by_code": {code: remaining_by_code[code] for code in sorted(remaining_by_code)},
+        "allocated_position_pct": round(
+            sum(float(allocation["allocated_position_pct"]) for allocation in allocation_list),
+            4,
+        ),
+        "sector_allocated_pct": {sector: round(sector_allocated[sector], 4) for sector in sorted(sector_allocated)},
+        "max_single_pct": single_limit,
+        "max_sector_pct": sector_limit,
+    }
+
+
 def coordinate_research_allocations(
     signals: Iterable[Mapping[str, Any]],
     *,
@@ -465,151 +581,54 @@ def coordinate_research_allocations(
     is allocated once while every proposing strategy remains attributable.
     """
     capacity_by_code = _normalize_security_capacity(security_capacity)
-    try:
-        single_limit = float(max_single_pct)
-        sector_limit = float(max_sector_pct)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("portfolio research limits must be numeric") from exc
-    if (
-        not math.isfinite(single_limit)
-        or not math.isfinite(sector_limit)
-        or single_limit <= 0
-        or sector_limit <= 0
-    ):
-        raise ValueError("portfolio research limits must be positive and finite")
-
-    normalized: list[dict[str, Any]] = []
-    input_rejections: list[dict[str, Any]] = []
-    for signal in signals:
-        item, rejection = _normalize_research_signal(signal)
-        if item is not None:
-            normalized.append(item)
-        if rejection is not None:
-            input_rejections.append(rejection)
-    normalized.sort(key=_research_priority_key)
-
-    by_strategy: dict[str, list[dict[str, Any]]] = {}
-    for signal in normalized:
-        by_strategy.setdefault(signal["strategy_id"], []).append(signal)
-    standalone_codes: dict[str, set[str]] = {}
-    for strategy_id in sorted(by_strategy):
-        selected, _ = _select_research_allocations(
-            by_strategy[strategy_id],
-            security_capacity=capacity_by_code,
-            max_single_pct=single_limit,
-            max_sector_pct=sector_limit,
-        )
-        standalone_codes[strategy_id] = {
-            str(signal["code"]) for signal in selected
-        }
-
+    single_limit, sector_limit = _normalize_research_limits(
+        max_single_pct,
+        max_sector_pct,
+    )
+    normalized, input_rejections = _normalize_research_signals(signals)
+    by_strategy, standalone_codes = _standalone_research_codes(
+        normalized,
+        security_capacity=capacity_by_code,
+        max_single_pct=single_limit,
+        max_sector_pct=sector_limit,
+    )
     selected, coordination_rejections = _select_research_allocations(
         normalized,
         security_capacity=capacity_by_code,
         max_single_pct=single_limit,
         max_sector_pct=sector_limit,
     )
-    strategies_by_code: dict[str, set[str]] = {}
-    for signal in normalized:
-        strategies_by_code.setdefault(signal["code"], set()).add(
-            signal["strategy_id"]
-        )
-
-    allocations = []
-    for signal in selected:
-        code = str(signal["code"])
-        contributing = sorted(strategies_by_code[code])
-        standalone = [
-            strategy_id
-            for strategy_id in contributing
-            if code in standalone_codes.get(strategy_id, set())
-        ]
-        allocations.append({
-            "code": code,
-            "sector": signal["sector"],
-            "strategy_id": signal["strategy_id"],
-            "signal_id": signal["signal_id"],
-            "priority": signal["priority"],
-            "requested_capacity": signal["requested_capacity"],
-            "allocated_capacity": signal["allocated_capacity"],
-            "proposed_position_pct": signal["proposed_position_pct"],
-            "allocated_position_pct": signal["allocated_position_pct"],
-            "limited_by": signal["limited_by"],
-            "attribution": {
-                "primary_strategy_id": signal["strategy_id"],
-                "contributing_strategy_ids": contributing,
-                "standalone_strategy_ids": standalone,
-                "incremental_strategy_id": signal["strategy_id"],
-            },
-        })
-
-    sector_allocated: dict[str, float] = {}
-    for allocation in allocations:
-        sector = str(allocation["sector"])
-        sector_allocated[sector] = (
-            sector_allocated.get(sector, 0.0)
-            + float(allocation["allocated_position_pct"])
-        )
-    allocated_by_code = {code: 0.0 for code in capacity_by_code}
-    for allocation in allocations:
-        allocated_by_code[allocation["code"]] = float(
-            allocation["allocated_capacity"]
-        )
-    remaining_by_code = {
-        code: capacity_by_code[code] - allocated_by_code[code]
-        for code in capacity_by_code
-    }
-    rejections = [*input_rejections, *coordination_rejections]
-    rejections.sort(
+    allocations = _format_research_allocations(
+        selected,
+        normalized,
+        standalone_codes,
+    )
+    rejections = sorted(
+        [*input_rejections, *coordination_rejections],
         key=lambda item: (
             str(item.get("reason") or ""),
             str(item.get("strategy_id") or ""),
             str(item.get("code") or ""),
             str(item.get("signal_id") or ""),
-        )
+        ),
     )
     standalone_by_strategy = {
-        strategy_id: len(standalone_codes[strategy_id])
-        for strategy_id in sorted(standalone_codes)
+        strategy_id: len(standalone_codes[strategy_id]) for strategy_id in sorted(standalone_codes)
     }
     incremental_by_strategy = {
-        strategy_id: sum(
-            allocation["strategy_id"] == strategy_id
-            for allocation in allocations
-        )
+        strategy_id: sum(allocation["strategy_id"] == strategy_id for allocation in allocations)
         for strategy_id in sorted(by_strategy)
     }
     return {
         "schema": "portfolio_research_coordination_v1",
         "allocations": allocations,
         "rejections": rejections,
-        "shared_capacity": {
-            "initial_by_code": {
-                code: capacity_by_code[code]
-                for code in sorted(capacity_by_code)
-            },
-            "allocated_by_code": {
-                code: allocated_by_code[code]
-                for code in sorted(allocated_by_code)
-            },
-            "remaining_by_code": {
-                code: remaining_by_code[code]
-                for code in sorted(remaining_by_code)
-            },
-            "allocated_position_pct": round(
-                sum(
-                    float(allocation["allocated_position_pct"])
-                    for allocation in allocations
-                ),
-                4,
-            ),
-            "sector_allocated_pct": {
-                sector: round(sector_allocated[sector], 4)
-                for sector in sorted(sector_allocated)
-            },
-            "max_single_pct": single_limit,
-            "max_sector_pct": sector_limit,
-        },
+        "shared_capacity": _research_shared_capacity(
+            allocations,
+            capacity_by_code,
+            single_limit=single_limit,
+            sector_limit=sector_limit,
+        ),
         "standalone_count": sum(standalone_by_strategy.values()),
         "incremental_count": len(allocations),
         "standalone_by_strategy": standalone_by_strategy,

@@ -44,6 +44,13 @@ TAIL_CLOSE_EVENT_TYPES = {
     "simulation_reconciliation": "tail_close.simulation_reconciled",
     "manual_reconciliation": "tail_close.manual_reconciled",
 }
+_TAIL_CLOSE_STAGE_BY_TYPE = {
+    "tail_close.signal_created": "signal",
+    "tail_close.order_simulated": "order",
+    "tail_close.fill_simulated": "fill",
+    "tail_close.simulation_reconciled": "reconciliation",
+    "tail_close.manual_reconciled": "manual_reconciliation",
+}
 _REAL_EXECUTION_ID_FIELDS = {
     "broker_order_id",
     "broker_trade_id",
@@ -533,11 +540,11 @@ def _contains_real_execution_marker(value: Any) -> bool:
     return False
 
 
-def _tail_close_event(
+def _tail_close_identity(
     kind: str,
     record: Mapping[str, Any],
     links: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], str, str, str]:
     if kind not in TAIL_CLOSE_EVENT_TYPES:
         raise ValueError(f"unsupported tail-close event kind: {kind}")
     if not isinstance(record, Mapping):
@@ -579,18 +586,67 @@ def _tail_close_event(
         and str(record["signal_id"]) != str(normalized_links["signal_id"])
     ):
         raise ValueError("tail-close event signal_id conflicts with links")
-    provenance = _tail_close_provenance(record)
-    if _contains_real_execution_marker(record):
-        raise ValueError("tail-close simulation event contains real execution marker")
-    if (
-        kind not in {"research_signal", "manual_reconciliation"}
-        and (
-            record.get("simulation") is False
-            or record.get("simulated") is False
-        )
-    ):
-        raise ValueError("tail-close simulation event contains real execution marker")
+    return normalized_links, strategy_id, signal_date, signal_anchor
 
+
+def _validate_manual_reconciliation(record: Mapping[str, Any]) -> None:
+    for field in (
+        "pilot_gate_hash",
+        "simulation_fill_hash",
+        "evidence_hash",
+    ):
+        if not _is_sha256(record.get(field)):
+            raise ValueError(f"tail-close manual reconciliation requires {field}")
+    for field in ("human_approval_id", "human_approved_at"):
+        if not str(record.get(field) or "").strip():
+            raise ValueError(f"tail-close manual reconciliation requires {field}")
+    try:
+        approved_at = datetime.fromisoformat(
+            str(record["human_approved_at"]).replace("Z", "+00:00")
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "tail-close manual reconciliation human_approved_at invalid"
+        ) from exc
+    if approved_at.tzinfo is None or approved_at.utcoffset() is None:
+        raise ValueError(
+            "tail-close manual reconciliation human_approved_at timezone missing"
+        )
+    if isinstance(record.get("actual_filled_quantity"), bool):
+        raise ValueError("tail-close manual reconciliation actual fill invalid")
+    try:
+        actual_quantity = int(record.get("actual_filled_quantity"))
+        actual_price = float(record.get("actual_fill_price"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "tail-close manual reconciliation actual fill invalid"
+        ) from exc
+    if (
+        actual_quantity < 0
+        or not math.isfinite(actual_price)
+        or actual_price <= 0
+    ):
+        raise ValueError("tail-close manual reconciliation actual fill invalid")
+    if record.get("external_broker_evidence_confirmed") is not True:
+        raise ValueError(
+            "tail-close manual reconciliation broker evidence unconfirmed"
+        )
+
+
+def _validate_simulation_reconciliation(record: Mapping[str, Any]) -> None:
+    for field in ("decision_hash", "fill_hash"):
+        if not _is_sha256(record.get(field)):
+            raise ValueError(
+                f"tail-close simulation reconciliation requires {field}"
+            )
+
+
+def _tail_close_payload(
+    kind: str,
+    record: Mapping[str, Any],
+    strategy_id: str,
+    provenance: Mapping[str, Any],
+) -> dict[str, Any]:
     payload = {
         **dict(record),
         "strategy_id": strategy_id,
@@ -611,55 +667,7 @@ def _tail_close_event(
             "simulation": True,
         })
     if kind == "manual_reconciliation":
-        for field in (
-            "pilot_gate_hash",
-            "simulation_fill_hash",
-            "evidence_hash",
-        ):
-            if not _is_sha256(record.get(field)):
-                raise ValueError(
-                    f"tail-close manual reconciliation requires {field}"
-                )
-        for field in ("human_approval_id", "human_approved_at"):
-            if not str(record.get(field) or "").strip():
-                raise ValueError(
-                    f"tail-close manual reconciliation requires {field}"
-                )
-        try:
-            approved_at = datetime.fromisoformat(
-                str(record["human_approved_at"]).replace("Z", "+00:00")
-            )
-        except ValueError as exc:
-            raise ValueError(
-                "tail-close manual reconciliation human_approved_at invalid"
-            ) from exc
-        if approved_at.tzinfo is None or approved_at.utcoffset() is None:
-            raise ValueError(
-                "tail-close manual reconciliation human_approved_at timezone missing"
-            )
-        if isinstance(record.get("actual_filled_quantity"), bool):
-            raise ValueError(
-                "tail-close manual reconciliation actual fill invalid"
-            )
-        try:
-            actual_quantity = int(record.get("actual_filled_quantity"))
-            actual_price = float(record.get("actual_fill_price"))
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "tail-close manual reconciliation actual fill invalid"
-            ) from exc
-        if (
-            actual_quantity < 0
-            or not math.isfinite(actual_price)
-            or actual_price <= 0
-        ):
-            raise ValueError(
-                "tail-close manual reconciliation actual fill invalid"
-            )
-        if record.get("external_broker_evidence_confirmed") is not True:
-            raise ValueError(
-                "tail-close manual reconciliation broker evidence unconfirmed"
-            )
+        _validate_manual_reconciliation(record)
         payload.update({
             "reconciliation_mode": "manual_external_evidence",
             "execution_mode": "manual_external_reconciliation",
@@ -668,16 +676,34 @@ def _tail_close_event(
             "broker_confirmed": True,
         })
     elif kind == "simulation_reconciliation":
-        for field in ("decision_hash", "fill_hash"):
-            if not _is_sha256(record.get(field)):
-                raise ValueError(
-                    f"tail-close simulation reconciliation requires {field}"
-                )
+        _validate_simulation_reconciliation(record)
         payload.update({
             "reconciliation_mode": "automatic_simulation",
             "broker_confirmed": False,
         })
+    return payload
 
+
+def _tail_close_event(
+    kind: str,
+    record: Mapping[str, Any],
+    links: Mapping[str, Any],
+) -> dict[str, Any]:
+    normalized_links, strategy_id, signal_date, signal_anchor = (
+        _tail_close_identity(kind, record, links)
+    )
+    provenance = _tail_close_provenance(record)
+    if _contains_real_execution_marker(record):
+        raise ValueError("tail-close simulation event contains real execution marker")
+    if (
+        kind not in {"research_signal", "manual_reconciliation"}
+        and (
+            record.get("simulation") is False
+            or record.get("simulated") is False
+        )
+    ):
+        raise ValueError("tail-close simulation event contains real execution marker")
+    payload = _tail_close_payload(kind, record, strategy_id, provenance)
     idempotency_seed = "|".join([
         strategy_id,
         signal_date,
@@ -817,6 +843,110 @@ def project_signals(
     return [records[signal_id] for signal_id in order]
 
 
+def _fold_tail_close_event(
+    event: Mapping[str, Any],
+    records: dict[str, dict[str, Any]],
+    order: list[str],
+) -> None:
+    event_type = str(event.get("event_type") or "")
+    stage = _TAIL_CLOSE_STAGE_BY_TYPE.get(event_type)
+    if stage is None:
+        return
+    links = dict(event.get("links") or {})
+    signal_id = str(links.get("signal_id") or "")
+    if not signal_id:
+        return
+    if signal_id not in records:
+        order.append(signal_id)
+        records[signal_id] = {
+            "schema": "tail_close_lifecycle_projection_v1",
+            "signal_id": signal_id,
+            "correlation_id": links.get("correlation_id"),
+            "strategy_id": None,
+            "stages": {},
+            "violations": [],
+        }
+    record = records[signal_id]
+    if record["correlation_id"] != links.get("correlation_id"):
+        record["violations"].append("correlation_id_mismatch")
+    if stage in record["stages"]:
+        record["violations"].append(f"duplicate_{stage}")
+        return
+    payload = dict(event.get("payload") or {})
+    strategy_id = str(payload.get("strategy_id") or "")
+    if record["strategy_id"] is None:
+        record["strategy_id"] = strategy_id
+    elif record["strategy_id"] != strategy_id:
+        record["violations"].append("strategy_id_mismatch")
+    record["stages"][stage] = {
+        "event_id": event.get("event_id"),
+        "sequence": event.get("sequence"),
+        "payload": payload,
+    }
+
+
+def _validate_projected_reconciliation(
+    stages: Mapping[str, Any],
+    violations: list[str],
+) -> None:
+    fill = (stages.get("fill") or {}).get("payload") or {}
+    reconciliation = (stages.get("reconciliation") or {}).get("payload") or {}
+    if not reconciliation:
+        return
+    if reconciliation.get("fill_hash") != fill.get("fill_hash"):
+        violations.append("fill_hash_mismatch")
+    if not _is_sha256(reconciliation.get("decision_hash")):
+        violations.append("decision_hash_invalid")
+    if (
+        reconciliation.get("reconciliation_mode") != "automatic_simulation"
+        or reconciliation.get("broker_confirmed") is not False
+    ):
+        violations.append("simulation_reconciliation_mode_invalid")
+
+
+def _validate_projected_manual_reconciliation(
+    stages: Mapping[str, Any],
+    violations: list[str],
+) -> None:
+    fill = (stages.get("fill") or {}).get("payload") or {}
+    manual = (stages.get("manual_reconciliation") or {}).get("payload") or {}
+    if not manual:
+        return
+    if manual.get("simulation_fill_hash") != fill.get("fill_hash"):
+        violations.append("manual_fill_hash_mismatch")
+    if (
+        manual.get("reconciliation_mode") != "manual_external_evidence"
+        or manual.get("broker_confirmed") is not True
+    ):
+        violations.append("manual_reconciliation_mode_invalid")
+    for field in (
+        "pilot_gate_hash",
+        "simulation_fill_hash",
+        "evidence_hash",
+    ):
+        if not _is_sha256(manual.get(field)):
+            violations.append(f"manual_{field}_invalid")
+
+
+def _finalize_tail_close_record(record: dict[str, Any]) -> None:
+    stages = record["stages"]
+    violations = record["violations"]
+    for required in ("signal", "order", "fill", "reconciliation"):
+        if required not in stages:
+            violations.append(f"{required}_missing")
+    _validate_projected_reconciliation(stages, violations)
+    _validate_projected_manual_reconciliation(stages, violations)
+    sequences = [
+        int(stages[name]["sequence"])
+        for name in ("signal", "order", "fill", "reconciliation")
+        if name in stages and stages[name].get("sequence") is not None
+    ]
+    if sequences != sorted(sequences):
+        violations.append("stage_order_invalid")
+    record["violations"] = sorted(set(violations))
+    record["complete"] = not record["violations"]
+
+
 def project_tail_close_lifecycle(
     events: Optional[Iterable[Mapping[str, Any]]] = None,
     *,
@@ -826,96 +956,10 @@ def project_tail_close_lifecycle(
     stream = list(events) if events is not None else read_events(ledger_file)
     records: dict[str, dict[str, Any]] = {}
     order: list[str] = []
-    stage_by_type = {
-        "tail_close.signal_created": "signal",
-        "tail_close.order_simulated": "order",
-        "tail_close.fill_simulated": "fill",
-        "tail_close.simulation_reconciled": "reconciliation",
-        "tail_close.manual_reconciled": "manual_reconciliation",
-    }
     for event in stream:
-        event_type = str(event.get("event_type") or "")
-        stage = stage_by_type.get(event_type)
-        if stage is None:
-            continue
-        links = dict(event.get("links") or {})
-        signal_id = str(links.get("signal_id") or "")
-        if not signal_id:
-            continue
-        if signal_id not in records:
-            order.append(signal_id)
-            records[signal_id] = {
-                "schema": "tail_close_lifecycle_projection_v1",
-                "signal_id": signal_id,
-                "correlation_id": links.get("correlation_id"),
-                "strategy_id": None,
-                "stages": {},
-                "violations": [],
-            }
-        record = records[signal_id]
-        if record["correlation_id"] != links.get("correlation_id"):
-            record["violations"].append("correlation_id_mismatch")
-        if stage in record["stages"]:
-            record["violations"].append(f"duplicate_{stage}")
-            continue
-        payload = dict(event.get("payload") or {})
-        strategy_id = str(payload.get("strategy_id") or "")
-        if record["strategy_id"] is None:
-            record["strategy_id"] = strategy_id
-        elif record["strategy_id"] != strategy_id:
-            record["violations"].append("strategy_id_mismatch")
-        record["stages"][stage] = {
-            "event_id": event.get("event_id"),
-            "sequence": event.get("sequence"),
-            "payload": payload,
-        }
-
+        _fold_tail_close_event(event, records, order)
     for signal_id in order:
-        record = records[signal_id]
-        stages = record["stages"]
-        violations = record["violations"]
-        for required in ("signal", "order", "fill", "reconciliation"):
-            if required not in stages:
-                violations.append(f"{required}_missing")
-        fill = (stages.get("fill") or {}).get("payload") or {}
-        reconciliation = (stages.get("reconciliation") or {}).get("payload") or {}
-        manual = (stages.get("manual_reconciliation") or {}).get("payload") or {}
-        if reconciliation:
-            if reconciliation.get("fill_hash") != fill.get("fill_hash"):
-                violations.append("fill_hash_mismatch")
-            if not _is_sha256(reconciliation.get("decision_hash")):
-                violations.append("decision_hash_invalid")
-            if (
-                reconciliation.get("reconciliation_mode")
-                != "automatic_simulation"
-                or reconciliation.get("broker_confirmed") is not False
-            ):
-                violations.append("simulation_reconciliation_mode_invalid")
-        if manual:
-            if manual.get("simulation_fill_hash") != fill.get("fill_hash"):
-                violations.append("manual_fill_hash_mismatch")
-            if (
-                manual.get("reconciliation_mode")
-                != "manual_external_evidence"
-                or manual.get("broker_confirmed") is not True
-            ):
-                violations.append("manual_reconciliation_mode_invalid")
-            for field in (
-                "pilot_gate_hash",
-                "simulation_fill_hash",
-                "evidence_hash",
-            ):
-                if not _is_sha256(manual.get(field)):
-                    violations.append(f"manual_{field}_invalid")
-        sequences = [
-            int(stages[name]["sequence"])
-            for name in ("signal", "order", "fill", "reconciliation")
-            if name in stages and stages[name].get("sequence") is not None
-        ]
-        if sequences != sorted(sequences):
-            violations.append("stage_order_invalid")
-        record["violations"] = sorted(set(violations))
-        record["complete"] = not record["violations"]
+        _finalize_tail_close_record(records[signal_id])
     return [records[signal_id] for signal_id in order]
 
 

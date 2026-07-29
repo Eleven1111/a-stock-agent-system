@@ -119,7 +119,7 @@ def _require_fields(
         raise ConfigError(f"{context} missing required fields: {missing}")
 
 
-def _validate_tail_close_strategy(payload: Mapping[str, Any]) -> None:
+def _validate_tail_close_strategies(payload: Mapping[str, Any]) -> None:
     strategies = _mapping_field(payload, "strategies", context="tail_close_strategy")
     if set(strategies) != _TAIL_CLOSE_STRATEGY_IDS:
         raise ConfigError(
@@ -177,6 +177,8 @@ def _validate_tail_close_strategy(payload: Mapping[str, Any]) -> None:
             "15:05 after-hours session"
         )
 
+
+def _validate_tail_close_runtime(payload: Mapping[str, Any]) -> None:
     runtime = _mapping_field(payload, "runtime", context="tail_close_strategy")
     _require_fields(
         runtime,
@@ -205,6 +207,8 @@ def _validate_tail_close_strategy(payload: Mapping[str, Any]) -> None:
     if plugin_contract.get("side_effects") != "none":
         raise ConfigError("tail_close_strategy plugin must be side-effect free")
 
+
+def _validate_tail_close_parameters(payload: Mapping[str, Any]) -> None:
     stock_gate = _mapping_field(payload, "stock_gate", context="tail_close_strategy")
     _require_fields(
         stock_gate,
@@ -263,6 +267,8 @@ def _validate_tail_close_strategy(payload: Mapping[str, Any]) -> None:
         context="tail_close_strategy.portfolio",
     )
 
+
+def _validate_tail_close_safety(payload: Mapping[str, Any]) -> None:
     safety = _mapping_field(payload, "safety", context="tail_close_strategy")
     _require_fields(
         safety,
@@ -285,6 +291,13 @@ def _validate_tail_close_strategy(payload: Mapping[str, Any]) -> None:
         or safety.get("automatic_order_count") != 0
     ):
         raise ConfigError("tail_close_strategy safety must enforce zero live execution")
+
+
+def _validate_tail_close_strategy(payload: Mapping[str, Any]) -> None:
+    _validate_tail_close_strategies(payload)
+    _validate_tail_close_runtime(payload)
+    _validate_tail_close_parameters(payload)
+    _validate_tail_close_safety(payload)
 
 
 def config_sha256(payload: Mapping[str, Any]) -> str:
