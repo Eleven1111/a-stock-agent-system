@@ -89,6 +89,29 @@ def test_compute_tail_anomaly_returns_none_for_empty_input():
     assert eas.compute_tail_anomaly([]) is None
 
 
+# ======================== covers_market_close / close_coverage_sufficient ========================
+
+def test_covers_market_close_tracks_whether_data_reached_the_close():
+    assert eas.covers_market_close([{"time": "1500", "price": 10.0, "cum_volume": 1.0}]) is True
+    assert eas.covers_market_close([{"time": "1459", "price": 10.0, "cum_volume": 1.0}]) is False
+    assert eas.covers_market_close([]) is False
+    assert eas.covers_market_close([{"price": 10.0}]) is False
+
+
+def test_close_coverage_sufficient_rejects_a_run_that_never_reached_the_close():
+    """盘中运行：抓到了全市场数据，但没有一只到收盘 —— 整轮无效。"""
+    assert eas.close_coverage_sufficient({"fetched": 3000, "closed": 0}) is False
+
+
+def test_close_coverage_sufficient_rejects_an_empty_fetch():
+    assert eas.close_coverage_sufficient({"fetched": 0, "closed": 0}) is False
+
+
+def test_close_coverage_sufficient_accepts_a_normal_post_close_run():
+    # 收盘后个别停牌股拿不到完整分钟数据是正常的，不该拖垮整轮扫描
+    assert eas.close_coverage_sufficient({"fetched": 3000, "closed": 2950}) is True
+
+
 # ======================== is_tail_anomaly ========================
 
 def test_is_tail_anomaly_requires_both_thresholds():
@@ -176,3 +199,64 @@ def test_format_scan_report_and_confirm_report_do_not_crash_on_empty():
     empty_confirm = {"asof": "2026-07-01", "source_asof": "2026-06-30", "confirmations": []}
     assert "无标的" in eas.format_scan_report(empty_scan)
     assert "无待确认" in eas.format_confirm_report(empty_confirm)
+
+
+def test_format_scan_report_marks_an_invalid_scan_instead_of_reporting_zero_hits():
+    """无效扫描的报告不能和"今天没有异动"长得一样。"""
+    invalid = {
+        "asof": "2026-07-28",
+        "status": "insufficient_data",
+        "error": "分钟数据未覆盖收盘(1500)：0/3000 只达到收盘",
+        "universe_count": 3000,
+        "candidates": [],
+    }
+    report = eas.format_scan_report(invalid)
+    assert "扫描无效" in report
+    assert "无标的触发尾盘异动阈值" not in report
+
+
+# ======================== scan() 收盘闸门（不触网） ========================
+
+def _patch_scan_io(monkeypatch, minute_rows):
+    """把 scan() 的三个网络出口换成合成数据，只保留闸门逻辑。"""
+    spot = [_spot_row(code="600001"), _spot_row(code="600002")]
+    monkeypatch.setattr(eas, "_fetch_universe_with_retry", lambda: spot)
+    monkeypatch.setattr(
+        eas, "fetch_tencent_minute", lambda code, market=None: minute_rows
+    )
+    monkeypatch.setattr(eas, "_fetch_60d_positions", lambda codes: {code: 30.0 for code in codes})
+
+
+def test_scan_fails_closed_when_run_before_the_market_closes(monkeypatch):
+    """Issue #135 的 7/28 场景：14:54 跑，全市场分钟数据都停在收盘前。
+
+    此前这里会静默返回 candidates=[]，和真实的零命中无法区分。
+    """
+    _patch_scan_io(monkeypatch, [
+        {"time": "0930", "price": 10.0, "cum_volume": 0.0},
+        {"time": "1454", "price": 10.5, "cum_volume": 700000.0},
+    ])
+
+    result = eas.scan("2026-07-28")
+
+    assert result["status"] == "insufficient_data"
+    assert result["candidates"] == []
+    assert result["minute_closed_count"] == 0
+    assert result["minute_fetched_count"] == 2
+    assert "未覆盖收盘" in result["error"]
+
+
+def test_scan_reports_a_genuine_zero_hit_day_as_ok(monkeypatch):
+    """7/27、7/29 场景：收盘后跑，确实没有标的达标 —— 这才是可信的零命中。"""
+    _patch_scan_io(monkeypatch, [
+        {"time": "0930", "price": 10.0, "cum_volume": 0.0},
+        {"time": "1429", "price": 10.0, "cum_volume": 700000.0},
+        {"time": "1500", "price": 10.01, "cum_volume": 720000.0},
+    ])
+
+    result = eas.scan("2026-07-29")
+
+    assert result["status"] == "ok"
+    assert result["candidates"] == []
+    assert result["minute_closed_count"] == 2
+    assert "error" not in result
