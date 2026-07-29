@@ -89,8 +89,11 @@ def screen_universe(spot_rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, An
     """全A快照 -> 市值/成交额/PE/ST 粗筛，把全市场缩到值得做分钟级检测的范围。
 
     注意：akshare Sina 路线（stock_zh_a_spot）不返回 总市值 和 市盈率-动态 字段，
-    此时跳过这两个维度的过滤，仅保留成交额和价格粗筛（补丁 2026-07-27）。
+    仅当整个快照都缺少该字段时才跳过对应过滤。部分行缺值仍按数据不完整
+    fail-closed，避免把坏记录误当成源级字段缺失。
     """
+    has_market_cap_field = any("总市值" in record for record in spot_rows)
+    has_pe_field = any("市盈率-动态" in record for record in spot_rows)
     screened = []
     for record in spot_rows:
         name = str(record.get("名称") or "")
@@ -108,11 +111,11 @@ def screen_universe(spot_rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, An
             continue
         if price <= 0 or amount < AMOUNT_MIN_YI * 1e8:
             continue
-        # 可选过滤：源数据有总市值才做市值过滤（akshare Sina 路线没有此字段）
-        if market_cap is not None and market_cap < MARKET_CAP_MIN_YI * 1e8:
+        if has_market_cap_field and (
+            market_cap is None or market_cap < MARKET_CAP_MIN_YI * 1e8
+        ):
             continue
-        # 可选过滤：源数据有 PE 才做 PE 范围过滤
-        if pe is not None and not (PE_MIN <= pe <= PE_MAX):
+        if has_pe_field and (pe is None or not (PE_MIN <= pe <= PE_MAX)):
             continue
         screened.append({
             "code": code, "name": name, "price": price,

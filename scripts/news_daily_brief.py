@@ -21,15 +21,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
+import site
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-if COMMON not in sys.path:
-    sys.path.insert(0, COMMON)
+site.addsitedir(COMMON)
 
 from paths import skill_data_dir  # noqa: E402
 from state_store import read_json  # noqa: E402
@@ -210,6 +209,132 @@ def _format_source_bar(name: str, count: int, max_count: int) -> str:
     return f"  {name}　{bar} {count}"
 
 
+def _append_overview(lines: list[str], agg: dict[str, Any], seen_count: int) -> None:
+    lines.extend([
+        "## 📊 管道概览",
+        "",
+        f"- **扫描轮次**: {agg['run_count']}",
+        f"- **采集总量**: {agg['total_scanned']} 条",
+        f"- **L1 评分**: {agg['total_l1_scored']} 条",
+        f"- **L1 通过**: {agg['total_l1_passed']} 条",
+        f"- **L1 拒绝**: {agg['total_l1_rejected']} 条",
+        f"- **去重过滤**: {agg['total_duplicate']} 条",
+        f"- **新入队列**: {agg['total_enqueued']} 条",
+        f"- **累计指纹库**: {seen_count} 条",
+        "",
+    ])
+
+
+def _append_queue_status(lines: list[str], queue_items: list[dict[str, Any]]) -> None:
+    if not queue_items:
+        return
+    labels = {
+        "pending": "⏳ 待L2分级",
+        "claimed": "🔄 L2处理中",
+        "graded": "✅ 已分级",
+        "expired": "⏰ 已过期",
+    }
+    lines.extend(["## 📋 队列状态（当日条目）", ""])
+    for status, count in classify_queue_by_status(queue_items).items():
+        lines.append(f"- {labels.get(status, status)}: {count}")
+    lines.append("")
+
+
+def _append_distributions(lines: list[str], items: list[dict[str, Any]]) -> None:
+    if not items:
+        return
+    source_counts = classify_by_source(items)
+    if source_counts:
+        lines.extend(["## 📡 来源分布", ""])
+        max_count = max(source_counts.values())
+        lines.extend(
+            _format_source_bar(name, count, max_count)
+            for name, count in source_counts.items()
+        )
+        lines.append("")
+    rank_counts = classify_by_source_rank(items)
+    if rank_counts:
+        lines.extend(["## 🏛️ 信源等级分布", ""])
+        lines.extend(
+            f"- **{rank}**（{RANK_LABELS.get(rank, rank)}）: {count} 条"
+            for rank, count in rank_counts.items()
+        )
+        lines.append("")
+    tier_counts = classify_by_keyword_tier(items)
+    if tier_counts:
+        lines.extend(["## 🏷️ 主题分级", ""])
+        lines.extend(
+            f"- {TIER_LABELS.get(tier, tier)}: {count} 条"
+            for tier, count in tier_counts.items()
+        )
+        lines.append("")
+    keyword_counts = classify_by_keywords(items)
+    if keyword_counts:
+        lines.extend(["## 🔑 高频关键词 TOP15", ""])
+        lines.extend(
+            f"- **{keyword}**: {count} 次"
+            for keyword, count in keyword_counts.items()
+        )
+        lines.append("")
+
+
+def _append_failures(lines: list[str], agg: dict[str, Any]) -> None:
+    failed_source_ids = agg.get("failed_source_ids")
+    if not failed_source_ids:
+        return
+    lines.extend(["## ⚠️ 采集失败源", ""])
+    lines.extend(f"- `{source_id}`" for source_id in failed_source_ids)
+    lines.append("")
+
+
+def _append_news_item(lines: list[str], index: int, item: dict[str, Any]) -> None:
+    title = item.get("title") or item.get("excerpt") or "(无标题)"
+    source = item.get("source_name") or item.get("source") or "未知"
+    rank = item.get("source_rank") or ""
+    collected = item.get("collected_at") or ""
+    if "T" in collected:
+        collected = collected.split("T")[1][:8]
+    keywords = ", ".join(item.get("matched_keywords") or [])
+    tier = item.get("keyword_tier") or ""
+    status = item.get("status") or ""
+    tier_icon = {"critical": "🔴", "high": "🟡", "medium": "🟢"}.get(tier, "⚪")
+    lines.extend([f"### {index}. {title}", f"- 来源: {source} ({rank})"])
+    if collected:
+        lines.append(f"- 时间: {collected}")
+    if keywords:
+        lines.append(f"- 关键词: {tier_icon} {keywords}")
+    if status:
+        labels = {
+            "pending": "待L2",
+            "claimed": "L2处理中",
+            "graded": "已分级",
+            "expired": "已过期",
+        }
+        lines.append(f"- 状态: {labels.get(status, status)}")
+    url = item.get("url") or ""
+    fingerprint = item.get("fingerprint") or ""
+    if url:
+        lines.append(f"- 链接: {url}")
+    elif fingerprint:
+        lines.append(f"- 标识: `{fingerprint[:16]}…`")
+    lines.append("")
+
+
+def _append_news_items(
+    lines: list[str], items: list[dict[str, Any]], max_items: int
+) -> None:
+    display_items = items[:max_items]
+    if not display_items:
+        lines.extend(["## 📰 当日处理新闻", "", "当日无新闻进入处理管道。", ""])
+        return
+    lines.extend([
+        f"## 📰 当日处理新闻（前 {len(display_items)}/{len(items)} 条）",
+        "",
+    ])
+    for index, item in enumerate(display_items, 1):
+        _append_news_item(lines, index, item)
+
+
 def format_markdown(
     target_date: str,
     agg: dict[str, Any],
@@ -219,143 +344,14 @@ def format_markdown(
     max_items: int = 30,
 ) -> str:
     """Render the daily news brief as Markdown."""
-    lines: list[str] = []
-
-    # Header
-    lines.append(f"# 📰 新闻处理日报 | {target_date}")
-    lines.append("")
-
-    # ── Pipeline Overview ──
-    lines.append("## 📊 管道概览")
-    lines.append("")
-    lines.append(f"- **扫描轮次**: {agg['run_count']}")
-    lines.append(f"- **采集总量**: {agg['total_scanned']} 条")
-    lines.append(f"- **L1 评分**: {agg['total_l1_scored']} 条")
-    lines.append(f"- **L1 通过**: {agg['total_l1_passed']} 条")
-    lines.append(f"- **L1 拒绝**: {agg['total_l1_rejected']} 条")
-    lines.append(f"- **去重过滤**: {agg['total_duplicate']} 条")
-    lines.append(f"- **新入队列**: {agg['total_enqueued']} 条")
-    lines.append(f"- **累计指纹库**: {seen_count} 条")
-    lines.append("")
-
-    # ── Queue Status ──
-    if queue_items:
-        status_counts = classify_queue_by_status(queue_items)
-        lines.append("## 📋 队列状态（当日条目）")
-        lines.append("")
-        status_labels = {
-            "pending": "⏳ 待L2分级",
-            "claimed": "🔄 L2处理中",
-            "graded": "✅ 已分级",
-            "expired": "⏰ 已过期",
-        }
-        for status, count in status_counts.items():
-            label = status_labels.get(status, status)
-            lines.append(f"- {label}: {count}")
-        lines.append("")
-
-    # ── Source Distribution ──
+    lines = [f"# 📰 新闻处理日报 | {target_date}", ""]
+    _append_overview(lines, agg, seen_count)
+    _append_queue_status(lines, queue_items)
     all_items = agg.get("new_items") or queue_items
-    if all_items:
-        source_counts = classify_by_source(all_items)
-        if source_counts:
-            lines.append("## 📡 来源分布")
-            lines.append("")
-            max_count = max(source_counts.values()) if source_counts else 1
-            for name, count in source_counts.items():
-                lines.append(_format_source_bar(name, count, max_count))
-            lines.append("")
-
-    # ── Source Rank Distribution ──
-    if all_items:
-        rank_counts = classify_by_source_rank(all_items)
-        if rank_counts:
-            lines.append("## 🏛️ 信源等级分布")
-            lines.append("")
-            for rank, count in rank_counts.items():
-                label = RANK_LABELS.get(rank, rank)
-                lines.append(f"- **{rank}**（{label}）: {count} 条")
-            lines.append("")
-
-    # ── Keyword Tier Distribution ──
-    if all_items:
-        tier_counts = classify_by_keyword_tier(all_items)
-        if tier_counts:
-            lines.append("## 🏷️ 主题分级")
-            lines.append("")
-            for tier, count in tier_counts.items():
-                label = TIER_LABELS.get(tier, tier)
-                lines.append(f"- {label}: {count} 条")
-            lines.append("")
-
-    # ── Top Keywords ──
-    if all_items:
-        kw_counts = classify_by_keywords(all_items)
-        if kw_counts:
-            lines.append("## 🔑 高频关键词 TOP15")
-            lines.append("")
-            for kw, count in kw_counts.items():
-                lines.append(f"- **{kw}**: {count} 次")
-            lines.append("")
-
-    # ── Failure Stats ──
-    if agg.get("failed_source_ids"):
-        lines.append("## ⚠️ 采集失败源")
-        lines.append("")
-        for sid in agg["failed_source_ids"]:
-            lines.append(f"- `{sid}`")
-        lines.append("")
-
-    # ── Actual News Items ──
-    display_items = all_items[:max_items]
-    if display_items:
-        lines.append(f"## 📰 当日处理新闻（前 {len(display_items)}/{len(all_items)} 条）")
-        lines.append("")
-        for idx, item in enumerate(display_items, 1):
-            title = item.get("title") or item.get("excerpt") or "(无标题)"
-            source = item.get("source_name") or item.get("source") or "未知"
-            rank = item.get("source_rank") or ""
-            collected = item.get("collected_at") or ""
-            # Show only time part if full datetime
-            if "T" in collected:
-                collected = collected.split("T")[1][:8]
-            url = item.get("url") or ""
-            fp = item.get("fingerprint") or ""
-            keywords = ", ".join(item.get("matched_keywords") or [])
-            tier = item.get("keyword_tier") or ""
-            status = item.get("status") or ""
-
-            tier_icon = {"critical": "🔴", "high": "🟡", "medium": "🟢"}.get(tier, "⚪")
-
-            lines.append(f"### {idx}. {title}")
-            lines.append(f"- 来源: {source} ({rank})")
-            if collected:
-                lines.append(f"- 时间: {collected}")
-            if keywords:
-                lines.append(f"- 关键词: {tier_icon} {keywords}")
-            if status:
-                status_labels_item = {
-                    "pending": "待L2",
-                    "claimed": "L2处理中",
-                    "graded": "已分级",
-                    "expired": "已过期",
-                }
-                lines.append(f"- 状态: {status_labels_item.get(status, status)}")
-            if url:
-                lines.append(f"- 链接: {url}")
-            elif fp:
-                lines.append(f"- 标识: `{fp[:16]}…`")
-            lines.append("")
-    else:
-        lines.append("## 📰 当日处理新闻")
-        lines.append("")
-        lines.append("当日无新闻进入处理管道。")
-        lines.append("")
-
-    # Footer
-    lines.append("---")
-    now_str = datetime.now(BJ).strftime("%Y-%m-%d %H:%M:%S")
-    lines.append(f"*生成时间: {now_str} CST*")
+    _append_distributions(lines, all_items)
+    _append_failures(lines, agg)
+    _append_news_items(lines, all_items, max_items)
+    lines.extend(["---", f"*生成时间: {datetime.now(BJ).strftime('%Y-%m-%d %H:%M:%S')} CST*"])
 
     return "\n".join(lines)
 

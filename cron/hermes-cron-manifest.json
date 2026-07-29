@@ -1046,7 +1046,12 @@
       "name": "新闻处理日报",
       "schedule": "0 18 * * 1-5",
       "timezone": "Asia/Shanghai",
-      "command": "python scripts/run_agent_dag.py news-daily-brief --emit-target",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "news-daily-brief",
+        "--emit-target"
+      ],
       "cwd": ".",
       "enabled": true,
       "external": true,
@@ -1064,7 +1069,11 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "command": "python scripts/news_daily_brief.py --json",
+        "argv": [
+          "python",
+          "scripts/news_daily_brief.py",
+          "--json"
+        ],
         "cwd": ".",
         "timeout_seconds": 60
       },
