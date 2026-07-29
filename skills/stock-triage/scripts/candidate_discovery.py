@@ -42,6 +42,7 @@ from config_registry import config_path  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
 from market_adapters import (  # noqa: E402
+    fetch_a_share_spot,
     fetch_a_share_daily_kline,
     fetch_a_share_daily_series,
     fetch_tencent_quote_with_provenance as fetch_tencent_quote,
@@ -402,6 +403,40 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
                     time.sleep(0.5 * (2 ** attempt))
         raise last_error or DataSourceError("tencent", "unknown quote failure")
 
+    def _spot_quotes() -> Dict[str, Dict[str, Any]]:
+        spot = fetch_a_share_spot()
+        if hasattr(spot, "to_dict"):
+            rows = spot.to_dict("records")
+        elif isinstance(spot, Sequence) and not isinstance(spot, (str, bytes)):
+            rows = list(spot)
+        else:
+            rows = []
+        source = str(getattr(fetch_a_share_spot, "last_source", "akshare_sina"))
+        if source == "eastmoney_push2_degraded":
+            source = "eastmoney_push2"
+        mapped: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            code = candidate_pipeline.naked_code(
+                row.get("代码") or row.get("code") or row.get("stock_code")
+            )
+            if not code or code not in metadata:
+                continue
+            mapped[code] = {
+                **metadata[code],
+                **dict(row),
+                "code": code,
+                "name": row.get("名称") or row.get("name") or metadata[code].get("name") or code,
+                "price": row.get("price") or row.get("最新价") or row.get("close") or row.get("trade"),
+                "volume": row.get("volume") or row.get("成交量") or row.get("vol"),
+                "amount": row.get("amount") or row.get("成交额") or row.get("turnover"),
+                "prev_close": row.get("prev_close") or row.get("昨收") or row.get("settlement"),
+                "change_pct": row.get("change_pct") or row.get("涨跌幅") or row.get("changepercent"),
+                "quote_source": source,
+            }
+        return mapped
+
     quotes: Dict[str, Dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(_fetch, batch) for batch in batches]
@@ -414,9 +449,16 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
                 code = candidate_pipeline.naked_code(prefixed)
                 quotes[code] = {**metadata.get(code, {}), **fields, "code": code}
     if len(quotes) < minimum_coverage:
-        raise DataSourceError("tencent", f"全市场行情覆盖不足: {len(quotes)}/{len(universe)}")
+        try:
+            spot_quotes = _spot_quotes()
+        except DataSourceError:
+            spot_quotes = {}
+        for code, fields in spot_quotes.items():
+            quotes.setdefault(code, fields)
+    if len(quotes) < minimum_coverage:
+        raise DataSourceError("market_quotes", f"全市场行情覆盖不足: {len(quotes)}/{len(universe)}")
     quotes = {
-        code: {**fields, "quote_source": "live"}
+        code: {**fields, "quote_source": fields.get("quote_source", "tencent")}
         for code, fields in quotes.items()
     }
     atomic_write_json(quotes_cache_file(), {
@@ -424,7 +466,10 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
         "updated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
         "quotes": quotes,
     })
-    fetch_universe_quotes.last_quote_source = "live"
+    sources = {str(fields.get("quote_source") or "tencent") for fields in quotes.values()}
+    fetch_universe_quotes.last_quote_source = (
+        next(iter(sources)) if len(sources) == 1 else "mixed"
+    )
     return quotes
 
 
