@@ -1,7 +1,7 @@
 """Candidate discovery integration tests with injected data sources."""
 
 import importlib.util
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -27,6 +27,144 @@ def _bars(start):
         }
         for i in range(60)
     ]
+
+
+def test_is_auction_window():
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 14)) is False
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 15)) is True
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 20)) is True
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 25)) is True
+    assert discovery.is_auction_window(datetime(2026, 7, 29, 9, 26)) is False
+
+
+def test_fetch_universe_quotes_uses_cache_in_auction_window(monkeypatch):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    cached = {
+        item["code"]: {
+            "price": 10.0,
+            "volume": 1_000,
+            "amount": 100_000_000,
+        }
+        for item in universe
+    }
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: True)
+    monkeypatch.setattr(discovery, "load_cached_quotes", lambda: cached)
+    monkeypatch.setattr(
+        discovery,
+        "fetch_tencent_quote",
+        lambda _codes: pytest.fail("竞价窗口不应调用腾讯实时行情"),
+    )
+
+    quotes = discovery.fetch_universe_quotes(universe)
+
+    assert len(quotes) == len(universe)
+    assert all(item["quote_source"] == "cache" for item in quotes.values())
+    assert quotes["600000"]["price"] == 10.0
+
+
+def test_fetch_universe_quotes_saves_cache(monkeypatch, tmp_path):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: False)
+    monkeypatch.setattr(discovery, "quotes_cache_file", lambda: str(tmp_path / "quotes.json"))
+    monkeypatch.setattr(
+        discovery,
+        "load_config",
+        lambda: {
+            "network": {
+                "quote_batch_size": 500,
+                "quote_workers": 1,
+                "request_retries": 0,
+                "quote_min_coverage": 0.95,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        discovery,
+        "fetch_tencent_quote",
+        lambda codes: {
+            code: {"price": 10.0, "volume": 1_000, "amount": 100_000_000}
+            for code in codes
+        },
+    )
+
+    quotes = discovery.fetch_universe_quotes(universe)
+    cached = read_json(str(tmp_path / "quotes.json"), {})
+
+    assert len(quotes) == 500
+    assert cached["schema"] == "universe_quotes_cache_v1"
+    assert len(cached["quotes"]) == 500
+    assert cached["quotes"]["600000"]["quote_source"] == "tencent"
+
+
+def _quote_config():
+    return {
+        "network": {
+            "quote_batch_size": 500,
+            "quote_workers": 1,
+            "request_retries": 0,
+            "quote_min_coverage": 0.95,
+        },
+    }
+
+
+def test_fetch_universe_quotes_fallback_to_spot(monkeypatch, tmp_path):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: False)
+    monkeypatch.setattr(discovery, "load_config", _quote_config)
+    monkeypatch.setattr(discovery, "quotes_cache_file", lambda: str(tmp_path / "quotes.json"))
+    monkeypatch.setattr(
+        discovery,
+        "fetch_tencent_quote",
+        lambda _codes: (_ for _ in ()).throw(discovery.DataSourceError("tencent", "down")),
+    )
+
+    def spot():
+        return [
+            {
+                "代码": item["code"],
+                "名称": item["name"],
+                "最新价": 10.0,
+                "成交量": 1_000,
+                "成交额": 100_000_000,
+            }
+            for item in universe
+        ]
+
+    spot.last_source = "eastmoney_datacenter"
+    monkeypatch.setattr(discovery, "fetch_a_share_spot", spot)
+
+    quotes = discovery.fetch_universe_quotes(universe)
+
+    assert len(quotes) == len(universe)
+    assert quotes["600000"]["price"] == 10.0
+    assert quotes["600000"]["volume"] == 1_000
+    assert quotes["600000"]["amount"] == 100_000_000
+    assert quotes["600000"]["quote_source"] == "eastmoney_datacenter"
+
+
+def test_fetch_universe_quotes_tencent_preferred(monkeypatch, tmp_path):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: False)
+    monkeypatch.setattr(discovery, "load_config", _quote_config)
+    monkeypatch.setattr(discovery, "quotes_cache_file", lambda: str(tmp_path / "quotes.json"))
+    monkeypatch.setattr(
+        discovery,
+        "fetch_tencent_quote",
+        lambda codes: {
+            code: {"price": 11.0, "volume": 1_000, "amount": 100_000_000}
+            for code in codes
+        },
+    )
+    monkeypatch.setattr(
+        discovery,
+        "fetch_a_share_spot",
+        lambda _spot: pytest.fail("腾讯覆盖充足时不应调用 spot fallback"),
+    )
+
+    quotes = discovery.fetch_universe_quotes(universe)
+
+    assert len(quotes) == len(universe)
+    assert quotes["600000"]["quote_source"] == "tencent"
 
 
 def test_preopen_bootstrap_reuses_only_ready_recent_nonfuture_pool():
@@ -580,6 +718,7 @@ def test_full_market_quotes_fail_closed_below_configured_coverage(monkeypatch):
         }
 
     monkeypatch.setattr(discovery, "fetch_tencent_quote", partial_quotes)
+    monkeypatch.setattr(discovery, "fetch_a_share_spot", lambda: [])
 
     with pytest.raises(discovery.DataSourceError, match="覆盖不足"):
         discovery.fetch_universe_quotes(universe)

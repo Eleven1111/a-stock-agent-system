@@ -170,9 +170,49 @@
       "external_note": "08:42 多源采集东方财富/雪球社会关注度；单源仅展示，失败不阻断交易主链路"
     },
     {
+      "id": "candidate-warmup",
+      "name": "盘前行情缓存预热",
+      "schedule": "15 8 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "candidate-warmup",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 800,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/exchange_universe.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/universe_quotes_cache.json",
+        "$A_STOCK_STATE_HOME/cron/output/candidate-warmup/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/stock-triage/scripts/candidate_discovery.py",
+          "--warmup-cache",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 300
+      },
+      "external_note": "08:15 仅刷新全市场行情缓存，不生成候选池 artifact"
+    },
+    {
       "id": "candidate-preopen",
       "name": "盘前候选池引导",
-      "schedule": "45 8 * * 1-5",
+      "schedule": "30 8 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command_argv": [
         "python",
@@ -221,9 +261,9 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 420
+        "timeout_seconds": 600
       },
-      "external_note": "08:45 复用有效的 D0 收盘候选池；仅冷启动或池过期时扫描，且不在盘前价格结算历史候选"
+      "external_note": "08:30 复用有效的 D0 收盘候选池；仅冷启动或池过期时扫描，且不在盘前价格结算历史候选"
     },
     {
       "id": "preopen-intelligence-brief",
@@ -500,7 +540,7 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 90,
+        "max_age_minutes": 120,
         "optional_jobs": []
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",

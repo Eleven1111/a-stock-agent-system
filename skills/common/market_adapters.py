@@ -139,6 +139,7 @@ def _fallback_chain(
     attempts: Sequence[tuple[str, Callable[[], Any]]],
     *,
     empty: Any,
+    return_provider: bool = False,
 ) -> Any:
     errors: list[str] = []
     for provider, fetcher in attempts:
@@ -148,11 +149,11 @@ def _fallback_chain(
             errors.append(f"{provider}: {exc.message}")
             continue
         if _is_non_empty(value):
-            return value
+            return (value, provider) if return_provider else value
         errors.append(f"{provider}: empty")
     if errors:
         raise DataSourceError("market_adapters", f"{dataset} all providers failed: {'; '.join(errors)}")
-    return empty
+    return (empty, None) if return_provider else empty
 
 
 def _is_non_empty(value: Any) -> bool:
@@ -522,6 +523,7 @@ def fetch_a_share_spot():
     cache_key = "all"
     cached = _cache_get("spot", cache_key, max_age_seconds=300)
     if isinstance(cached, list) and cached:
+        fetch_a_share_spot.last_source = "cache"
         return _records_frame(cached)
 
     def akshare_sina() -> list[dict[str, Any]]:
@@ -588,17 +590,19 @@ def fetch_a_share_spot():
             for row in diff
         ])
 
-    records = _fallback_chain(
+    records, provider = _fallback_chain(
         "a_share_spot",
         (
-            ("akshare", akshare_sina),
+            ("akshare_sina", akshare_sina),
             ("adata", adata_spot),
             ("eastmoney_datacenter", datacenter_spot),
             ("mootdx", lambda: []),  # mootdx spot is catalog-only; live quotes use bars/quote
             ("eastmoney_push2_degraded", eastmoney_push2_spot),
         ),
         empty=[],
+        return_provider=True,
     )
+    fetch_a_share_spot.last_source = provider or "unknown"
     _cache_set("spot", cache_key, records)
     return _records_frame(records)
 

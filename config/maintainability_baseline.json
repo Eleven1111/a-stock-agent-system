@@ -1,7 +1,7 @@
 {
   "baseline_ref": "origin/main",
   "budget": {
-    "broad_exception": 146,
+    "broad_exception": 147,
     "long_function": 65,
     "sys_path_mutation": 119
   },
@@ -64,6 +64,20 @@
       "symbol": "<module>"
     },
     {
+      "id": "414370d32a7c171275fc",
+      "kind": "sys_path_mutation",
+      "line": 147,
+      "path": "scripts/cron_dispatch.py",
+      "symbol": "_trace_module"
+    },
+    {
+      "id": "2538c8dd9a7283f65041",
+      "kind": "broad_exception",
+      "line": 150,
+      "path": "scripts/cron_dispatch.py",
+      "symbol": "_trace_module"
+    },
+    {
       "id": "8c5132a372f6a53ceca5",
       "kind": "sys_path_mutation",
       "line": 24,
@@ -87,21 +101,35 @@
     {
       "id": "0c85c36c86e6f48d36bb",
       "kind": "sys_path_mutation",
-      "line": 23,
+      "line": 24,
       "path": "scripts/dual_runtime_audit.py",
       "symbol": "<module>"
     },
     {
       "id": "891decf0b82bc3505ae1",
       "kind": "sys_path_mutation",
-      "line": 24,
+      "line": 25,
       "path": "scripts/dual_runtime_audit.py",
+      "symbol": "<module>"
+    },
+    {
+      "id": "822f08a11b3e95a2499f",
+      "kind": "sys_path_mutation",
+      "line": 27,
+      "path": "scripts/evaluate_agent_harness.py",
+      "symbol": "<module>"
+    },
+    {
+      "id": "3fb4ab6f6c0d2a96df71",
+      "kind": "sys_path_mutation",
+      "line": 28,
+      "path": "scripts/execution_trace_report.py",
       "symbol": "<module>"
     },
     {
       "id": "fc06a5c645ce235957b1",
       "kind": "sys_path_mutation",
-      "line": 22,
+      "line": 23,
       "path": "scripts/expert_runner.py",
       "symbol": "<module>"
     },
@@ -122,7 +150,7 @@
     {
       "id": "84a484a484e2e16abf41",
       "kind": "long_function",
-      "line": 125,
+      "line": 135,
       "path": "scripts/generate_openclaw_cron.py",
       "symbol": "build_openclaw_commands"
     },
@@ -136,14 +164,14 @@
     {
       "id": "602fc42e9347f501ddbe",
       "kind": "sys_path_mutation",
-      "line": 21,
+      "line": 20,
       "path": "scripts/hermes_job_runner.py",
       "symbol": "<module>"
     },
     {
       "id": "944712e9fab0cf807f6b",
       "kind": "long_function",
-      "line": 152,
+      "line": 180,
       "path": "scripts/hermes_job_runner.py",
       "symbol": "run_job"
     },
@@ -290,7 +318,7 @@
     {
       "id": "ee020c32a71e38d45ff7",
       "kind": "long_function",
-      "line": 121,
+      "line": 160,
       "path": "scripts/run_agent_dag.py",
       "symbol": "execute_dag"
     },
@@ -365,9 +393,16 @@
       "symbol": "run"
     },
     {
+      "id": "e061efe19eba948b86ef",
+      "kind": "sys_path_mutation",
+      "line": 9,
+      "path": "scripts/validate_cron_manifest.py",
+      "symbol": "<module>"
+    },
+    {
       "id": "583a9f46e3bde094aec8",
       "kind": "long_function",
-      "line": 69,
+      "line": 92,
       "path": "scripts/validate_cron_manifest.py",
       "symbol": "validate"
     },
@@ -528,14 +563,14 @@
     {
       "id": "ac592c4d56d23899547d",
       "kind": "long_function",
-      "line": 211,
+      "line": 245,
       "path": "skills/chanlun-backtest/scripts/portfolio_backtest.py",
       "symbol": "_prepare_orders"
     },
     {
       "id": "d357225b0edd6ea23221",
       "kind": "long_function",
-      "line": 369,
+      "line": 468,
       "path": "skills/chanlun-backtest/scripts/portfolio_backtest.py",
       "symbol": "run_portfolio"
     },
@@ -559,6 +594,13 @@
       "line": 18,
       "path": "skills/common/a_stock_http.py",
       "symbol": "<module>"
+    },
+    {
+      "id": "b42a2c325734d2dbdfd3",
+      "kind": "broad_exception",
+      "line": 96,
+      "path": "skills/common/agent_runtime_adapter.py",
+      "symbol": "run"
     },
     {
       "id": "01392a1f9176ad1cde14",
@@ -647,7 +689,7 @@
     {
       "id": "5c791ee4fbc5f8344cd4",
       "kind": "long_function",
-      "line": 242,
+      "line": 250,
       "path": "skills/common/data_access_config.py",
       "symbol": "_sanitize"
     },
@@ -661,7 +703,7 @@
     {
       "id": "042bb6dbd72e68cab84b",
       "kind": "long_function",
-      "line": 139,
+      "line": 144,
       "path": "skills/common/decision_policy.py",
       "symbol": "evaluate_decision"
     },
@@ -675,16 +717,30 @@
     {
       "id": "bd4503044d5105b9f562",
       "kind": "broad_exception",
-      "line": 73,
+      "line": 72,
       "path": "skills/common/eastmoney_intelligence.py",
       "symbol": "_write_json"
     },
     {
       "id": "bdac4d8a1a7f30394b96",
       "kind": "broad_exception",
-      "line": 137,
+      "line": 136,
       "path": "skills/common/eastmoney_intelligence.py",
       "symbol": "_coordination_lock"
+    },
+    {
+      "id": "c6b9138f9442ec054f40",
+      "kind": "broad_exception",
+      "line": 314,
+      "path": "skills/common/eastmoney_intelligence.py",
+      "symbol": "provider_health"
+    },
+    {
+      "id": "e15045c49e5994926bd4",
+      "kind": "broad_exception",
+      "line": 732,
+      "path": "skills/common/eastmoney_intelligence.py",
+      "symbol": "extract_consensus_eps"
     },
     {
       "id": "55352c4a43e1e3214ce0",
@@ -710,42 +766,42 @@
     {
       "id": "3270db13f6f25b3f5eec",
       "kind": "broad_exception",
-      "line": 261,
+      "line": 263,
       "path": "skills/common/evidence_pack.py",
       "symbol": "_news_evidence"
     },
     {
       "id": "ea80c9351b3fae464788",
       "kind": "broad_exception",
-      "line": 285,
+      "line": 287,
       "path": "skills/common/evidence_pack.py",
       "symbol": "_interactive_qa_evidence"
     },
     {
       "id": "d650bdb21e2d4a3f11b8",
       "kind": "broad_exception",
-      "line": 314,
+      "line": 316,
       "path": "skills/common/evidence_pack.py",
       "symbol": "_current_regime"
     },
     {
       "id": "c9a1cfdace0aee3fd46a",
       "kind": "broad_exception",
-      "line": 342,
+      "line": 344,
       "path": "skills/common/evidence_pack.py",
       "symbol": "_strategy_pack_hints"
     },
     {
       "id": "9e28bd3cf047ce4ad44e",
       "kind": "broad_exception",
-      "line": 393,
+      "line": 395,
       "path": "skills/common/evidence_pack.py",
       "symbol": "_subject_data"
     },
     {
       "id": "41fa81bc7bbbbef68297",
       "kind": "broad_exception",
-      "line": 405,
+      "line": 407,
       "path": "skills/common/evidence_pack.py",
       "symbol": "_subject_data"
     },
@@ -759,7 +815,7 @@
     {
       "id": "db56b070f5d9be3e1c51",
       "kind": "long_function",
-      "line": 189,
+      "line": 190,
       "path": "skills/common/hot_money_selection.py",
       "symbol": "build_sector_leadership"
     },
@@ -773,14 +829,14 @@
     {
       "id": "afb8f6e8a39904a43fe7",
       "kind": "broad_exception",
-      "line": 196,
+      "line": 210,
       "path": "skills/common/http_client.py",
       "symbol": "_record_health"
     },
     {
       "id": "06d8ccfe4f39ffb9d4ea",
       "kind": "long_function",
-      "line": 199,
+      "line": 213,
       "path": "skills/common/http_client.py",
       "symbol": "request_bytes"
     },
@@ -822,79 +878,107 @@
     {
       "id": "ddf40dc31ea55741f4bd",
       "kind": "broad_exception",
-      "line": 86,
+      "line": 93,
       "path": "skills/common/market_adapters.py",
       "symbol": "_cache_set"
     },
     {
       "id": "ba8636e9c01807b7c348",
       "kind": "broad_exception",
-      "line": 94,
+      "line": 101,
       "path": "skills/common/market_adapters.py",
       "symbol": "_recorded_call"
     },
     {
       "id": "18b15abfa8f067a07fb1",
       "kind": "broad_exception",
-      "line": 107,
+      "line": 114,
       "path": "skills/common/market_adapters.py",
       "symbol": "_recorded_call"
     },
     {
       "id": "40953b6c990a6b34c2e8",
       "kind": "broad_exception",
-      "line": 159,
+      "line": 167,
       "path": "skills/common/market_adapters.py",
       "symbol": "_is_non_empty"
     },
     {
       "id": "833b287919476a938883",
       "kind": "broad_exception",
-      "line": 174,
+      "line": 395,
       "path": "skills/common/market_adapters.py",
       "symbol": "_frame_records"
     },
     {
       "id": "7a0d4a82e6544417b408",
       "kind": "long_function",
-      "line": 300,
+      "line": 521,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_a_share_spot"
     },
     {
       "id": "987bb9e9545a5776f9e0",
       "kind": "broad_exception",
-      "line": 406,
+      "line": 631,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_a_share_quote"
     },
     {
+      "id": "af2bc6f5da834fb80962",
+      "kind": "broad_exception",
+      "line": 644,
+      "path": "skills/common/market_adapters.py",
+      "symbol": "_mootdx_kline"
+    },
+    {
       "id": "fee0fda7fb28d94c38d1",
       "kind": "broad_exception",
-      "line": 502,
+      "line": 888,
       "path": "skills/common/market_adapters.py",
       "symbol": "_fetch_eastmoney_push2_kline"
     },
     {
+      "id": "cc665af84ba2d784cd92",
+      "kind": "broad_exception",
+      "line": 1096,
+      "path": "skills/common/market_adapters.py",
+      "symbol": "_save_northbound_snapshot"
+    },
+    {
+      "id": "72ad698a7dc9bdcfd220",
+      "kind": "broad_exception",
+      "line": 1117,
+      "path": "skills/common/market_adapters.py",
+      "symbol": "_load_northbound_history"
+    },
+    {
       "id": "668b2de12594eac05bba",
       "kind": "broad_exception",
-      "line": 851,
+      "line": 1328,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_hot_money_limitup_pool"
     },
     {
       "id": "1bedcefe44fa24e0a061",
       "kind": "broad_exception",
-      "line": 860,
+      "line": 1337,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_hot_money_strong_pool"
     },
     {
       "id": "5f46a797893280aee2eb",
       "kind": "broad_exception",
-      "line": 869,
+      "line": 1346,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_industry_catalog_ths"
+    },
+    {
+      "id": "a3826d18ee892efa5bd0",
+      "kind": "long_function",
+      "line": 1433,
+      "path": "skills/common/market_adapters.py",
+      "symbol": "fetch_concept_boards"
     },
     {
       "id": "1e6d7a1e987487e0b45f",
@@ -911,16 +995,44 @@
       "symbol": "<module>"
     },
     {
+      "id": "8aef716f23e30ba1fa1b",
+      "kind": "broad_exception",
+      "line": 52,
+      "path": "skills/common/mootdx_adapter.py",
+      "symbol": "_get_client"
+    },
+    {
+      "id": "3caff1b13ad07da6708b",
+      "kind": "broad_exception",
+      "line": 79,
+      "path": "skills/common/mootdx_adapter.py",
+      "symbol": "fetch_mootdx_bars"
+    },
+    {
+      "id": "bcd3c1fe5508a8389536",
+      "kind": "broad_exception",
+      "line": 126,
+      "path": "skills/common/mootdx_adapter.py",
+      "symbol": "fetch_mootdx_quote"
+    },
+    {
+      "id": "a074fd7c3b60a9ade47a",
+      "kind": "broad_exception",
+      "line": 193,
+      "path": "skills/common/mootdx_adapter.py",
+      "symbol": "fetch_mootdx_spot"
+    },
+    {
       "id": "dd51b4643e1cd6dcc57b",
       "kind": "long_function",
-      "line": 386,
+      "line": 394,
       "path": "skills/common/news_pipeline.py",
       "symbol": "read_graded_news"
     },
     {
       "id": "a2bd950b2ae97677f385",
       "kind": "broad_exception",
-      "line": 417,
+      "line": 425,
       "path": "skills/common/news_pipeline.py",
       "symbol": "read_graded_news"
     },
@@ -934,14 +1046,14 @@
     {
       "id": "8ce23e94b14133b9aa9a",
       "kind": "broad_exception",
-      "line": 339,
+      "line": 372,
       "path": "skills/common/news_sources.py",
       "symbol": "fetch_source"
     },
     {
       "id": "c87df31c35ad82c8a6f0",
       "kind": "sys_path_mutation",
-      "line": 365,
+      "line": 398,
       "path": "skills/common/news_sources.py",
       "symbol": "<module>"
     },
@@ -960,18 +1072,18 @@
       "symbol": "_parse_miaoxiang_response"
     },
     {
+      "id": "edf01c8a378d356fce91",
+      "kind": "long_function",
+      "line": 130,
+      "path": "skills/common/quality_gate.py",
+      "symbol": "check_quality"
+    },
+    {
       "id": "2b9dce6d2a9af927bc06",
       "kind": "long_function",
       "line": 275,
       "path": "skills/common/recommendation_quality.py",
       "symbol": "build_execution_plan"
-    },
-    {
-      "id": "37024b7e6ba87e73320f",
-      "kind": "sys_path_mutation",
-      "line": 17,
-      "path": "skills/common/research_evidence.py",
-      "symbol": "<module>"
     },
     {
       "id": "8d2f8e699fb05c66654e",
@@ -1081,14 +1193,14 @@
     {
       "id": "cca233e629576868b8c2",
       "kind": "sys_path_mutation",
-      "line": 26,
+      "line": 28,
       "path": "skills/common/strategy_registry.py",
       "symbol": "<module>"
     },
     {
       "id": "1c27e4a5aaafb10a4f42",
       "kind": "broad_exception",
-      "line": 223,
+      "line": 599,
       "path": "skills/common/strategy_registry.py",
       "symbol": "strategy_pack_hypotheses"
     },
@@ -1130,7 +1242,7 @@
     {
       "id": "db074870deffd506aaef",
       "kind": "long_function",
-      "line": 238,
+      "line": 285,
       "path": "skills/daban-stock-picker/scripts/auction_collector.py",
       "symbol": "finalize"
     },
@@ -1193,21 +1305,21 @@
     {
       "id": "618262066dc6ea9072fe",
       "kind": "broad_exception",
-      "line": 89,
+      "line": 99,
       "path": "skills/daban-stock-picker/scripts/open_confirmation.py",
       "symbol": "_advance_fsm_to_candidate"
     },
     {
       "id": "c66285a3d1feb526a061",
       "kind": "long_function",
-      "line": 368,
+      "line": 490,
       "path": "skills/daban-stock-picker/scripts/open_confirmation.py",
       "symbol": "rank_confirmations"
     },
     {
       "id": "9d1eb6cfb5766b61fe83",
       "kind": "long_function",
-      "line": 514,
+      "line": 636,
       "path": "skills/daban-stock-picker/scripts/open_confirmation.py",
       "symbol": "build_confirmation"
     },
@@ -1536,42 +1648,42 @@
     {
       "id": "97564abc9bc01be686b6",
       "kind": "broad_exception",
-      "line": 276,
+      "line": 372,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_kline_from_akshare_tx"
     },
     {
       "id": "eca920e6f12af73518ca",
       "kind": "broad_exception",
-      "line": 315,
+      "line": 411,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_kline_from_baostock"
     },
     {
       "id": "28df4c1b8dde54e32b1c",
       "kind": "broad_exception",
-      "line": 442,
+      "line": 544,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_zt_pool"
     },
     {
       "id": "8e525f0d0c6211461451",
       "kind": "broad_exception",
-      "line": 468,
+      "line": 570,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_sectors_ths"
     },
     {
       "id": "665fde66d81ad9de33c4",
       "kind": "broad_exception",
-      "line": 516,
+      "line": 618,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_stock_info_xq"
     },
     {
       "id": "545c8bb69c7e4dda22c9",
       "kind": "broad_exception",
-      "line": 569,
+      "line": 671,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_stock_list"
     },
@@ -1718,63 +1830,70 @@
     {
       "id": "5529876c6d58167d17ef",
       "kind": "broad_exception",
-      "line": 133,
+      "line": 135,
       "path": "skills/stock-triage/scripts/batch_four_dim_scorer.py",
       "symbol": "score_targets._one"
     },
     {
       "id": "c278ad8408021bf75f3f",
       "kind": "sys_path_mutation",
-      "line": 30,
+      "line": 31,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "<module>"
     },
     {
       "id": "cce0d92fcafac1dc1eda",
       "kind": "broad_exception",
-      "line": 265,
+      "line": 309,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "fetch_exchange_universe"
     },
     {
       "id": "37eb11a6a14ff8e0202a",
       "kind": "broad_exception",
-      "line": 380,
+      "line": 520,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "fetch_candidate_klines"
     },
     {
       "id": "c8aef5dd2e90bf188c87",
       "kind": "broad_exception",
-      "line": 415,
+      "line": 632,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "_advance_fsm_to_watching"
     },
     {
       "id": "945681d3993cd661fa62",
       "kind": "broad_exception",
-      "line": 509,
+      "line": 726,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "load_signal_context_for_discovery"
     },
     {
       "id": "1bc7a234815725b2c818",
       "kind": "long_function",
-      "line": 612,
+      "line": 830,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "run_discovery"
     },
     {
       "id": "d1d324ab8b1ca8daea09",
       "kind": "broad_exception",
-      "line": 644,
+      "line": 862,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "run_discovery"
     },
     {
+      "id": "d5031f4d3d87a874335f",
+      "kind": "broad_exception",
+      "line": 1351,
+      "path": "skills/stock-triage/scripts/candidate_discovery.py",
+      "symbol": "_run_warmup_cache"
+    },
+    {
       "id": "aac7454d408a58aa7f5b",
       "kind": "broad_exception",
-      "line": 1196,
+      "line": 1423,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "main"
     },
@@ -1795,35 +1914,42 @@
     {
       "id": "75d639b53e5b53ad0358",
       "kind": "broad_exception",
-      "line": 89,
+      "line": 90,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "_fetch_sector_code_map"
     },
     {
+      "id": "628ca709910d9be859df",
+      "kind": "broad_exception",
+      "line": 325,
+      "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
+      "symbol": "_fetch_sector_board_page"
+    },
+    {
       "id": "2ef6dcf42e87a54ca02a",
       "kind": "broad_exception",
-      "line": 338,
+      "line": 365,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "fetch_index_return_5d"
     },
     {
       "id": "1a4ca28d2bf6f834c573",
       "kind": "long_function",
-      "line": 403,
+      "line": 430,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "collect_flow_data"
     },
     {
       "id": "0c7bb541ac06ebf2bb84",
       "kind": "broad_exception",
-      "line": 561,
+      "line": 591,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "collect_flow_data"
     },
     {
       "id": "98fa622dc596dd4fa005",
       "kind": "broad_exception",
-      "line": 684,
+      "line": 714,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "cache_signal_context"
     },
@@ -1858,21 +1984,21 @@
     {
       "id": "7b9ab9919cfbde4e77c2",
       "kind": "broad_exception",
-      "line": 202,
+      "line": 214,
       "path": "skills/stock-triage/scripts/eod_anomaly_scanner.py",
       "symbol": "_fetch_universe_with_retry"
     },
     {
       "id": "a32b579a5512ec09e419",
       "kind": "broad_exception",
-      "line": 221,
+      "line": 233,
       "path": "skills/stock-triage/scripts/eod_anomaly_scanner.py",
       "symbol": "_fetch_minute_signals"
     },
     {
       "id": "edd0b9f49168851c1581",
       "kind": "broad_exception",
-      "line": 239,
+      "line": 251,
       "path": "skills/stock-triage/scripts/eod_anomaly_scanner.py",
       "symbol": "_fetch_60d_positions"
     },
@@ -1940,44 +2066,51 @@
       "symbol": "score_technical"
     },
     {
+      "id": "7f791a9a66b47ec3c3ab",
+      "kind": "broad_exception",
+      "line": 510,
+      "path": "skills/stock-triage/scripts/four_dim_scorer.py",
+      "symbol": "_fetch_eps_consensus"
+    },
+    {
       "id": "77b6dc84e656ca810a80",
       "kind": "broad_exception",
-      "line": 566,
+      "line": 624,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "_load_scoring_config"
     },
     {
       "id": "6c0bd34a1b61f9cf5506",
       "kind": "broad_exception",
-      "line": 770,
+      "line": 828,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "_load_historical_reference"
     },
     {
       "id": "27cfc837fe4e5f54521d",
       "kind": "long_function",
-      "line": 774,
+      "line": 832,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "score_stock"
     },
     {
       "id": "74cd5e53532376f53efa",
       "kind": "long_function",
-      "line": 926,
+      "line": 989,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "format_report"
     },
     {
       "id": "a6397a707953b0d5b948",
       "kind": "long_function",
-      "line": 1045,
+      "line": 1100,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "score_short_term_entry"
     },
     {
       "id": "4ad836575e2290248a01",
       "kind": "broad_exception",
-      "line": 1099,
+      "line": 1154,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "score_short_term_entry"
     },
@@ -2019,14 +2152,14 @@
     {
       "id": "41c94388cc72d82f72a4",
       "kind": "long_function",
-      "line": 264,
+      "line": 300,
       "path": "skills/stock-triage/scripts/intraday_monitor.py",
       "symbol": "check_intraday"
     },
     {
       "id": "5514a8644c3abcd824e0",
       "kind": "broad_exception",
-      "line": 376,
+      "line": 415,
       "path": "skills/stock-triage/scripts/intraday_monitor.py",
       "symbol": "check_intraday"
     },
@@ -2061,119 +2194,112 @@
     {
       "id": "3219b91b88a26545f3cf",
       "kind": "sys_path_mutation",
-      "line": 35,
+      "line": 36,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "<module>"
     },
     {
       "id": "b2fb962378b17c6508fa",
       "kind": "sys_path_mutation",
-      "line": 37,
+      "line": 38,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "<module>"
     },
     {
       "id": "6d5483b1ae4be283b73f",
       "kind": "long_function",
-      "line": 219,
+      "line": 272,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "update_outcomes"
     },
     {
       "id": "9ab3af0ec61591283fc7",
       "kind": "long_function",
-      "line": 482,
+      "line": 569,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "compute_stats"
     },
     {
       "id": "dd8050b60d8c27c0b09f",
       "kind": "sys_path_mutation",
-      "line": 616,
+      "line": 744,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "apply_strategy_gating"
     },
     {
       "id": "fa3d2cd7ea6d9371e4f6",
       "kind": "long_function",
-      "line": 665,
+      "line": 793,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "format_stats"
     },
     {
       "id": "74ceadaeb2c58fbbdcf2",
       "kind": "sys_path_mutation",
-      "line": 27,
+      "line": 28,
       "path": "skills/stock-triage/scripts/portfolio_manager.py",
       "symbol": "<module>"
     },
     {
       "id": "ec0b9c2bc761f473b794",
       "kind": "long_function",
-      "line": 310,
+      "line": 832,
       "path": "skills/stock-triage/scripts/portfolio_manager.py",
       "symbol": "add_position"
     },
     {
       "id": "94e2f9ad425b9c91ffd1",
       "kind": "long_function",
-      "line": 395,
+      "line": 989,
       "path": "skills/stock-triage/scripts/portfolio_manager.py",
       "symbol": "close_position"
     },
     {
-      "id": "926559acbf9b9fe1370c",
-      "kind": "broad_exception",
-      "line": 439,
-      "path": "skills/stock-triage/scripts/portfolio_manager.py",
-      "symbol": "close_position._mut"
-    },
-    {
       "id": "c77a3593ffbe6db0fcaa",
       "kind": "long_function",
-      "line": 531,
+      "line": 1152,
       "path": "skills/stock-triage/scripts/portfolio_manager.py",
       "symbol": "_apply_prices"
     },
     {
       "id": "f052567e5b5fdc07a15e",
       "kind": "broad_exception",
-      "line": 692,
+      "line": 1391,
       "path": "skills/stock-triage/scripts/portfolio_manager.py",
       "symbol": "refresh_prices"
     },
     {
       "id": "e81a193115b3be6777c1",
       "kind": "sys_path_mutation",
-      "line": 24,
+      "line": 25,
       "path": "skills/stock-triage/scripts/recommendation_audit.py",
       "symbol": "<module>"
     },
     {
       "id": "5ac2b39cedb3074c4d9f",
       "kind": "long_function",
-      "line": 169,
+      "line": 185,
       "path": "skills/stock-triage/scripts/recommendation_audit.py",
       "symbol": "position_guidance"
     },
     {
       "id": "766e8f65793b63d22e22",
       "kind": "broad_exception",
-      "line": 196,
+      "line": 212,
       "path": "skills/stock-triage/scripts/recommendation_audit.py",
       "symbol": "position_guidance"
     },
     {
       "id": "1402f83c9305fcbc794f",
       "kind": "broad_exception",
-      "line": 239,
+      "line": 255,
       "path": "skills/stock-triage/scripts/recommendation_audit.py",
       "symbol": "position_guidance"
     },
     {
       "id": "32f37759c28fcdfd6eec",
       "kind": "long_function",
-      "line": 284,
+      "line": 394,
       "path": "skills/stock-triage/scripts/recommendation_audit.py",
       "symbol": "record_recommendation"
     },

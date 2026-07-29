@@ -82,6 +82,7 @@ def test_candidate_discovery_caps_provider_attempts_at_two(monkeypatch):
         raise _timeout("tencent")
 
     monkeypatch.setattr(module, "fetch_tencent_quote", fail_quotes)
+    monkeypatch.setattr(module, "fetch_a_share_spot", lambda: [])
     with pytest.raises(DataSourceError, match="覆盖不足"):
         module.fetch_universe_quotes([{"code": f"60{i:04d}"} for i in range(1000)])
     assert quote_calls == 2
