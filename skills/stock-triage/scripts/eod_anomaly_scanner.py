@@ -53,7 +53,9 @@ SCHEMA = "eod_anomaly_scan_v1"
 CONFIRM_SCHEMA = "eod_anomaly_confirm_v1"
 
 TAIL_WINDOW_START = "1430"
+MARKET_CLOSE_TIME = "1500"
 BUCKETS_BEFORE_TAIL = 7  # A股标准交易时段 9:30-11:30(4) + 13:00-14:30(3) = 7 个30分钟窗口
+MIN_CLOSE_COVERAGE = 0.5  # 收盘覆盖率低于此值判定整轮扫描无效（见 close_coverage_sufficient）
 VOLUME_RATIO_MIN = 2.5
 PRICE_CHANGE_MIN_PCT = 1.5
 POSITION_60D_MAX_PCT = 70.0
@@ -126,11 +128,30 @@ def screen_universe(spot_rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, An
 
 # ======================== 纯函数：尾盘异动计算 ========================
 
+def covers_market_close(minute_rows: Sequence[Mapping[str, Any]]) -> bool:
+    """分钟数据是否已覆盖到收盘。盘中运行时全市场都会是 False。"""
+    times = [row["time"] for row in minute_rows if row.get("time")]
+    return bool(times) and max(times) >= MARKET_CLOSE_TIME
+
+
+def close_coverage_sufficient(coverage: Mapping[str, int]) -> bool:
+    """收盘覆盖率是否足以让"0 命中"成为可信结论。
+
+    盘前/盘中运行时，每只股票的分钟数据都停在当前时刻，closed 恒为 0 —— 此时的
+    空结果代表扫描无效，而不是"今天确实没有异动"。两者在输出上必须可区分，
+    否则一次跑早了的扫描会伪装成一个正常的零命中交易日。
+    """
+    fetched = int(coverage.get("fetched") or 0)
+    if fetched <= 0:
+        return False
+    return int(coverage.get("closed") or 0) / fetched >= MIN_CLOSE_COVERAGE
+
+
 def compute_tail_anomaly(minute_rows: Sequence[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
     """从全天分钟数据算尾盘量比+涨幅。数据未覆盖到收盘（如盘中运行）返回 None，不臆造。"""
-    rows = sorted((row for row in minute_rows if row.get("time")), key=lambda row: row["time"])
-    if not rows or rows[-1]["time"] < "1500":
+    if not covers_market_close(minute_rows):
         return None
+    rows = sorted((row for row in minute_rows if row.get("time")), key=lambda row: row["time"])
 
     before_tail = [row for row in rows if row["time"] < TAIL_WINDOW_START]
     tail = [row for row in rows if row["time"] >= TAIL_WINDOW_START]
@@ -218,23 +239,33 @@ def _fetch_universe_with_retry() -> List[Dict[str, Any]]:
     raise DataSourceError("akshare_spot", "全A行情获取失败", last_error)
 
 
-def _fetch_minute_signals(codes: Sequence[str]) -> Dict[str, Dict[str, Any]]:
-    """并发拉取分钟数据并算尾盘信号。返回 code -> anomaly dict（仅含算出信号的）。"""
-    def _fetch(code: str) -> Tuple[str, Optional[Dict[str, Any]]]:
+def _fetch_minute_signals(
+    codes: Sequence[str],
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, int]]:
+    """并发拉取分钟数据并算尾盘信号。
+
+    返回 (signals, coverage)。signals 只含算出信号的股票；coverage 记录成功抓到
+    分钟数据的股票数与其中真正覆盖到收盘的股票数，供 scan() 判断整轮是否有效。
+    """
+    def _fetch(code: str) -> Tuple[str, Optional[Dict[str, Any]], bool]:
         rows = fetch_tencent_minute(code, market=_market_of(code))
-        return code, compute_tail_anomaly(rows)
+        return code, compute_tail_anomaly(rows), covers_market_close(rows)
 
     results: Dict[str, Dict[str, Any]] = {}
+    coverage = {"fetched": 0, "closed": 0}
     with ThreadPoolExecutor(max_workers=MINUTE_WORKERS) as executor:
         futures = [executor.submit(_fetch, code) for code in codes]
         for future in as_completed(futures):
             try:
-                code, signal = future.result()
+                code, signal, reached_close = future.result()
             except Exception:  # noqa: BLE001
                 continue
+            coverage["fetched"] += 1
+            if reached_close:
+                coverage["closed"] += 1
             if signal:
                 results[code] = signal
-    return results
+    return results, coverage
 
 
 def _fetch_60d_positions(codes: Sequence[str]) -> Dict[str, Optional[float]]:
@@ -287,17 +318,36 @@ def scan(asof: Optional[str] = None) -> Dict[str, Any]:
     screened = screen_universe(universe_rows)
     screened_by_code = {item["code"]: item for item in screened}
 
-    tail_signals = _fetch_minute_signals(list(screened_by_code))
-    anomaly_codes = [code for code, signal in tail_signals.items() if is_tail_anomaly(signal)]
-    positions = _fetch_60d_positions(anomaly_codes)
-
-    candidates = _build_candidates(screened_by_code, tail_signals, positions)
-    return {
+    tail_signals, coverage = _fetch_minute_signals(list(screened_by_code))
+    base = {
         "schema": SCHEMA,
         "asof": asof,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "universe_count": len(universe_rows),
         "screened_count": len(screened),
+        "minute_fetched_count": coverage["fetched"],
+        "minute_closed_count": coverage["closed"],
+    }
+    if not close_coverage_sufficient(coverage):
+        return {
+            **base,
+            "status": "insufficient_data",
+            "error": (
+                f"分钟数据未覆盖收盘({MARKET_CLOSE_TIME})："
+                f"{coverage['closed']}/{coverage['fetched']} 只达到收盘，"
+                "扫描无效——请在收盘后重跑，勿把此结果当作零命中"
+            ),
+            "tail_signal_count": 0,
+            "candidates": [],
+        }
+
+    anomaly_codes = [code for code, signal in tail_signals.items() if is_tail_anomaly(signal)]
+    positions = _fetch_60d_positions(anomaly_codes)
+
+    candidates = _build_candidates(screened_by_code, tail_signals, positions)
+    return {
+        **base,
+        "status": "ok",
         "tail_signal_count": len(anomaly_codes),
         "candidates": candidates,
     }
@@ -327,8 +377,11 @@ def example_scan(asof: str = "2026-06-30") -> Dict[str, Any]:
         "schema": SCHEMA,
         "asof": asof,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "status": "ok",
         "universe_count": len(screened_by_code),
         "screened_count": len(screened_by_code),
+        "minute_fetched_count": len(tail_signals),
+        "minute_closed_count": len(tail_signals),
         "tail_signal_count": len(candidates),
         "candidates": candidates,
     }
@@ -414,6 +467,9 @@ def build_confirmations(
 
 def format_scan_report(result: Mapping[str, Any]) -> str:
     lines = [f"## 尾盘异动扫描 | {result['asof']}"]
+    if result.get("status") == "insufficient_data":
+        lines.append(f"- 扫描无效：{result.get('error') or '收盘数据不完整'}")
+        return "\n".join(lines)
     candidates = result.get("candidates") or []
     if not candidates:
         lines.append(f"- 全A{result.get('universe_count', 0)}只，无标的触发尾盘异动阈值")
@@ -481,6 +537,13 @@ def main() -> None:
             result = scan(args.asof)
         except DataSourceError as exc:
             print(json.dumps({"status": "insufficient_data", "error": str(exc)}, ensure_ascii=False))
+            sys.exit(1)
+        if result.get("status") == "insufficient_data":
+            # 无效扫描不得落档：否则会覆盖上一交易日的有效存档，次日 --confirm 无据可对
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False))
+            else:
+                print(format_scan_report(result))
             sys.exit(1)
         persist_scan(result)
         if args.out:
