@@ -32,6 +32,11 @@
       "violation_id": "1a4ca28d2bf6f834c573"
     },
     {
+      "violation_id": "1bc7a234815725b2c818",
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+    },
+    {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "1bedcefe44fa24e0a061"
@@ -65,6 +70,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in recommendation_audit.py touched by tail-close audit integration",
       "violation_id": "32f37759c28fcdfd6eec"
+    },
+    {
+      "violation_id": "37eb11a6a14ff8e0202a",
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
     },
     {
       "expires_on": "2026-10-31",
@@ -252,6 +262,11 @@
       "violation_id": "944712e9fab0cf807f6b"
     },
     {
+      "violation_id": "945681d3993cd661fa62",
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+    },
+    {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "987bb9e9545a5776f9e0"
@@ -317,6 +332,11 @@
       "violation_id": "a6397a707953b0d5b948"
     },
     {
+      "violation_id": "aac7454d408a58aa7f5b",
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+    },
+    {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "af2bc6f5da834fb80962"
@@ -362,6 +382,11 @@
       "violation_id": "c1f79748e671c1604acc"
     },
     {
+      "violation_id": "c278ad8408021bf75f3f",
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+    },
+    {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "c566b0878530007b5956"
@@ -382,14 +407,34 @@
       "violation_id": "c87df31c35ad82c8a6f0"
     },
     {
+      "violation_id": "c8aef5dd2e90bf188c87",
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+    },
+    {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "cc665af84ba2d784cd92"
     },
     {
+      "violation_id": "cce0d92fcafac1dc1eda",
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+    },
+    {
+      "violation_id": "d1d324ab8b1ca8daea09",
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+    },
+    {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in eod_anomaly_scanner.py touched by source-schema resilience fix",
       "violation_id": "d34ed81d0d5438e5e63a"
+    },
+    {
+      "violation_id": "d5031f4d3d87a874335f",
+      "expires_on": "2026-10-31",
+      "reason": "candidate-warmup mirrors main()'s fail-closed contract: an unexpected error must produce a structured warmup failure and exit 75, not crash the cron job"
     },
     {
       "expires_on": "2026-10-31",

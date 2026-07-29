@@ -355,6 +355,54 @@ def _chunks(items: Sequence[Any], size: int) -> Iterable[Sequence[Any]]:
         yield items[index:index + size]
 
 
+def _fetch_quote_batch(batch: List[str], retries: int) -> Dict[str, Dict[str, Any]]:
+    last_error = None
+    attempts = min(retries + 1, 2)
+    for attempt in range(attempts):
+        try:
+            return fetch_tencent_quote(batch)
+        except DataSourceError as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                time.sleep(0.5 * (2 ** attempt))
+    raise last_error or DataSourceError("tencent", "unknown quote failure")
+
+
+def _universe_spot_quotes(metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    spot = fetch_a_share_spot()
+    if hasattr(spot, "to_dict"):
+        rows = spot.to_dict("records")
+    elif isinstance(spot, Sequence) and not isinstance(spot, (str, bytes)):
+        rows = list(spot)
+    else:
+        rows = []
+    source = str(getattr(fetch_a_share_spot, "last_source", "akshare_sina"))
+    if source == "eastmoney_push2_degraded":
+        source = "eastmoney_push2"
+    mapped: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        code = candidate_pipeline.naked_code(
+            row.get("代码") or row.get("code") or row.get("stock_code")
+        )
+        if not code or code not in metadata:
+            continue
+        mapped[code] = {
+            **metadata[code],
+            **dict(row),
+            "code": code,
+            "name": row.get("名称") or row.get("name") or metadata[code].get("name") or code,
+            "price": row.get("price") or row.get("最新价") or row.get("close") or row.get("trade"),
+            "volume": row.get("volume") or row.get("成交量") or row.get("vol"),
+            "amount": row.get("amount") or row.get("成交额") or row.get("turnover"),
+            "prev_close": row.get("prev_close") or row.get("昨收") or row.get("settlement"),
+            "change_pct": row.get("change_pct") or row.get("涨跌幅") or row.get("changepercent"),
+            "quote_source": source,
+        }
+    return mapped
+
+
 def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
     config = load_config()["network"]
     batch_size = int(config["quote_batch_size"])
@@ -391,55 +439,9 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
         for batch in _chunks(list(universe), batch_size)
     ]
 
-    def _fetch(batch: List[str]) -> Dict[str, Dict[str, Any]]:
-        last_error = None
-        attempts = min(retries + 1, 2)
-        for attempt in range(attempts):
-            try:
-                return fetch_tencent_quote(batch)
-            except DataSourceError as exc:
-                last_error = exc
-                if attempt + 1 < attempts:
-                    time.sleep(0.5 * (2 ** attempt))
-        raise last_error or DataSourceError("tencent", "unknown quote failure")
-
-    def _spot_quotes() -> Dict[str, Dict[str, Any]]:
-        spot = fetch_a_share_spot()
-        if hasattr(spot, "to_dict"):
-            rows = spot.to_dict("records")
-        elif isinstance(spot, Sequence) and not isinstance(spot, (str, bytes)):
-            rows = list(spot)
-        else:
-            rows = []
-        source = str(getattr(fetch_a_share_spot, "last_source", "akshare_sina"))
-        if source == "eastmoney_push2_degraded":
-            source = "eastmoney_push2"
-        mapped: Dict[str, Dict[str, Any]] = {}
-        for row in rows:
-            if not isinstance(row, Mapping):
-                continue
-            code = candidate_pipeline.naked_code(
-                row.get("代码") or row.get("code") or row.get("stock_code")
-            )
-            if not code or code not in metadata:
-                continue
-            mapped[code] = {
-                **metadata[code],
-                **dict(row),
-                "code": code,
-                "name": row.get("名称") or row.get("name") or metadata[code].get("name") or code,
-                "price": row.get("price") or row.get("最新价") or row.get("close") or row.get("trade"),
-                "volume": row.get("volume") or row.get("成交量") or row.get("vol"),
-                "amount": row.get("amount") or row.get("成交额") or row.get("turnover"),
-                "prev_close": row.get("prev_close") or row.get("昨收") or row.get("settlement"),
-                "change_pct": row.get("change_pct") or row.get("涨跌幅") or row.get("changepercent"),
-                "quote_source": source,
-            }
-        return mapped
-
     quotes: Dict[str, Dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_fetch, batch) for batch in batches]
+        futures = [executor.submit(_fetch_quote_batch, batch, retries) for batch in batches]
         for future in as_completed(futures):
             try:
                 batch_quotes = future.result()
@@ -450,7 +452,7 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
                 quotes[code] = {**metadata.get(code, {}), **fields, "code": code}
     if len(quotes) < minimum_coverage:
         try:
-            spot_quotes = _spot_quotes()
+            spot_quotes = _universe_spot_quotes(metadata)
         except DataSourceError:
             spot_quotes = {}
         for code, fields in spot_quotes.items():
@@ -1336,8 +1338,27 @@ def _check_pool_freshness(
     raise SystemExit(0 if (healthy or alert_mode) else 1)
 
 
-def main() -> None:
-    config = load_config()
+def _run_warmup_cache(args: argparse.Namespace) -> None:
+    try:
+        universe = fetch_exchange_universe()
+        quotes = fetch_universe_quotes(universe)
+        result = {
+            "schema": "universe_quotes_cache_warmup_v1",
+            "status": "ok",
+            "quote_source": getattr(fetch_universe_quotes, "last_quote_source", "live"),
+            "quote_count": len(quotes),
+        }
+    except Exception as exc:  # noqa: BLE001 - cron reports warmup failures as data errors
+        result = {"schema": "universe_quotes_cache_warmup_v1", "status": "error", "error": str(exc)}
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False))
+        else:
+            print(f"行情缓存预热失败：{exc}")
+        raise SystemExit(75)
+    print(json.dumps(result, ensure_ascii=False) if args.json else f"行情缓存预热完成：{result['quote_count']} 只")
+
+
+def _build_arg_parser(config: Dict[str, Any]) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="A股全市场动态候选发现")
     parser.add_argument("--asof", default=date.today().isoformat())
     parser.add_argument("--watch-limit", type=int, default=config["pipeline"]["watch_limit"])
@@ -1369,26 +1390,15 @@ def main() -> None:
         action="store_true",
         help="In freshness mode, report unhealthy pools as alert payloads and exit 0 for delivery",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    config = load_config()
+    args = _build_arg_parser(config).parse_args()
 
     if args.warmup_cache:
-        try:
-            universe = fetch_exchange_universe()
-            quotes = fetch_universe_quotes(universe)
-            result = {
-                "schema": "universe_quotes_cache_warmup_v1",
-                "status": "ok",
-                "quote_source": getattr(fetch_universe_quotes, "last_quote_source", "live"),
-                "quote_count": len(quotes),
-            }
-        except Exception as exc:  # noqa: BLE001 - cron reports warmup failures as data errors
-            result = {"schema": "universe_quotes_cache_warmup_v1", "status": "error", "error": str(exc)}
-            if args.json:
-                print(json.dumps(result, ensure_ascii=False))
-            else:
-                print(f"行情缓存预热失败：{exc}")
-            raise SystemExit(75)
-        print(json.dumps(result, ensure_ascii=False) if args.json else f"行情缓存预热完成：{result['quote_count']} 只")
+        _run_warmup_cache(args)
         return
 
     # --- freshness heartbeat mode ---
