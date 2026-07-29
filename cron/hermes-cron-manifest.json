@@ -176,9 +176,9 @@
       "timezone": "Asia/Shanghai",
       "command_argv": [
         "python",
-        "skills/stock-triage/scripts/candidate_discovery.py",
-        "--warmup-cache",
-        "--json"
+        "scripts/run_agent_dag.py",
+        "candidate-warmup",
+        "--emit-target"
       ],
       "cwd": ".",
       "enabled": true,

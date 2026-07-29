@@ -369,7 +369,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["candidate-discovery"]["dependency_policy"]["optional_jobs"] == [
         "social-attention-close",
     ]
-    assert jobs["candidate-preopen"]["schedule"] == "45 8 * * 1-5"
+    assert jobs["candidate-preopen"]["schedule"] == "30 8 * * 1-5"
     assert _run_command(jobs["candidate-preopen"]).endswith(
         "candidate_discovery.py --bootstrap-if-missing --no-settle --json"
     )
