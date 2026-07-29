@@ -471,7 +471,7 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 420
+        "timeout_seconds": 900
       },
       "external_note": "15:07 全市场扫描并生成约500只双策略深度观察池；社会关注度仅作可选弱证据"
     },
@@ -615,7 +615,7 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 180
       },
       "external_note": "09:26 收口竞价因子，输出条件买入/关注计划和公告质检，并把重点标的加入动态监控"
     },
@@ -639,7 +639,14 @@
       "context_scope": "cron",
       "deliver": "origin",
       "max_output_chars": 2000,
-      "context_from": [],
+      "context_from": [
+        "auction-finalize",
+        "auction-market-snapshot"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 15
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/auction-intelligence-brief/",
@@ -703,7 +710,7 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 45
+        "timeout_seconds": 180
       },
       "external_note": "09:35 输出买入区间/追价线/止损/目标/T+1约束和公告质检；不自动下单"
     },
@@ -1035,6 +1042,35 @@
       "external_note": "只监控当前持仓和动态订阅；清仓/取消后自动退订；脚本内置交易时段守卫"
     },
     {
+      "id": "news-daily-brief",
+      "name": "新闻处理日报",
+      "schedule": "0 18 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command": "python scripts/run_agent_dag.py news-daily-brief --emit-target",
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 5000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/news-pipeline/data/",
+        "$A_STOCK_STATE_HOME/cron/output/news-daily-brief/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "command": "python scripts/news_daily_brief.py --json",
+        "cwd": ".",
+        "timeout_seconds": 60
+      },
+      "external_note": "18:00 汇总当日新闻 L1 扫描与队列状态；只读已落盘数据"
+    },
+    {
       "id": "capital-flow",
       "name": "资金流向监控",
       "schedule": "30 10,14 * * 1-5",
@@ -1082,7 +1118,7 @@
           "capital-flow"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 300
       },
       "external_note": "需 Hermes Agent + NO_PROXY 环境（东财 API）"
     },
@@ -2147,7 +2183,7 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 600
       },
       "external_note": "08:30 刷新全市场行业映射缓存；仅写本地缓存，供候选发现阶段读取"
     },
@@ -2397,6 +2433,7 @@
           "python",
           "skills/stock-triage/scripts/candidate_discovery.py",
           "--check-freshness",
+          "--alert-mode",
           "--json"
         ],
         "cwd": ".",

@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from a_stock_http import load_hermes_env
-from data_provider import fetch_tencent_quote
+from data_provider import fetch_tencent_quote, fetch_tencent_quotes
 from eastmoney_intelligence import eastmoney_json
 from http_client import DataSourceError, request_json
 from market_adapters import (
@@ -273,6 +273,29 @@ def fetch_tencent_flow(code: str, market: str) -> Dict:
         return {}
 
 
+def fetch_tencent_flows(stocks: list[tuple[str, str, str]]) -> dict[str, Dict]:
+    """Fetch quote proxies for all tracked stocks in one bounded request.
+
+    Tencent accepts a comma-separated symbol list.  Sending one request per
+    stock made the process-level request throttle add 2.5 seconds per target,
+    which could consume the entire cron budget when the monitor list grew.
+    These are proxy metrics only, so a failed bulk fetch degrades the output
+    rather than falling back to another sequential request fan-out.
+    """
+    if not stocks:
+        return {}
+    try:
+        quotes = fetch_tencent_quotes([
+            f"{market}{code}" for code, market, _name in stocks
+        ]).data
+    except (DataSourceError, AttributeError, TypeError):
+        return {}
+    return {
+        code: dict(quotes.get(f"{market}{code}") or {})
+        for code, market, _name in stocks
+    }
+
+
 SECTOR_BOARD_PAGE_SIZE = 100  # push2delay 每页上限
 SECTOR_BOARD_MAX_PAGES = 8
 
@@ -433,6 +456,9 @@ def collect_flow_data(
     exact_requested = 1 + len(stocks) + len(sectors)
     exact_available = 0
     degraded = False
+    # Proxy quotes are intentionally fetched once.  The exact fund-flow
+    # adapters below remain unchanged and retain their own bounded timeouts.
+    tencent_flows = fetch_tencent_flows(stocks)
 
     # 1. Northbound flow: AkShare first, allowed Eastmoney kamt endpoint only as fallback.
     # The blocked stock/board push2 paths are no longer on the primary route.
@@ -475,7 +501,7 @@ def collect_flow_data(
         )
 
         # 量价替代数据（腾讯）
-        qt_data = fetch_tencent_flow(code, market)
+        qt_data = tencent_flows.get(code, {})
 
         stock_flow = {
             "code": code,

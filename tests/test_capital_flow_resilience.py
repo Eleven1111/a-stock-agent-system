@@ -67,13 +67,15 @@ def test_tencent_volume_metrics_are_labeled_proxy_not_main_flow(monkeypatch):
     monkeypatch.setattr(module, "fetch_sina_northbound_observation", lambda: _failed("sina"))
     monkeypatch.setattr(
         module,
-        "fetch_tencent_flow",
-        lambda code, market: {
-            "price": 10.0,
-            "change_pct": 2.0,
-            "volume": 100,
-            "amount": 200_000_000,
-            "turnover": 8.0,
+        "fetch_tencent_flows",
+        lambda stocks: {
+            "600001": {
+                "price": 10.0,
+                "change_pct": 2.0,
+                "volume": 100,
+                "amount": 200_000_000,
+                "turnover": 8.0,
+            }
         },
     )
 
@@ -88,6 +90,31 @@ def test_tencent_volume_metrics_are_labeled_proxy_not_main_flow(monkeypatch):
     assert "main_net_yi" not in stock
     assert result["directional_ready"] is False
     assert result["status"] == "insufficient_data"
+
+
+def test_tencent_proxy_quotes_are_batched(monkeypatch):
+    module = _load()
+    calls = []
+
+    class Result:
+        data = {
+            "sh600001": {"price": 10.0},
+            "sz000001": {"price": 11.0},
+        }
+
+    def fetch(symbols):
+        calls.append(symbols)
+        return Result()
+
+    monkeypatch.setattr(module, "fetch_tencent_quotes", fetch)
+
+    result = module.fetch_tencent_flows([
+        ("600001", "sh", "one"),
+        ("000001", "sz", "two"),
+    ])
+
+    assert calls == [["sh600001", "sz000001"]]
+    assert result == {"600001": {"price": 10.0}, "000001": {"price": 11.0}}
 
 
 def test_provider_failures_are_not_reported_as_legitimate_empty(monkeypatch):
