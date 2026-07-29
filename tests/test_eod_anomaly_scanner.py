@@ -39,6 +39,18 @@ def test_screen_universe_excludes_pe_out_of_range():
     assert missing_pe == []
 
 
+def test_screen_universe_allows_source_level_absence_of_optional_fields():
+    row = _spot_row()
+    row.pop("总市值")
+    row.pop("市盈率-动态")
+
+    rows = eas.screen_universe([row])
+
+    assert len(rows) == 1
+    assert rows[0]["market_cap"] is None
+    assert rows[0]["pe"] is None
+
+
 def test_screen_universe_skips_malformed_rows_without_crashing():
     assert eas.screen_universe([{"代码": "600001", "名称": "坏数据", "最新价": "N/A"}]) == []
 

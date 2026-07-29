@@ -320,6 +320,11 @@ def execute_dag(
                     )
                     if concurrent_artifact and concurrent_artifact.get("status") == "ok":
                         break
+                    # The lease holder has already produced a terminal artifact.
+                    # Retrying here would immediately launch the same expensive
+                    # job again after its failure/timeout and duplicate the load.
+                    if concurrent_artifact:
+                        break
         artifact = _load_artifact(
             job_id,
             trading_date=day,

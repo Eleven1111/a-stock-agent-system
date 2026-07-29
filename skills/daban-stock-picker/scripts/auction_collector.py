@@ -153,7 +153,11 @@ def _shortlist_latest_path() -> str:
 
 def load_watch_pool(event_asof: str | None = None) -> Dict[str, Any]:
     pool = read_json(_pool_path(), {})
-    if not isinstance(pool, dict) or pool.get("status") != "ready" or not pool.get("candidates"):
+    if not isinstance(pool, dict) or pool.get("status") != "ready":
+        raise DataSourceError("candidate_pool", "动态观察池缺失或不可用，请先运行 candidate-discovery")
+    # 弱市时 candidates 可能为空（research_only），但 auction_scan_codes 仍有数据
+    # 此时不报错，让下游 auction_scan_codes() 自行回退
+    if not pool.get("candidates") and not pool.get("auction_scan_codes"):
         raise DataSourceError("candidate_pool", "动态观察池缺失或不可用，请先运行 candidate-discovery")
     if event_asof:
         try:

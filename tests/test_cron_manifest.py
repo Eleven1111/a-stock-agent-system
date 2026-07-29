@@ -450,13 +450,24 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert "--full-universe" in _run_command(jobs["auction-market-snapshot"])
     for job_id, schedule, stage, deliver in (
         ("preopen-intelligence-brief", "50 8 * * 1-5", "preopen", "origin"),
-        ("auction-intelligence-brief", "27 9 * * 1-5", "auction", "origin"),
         ("open-intelligence-brief", "36 9 * * 1-5", "open", "origin"),
     ):
         assert jobs[job_id]["schedule"] == schedule
         assert jobs[job_id]["deliver"] == deliver
         assert jobs[job_id]["context_from"] == []
         assert _run_command(jobs[job_id]).endswith(f"--stage {stage}")
+    auction_brief = jobs["auction-intelligence-brief"]
+    assert auction_brief["schedule"] == "27 9 * * 1-5"
+    assert auction_brief["deliver"] == "origin"
+    assert auction_brief["context_from"] == [
+        "auction-finalize",
+        "auction-market-snapshot",
+    ]
+    assert auction_brief["dependency_policy"] == {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 15,
+    }
+    assert _run_command(auction_brief).endswith("--stage auction")
     assert jobs["hot-money-morning-checkpoint"]["context_from"] == ["open-confirmation"]
     assert jobs["hot-money-morning-checkpoint"]["schedule"] == "50 9 * * 1-5"
     assert jobs["hot-money-afternoon-checkpoint"]["context_from"] == ["open-confirmation"]

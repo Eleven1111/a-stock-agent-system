@@ -1,6 +1,7 @@
 import json
 import os
 import shlex
+import subprocess
 import sys
 
 from scripts import run_agent_dag
@@ -176,6 +177,49 @@ def test_wait_for_concurrent_holder_uses_exact_run_id(monkeypatch):
     )
 
     assert artifact["artifact_path"] == "/tmp/holder.json"
+
+
+def test_dag_does_not_rerun_after_concurrent_holder_times_out(tmp_path, monkeypatch):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "jobs": [_job("capital-flow", "true")]
+    }), encoding="utf-8")
+    terminal = {
+        "run_id": "holder-run",
+        "status": "timeout",
+        "returncode": 124,
+        "artifact_path": "/tmp/holder.json",
+    }
+    calls = []
+
+    monkeypatch.setattr(
+        run_agent_dag,
+        "evaluate_job_trading_day",
+        lambda _job, _date: {"action": "run"},
+    )
+    monkeypatch.setattr(run_agent_dag, "_load_artifact", lambda *args, **kwargs: None)
+    monkeypatch.setattr(run_agent_dag, "_wait_for_run_artifact", lambda *args, **kwargs: terminal)
+    monkeypatch.setattr(
+        run_agent_dag.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append(args) or subprocess.CompletedProcess(
+            args[0], 76,
+            stdout=json.dumps({"holder": {"run_id": "holder-run"}}),
+            stderr="",
+        ),
+    )
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["capital-flow"],
+        trading_date="2026-06-12",
+        batch_id="a-share-20260612",
+        env={"A_STOCK_STATE_HOME": str(tmp_path / "state")},
+    )
+
+    assert len(calls) == 1
+    assert result["status"] == "failed"
+    assert result["runs"][0]["artifact_path"] == "/tmp/holder.json"
 
 
 def test_target_output_records_push_telemetry_jsonl(tmp_path):
