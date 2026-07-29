@@ -22,7 +22,7 @@ import argparse
 import json
 import os
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
