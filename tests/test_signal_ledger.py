@@ -399,3 +399,281 @@ def test_signal_ledger_accepts_monitor_events_as_canonical_state_changes(tmp_pat
 
     assert event["sequence"] == 1
     assert ledger.read_events(path) == [event]
+
+
+def _tail_provenance():
+    return {
+        "decision_mode": "live",
+        "snapshot_id": "tail-close:2026-07-28",
+        "snapshot_hash": "a" * 64,
+        "config_hash": "b" * 64,
+        "code_version": "b855b86",
+    }
+
+
+def _tail_record(**overrides):
+    record = {
+        "strategy_id": "tail_close_signal_v1",
+        "signal_date": "2026-07-28",
+        "code": "600001",
+        "provenance": _tail_provenance(),
+    }
+    record.update(overrides)
+    return record
+
+
+def _manual_tail_record(**overrides):
+    values = {
+        "status": "matched",
+        "pilot_gate_hash": "1" * 64,
+        "simulation_fill_hash": "2" * 64,
+        "evidence_hash": "3" * 64,
+        "human_approval_id": "approval-tail-1",
+        "human_approved_at": "2026-07-29T10:00:00+08:00",
+        "actual_filled_quantity": 100,
+        "actual_fill_price": 10.03,
+        "external_broker_evidence_confirmed": True,
+    }
+    values.update(overrides)
+    return _tail_record(**values)
+
+
+def test_tail_close_research_lifecycle_helpers_are_stable_and_simulation_only():
+    links = ledger.make_links(
+        correlation_id="corr-tail-1",
+        signal_id="tail-signal-1",
+        trade_id="tail-simulated-trade-1",
+    )
+    signal = ledger.research_signal_event(_tail_record(), links)
+    order = ledger.simulated_order_event(
+        _tail_record(side="buy", quantity=100, limit_price=10.0),
+        links,
+    )
+    fill = ledger.simulated_fill_event(
+        _tail_record(
+            side="buy",
+            quantity=100,
+            fill_price=10.02,
+            fill_hash="d" * 64,
+        ),
+        links,
+    )
+    automatic = ledger.simulation_reconciliation_event(
+        _tail_record(
+            status="FULL_FILL",
+            decision_hash="c" * 64,
+            fill_hash="d" * 64,
+        ),
+        links,
+    )
+    reconciliation = ledger.manual_reconciliation_event(
+        _manual_tail_record(reconciled_by="operator"),
+        links,
+    )
+
+    assert [
+        signal["event_type"],
+        order["event_type"],
+        fill["event_type"],
+        automatic["event_type"],
+        reconciliation["event_type"],
+    ] == [
+        "tail_close.signal_created",
+        "tail_close.order_simulated",
+        "tail_close.fill_simulated",
+        "tail_close.simulation_reconciled",
+        "tail_close.manual_reconciled",
+    ]
+    assert signal["idempotency_key"] == ledger.research_signal_event(
+        _tail_record(), links
+    )["idempotency_key"]
+    for event in (signal, order, fill, automatic, reconciliation):
+        assert event["payload"]["research_only"] is True
+        assert event["payload"]["live_order_sent"] is False
+        assert event["payload"]["provenance"] == _tail_provenance()
+    assert signal["payload"]["execution_action"] == "none"
+    assert order["payload"]["execution_mode"] == "simulated"
+    assert fill["payload"]["execution_mode"] == "simulated"
+    assert automatic["payload"]["reconciliation_mode"] == "automatic_simulation"
+    assert automatic["payload"]["broker_confirmed"] is False
+    assert (
+        reconciliation["payload"]["reconciliation_mode"]
+        == "manual_external_evidence"
+    )
+    assert reconciliation["payload"]["execution_mode"] == (
+        "manual_external_reconciliation"
+    )
+    assert reconciliation["payload"]["simulation"] is False
+    assert reconciliation["payload"]["broker_confirmed"] is True
+
+
+def test_tail_close_helpers_require_complete_content_addressed_provenance():
+    links = ledger.make_links(signal_id="tail-signal-2")
+    for missing in _tail_provenance():
+        provenance = _tail_provenance()
+        provenance.pop(missing)
+        with pytest.raises(ValueError, match=f"provenance.{missing}"):
+            ledger.research_signal_event(
+                _tail_record(provenance=provenance),
+                links,
+            )
+
+    with pytest.raises(ValueError, match="provenance.snapshot_hash"):
+        ledger.research_signal_event(
+            _tail_record(
+                provenance={**_tail_provenance(), "snapshot_hash": "not-a-hash"}
+            ),
+            links,
+        )
+
+
+def test_tail_close_helpers_reject_conflicting_signal_linkage():
+    with pytest.raises(ValueError, match="signal_id conflicts"):
+        ledger.research_signal_event(
+            _tail_record(signal_id="record-signal"),
+            ledger.make_links(signal_id="linked-signal"),
+        )
+
+
+@pytest.mark.parametrize(
+    "helper,record",
+    [
+        (
+            ledger.simulated_order_event,
+            _tail_record(execution_mode="live", live_order_sent=True),
+        ),
+        (
+            ledger.simulated_fill_event,
+            _tail_record(broker_order_id="real-order-1"),
+        ),
+        (
+            ledger.manual_reconciliation_event,
+            _manual_tail_record(account_mode="real"),
+        ),
+        (
+            ledger.simulated_fill_event,
+            _tail_record(broker_called=True),
+        ),
+    ],
+)
+def test_tail_close_simulation_helpers_reject_real_execution_markers(helper, record):
+    with pytest.raises(ValueError, match="real execution"):
+        helper(record, ledger.make_links(signal_id="tail-signal-3"))
+
+
+def test_manual_reconciliation_requires_confirmed_external_broker_evidence():
+    with pytest.raises(ValueError, match="broker evidence unconfirmed"):
+        ledger.manual_reconciliation_event(
+            _manual_tail_record(external_broker_evidence_confirmed=False),
+            ledger.make_links(signal_id="tail-signal-unconfirmed"),
+        )
+
+
+def test_tail_close_events_do_not_pollute_existing_signal_projection(tmp_path):
+    path = str(tmp_path / "signal_ledger.jsonl")
+    links = ledger.make_links(signal_id="tail-signal-4")
+    events = [
+        ledger.research_signal_event(_tail_record(), links),
+        ledger.simulated_order_event(_tail_record(side="buy", quantity=100), links),
+        ledger.simulated_fill_event(
+            _tail_record(
+                side="buy",
+                quantity=100,
+                fill_price=10.02,
+                fill_hash="d" * 64,
+            ),
+            links,
+        ),
+        ledger.simulation_reconciliation_event(
+            _tail_record(
+                status="FULL_FILL",
+                decision_hash="c" * 64,
+                fill_hash="d" * 64,
+            ),
+            links,
+        ),
+        ledger.manual_reconciliation_event(
+            _manual_tail_record(simulation_fill_hash="d" * 64),
+            links,
+        ),
+    ]
+
+    ledger.append_events(events + events, ledger_file=path)
+
+    assert len(ledger.read_events(path)) == 5
+    assert ledger.project_signals(ledger_file=path) == []
+    lifecycle = ledger.project_tail_close_lifecycle(ledger_file=path)
+    assert len(lifecycle) == 1
+    assert lifecycle[0]["complete"] is True
+    assert lifecycle[0]["violations"] == []
+
+
+def test_tail_close_idempotency_rejects_conflicting_fact(tmp_path):
+    path = str(tmp_path / "signal_ledger.jsonl")
+    links = ledger.make_links(signal_id="tail-signal-conflict")
+    first = ledger.simulated_fill_event(
+        _tail_record(side="buy", quantity=100, fill_price=10.02),
+        links,
+    )
+    conflicting = ledger.simulated_fill_event(
+        _tail_record(side="buy", quantity=900, fill_price=10.02),
+        links,
+    )
+
+    ledger.append_events([first], ledger_file=path)
+
+    with pytest.raises(ValueError, match="idempotency conflict"):
+        ledger.append_events([conflicting], ledger_file=path)
+    assert ledger.read_events(path)[0]["payload"]["quantity"] == 100
+
+
+def test_tail_close_projection_reports_missing_and_mismatched_reconciliation():
+    links = ledger.make_links(
+        correlation_id="corr-tail-audit",
+        signal_id="tail-signal-audit",
+    )
+    events = [
+        ledger.research_signal_event(_tail_record(), links),
+        ledger.simulated_order_event(_tail_record(quantity=100), links),
+        ledger.simulated_fill_event(
+            _tail_record(quantity=100, fill_hash="d" * 64),
+            links,
+        ),
+        ledger.simulation_reconciliation_event(
+            _tail_record(
+                decision_hash="c" * 64,
+                fill_hash="e" * 64,
+            ),
+            links,
+        ),
+    ]
+    normalized = []
+    for sequence, event in enumerate(events, start=1):
+        normalized.append(
+            {
+                **event,
+                "event_id": f"event-{sequence}",
+                "sequence": sequence,
+            }
+        )
+
+    lifecycle = ledger.project_tail_close_lifecycle(normalized)[0]
+    assert lifecycle["complete"] is False
+    assert lifecycle["violations"] == ["fill_hash_mismatch"]
+
+    missing = ledger.project_tail_close_lifecycle(normalized[:-1])[0]
+    assert missing["complete"] is False
+    assert missing["violations"] == ["reconciliation_missing"]
+
+    manual = ledger.manual_reconciliation_event(_manual_tail_record(), links)
+    with_manual = [
+        *normalized,
+        {
+            **manual,
+            "event_id": "event-5",
+            "sequence": 5,
+        },
+    ]
+    manual_mismatch = ledger.project_tail_close_lifecycle(with_manual)[0]
+    assert manual_mismatch["complete"] is False
+    assert manual_mismatch["violations"] == ["fill_hash_mismatch", "manual_fill_hash_mismatch"]

@@ -59,6 +59,15 @@ DEFAULT_POSITION_RANGES = {
 }
 
 
+def strategy_lane(strategy_id: Optional[str]) -> str:
+    sid = strategy_id or "default"
+    if sid.startswith("tail_close:"):
+        return "tail_close"
+    if sid.startswith("daban"):
+        return "daban"
+    return "trend"
+
+
 def load_recommendations() -> List[Dict[str, Any]]:
     return read_json(RECOMMENDATIONS_FILE, [])
 
@@ -462,7 +471,7 @@ def record_recommendation(
         asof=record_date,
     )
     sid = strategy_id or "default"
-    lane = "daban" if sid.startswith("daban") else "trend"
+    lane = strategy_lane(sid)
     evidence = research_evidence or build_research_evidence(
         code,
         strategy_id=sid,
@@ -581,6 +590,7 @@ def record_recommendation(
         "grade": grade,
         "confidence": confidence,
         "strategy_id": strategy_id or "default",
+        "strategy_lane": lane,
         "position_sizing": sizing,
         "quality_report": quality,
         "policy_decision": policy,
@@ -592,6 +602,9 @@ def record_recommendation(
         "selection_context": dict(selection_context or {}),
         "execution_constraints": quality["execution_constraints"],
         "execution_analysis": execution_analysis,
+        "decision_provenance": dict(
+            (execution_context or {}).get("decision_provenance") or {}
+        ),
         "settleable_signal": opens_signal,
         "outcome": "pending",
     }
@@ -655,6 +668,33 @@ def audit_guardrail_gaps(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "violation": "missing_guardrail_for_diverging_action",
         })
     return violations
+
+
+def audit_tail_close_lifecycle() -> Dict[str, Any]:
+    """Audit tail-close research events without creating another fact store."""
+    lifecycles = signal_ledger.project_tail_close_lifecycle(
+        ledger_file=LEDGER_FILE,
+    )
+    violations = [
+        {
+            "signal_id": lifecycle["signal_id"],
+            "strategy_id": lifecycle.get("strategy_id"),
+            "reasons": list(lifecycle.get("violations") or []),
+        }
+        for lifecycle in lifecycles
+        if lifecycle.get("violations")
+    ]
+    return {
+        "schema": "tail_close_research_audit_v1",
+        "source": "signal_ledger",
+        "lifecycle_count": len(lifecycles),
+        "complete_count": sum(
+            lifecycle.get("complete") is True for lifecycle in lifecycles
+        ),
+        "violation_count": len(violations),
+        "violations": violations,
+        "lifecycles": lifecycles,
+    }
 
 
 def query_recommendations(code: Optional[str] = None, outcome: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -796,10 +836,17 @@ if __name__ == "__main__":
         action="store_true",
         help="列出原始动作与最终动作背离但缺 guardrail 结构化解释的记录",
     )
+    parser.add_argument(
+        "--audit-tail-close",
+        action="store_true",
+        help="从统一 signal ledger 重建并检查尾盘研究信号生命周期",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    if args.audit_violations:
+    if args.audit_tail_close:
+        output = audit_tail_close_lifecycle()
+    elif args.audit_violations:
         output = audit_guardrail_gaps(load_recommendations())
     elif args.example:
         output = {"schema": "recommendation_audit_example_v1", "record": example_record()}

@@ -2152,6 +2152,221 @@
       "external_note": "08:30 刷新全市场行业映射缓存；仅写本地缓存，供候选发现阶段读取"
     },
     {
+      "id": "tail-close-prepare",
+      "name": "尾盘策略点时预检",
+      "schedule": "35 14 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "tail-close-prepare",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": false,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 3000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/tail_close/prepared/",
+        "$A_STOCK_STATE_HOME/cron/output/tail-close-prepare/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/stock-triage/scripts/tail_close_signal.py",
+          "prepare",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 60
+      },
+      "external_note": "研究态关闭；14:35 只验证已封存 PIT 输入并缓存静态候选，不产生最终信号。成员历史与实时双时间源未就绪前不得启用"
+    },
+    {
+      "id": "tail-close-decision",
+      "name": "尾盘主线续强研究信号",
+      "schedule": "50 14 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "tail-close-decision",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": false,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 5000,
+      "context_from": [
+        "tail-close-prepare"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 20
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/tail_close/decisions/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/cron/output/tail-close-decision/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/stock-triage/scripts/tail_close_signal.py",
+          "decision",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 20
+      },
+      "external_note": "研究态关闭；14:49:59 截止、14:50:20 SLA，零 live 权重、零 broker、零自动订单；不得依赖 15:00/15:07 数据"
+    },
+    {
+      "id": "tail-close-after-hours-shadow",
+      "name": "盘后固定价格独立能力影子审计",
+      "schedule": "5 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "tail-close-after-hours-shadow",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": false,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 3000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/tail_close/after_hours/",
+        "$A_STOCK_STATE_HOME/cron/output/tail-close-after-hours-shadow/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/stock-triage/scripts/tail_close_signal.py",
+          "after-hours-shadow",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 30
+      },
+      "external_note": "独立 sibling，当前 Not Ready 且关闭；不能继承 14:50 的 OOS、shadow、容量或晋级证据"
+    },
+    {
+      "id": "tail-close-after-hours-reconcile",
+      "name": "盘后固定价格独立影子对账",
+      "schedule": "31 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "tail-close-after-hours-reconcile",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": false,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 3000,
+      "context_from": [
+        "tail-close-after-hours-shadow"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 30
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/tail_close/after_hours_reconciliations/",
+        "$A_STOCK_STATE_HOME/cron/output/tail-close-after-hours-reconcile/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/stock-triage/scripts/tail_close_signal.py",
+          "after-hours-reconcile",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 60
+      },
+      "external_note": "15:31 后只对账 15:05 已冻结信号；15:30 结果不得反向改写信号，独立 sibling 仍为 Not Ready 且关闭"
+    },
+    {
+      "id": "tail-close-reconcile",
+      "name": "尾盘连续竞价模拟成交对账",
+      "schedule": "6 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "tail-close-reconcile",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": false,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 5000,
+      "context_from": [
+        "tail-close-decision"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 20
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/tail_close/reconciliations/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/signal_ledger.jsonl",
+        "$A_STOCK_STATE_HOME/cron/output/tail-close-reconcile/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/stock-triage/scripts/tail_close_signal.py",
+          "reconcile",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 60
+      },
+      "external_note": "仅用 14:50 信号后可见成交数据重放 full/partial/unfilled；余量不进入收盘集合竞价或 15:05 sibling"
+    },
+    {
       "id": "candidate-freshness-check",
       "name": "候选池新鲜度检查",
       "schedule": "15 15 * * 1-5",

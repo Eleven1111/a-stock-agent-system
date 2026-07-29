@@ -13,6 +13,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in recommendation_audit.py touched by tail-close audit integration",
+      "violation_id": "1402f83c9305fcbc794f"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "16e1534ef9958fa25300"
     },
@@ -55,6 +60,11 @@
       "expires_on": "2026-10-31",
       "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
       "violation_id": "3219b91b88a26545f3cf"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in recommendation_audit.py touched by tail-close audit integration",
+      "violation_id": "32f37759c28fcdfd6eec"
     },
     {
       "expires_on": "2026-10-31",
@@ -110,6 +120,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "596721ffb119aa0829e6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in recommendation_audit.py touched by tail-close audit integration",
+      "violation_id": "5ac2b39cedb3074c4d9f"
     },
     {
       "expires_on": "2026-10-31",
@@ -180,6 +195,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "75d639b53e5b53ad0358"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in recommendation_audit.py touched by tail-close audit integration",
+      "violation_id": "766e8f65793b63d22e22"
     },
     {
       "expires_on": "2026-10-31",
@@ -400,6 +420,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "e4c72bdfbfb1792139d4"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in recommendation_audit.py touched by tail-close audit integration",
+      "violation_id": "e81a193115b3be6777c1"
     },
     {
       "expires_on": "2026-10-31",

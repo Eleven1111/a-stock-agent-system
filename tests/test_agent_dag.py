@@ -123,6 +123,37 @@ def test_previous_trading_day_dependency_is_not_rerun_in_current_batch():
     assert run_agent_dag.execution_order(jobs, ["auction"]) == ["auction"]
 
 
+def test_tail_close_manifest_has_no_future_data_dependency():
+    with open(
+        "cron/hermes-cron-manifest.json",
+        encoding="utf-8",
+    ) as handle:
+        jobs = {
+            job["id"]: job
+            for job in json.load(handle)["jobs"]
+        }
+
+    assert run_agent_dag.execution_order(
+        jobs,
+        ["tail-close-decision"],
+    ) == ["tail-close-prepare", "tail-close-decision"]
+    dependencies = set(jobs["tail-close-decision"]["context_from"])
+    assert dependencies.isdisjoint(
+        {"candidate-discovery", "candidate-freshness-check", "snapshot-gc"}
+    )
+    assert run_agent_dag.execution_order(
+        jobs,
+        ["tail-close-after-hours-shadow"],
+    ) == ["tail-close-after-hours-shadow"]
+    assert run_agent_dag.execution_order(
+        jobs,
+        ["tail-close-after-hours-reconcile"],
+    ) == [
+        "tail-close-after-hours-shadow",
+        "tail-close-after-hours-reconcile",
+    ]
+
+
 def test_wait_for_concurrent_holder_uses_exact_run_id(monkeypatch):
     artifacts = iter([
         {"run_id": "older-run", "status": "ok"},

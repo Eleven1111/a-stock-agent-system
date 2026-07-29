@@ -21,6 +21,7 @@ def test_repository_configs_pass_registry_validation():
         "reflexivity_strategy",
         "paper_trading",
         "scoring",
+        "tail_close_strategy",
     }
 
 

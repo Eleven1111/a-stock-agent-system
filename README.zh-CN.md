@@ -23,7 +23,7 @@ A 股多智能体投研系统。15 个仓内专业 Skill、四维打分引擎、
 ```mermaid
 flowchart LR
     HB["launchd 每60秒心跳"] --> DS["cron_dispatch.py manifest 调度器"]
-    MF["Cron manifest<br/>49个登记任务 / 42个启用"] --> DS
+    MF["Cron manifest<br/>54个登记任务 / 42个启用"] --> DS
     DS --> O["跨运行时可恢复 DAG"]
     S["外部数据源"] --> A["统一 Data Adapters"]
     PS["一手官方政策源"] --> PW["official-policy-watch"]
@@ -309,10 +309,16 @@ export SEARXNG_BASE_URLS=https://searxng1.example.com,https://searxng2.example.c
 所有任务定义在 [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json)。
 文件名为历史兼容命名，manifest 实际由 Hermes、OpenClaw、system cron 和本地运行共用。
 
-当前 manifest 共登记 **49 个任务，其中 42 个启用**。在文档登记的 macOS 部署中，
+当前 manifest 共登记 **54 个任务，其中 42 个启用**。在文档登记的 macOS 部署中，
 launchd 每分钟调用一次 `scripts/cron_dispatch.py`；dispatcher 负责 cron 匹配和同分钟去重，
 然后启动到期任务对应的 DAG 命令。`AUTOPILOT.md` 是已安装后台进程的事实源，manifest
 仍是任务定义、启用状态、时间表、交付方式和执行命令的事实源。
+
+新增尾盘通道由 5 个默认关闭的研究任务组成：14:35 点时预检、14:50 决策、
+15:05 独立盘后固定价格能力审计、15:06 模拟成交对账、15:31 盘后独立对账。
+在严格 PIT 输入能力、
+预注册 OOS 门和真实 shadow 证据通过前不得启用；运行面固定零实盘权重、无券商
+调用、无自动下单路径。
 
 ### 类型化命令
 
@@ -569,7 +575,7 @@ a-stock-agent-system/
 ├── config/reflexivity_strategy.json # 反身性防守护栏版本、阈值与配置指纹
 ├── config/paper_trading.json   # 10万元模拟账户、Chanlun门槛与成交纪律
 ├── config/strategy_packs/       # dragon_head.yaml、emotion_cycle.yaml（纯解释性）
-├── cron/hermes-cron-manifest.json  # 49个登记任务（当前42个启用）
+├── cron/hermes-cron-manifest.json  # 54个登记任务（当前42个启用）
 ├── scripts/
 │   ├── cron_dispatch.py        # launchd心跳→到期manifest任务
 │   ├── agent_job_runner.py     # Hermes/OpenClaw共用任务入口
