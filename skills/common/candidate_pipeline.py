@@ -569,6 +569,12 @@ def _auction_weakness(item: Mapping[str, Any]) -> Tuple[float, List[str]]:
     return round(penalty, 2), notes
 
 
+def _auction_lane_score(prior: float, shared_score: float, penalty: float) -> float:
+    """单条车道分 = 先验分 + 竞价共享分 − 弱势扣分，下限 0。"""
+    base = 100 * (AUCTION_PRIOR_WEIGHT * prior + shared_score)
+    return round(max(0.0, base - penalty), 2)
+
+
 def _auction_rejection_reasons(factor: Mapping[str, Any] | None) -> List[str]:
     """竞价硬否决：缺因子 / 一字板 / 跌停 / 指示价崩塌。"""
     if not factor:
@@ -630,13 +636,8 @@ def rank_auction_shortlist(
             + AUCTION_BID_ASK_WEIGHT * bid_p.get(code, 0.0)
             + AUCTION_DELTA_WEIGHT * delta_p.get(code, 0.0)
         )
-
-        def _lane_score(prior: float) -> float:
-            base = 100 * (AUCTION_PRIOR_WEIGHT * prior + shared_score)
-            return round(max(0.0, base - penalty), 2)
-
-        item["auction_daban_score"] = _lane_score(prior_daban)
-        item["auction_trend_score"] = _lane_score(prior_trend)
+        item["auction_daban_score"] = _auction_lane_score(prior_daban, shared_score, penalty)
+        item["auction_trend_score"] = _auction_lane_score(prior_trend, shared_score, penalty)
         social = candidate_attention_overlay(code, signal_ctx)
         current_social_delta = 0.5 * float(social["delta"])
         item["auction_daban_score"] = round(max(
