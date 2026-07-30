@@ -37,11 +37,15 @@ metadata:
 `scripts/auction_collector.py` 在集合竞价阶段累积腾讯盘口快照，并在收口时生成：
 
 - `auction_gap_pct`
+- `auction_max_gap_pct`、`auction_price_decay_pct`、`auction_faded_from_limit_up`
 - `auction_bid_ask_ratio`
 - `auction_net_bid_delta`
 - `auction_volume`、`auction_amount`
-- `board_status`
+- `board_status`（含 `limit_down`）、`limit_up`、`limit_down`
 - `seal_amount_ratio_pct`
+
+竞价短名单对跌停（`is_limit_down`）和指示价自高点回落达阈值的标的一票否决，
+平开/低开与小幅回落转为可审计扣分（`auction_weakness_notes`）。
 
 这些字段是证据，不是已验证 edge。新增阈值或权重必须先通过
 `chanlun-backtest/scripts/research_gate.py` 的样本外验证。

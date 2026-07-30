@@ -74,8 +74,24 @@ def _net_bid_delta(snapshots: List[Dict[str, Any]]) -> Optional[float]:
     return round(_snapshot_bid_vol(post_freeze[-1]) - _snapshot_bid_vol(post_freeze[0]), 1)
 
 
+def _gap_series(snapshots: List[Dict[str, Any]], prev_close: float) -> List[float]:
+    """竞价指示价相对昨收的涨跌幅序列（跳过缺价快照）。"""
+    series: List[float] = []
+    for snap in snapshots:
+        price = snap.get("price")
+        base = snap.get("prev_close") or prev_close
+        if price is None or not base:
+            continue
+        series.append(round((price - base) / base * 100, 2))
+    return series
+
+
 def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: str = "") -> Dict[str, Any]:
-    """从一只票的竞价快照序列算出 6 个真竞价因子（纯函数，不触网）。"""
+    """从一只票的竞价快照序列算出真竞价因子（纯函数，不触网）。
+
+    除静态因子外还给出竞价轨迹：`auction_max_gap_pct` / `auction_price_decay_pct`
+    量化 9:15→9:25 指示价从高点的回落幅度，用于识别诱多出货（issue #139/#140）。
+    """
     if not snapshots:
         return {"code": code, "name": name, "error": "无竞价快照"}
     last = snapshots[-1]
@@ -91,10 +107,21 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     market_cap_yi = last.get("market_cap")       # 流通市值（亿元）
 
     gap_pct = round((price - prev_close) / prev_close * 100, 2)
-    limit_up = round_limit(prev_close, limit_pct(code, name), up=True)
+    pct = limit_pct(code, name)
+    limit_up = round_limit(prev_close, pct, up=True)
+    limit_down = round_limit(prev_close, pct, up=False)
     at_limit = price >= limit_up - 1e-6
+    at_limit_down = price <= limit_down + 1e-6
 
-    if at_limit and ask_vol == 0:
+    gaps = _gap_series(snapshots, prev_close) or [gap_pct]
+    max_gap_pct = max(gaps)
+    decay_pct = round(max(0.0, max_gap_pct - gap_pct), 2)
+    limit_up_gap_pct = round((limit_up - prev_close) / prev_close * 100, 2)
+    faded_from_limit_up = not at_limit and max_gap_pct >= limit_up_gap_pct - 1e-6
+
+    if at_limit_down:
+        board_status = "limit_down"         # 竞价跌停，买入无意义
+    elif at_limit and ask_vol == 0:
         board_status = "yizi_seal"          # 竞价一字封死
     elif at_limit:
         board_status = "limit_up_with_ask"  # 竞价上板但有卖盘（T字/可撬）
@@ -113,6 +140,11 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
         "indicative_price": price,
         "prev_close": prev_close,
         "auction_gap_pct": gap_pct,
+        "auction_max_gap_pct": max_gap_pct,
+        "auction_price_decay_pct": decay_pct,
+        "auction_faded_from_limit_up": faded_from_limit_up,
+        "limit_up": limit_up,
+        "limit_down": limit_down,
         "auction_volume": round(volume, 1),
         "auction_amount": round(price * volume * 100, 0),
         "auction_bid_ask_ratio": round(bid_vol / ask_vol, 2) if ask_vol else None,
@@ -121,6 +153,7 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
         "seal_amount_ratio_pct": seal_ratio_pct,
         "snapshots_used": len(snapshots),
         "is_yiziban": board_status == "yizi_seal",
+        "is_limit_down": at_limit_down,
     }
 
 

@@ -571,3 +571,130 @@ def test_ladder_stale_leader_qualified_false_still_delivers_trend_shortlist():
             "候选质量门槛 qualified=False" not in reason
             for reason in rejected.get("rejection_reasons", [])
         )
+
+
+def _auction_pool(*candidates):
+    return {"asof": "2026-07-30", "candidates": list(candidates)}
+
+
+def test_auction_shortlist_rejects_limit_down_candidate():
+    """issue #139 贤丰控股：竞价跌停必须一票否决，不能靠前日涨停分放行。"""
+    pool = _auction_pool({
+        "code": "sz002141",
+        "name": "贤丰控股",
+        "daban_score": 96.26,
+        "trend_score": 40,
+    })
+    factors = [{
+        "code": "sz002141",
+        "auction_gap_pct": -10.0,
+        "auction_amount": 5_000_000,
+        "auction_bid_ask_ratio": 0.01,
+        "auction_net_bid_delta": 49_621,
+        "board_status": "limit_down",
+        "is_limit_down": True,
+        "is_yiziban": False,
+    }]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=20)
+
+    assert result["shortlist"] == []
+    assert any("跌停" in reason for reason in result["rejected"][0]["rejection_reasons"])
+
+
+def test_auction_shortlist_rejects_indicative_price_collapse():
+    """issue #140 天融信：竞价从涨停价回落到平盘，回落 10% 必须一票否决。"""
+    pool = _auction_pool({
+        "code": "sz002212",
+        "name": "天融信",
+        "daban_score": 100.0,
+        "trend_score": 60,
+    })
+    factors = [{
+        "code": "sz002212",
+        "auction_gap_pct": 0.0,
+        "auction_max_gap_pct": 10.0,
+        "auction_price_decay_pct": 10.0,
+        "auction_faded_from_limit_up": True,
+        "auction_amount": 0,
+        "auction_bid_ask_ratio": 1.0,
+        "auction_net_bid_delta": 0,
+        "board_status": "flat_or_low_open",
+        "is_yiziban": False,
+    }]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=20)
+
+    assert result["shortlist"] == []
+    assert any("回落" in reason for reason in result["rejected"][0]["rejection_reasons"])
+
+
+def test_auction_prior_daban_alone_cannot_carry_a_weak_auction():
+    """issue #140：前日涨停分权重降到 25%，平开 + 零量能 + 小幅回落必须被压到低分。"""
+    pool = _auction_pool(
+        {"code": "sz002212", "name": "弱竞价", "daban_score": 100.0, "trend_score": 100.0},
+        {"code": "sh600001", "name": "健康竞价", "daban_score": 60.0, "trend_score": 60.0},
+    )
+    factors = [
+        {
+            "code": "sz002212",
+            "auction_gap_pct": 0.0,
+            "auction_max_gap_pct": 3.0,
+            "auction_price_decay_pct": 3.0,
+            "auction_amount": 0,
+            "auction_bid_ask_ratio": 1.0,
+            "auction_net_bid_delta": 0,
+            "board_status": "flat_or_low_open",
+            "is_yiziban": False,
+        },
+        {
+            "code": "sh600001",
+            "auction_gap_pct": 2.0,
+            "auction_max_gap_pct": 2.0,
+            "auction_price_decay_pct": 0.0,
+            "auction_amount": 30_000_000,
+            "auction_bid_ask_ratio": 2.0,
+            "auction_net_bid_delta": 10_000,
+            "board_status": "high_open",
+            "is_yiziban": False,
+        },
+    ]
+
+    by_code = {
+        item["code"]: item
+        for item in cp.rank_auction_shortlist(pool, factors, limit=20)["shortlist"]
+    }
+
+    assert by_code["sz002212"]["auction_score"] < 30
+    assert by_code["sh600001"]["auction_score"] > by_code["sz002212"]["auction_score"]
+
+
+def test_auction_zero_volume_does_not_earn_median_amount_percentile():
+    """issue #140：竞价量能全为 0（免费源局限）时并列不得换来中位分位。"""
+    pool = _auction_pool(*[
+        {"code": f"sh6000{i:02d}", "name": f"零量能{i}", "daban_score": 80, "trend_score": 80}
+        for i in range(4)
+    ])
+    factors = [
+        {
+            "code": f"sh6000{i:02d}",
+            "auction_gap_pct": 2.0,
+            "auction_amount": 0,
+            "auction_bid_ask_ratio": 2.0,
+            "auction_net_bid_delta": 10_000,
+            "board_status": "high_open",
+            "is_yiziban": False,
+        }
+        for i in range(4)
+    ]
+
+    shortlist = cp.rank_auction_shortlist(pool, factors, limit=20)["shortlist"]
+    with_volume = cp.rank_auction_shortlist(
+        pool,
+        [{**factor, "auction_amount": 30_000_000} for factor in factors],
+        limit=20,
+    )["shortlist"]
+
+    assert shortlist[0]["auction_score"] < with_volume[0]["auction_score"]
+    assert all("竞价量能为0" in note for item in shortlist
+               for note in [" ".join(item["auction_weakness_notes"])])
