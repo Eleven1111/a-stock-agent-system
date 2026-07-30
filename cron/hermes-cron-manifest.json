@@ -919,13 +919,7 @@
       "context_scope": "cron",
       "deliver": "origin",
       "max_output_chars": 2400,
-      "context_from": [
-        "open-confirmation"
-      ],
-      "dependency_policy": {
-        "trading_date": "same_trading_date",
-        "max_age_minutes": 15
-      },
+      "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/open-intelligence-brief/",
