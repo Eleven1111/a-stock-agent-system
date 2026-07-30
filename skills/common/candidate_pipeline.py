@@ -525,6 +525,66 @@ def _factor_map(factors: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any
     return {naked_code(item.get("code")): dict(item) for item in factors if item.get("code")}
 
 
+# 竞价打分权重（issue #139/#140：前日涨停分曾占 50%，掩盖了当日竞价的全面弱势）。
+AUCTION_PRIOR_WEIGHT = 0.25
+AUCTION_GAP_WEIGHT = 0.25
+AUCTION_AMOUNT_WEIGHT = 0.25
+AUCTION_BID_ASK_WEIGHT = 0.15
+AUCTION_DELTA_WEIGHT = 0.10
+AUCTION_IDEAL_GAP_PCT = 2.0        # 理想高开幅度
+AUCTION_GAP_UPPER_SLACK_PCT = 6.0  # 高开超过理想值后的衰减跨度
+AUCTION_DECAY_REJECT_PCT = 5.0     # 指示价自高点回落达此幅度 → 一票否决
+AUCTION_DECAY_PENALTY_START_PCT = 2.0
+AUCTION_DECAY_PENALTY_PER_PCT = 3.0
+AUCTION_DECAY_PENALTY_CAP = 15.0
+AUCTION_FLAT_OPEN_PENALTY = 12.0   # 涨停次日平开/低开是弱势信号
+
+
+def _auction_gap_quality(gap: float) -> float:
+    """高开质量：平开/低开 ≈ 0，+2% 最优，高开越多越贵→线性衰减。"""
+    if gap <= 0:
+        return 0.0
+    if gap <= AUCTION_IDEAL_GAP_PCT:
+        return gap / AUCTION_IDEAL_GAP_PCT
+    return max(0.0, 1.0 - (gap - AUCTION_IDEAL_GAP_PCT) / AUCTION_GAP_UPPER_SLACK_PCT)
+
+
+def _auction_weakness(item: Mapping[str, Any]) -> Tuple[float, List[str]]:
+    """竞价弱势扣分（分）+ 可审计说明。"""
+    penalty = 0.0
+    notes: List[str] = []
+    if item.get("board_status") == "flat_or_low_open":
+        penalty += AUCTION_FLAT_OPEN_PENALTY
+        notes.append(f"竞价平开/低开 -{AUCTION_FLAT_OPEN_PENALTY:.0f}")
+    decay = _num(item.get("auction_price_decay_pct"))
+    if decay > AUCTION_DECAY_PENALTY_START_PCT:
+        decay_penalty = min(
+            AUCTION_DECAY_PENALTY_CAP,
+            AUCTION_DECAY_PENALTY_PER_PCT * (decay - AUCTION_DECAY_PENALTY_START_PCT),
+        )
+        penalty += decay_penalty
+        notes.append(f"竞价指示价自高点回落{decay:.2f}% -{decay_penalty:.1f}")
+    if _num(item.get("auction_amount")) <= 0:
+        notes.append("竞价量能为0，量能分位归零（免费源局限）")
+    return round(penalty, 2), notes
+
+
+def _auction_rejection_reasons(factor: Mapping[str, Any] | None) -> List[str]:
+    """竞价硬否决：缺因子 / 一字板 / 跌停 / 指示价崩塌。"""
+    if not factor:
+        return ["缺少09:25竞价因子"]
+    if factor.get("error"):
+        return [str(factor["error"])]
+    if factor.get("is_yiziban"):
+        return ["一字板不可成交"]
+    if factor.get("is_limit_down") or factor.get("board_status") == "limit_down":
+        return ["竞价跌停，买入无意义"]
+    decay = _num(factor.get("auction_price_decay_pct"))
+    if decay >= AUCTION_DECAY_REJECT_PCT:
+        return [f"竞价指示价自高点回落{decay:.2f}%，疑似诱多出货"]
+    return []
+
+
 def rank_auction_shortlist(
     pool: Mapping[str, Any],
     factors: Sequence[Mapping[str, Any]],
@@ -539,13 +599,7 @@ def rank_auction_shortlist(
         item = dict(raw)
         code = naked_code(item.get("code") or item.get("market_code"))
         factor = factor_by_code.get(code)
-        reasons: List[str] = []
-        if not factor:
-            reasons.append("缺少09:25竞价因子")
-        elif factor.get("error"):
-            reasons.append(str(factor["error"]))
-        elif factor.get("is_yiziban"):
-            reasons.append("一字板不可成交")
+        reasons = _auction_rejection_reasons(factor)
         if reasons:
             rejected.append({
                 **item,
@@ -559,19 +613,30 @@ def rank_auction_shortlist(
     bid_p = _percentiles(rows, "auction_bid_ask_ratio")
     delta_p = _percentiles(rows, "auction_net_bid_delta")
     for item in rows:
+        # 零量能全场并列时 _percentiles 会给中位分位，等于白送分——直接归零。
+        if _num(item.get("auction_amount")) <= 0:
+            amount_p[naked_code(item["code"])] = 0.0
+    for item in rows:
         code = naked_code(item["code"])
-        gap = _num(item.get("auction_gap_pct"))
-        gap_quality = max(0.0, 1.0 - abs(gap - 2.0) / 7.0)
+        gap_quality = _auction_gap_quality(_num(item.get("auction_gap_pct")))
+        penalty, weakness_notes = _auction_weakness(item)
+        item["auction_weakness_penalty"] = penalty
+        item["auction_weakness_notes"] = weakness_notes
         prior_daban = _num(item.get("daban_score")) / 100
         prior_trend = _num(item.get("trend_score")) / 100
         shared_score = (
-            0.20 * gap_quality
-            + 0.15 * amount_p.get(code, 0.0)
-            + 0.10 * bid_p.get(code, 0.0)
-            + 0.05 * delta_p.get(code, 0.0)
+            AUCTION_GAP_WEIGHT * gap_quality
+            + AUCTION_AMOUNT_WEIGHT * amount_p.get(code, 0.0)
+            + AUCTION_BID_ASK_WEIGHT * bid_p.get(code, 0.0)
+            + AUCTION_DELTA_WEIGHT * delta_p.get(code, 0.0)
         )
-        item["auction_daban_score"] = round(100 * (0.50 * prior_daban + shared_score), 2)
-        item["auction_trend_score"] = round(100 * (0.50 * prior_trend + shared_score), 2)
+
+        def _lane_score(prior: float) -> float:
+            base = 100 * (AUCTION_PRIOR_WEIGHT * prior + shared_score)
+            return round(max(0.0, base - penalty), 2)
+
+        item["auction_daban_score"] = _lane_score(prior_daban)
+        item["auction_trend_score"] = _lane_score(prior_trend)
         social = candidate_attention_overlay(code, signal_ctx)
         current_social_delta = 0.5 * float(social["delta"])
         item["auction_daban_score"] = round(max(

@@ -541,3 +541,52 @@ def test_finalize_computes_real_discipline_state_from_ledger(tmp_path, monkeypat
     assert "consecutive_losses_freeze" in decision["policy_decision"]["reasons"]
     report = ac.json_report(result)
     assert report["discipline_state"]["blocked"] is True
+
+
+def test_limit_down_auction_is_flagged():
+    """issue #139 贤丰控股(002141)：昨收涨停后竞价崩到跌停，必须打上跌停标记。"""
+    snaps = [{
+        "t": "09:25:00", "name": "贤丰控股", "price": 5.67, "prev_close": 6.30,
+        "volume": 8_000, "market_cap": 60.0,
+        "bids": [(5.67, 100)] + [(None, None)] * 4,
+        "asks": [(5.67, 900_000)] + [(None, None)] * 4,
+    }]
+    f = ac.compute_auction_factors(snaps, "sz002141", "贤丰控股")
+    assert f["limit_down"] == 5.67
+    assert f["board_status"] == "limit_down"
+    assert f["is_limit_down"] is True
+
+
+def test_auction_price_decay_tracks_indicative_price_fade():
+    """issue #139：+9.52% → +3.02% 的竞价回落必须被量化成 decay。"""
+    base = {"name": "贤丰控股", "prev_close": 6.30, "volume": 0,
+            "market_cap": 60.0, "bids": [(6.49, 1000)] * 5, "asks": [(6.50, 1000)] * 5}
+    snaps = [
+        {**base, "t": "09:16:00", "price": 6.90},
+        {**base, "t": "09:20:00", "price": 6.68},
+        {**base, "t": "09:25:00", "price": 6.49},
+    ]
+    f = ac.compute_auction_factors(snaps, "sz002141", "贤丰控股")
+    assert f["auction_gap_pct"] == 3.02
+    assert f["auction_max_gap_pct"] == 9.52
+    assert f["auction_price_decay_pct"] == 6.5
+    assert f["board_status"] == "high_open"
+
+
+def test_auction_fade_from_limit_up_to_flat_is_detected():
+    """issue #140 天融信(002212)：竞价 +10% 涨停价一路回落到 0% 平开。"""
+    base = {"name": "天融信", "prev_close": 6.60, "volume": 0,
+            "market_cap": 78.0, "bids": [(6.60, 39263)] * 5, "asks": [(6.60, 39263)] * 5}
+    snaps = [
+        {**base, "t": "09:16:00", "price": 7.26},
+        {**base, "t": "09:20:00", "price": 7.25},
+        {**base, "t": "09:23:00", "price": 6.98},
+        {**base, "t": "09:25:00", "price": 6.60},
+    ]
+    f = ac.compute_auction_factors(snaps, "sz002212", "天融信")
+    assert f["auction_gap_pct"] == 0.0
+    assert f["auction_max_gap_pct"] == 10.0
+    assert f["auction_price_decay_pct"] == 10.0
+    assert f["auction_faded_from_limit_up"] is True
+    assert f["board_status"] == "flat_or_low_open"
+    assert f["is_limit_down"] is False

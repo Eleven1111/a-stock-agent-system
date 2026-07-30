@@ -43,6 +43,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing long function candidate_pipeline.build_watch_pool touched by the auction fade/limit-down fix (issue #139/#140)",
+      "violation_id": "23626c2c4240a19fbef7"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
       "violation_id": "24c1d3598cecd556fb86"
     },
@@ -328,6 +333,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing long function candidate_pipeline.rank_auction_shortlist touched by the auction fade/limit-down fix (issue #139/#140)",
+      "violation_id": "a38a0d9e003f740ee375"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "a6397a707953b0d5b948"
     },
@@ -360,6 +370,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "ba8636e9c01807b7c348"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing long function candidate_pipeline.rank_candidates touched by the auction fade/limit-down fix (issue #139/#140)",
+      "violation_id": "bb0e37e74689dd3f05c3"
     },
     {
       "expires_on": "2026-10-31",
