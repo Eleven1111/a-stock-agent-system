@@ -54,7 +54,9 @@
 
 - 生产路径仍为 `skills/chanlun-backtest/scripts/` 纯函数模块，按 coding-style（≤400 行/文件）拆分：
   - `chan_kline.py`：去包含 + 分型（含有效性检查）+ 笔（含虚笔）——从 chan_structure.py 拆出并升级
-  - `chan_segment.py`：特征序列线段
+  - `chan_segment.py`：特征序列线段（T2 实际落地时拆为两个文件：`chan_eigen.py` 特征序列 +
+    特征序列分型，`chan_segment.py` 线段列表/左侧收尾/对外契约；单文件会到 ~470 行，超出
+    ≤400 行的可维护区间。对外入口仍只有 `chan_segment.py`）
   - `chan_center.py`：中枢（段内构造、合并、bi_in/bi_out）
   - `chan_bsp.py`：买卖点全谱系 + 背驰算法族
   - `chan_structure.py`：保留 `analyze()` 门面，**输出契约向后兼容**（只增字段不删旧字段），

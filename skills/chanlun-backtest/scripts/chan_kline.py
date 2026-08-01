@@ -360,7 +360,9 @@ def _export_bi(bi: Dict[str, Any], kl: List[Dict[str, Any]]) -> Dict[str, Any]:
             "end_idx": end["high_idx"] if up else end["low_idx"],
             "start_price": start_price, "end_price": end_price,
             "high": max(start_price, end_price), "low": min(start_price, end_price),
-            "is_sure": bi["is_sure"]}
+            "is_sure": bi["is_sure"],
+            # 曾经确定过的笔（后被虚笔延伸）在线段层仍算"确定证据"——CBi.is_used_to_be_sure
+            "used_to_be_sure": bi["used_to_be_sure"]}
 
 
 def analyze_klines(bars: Sequence[Dict[str, Any]], config: Optional[BiConfig] = None) -> Dict[str, Any]:

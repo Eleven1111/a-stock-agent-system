@@ -66,6 +66,28 @@ class BspRecord:
     time: str
 
 
+@dataclass(frozen=True)
+class SegRecord:
+    """Snapshot of one chan.py 线段 (Seg)."""
+
+    dir: str
+    begin: str
+    end: str
+    is_sure: bool
+    start_bi_idx: int
+    end_bi_idx: int
+    reason: str
+
+
+@dataclass(frozen=True)
+class OfflineResult:
+    """All structure snapshots from one offline run."""
+
+    bi_records: list[BiRecord]
+    bsp_records: list[BspRecord]
+    seg_records: list[SegRecord]
+
+
 def _to_klu(bar: SyntheticBar) -> CKLine_Unit:
     year, month, day = (int(part) for part in bar.date.split("-"))
     kl_dict = {
@@ -90,8 +112,19 @@ def run_offline(
     CChan.__init__ off the network data-source path.
 
     Returns (bi_records, bsp_records) as plain, immutable dataclasses so
-    callers never touch chan.py's mutable OOP graph directly.
+    callers never touch chan.py's mutable OOP graph directly. Use
+    ``run_offline_structure`` when 线段 records are needed too; this
+    two-tuple signature is kept for existing callers.
     """
+    result = run_offline_structure(bars, overrides)
+    return result.bi_records, result.bsp_records
+
+
+def run_offline_structure(
+    bars: Sequence[SyntheticBar],
+    overrides: dict | None = None,
+) -> OfflineResult:
+    """Same offline run as ``run_offline``, also exporting 线段 (seg) records."""
     if len(bars) < 2:
         raise ValueError("run_offline requires at least 2 bars")
 
@@ -123,4 +156,16 @@ def run_offline(
         )
         for bsp in chan.get_bsp()
     ]
-    return bi_records, bsp_records
+    seg_records = [
+        SegRecord(
+            dir=seg.dir.name,
+            begin=str(seg.get_begin_klu().time),
+            end=str(seg.get_end_klu().time),
+            is_sure=seg.is_sure,
+            start_bi_idx=seg.start_bi.idx,
+            end_bi_idx=seg.end_bi.idx,
+            reason=seg.reason,
+        )
+        for seg in kl_list.seg_list
+    ]
+    return OfflineResult(bi_records, bsp_records, seg_records)

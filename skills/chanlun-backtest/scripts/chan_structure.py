@@ -10,12 +10,16 @@ four_dim_scorer 的技术面/择时消费。
 （allowed_in_live_agent=true）之前，下游只能 display-only / 0 权重——闸门由 strategy_registry
 统一裁决，不在此处加权。
 
-实现取舍（务实严谨版）：实现笔 + 笔中枢 + 三类买卖点 + MACD 背驰；线段未单独实现
-（笔中枢已足以给出三类买卖点）。所有核心步骤为纯函数，可用合成 K 线单测。
+实现取舍（务实严谨版）：实现笔 + 笔中枢 + 三类买卖点 + MACD 背驰。所有核心步骤为纯函数，
+可用合成 K 线单测。
 
-分层（2026-08 T1 升级）：去包含/分型/笔已拆到同目录 chan_kline.py，算法规格对齐 chan.py
-（分型 4 档有效性检查 + 笔三条件 + 虚笔 is_sure）。本文件退化为门面 + 中枢/买卖点/背驰，
-输出契约向后兼容：analyze() 旧字段全部保留，strokes 仅**新增** is_sure（False = 末段未确认笔）。
+分层：
+- 2026-08 T1：去包含/分型/笔拆到同目录 chan_kline.py（分型 4 档有效性检查 + 笔三条件 + 虚笔）；
+- 2026-08 T2：线段拆到同目录 chan_segment.py（特征序列分型 + 缺口情形 + 未确认段 is_sure）。
+  本次只把线段结构透出到 structure（seg_count/sure_seg_count/last_seg），**信号判定不变**：
+  三买三卖/背驰仍基于笔中枢，迁移到线段与段内中枢是 T3/T4。
+
+本文件退化为门面 + 中枢/买卖点/背驰，输出契约向后兼容：analyze() 旧字段全部保留，只增不删。
 
 数据源（CLI）：腾讯前复权日线（经 common/a_stock_http，cron-safe）。analyze() 为纯函数，不触网。
 
@@ -34,13 +38,21 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
 from indicators import macd_hist  # noqa: E402  技术指标统一走 common（去重）
 
-try:  # 调用方（four_dim_scorer / chan_signal_backtest / CLI）已把本目录放进 sys.path
-    import chan_kline  # noqa: E402
-except ImportError:  # 被 importlib 按路径加载时（测试）本目录不在 sys.path，按文件名加载
-    _KLINE_SPEC = importlib.util.spec_from_file_location(
-        "chan_kline", os.path.join(os.path.dirname(os.path.abspath(__file__)), "chan_kline.py"))
-    chan_kline = importlib.util.module_from_spec(_KLINE_SPEC)
-    _KLINE_SPEC.loader.exec_module(chan_kline)
+def _load_sibling(name: str):
+    """同目录模块：调用方（four_dim_scorer / chan_signal_backtest / CLI）通常已把本目录放进
+    sys.path；被 importlib 按路径加载时（测试）没有，退回按文件名加载。"""
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        spec = importlib.util.spec_from_file_location(
+            name, os.path.join(os.path.dirname(os.path.abspath(__file__)), f"{name}.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+
+chan_kline = _load_sibling("chan_kline")
+chan_segment = _load_sibling("chan_segment")
 
 # strategy_id 命名（与 research_gate / strategy_registry 对齐）
 SIGNAL_STRATEGY = {
@@ -160,6 +172,7 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
     merged, fractals = kline["merged"], kline["fractals"]
     strokes = kline["bis"]          # 含末段虚笔（is_sure=False），供下游按需过滤
     centers = build_centers(strokes)
+    seg_view = chan_segment.analyze_segs(strokes)   # 线段层：仅输出结构，不参与下方信号判定
 
     raw_signals = detect_third_signals(strokes, centers) + detect_divergence(strokes, hist)
     # 回填日期 + strategy_id
@@ -182,6 +195,10 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
             "center_count": len(centers),
             "last_center": last_center,
             "last_stroke": strokes[-1] if strokes else None,
+            # 2026-08 T2 新增：线段层（三类买卖点/中枢迁移到线段口径是 T3/T4，本次只暴露结构）
+            "seg_count": seg_view["seg_count"],
+            "sure_seg_count": seg_view["sure_seg_count"],
+            "last_seg": seg_view["last_seg"],
         },
         "signals": signals,
         "summary": _summary(strokes, centers, signals),
