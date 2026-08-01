@@ -70,16 +70,25 @@ def test_build_bis_skips_too_short_swing():
     assert cs.chan_kline.build_bis(bars, cs.bi_config(4)) == []
 
 
-def test_build_centers_overlap():
+def test_centers_come_from_chan_center():
+    """旧 test_build_centers_overlap 的等价用例。
+    规则变更：中枢不再由"滑窗 3 笔重叠"近似生成（chan_structure.build_centers 已删除），
+    改为 chan_center 的段内构造（出处 third_party/chan_py_reference/ZS/ZSList.py::cal_bi_zs
+    + add_zs_from_bi_range）。行为差异：① 必须给线段，无线段不产中枢；② 构造元素只取与线段
+    方向相反的笔，故上升线段里需要两笔下降笔（原 3 笔样例扩到 5 笔）；③ 中枢区间由这两笔
+    决定（zg=11.8/zd=10.8），而非窗口内 3 笔（原为 zd=10.5）。"""
     strokes = [
         {"dir": "up", "start_idx": 0, "end_idx": 3, "high": 12, "low": 10, "start_price": 10, "end_price": 12},
         {"dir": "down", "start_idx": 3, "end_idx": 6, "high": 12, "low": 10.5, "start_price": 12, "end_price": 10.5},
         {"dir": "up", "start_idx": 6, "end_idx": 9, "high": 11.8, "low": 10.5, "start_price": 10.5, "end_price": 11.8},
+        {"dir": "down", "start_idx": 9, "end_idx": 12, "high": 11.8, "low": 10.8, "start_price": 11.8, "end_price": 10.8},
+        {"dir": "up", "start_idx": 12, "end_idx": 15, "high": 12.5, "low": 10.8, "start_price": 10.8, "end_price": 12.5},
     ]
-    centers = cs.build_centers(strokes)
+    segs = [{"dir": "up", "start_bi_idx": 0, "end_bi_idx": 4, "is_sure": True}]
+    centers = cs.chan_center.build_centers(strokes, segs)
     assert len(centers) == 1
-    assert centers[0]["zg"] == 11.8
-    assert centers[0]["zd"] == 10.5
+    assert (centers[0]["zg"], centers[0]["zd"]) == (11.8, 10.8)
+    assert (centers[0]["start_bi_idx"], centers[0]["end_bi_idx"]) == (1, 3)
 
 
 def test_detect_third_buy():
@@ -90,8 +99,10 @@ def test_detect_third_buy():
         {"dir": "up", "start_idx": 9, "end_idx": 12, "high": 13, "low": 11.9, "start_price": 11.9, "end_price": 13},
         {"dir": "down", "start_idx": 12, "end_idx": 15, "high": 13, "low": 12, "start_price": 13, "end_price": 12},
     ]
-    centers = [{"zg": 11.8, "zd": 10.5, "start_stroke": 0, "end_stroke": 2,
-                "start_idx": 0, "end_idx": 9, "stroke_count": 3}]
+    # 中枢字典改为 chan_center 契约：end_stroke → end_bi_idx（start_stroke → start_bi_idx），
+    # 出处 ZS/ZSList.py::cal_bi_zs；detect_third_signals 消费的键 zg/zd 未变，判定逻辑未变。
+    centers = [{"zg": 11.8, "zd": 10.5, "start_bi_idx": 0, "end_bi_idx": 2,
+                "start_idx": 0, "end_idx": 9, "bi_count": 3}]
     sig = cs.detect_third_signals(strokes, centers)
     assert any(s["type"] == "third_buy" for s in sig)
 

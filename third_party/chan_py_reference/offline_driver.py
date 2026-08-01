@@ -80,12 +80,26 @@ class SegRecord:
 
 
 @dataclass(frozen=True)
+class ZsRecord:
+    """Snapshot of one chan.py 中枢 (ZS)."""
+
+    zg: float  # CZS.high — min of the member 笔 highs
+    zd: float  # CZS.low  — max of the member 笔 lows
+    begin: str
+    end: str
+    is_sure: bool
+    start_bi_idx: int
+    end_bi_idx: int
+
+
+@dataclass(frozen=True)
 class OfflineResult:
     """All structure snapshots from one offline run."""
 
     bi_records: list[BiRecord]
     bsp_records: list[BspRecord]
     seg_records: list[SegRecord]
+    zs_records: list[ZsRecord]
 
 
 def _to_klu(bar: SyntheticBar) -> CKLine_Unit:
@@ -124,7 +138,7 @@ def run_offline_structure(
     bars: Sequence[SyntheticBar],
     overrides: dict | None = None,
 ) -> OfflineResult:
-    """Same offline run as ``run_offline``, also exporting 线段 (seg) records."""
+    """Same offline run as ``run_offline``, also exporting 线段 (seg) and 中枢 (zs) records."""
     if len(bars) < 2:
         raise ValueError("run_offline requires at least 2 bars")
 
@@ -168,4 +182,16 @@ def run_offline_structure(
         )
         for seg in kl_list.seg_list
     ]
-    return OfflineResult(bi_records, bsp_records, seg_records)
+    zs_records = [
+        ZsRecord(
+            zg=zs.high,
+            zd=zs.low,
+            begin=str(zs.begin.time),
+            end=str(zs.end.time),
+            is_sure=zs.is_sure,
+            start_bi_idx=zs.begin_bi.idx,
+            end_bi_idx=zs.end_bi.idx,
+        )
+        for zs in kl_list.zs_list
+    ]
+    return OfflineResult(bi_records, bsp_records, seg_records, zs_records)

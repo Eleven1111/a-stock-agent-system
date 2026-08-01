@@ -15,11 +15,14 @@ four_dim_scorer 的技术面/择时消费。
 
 分层：
 - 2026-08 T1：去包含/分型/笔拆到同目录 chan_kline.py（分型 4 档有效性检查 + 笔三条件 + 虚笔）；
-- 2026-08 T2：线段拆到同目录 chan_segment.py（特征序列分型 + 缺口情形 + 未确认段 is_sure）。
-  本次只把线段结构透出到 structure（seg_count/sure_seg_count/last_seg），**信号判定不变**：
-  三买三卖/背驰仍基于笔中枢，迁移到线段与段内中枢是 T3/T4。
+- 2026-08 T2：线段拆到同目录 chan_segment.py（特征序列分型 + 缺口情形 + 未确认段 is_sure）；
+- 2026-08 T3：中枢拆到同目录 chan_center.py（段内构造 + 重叠合并 + bi_in/bi_out），旧的
+  "滑窗 3 笔重叠"近似删除。三买三卖的**检测逻辑本身不变**，只是改读新中枢；
+  三类买卖点全谱系升级是 T4。
 
-本文件退化为门面 + 中枢/买卖点/背驰，输出契约向后兼容：analyze() 旧字段全部保留，只增不删。
+本文件退化为门面 + 买卖点/背驰，输出契约向后兼容：analyze() 旧字段全部保留，只增不删
+（last_center 的旧键 zg/zd/start_stroke/end_stroke/start_idx/end_idx/stroke_count 保留，
+值会因中枢算法升级而变化）。
 
 数据源（CLI）：腾讯前复权日线（经 common/a_stock_http，cron-safe）。analyze() 为纯函数，不触网。
 
@@ -53,6 +56,7 @@ def _load_sibling(name: str):
 
 chan_kline = _load_sibling("chan_kline")
 chan_segment = _load_sibling("chan_segment")
+chan_center = _load_sibling("chan_center")
 
 # strategy_id 命名（与 research_gate / strategy_registry 对齐）
 SIGNAL_STRATEGY = {
@@ -74,42 +78,31 @@ def bi_config(min_gap: int = DEFAULT_MIN_STROKE_GAP) -> "chan_kline.BiConfig":
     return chan_kline.BiConfig(fx_check="strict", is_strict=min_gap >= 4)
 
 
-# ========== 中枢 ==========
+# ========== 中枢（构造在 chan_center，此处只做旧契约映射）==========
 
-def build_centers(strokes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """连续≥3笔的重叠区间构成中枢；后续笔与区间重叠则延伸。"""
-    centers = []
-    n = len(strokes)
-    i = 0
-    while i + 2 < n:
-        window = strokes[i:i + 3]
-        zg = min(s["high"] for s in window)
-        zd = max(s["low"] for s in window)
-        if zg > zd:
-            j = i + 3
-            while j < n and strokes[j]["low"] <= zg and strokes[j]["high"] >= zd:
-                j += 1
-            centers.append({
-                "zg": round(zg, 3), "zd": round(zd, 3),
-                "start_stroke": i, "end_stroke": j - 1,
-                "start_idx": strokes[i]["start_idx"], "end_idx": strokes[j - 1]["end_idx"],
-                "stroke_count": j - i,
-            })
-            i = j
-        else:
-            i += 1
-    return centers
+def _legacy_center(center: Dict[str, Any]) -> Dict[str, Any]:
+    """新中枢 → analyze() 的 last_center 字段：旧键全部保留（值随算法升级而变），
+    另增 is_sure/seg_idx/bi_in_idx/bi_out_idx 四个新键。"""
+    return {"zg": round(center["zg"], 3), "zd": round(center["zd"], 3),
+            "start_stroke": center["start_bi_idx"], "end_stroke": center["end_bi_idx"],
+            "start_idx": center["start_idx"], "end_idx": center["end_idx"],
+            "stroke_count": center["bi_count"],
+            "is_sure": center["is_sure"], "seg_idx": center["seg_idx"],
+            "bi_in_idx": center["bi_in_idx"], "bi_out_idx": center["bi_out_idx"]}
 
 
 # ========== 三类买卖点 ==========
 
 def detect_third_signals(strokes: List[Dict[str, Any]],
                          centers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """基于最后一个中枢判定三买/三卖：离开中枢后回踩不破上沿(三买)/反弹不过下沿(三卖)。"""
+    """基于最后一个中枢判定三买/三卖：离开中枢后回踩不破上沿(三买)/反弹不过下沿(三卖)。
+
+    T3 起 centers 来自 chan_center（段内构造 + 合并），消费的键为 zg/zd/end_bi_idx；
+    判定规则本身未变（升级为正宗三类买卖点定义是 T4）。"""
     if not centers:
         return []
     c = centers[-1]
-    after = strokes[c["end_stroke"] + 1:]
+    after = strokes[c["end_bi_idx"] + 1:]
     signals = []
     for k in range(len(after) - 1):
         leave, pull = after[k], after[k + 1]
@@ -171,8 +164,9 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
     kline = chan_kline.analyze_klines(bars, bi_config(min_gap))
     merged, fractals = kline["merged"], kline["fractals"]
     strokes = kline["bis"]          # 含末段虚笔（is_sure=False），供下游按需过滤
-    centers = build_centers(strokes)
-    seg_view = chan_segment.analyze_segs(strokes)   # 线段层：仅输出结构，不参与下方信号判定
+    seg_view = chan_segment.analyze_segs(strokes)
+    # 中枢：段内构造（无线段时不产出中枢，对齐参考实现 cal_bi_zs 的 normal 分支）
+    centers = chan_center.build_centers(strokes, seg_view["segs"])
 
     raw_signals = detect_third_signals(strokes, centers) + detect_divergence(strokes, hist)
     # 回填日期 + strategy_id
@@ -183,7 +177,7 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
         s["strategy_id"] = SIGNAL_STRATEGY.get(s["type"])
         signals.append(s)
 
-    last_center = centers[-1] if centers else None
+    last_center = _legacy_center(centers[-1]) if centers else None
     return {
         "ok": True,
         "last_close": round(closes[-1], 3),

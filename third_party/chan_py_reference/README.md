@@ -48,3 +48,4 @@
 | （无） | — | — | 截至 T0，未对 chan.py 算法代码做任何修改；仅做目录裁剪（见上）。若后续差分测试发现裁剪导致悬空 import 或需要离线适配，在此表逐条追加，禁止无记录改动。 |
 | 1 | `offline_driver.py`（本仓库自建，非上游文件） | `run_offline(bars, overrides=None)` 新增可选参数，合并进 `CChanConfig` 字典（`trigger_step` 仍强制为 True） | T1 差分测试需要按非默认笔配置（`bi_fx_check`/`bi_strict`/`gap_as_kl`/`bi_allow_sub_peak`）跑 oracle，验证 4 档分型有效性检查。**未触碰任何 chan.py 算法代码。** |
 | 2 | `offline_driver.py`（本仓库自建，非上游文件） | 新增 `SegRecord`/`OfflineResult` 与 `run_offline_structure(bars, overrides=None)`，导出 `kl_list.seg_list` 的线段快照（方向、起止 klu 时间、`is_sure`、起止笔 idx、`reason`）；`run_offline` 保持原二元组签名，改为其薄封装 | T2 线段差分测试需要 oracle 侧的线段列表；沿用旧签名以免改动既有测试。**未触碰任何 chan.py 算法代码。** |
+| 3 | `offline_driver.py`（本仓库自建，非上游文件） | 新增 `ZsRecord`，`OfflineResult` 增加 `zs_records` 字段，导出 `kl_list.zs_list` 的中枢快照（`zs.high`→zg、`zs.low`→zd、起止 klu 时间、`is_sure`、起止笔 idx） | T3 中枢差分测试需要 oracle 侧的中枢列表。`run_offline` 二元组签名不变。**未触碰任何 chan.py 算法代码。** |
