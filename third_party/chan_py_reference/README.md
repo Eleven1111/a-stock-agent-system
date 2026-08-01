@@ -46,3 +46,4 @@
 | # | 文件 | 修补内容 | 原因 |
 |---|---|---|---|
 | （无） | — | — | 截至 T0，未对 chan.py 算法代码做任何修改；仅做目录裁剪（见上）。若后续差分测试发现裁剪导致悬空 import 或需要离线适配，在此表逐条追加，禁止无记录改动。 |
+| 1 | `offline_driver.py`（本仓库自建，非上游文件） | `run_offline(bars, overrides=None)` 新增可选参数，合并进 `CChanConfig` 字典（`trigger_step` 仍强制为 True） | T1 差分测试需要按非默认笔配置（`bi_fx_check`/`bi_strict`/`gap_as_kl`/`bi_allow_sub_peak`）跑 oracle，验证 4 档分型有效性检查。**未触碰任何 chan.py 算法代码。** |

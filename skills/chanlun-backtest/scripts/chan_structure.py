@@ -13,6 +13,10 @@ four_dim_scorer 的技术面/择时消费。
 实现取舍（务实严谨版）：实现笔 + 笔中枢 + 三类买卖点 + MACD 背驰；线段未单独实现
 （笔中枢已足以给出三类买卖点）。所有核心步骤为纯函数，可用合成 K 线单测。
 
+分层（2026-08 T1 升级）：去包含/分型/笔已拆到同目录 chan_kline.py，算法规格对齐 chan.py
+（分型 4 档有效性检查 + 笔三条件 + 虚笔 is_sure）。本文件退化为门面 + 中枢/买卖点/背驰，
+输出契约向后兼容：analyze() 旧字段全部保留，strokes 仅**新增** is_sure（False = 末段未确认笔）。
+
 数据源（CLI）：腾讯前复权日线（经 common/a_stock_http，cron-safe）。analyze() 为纯函数，不触网。
 
 Usage:
@@ -20,14 +24,23 @@ Usage:
   python3 chan_structure.py 000001 --days 120
 """
 
+import importlib.util
 import json
 import os
 import sys
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
 from indicators import macd_hist  # noqa: E402  技术指标统一走 common（去重）
+
+try:  # 调用方（four_dim_scorer / chan_signal_backtest / CLI）已把本目录放进 sys.path
+    import chan_kline  # noqa: E402
+except ImportError:  # 被 importlib 按路径加载时（测试）本目录不在 sys.path，按文件名加载
+    _KLINE_SPEC = importlib.util.spec_from_file_location(
+        "chan_kline", os.path.join(os.path.dirname(os.path.abspath(__file__)), "chan_kline.py"))
+    chan_kline = importlib.util.module_from_spec(_KLINE_SPEC)
+    _KLINE_SPEC.loader.exec_module(chan_kline)
 
 # strategy_id 命名（与 research_gate / strategy_registry 对齐）
 SIGNAL_STRATEGY = {
@@ -39,85 +52,14 @@ SIGNAL_STRATEGY = {
 
 DEFAULT_MIN_STROKE_GAP = 4   # 一笔至少跨 4 根去包含K线（经典"5根K线一笔"的简化）
 
-
-# ========== 去包含 ==========
-
-def _pick(a_val: float, a_idx: int, b_val: float, b_idx: int, take_max: bool) -> Tuple[float, int]:
-    if take_max:
-        return (a_val, a_idx) if a_val >= b_val else (b_val, b_idx)
-    return (a_val, a_idx) if a_val <= b_val else (b_val, b_idx)
+# 去包含 / 分型 由 chan_kline 提供（同名同契约，旧调用方无需改动）
+merge_klines = chan_kline.merge_klines
+find_fractals = chan_kline.find_fractals
 
 
-def merge_klines(bars: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """去除K线包含关系。返回合并后K线，保留贡献高/低点的原始索引 high_idx/low_idx。"""
-    if not bars:
-        return []
-    merged = [{
-        "high": bars[0]["high"], "low": bars[0]["low"],
-        "high_idx": 0, "low_idx": 0, "idx": 0,
-    }]
-    direction: Optional[str] = None
-    for i in range(1, len(bars)):
-        ch, cl = bars[i]["high"], bars[i]["low"]
-        last = merged[-1]
-        last_contains_cur = ch <= last["high"] and cl >= last["low"]
-        cur_contains_last = ch >= last["high"] and cl <= last["low"]
-        if last_contains_cur or cur_contains_last:
-            take_max = direction != "down"  # 向上(或未定)取高高，向下取低低
-            new_high, hi_idx = _pick(last["high"], last["high_idx"], ch, i, take_max)
-            new_low, lo_idx = _pick(last["low"], last["low_idx"], cl, i, take_max)
-            merged[-1] = {"high": new_high, "low": new_low,
-                          "high_idx": hi_idx, "low_idx": lo_idx, "idx": i}
-        else:
-            if ch > last["high"]:
-                direction = "up"
-            elif cl < last["low"]:
-                direction = "down"
-            merged.append({"high": ch, "low": cl, "high_idx": i, "low_idx": i, "idx": i})
-    return merged
-
-
-# ========== 分型 ==========
-
-def find_fractals(merged: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """在去包含K线上找顶/底分型。idx 指向贡献极值的原始K线。"""
-    fractals = []
-    for i in range(1, len(merged) - 1):
-        a, b, c = merged[i - 1], merged[i], merged[i + 1]
-        if b["high"] > a["high"] and b["high"] > c["high"]:
-            fractals.append({"type": "top", "mi": i, "idx": b["high_idx"], "price": b["high"]})
-        elif b["low"] < a["low"] and b["low"] < c["low"]:
-            fractals.append({"type": "bottom", "mi": i, "idx": b["low_idx"], "price": b["low"]})
-    return fractals
-
-
-# ========== 笔 ==========
-
-def build_strokes(fractals: List[Dict[str, Any]],
-                  min_gap: int = DEFAULT_MIN_STROKE_GAP) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """顶底分型交替连成笔；同类型相邻取更极端，间隔不足则跳过。返回 (strokes, cleaned_fractals)。"""
-    cleaned: List[Dict[str, Any]] = []
-    for f in fractals:
-        if cleaned and cleaned[-1]["type"] == f["type"]:
-            prev = cleaned[-1]
-            if (f["type"] == "top" and f["price"] > prev["price"]) or \
-               (f["type"] == "bottom" and f["price"] < prev["price"]):
-                cleaned[-1] = f
-        else:
-            if cleaned and abs(f["mi"] - cleaned[-1]["mi"]) < min_gap:
-                continue  # 间隔不足，不成笔
-            cleaned.append(f)
-
-    strokes = []
-    for i in range(1, len(cleaned)):
-        s, e = cleaned[i - 1], cleaned[i]
-        strokes.append({
-            "dir": "up" if s["type"] == "bottom" else "down",
-            "start_idx": s["idx"], "end_idx": e["idx"],
-            "start_price": s["price"], "end_price": e["price"],
-            "high": max(s["price"], e["price"]), "low": min(s["price"], e["price"]),
-        })
-    return strokes, cleaned
+def bi_config(min_gap: int = DEFAULT_MIN_STROKE_GAP) -> "chan_kline.BiConfig":
+    """把旧参数 min_gap 映射到 chan_kline 的笔配置：>=4 走严格笔（跨度>=4），否则走宽松笔。"""
+    return chan_kline.BiConfig(fx_check="strict", is_strict=min_gap >= 4)
 
 
 # ========== 中枢 ==========
@@ -214,9 +156,9 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
 
     closes = [b["close"] for b in bars]
     hist = macd_hist(closes) if len(closes) >= 26 else [None] * len(closes)
-    merged = merge_klines(bars)
-    fractals = find_fractals(merged)
-    strokes, cleaned = build_strokes(fractals, min_gap)
+    kline = chan_kline.analyze_klines(bars, bi_config(min_gap))
+    merged, fractals = kline["merged"], kline["fractals"]
+    strokes = kline["bis"]          # 含末段虚笔（is_sure=False），供下游按需过滤
     centers = build_centers(strokes)
 
     raw_signals = detect_third_signals(strokes, centers) + detect_divergence(strokes, hist)
@@ -234,8 +176,9 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
         "last_close": round(closes[-1], 3),
         "structure": {
             "merged_count": len(merged),
-            "fractal_count": len(cleaned),
+            "fractal_count": len(fractals),
             "stroke_count": len(strokes),
+            "sure_stroke_count": sum(1 for s in strokes if s.get("is_sure")),
             "center_count": len(centers),
             "last_center": last_center,
             "last_stroke": strokes[-1] if strokes else None,

@@ -530,6 +530,21 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "fee0fda7fb28d94c38d1"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
+      "violation_id": "2a0dc78a1cdd2b67af56"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
+      "violation_id": "aaeea46794a14353de59"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
+      "violation_id": "c17badeb856071ebbf78"
     }
   ]
 }

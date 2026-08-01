@@ -78,8 +78,16 @@ def _to_klu(bar: SyntheticBar) -> CKLine_Unit:
     return CKLine_Unit(kl_dict)
 
 
-def run_offline(bars: Sequence[SyntheticBar]) -> tuple[list[BiRecord], list[BspRecord]]:
+def run_offline(
+    bars: Sequence[SyntheticBar],
+    overrides: dict | None = None,
+) -> tuple[list[BiRecord], list[BspRecord]]:
     """Run chan.py structure analysis on synthetic daily bars, fully offline.
+
+    ``overrides`` is merged into the CChanConfig dict so differential tests
+    can exercise non-default 笔 settings (bi_fx_check, bi_strict, gap_as_kl,
+    bi_allow_sub_peak). ``trigger_step`` stays forced on: it is what keeps
+    CChan.__init__ off the network data-source path.
 
     Returns (bi_records, bsp_records) as plain, immutable dataclasses so
     callers never touch chan.py's mutable OOP graph directly.
@@ -87,7 +95,7 @@ def run_offline(bars: Sequence[SyntheticBar]) -> tuple[list[BiRecord], list[BspR
     if len(bars) < 2:
         raise ValueError("run_offline requires at least 2 bars")
 
-    config = CChanConfig({"trigger_step": True})
+    config = CChanConfig({**(overrides or {}), "trigger_step": True})
     chan = CChan(
         code="SYNTH",
         lv_list=[KL_TYPE.K_DAY],

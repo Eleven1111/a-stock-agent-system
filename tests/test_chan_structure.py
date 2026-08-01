@@ -36,25 +36,38 @@ def test_find_fractals_top_and_bottom():
     assert "top" in types and "bottom" in types
 
 
-def test_build_strokes_alternate_dir():
-    fractals = [
-        {"type": "bottom", "mi": 0, "idx": 0, "price": 8},
-        {"type": "top", "mi": 5, "idx": 5, "price": 12},
-        {"type": "bottom", "mi": 10, "idx": 10, "price": 9},
-        {"type": "top", "mi": 15, "idx": 15, "price": 13},
-    ]
-    strokes, cleaned = cs.build_strokes(fractals, min_gap=1)
-    assert len(strokes) == 3
-    assert [s["dir"] for s in strokes] == ["up", "down", "up"]
+def _zigzag(levels, bars_per_leg):
+    """在给定价位之间线性游走，生成走势明确的合成日K。"""
+    bars, price = [], levels[0]
+    for leg_end in levels[1:]:
+        step = (leg_end - price) / bars_per_leg
+        for _ in range(bars_per_leg):
+            nxt = price + step
+            bars.append({"high": max(price, nxt) + abs(step) * 0.2,
+                         "low": min(price, nxt) - abs(step) * 0.2,
+                         "close": nxt, "open": price, "date": None})
+            price = nxt
+    return bars
 
 
-def test_build_strokes_skips_too_close():
-    fractals = [
-        {"type": "bottom", "mi": 0, "idx": 0, "price": 8},
-        {"type": "top", "mi": 2, "idx": 2, "price": 12},   # 间隔 2 < min_gap 4 → 跳过
-    ]
-    strokes, cleaned = cs.build_strokes(fractals, min_gap=4)
-    assert strokes == []
+def test_build_bis_alternate_dir():
+    """旧 test_build_strokes_alternate_dir 的等价用例。
+    规则变更：笔不再由"分型列表顶底交替"拼接，改为 chan_kline 状态机逐根推进
+    （出处 third_party/chan_py_reference/Bi/BiList.py::update_bi_sure / can_make_bi），
+    入口参数因此从 fractals 变为原始 bars，函数名 build_strokes → chan_kline.build_bis。"""
+    bars = _zigzag([12.0, 10.0, 14.0, 11.0, 15.0], bars_per_leg=6)
+    bis = cs.chan_kline.build_bis(bars, cs.bi_config(4))
+    assert [b["dir"] for b in bis] == ["up", "down", "up"]
+    # 末段涨势尚未被顶分型确认 → 虚笔；前两笔已确认
+    assert [b["is_sure"] for b in bis] == [True, True, False]
+
+
+def test_build_bis_skips_too_short_swing():
+    """旧 test_build_strokes_skips_too_close 的等价用例。
+    规则变更：跨度不足的判据从"相邻分型合并K线间隔 < min_gap"改为
+    chan.py 严格笔跨度条件 satisfy_bi_span（合并K线跨度 >= 4，出处 Bi/BiList.py 第 149-163 行）。"""
+    bars = _zigzag([10.0, 11.0, 10.0], bars_per_leg=2)   # 每段仅 2 根 → 跨度不足 4
+    assert cs.chan_kline.build_bis(bars, cs.bi_config(4)) == []
 
 
 def test_build_centers_overlap():
