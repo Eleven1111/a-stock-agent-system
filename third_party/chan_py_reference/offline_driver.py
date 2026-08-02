@@ -10,7 +10,7 @@ guard test in ``tests/test_chan_reference_guard.py`` enforces that.
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
@@ -64,6 +64,8 @@ class BspRecord:
     is_buy: bool
     types: tuple[str, ...]
     time: str
+    is_sure: bool = True  # 锚定笔的确定态（CBi.is_sure）
+    features: dict[str, float | None] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -167,6 +169,8 @@ def run_offline_structure(
             is_buy=bsp.is_buy,
             types=tuple(t.value for t in bsp.type),
             time=str(bsp.klu.time),
+            is_sure=bsp.bi.is_sure,
+            features=dict(bsp.features.items()),
         )
         for bsp in chan.get_bsp()
     ]

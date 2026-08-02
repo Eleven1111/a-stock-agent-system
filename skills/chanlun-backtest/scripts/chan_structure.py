@@ -17,12 +17,15 @@ four_dim_scorer 的技术面/择时消费。
 - 2026-08 T1：去包含/分型/笔拆到同目录 chan_kline.py（分型 4 档有效性检查 + 笔三条件 + 虚笔）；
 - 2026-08 T2：线段拆到同目录 chan_segment.py（特征序列分型 + 缺口情形 + 未确认段 is_sure）；
 - 2026-08 T3：中枢拆到同目录 chan_center.py（段内构造 + 重叠合并 + bi_in/bi_out），旧的
-  "滑窗 3 笔重叠"近似删除。三买三卖的**检测逻辑本身不变**，只是改读新中枢；
-  三类买卖点全谱系升级是 T4。
+  "滑窗 3 笔重叠"近似删除；
+- 2026-08 T4：买卖点拆到同目录 chan_bsp.py（T1/T1P/T2/T2S/T3A/T3B 全谱系 + 背驰算法族 +
+  feature_dict），旧的 detect_third_signals / detect_divergence 删除。
 
-本文件退化为门面 + 买卖点/背驰，输出契约向后兼容：analyze() 旧字段全部保留，只增不删
+本文件退化为纯门面，输出契约向后兼容：analyze() 旧字段全部保留，只增不删
 （last_center 的旧键 zg/zd/start_stroke/end_stroke/start_idx/end_idx/stroke_count 保留，
-值会因中枢算法升级而变化）。
+值会因中枢算法升级而变化）。signals 里旧四类型（third_buy/third_sell/top_divergence/
+bottom_divergence）继续产出、strategy_id 不变，另增 bsp_type/is_buy/is_sure/feature_dict/
+strategy_id_v2 五个新键；新谱系类型（bsp1p_* / bsp2_* / bsp2s_*）无 legacy strategy_id。
 
 数据源（CLI）：腾讯前复权日线（经 common/a_stock_http，cron-safe）。analyze() 为纯函数，不触网。
 
@@ -36,7 +39,7 @@ import json
 import os
 import sys
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
 from indicators import macd_hist  # noqa: E402  技术指标统一走 common（去重）
@@ -57,6 +60,7 @@ def _load_sibling(name: str):
 chan_kline = _load_sibling("chan_kline")
 chan_segment = _load_sibling("chan_segment")
 chan_center = _load_sibling("chan_center")
+chan_bsp = _load_sibling("chan_bsp")
 
 # strategy_id 命名（与 research_gate / strategy_registry 对齐）
 SIGNAL_STRATEGY = {
@@ -91,67 +95,6 @@ def _legacy_center(center: Dict[str, Any]) -> Dict[str, Any]:
             "bi_in_idx": center["bi_in_idx"], "bi_out_idx": center["bi_out_idx"]}
 
 
-# ========== 三类买卖点 ==========
-
-def detect_third_signals(strokes: List[Dict[str, Any]],
-                         centers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """基于最后一个中枢判定三买/三卖：离开中枢后回踩不破上沿(三买)/反弹不过下沿(三卖)。
-
-    T3 起 centers 来自 chan_center（段内构造 + 合并），消费的键为 zg/zd/end_bi_idx；
-    判定规则本身未变（升级为正宗三类买卖点定义是 T4）。"""
-    if not centers:
-        return []
-    c = centers[-1]
-    after = strokes[c["end_bi_idx"] + 1:]
-    signals = []
-    for k in range(len(after) - 1):
-        leave, pull = after[k], after[k + 1]
-        if leave["dir"] == "up" and leave["high"] > c["zg"] and \
-           pull["dir"] == "down" and pull["low"] > c["zg"]:
-            signals.append({
-                "type": "third_buy", "idx": pull["end_idx"], "price": pull["end_price"],
-                "detail": f"三买:回踩{pull['low']:.2f}未破中枢上沿ZG={c['zg']:.2f}",
-            })
-        elif leave["dir"] == "down" and leave["low"] < c["zd"] and \
-                pull["dir"] == "up" and pull["high"] < c["zd"]:
-            signals.append({
-                "type": "third_sell", "idx": pull["end_idx"], "price": pull["end_price"],
-                "detail": f"三卖:反弹{pull['high']:.2f}未过中枢下沿ZD={c['zd']:.2f}",
-            })
-    return signals
-
-
-# ========== 背驰（MACD 柱面积）==========
-
-def _stroke_macd_area(stroke: Dict[str, Any], hist: List[Optional[float]]) -> float:
-    lo, hi = stroke["start_idx"], stroke["end_idx"]
-    return sum(abs(hist[j]) for j in range(lo, hi + 1)
-               if 0 <= j < len(hist) and hist[j] is not None)
-
-
-def detect_divergence(strokes: List[Dict[str, Any]],
-                      hist: List[Optional[float]]) -> List[Dict[str, Any]]:
-    """比较最近两段同向笔的 MACD 柱面积：价格更极端但动能更弱 → 背驰。"""
-    if len(strokes) < 3:
-        return []
-    last = strokes[-1]
-    prev = next((strokes[i] for i in range(len(strokes) - 2, -1, -1)
-                 if strokes[i]["dir"] == last["dir"]), None)
-    if prev is None:
-        return []
-    area_last = _stroke_macd_area(last, hist)
-    area_prev = _stroke_macd_area(prev, hist)
-    if area_prev <= 0:
-        return []
-    if last["dir"] == "up" and last["high"] > prev["high"] and area_last < area_prev:
-        return [{"type": "top_divergence", "idx": last["end_idx"], "price": last["end_price"],
-                 "detail": f"顶背驰:价创新高但MACD动能{area_last:.1f}<{area_prev:.1f}"}]
-    if last["dir"] == "down" and last["low"] < prev["low"] and area_last < area_prev:
-        return [{"type": "bottom_divergence", "idx": last["end_idx"], "price": last["end_price"],
-                 "detail": f"底背驰:价创新低但MACD动能{area_last:.1f}<{area_prev:.1f}"}]
-    return []
-
-
 # ========== 主入口（纯函数）==========
 
 def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -> Dict[str, Any]:
@@ -168,8 +111,8 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
     # 中枢：段内构造（无线段时不产出中枢，对齐参考实现 cal_bi_zs 的 normal 分支）
     centers = chan_center.build_centers(strokes, seg_view["segs"])
 
-    raw_signals = detect_third_signals(strokes, centers) + detect_divergence(strokes, hist)
-    # 回填日期 + strategy_id
+    raw_signals = chan_bsp.build_signals(strokes, seg_view["segs"], centers, bars, hist)
+    # 回填日期 + strategy_id（新谱系类型无 legacy strategy_id → None，下游天然 0 权重）
     signals = []
     for s in raw_signals:
         idx = s["idx"]
@@ -189,7 +132,7 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
             "center_count": len(centers),
             "last_center": last_center,
             "last_stroke": strokes[-1] if strokes else None,
-            # 2026-08 T2 新增：线段层（三类买卖点/中枢迁移到线段口径是 T3/T4，本次只暴露结构）
+            # 2026-08 T2 新增：线段层（T3/T4 起中枢与买卖点均已迁到线段口径）
             "seg_count": seg_view["seg_count"],
             "sure_seg_count": seg_view["sure_seg_count"],
             "last_seg": seg_view["last_seg"],
@@ -207,7 +150,7 @@ def _summary(strokes, centers, signals) -> str:
     if signals:
         parts.append("信号:" + ",".join(s["type"] for s in signals))
     else:
-        parts.append("无三类买卖点/背驰")
+        parts.append("无买卖点")
     return " | ".join(parts)
 
 

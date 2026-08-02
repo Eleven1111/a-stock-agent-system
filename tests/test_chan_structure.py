@@ -91,35 +91,51 @@ def test_centers_come_from_chan_center():
     assert (centers[0]["start_bi_idx"], centers[0]["end_bi_idx"]) == (1, 3)
 
 
-def test_detect_third_buy():
-    strokes = [
-        {"dir": "up", "start_idx": 0, "end_idx": 3, "high": 12, "low": 10, "start_price": 10, "end_price": 12},
-        {"dir": "down", "start_idx": 3, "end_idx": 6, "high": 12, "low": 10.5, "start_price": 12, "end_price": 10.5},
-        {"dir": "up", "start_idx": 6, "end_idx": 9, "high": 11.8, "low": 10.5, "start_price": 10.5, "end_price": 11.8},
-        {"dir": "up", "start_idx": 9, "end_idx": 12, "high": 13, "low": 11.9, "start_price": 11.9, "end_price": 13},
-        {"dir": "down", "start_idx": 12, "end_idx": 15, "high": 13, "low": 12, "start_price": 13, "end_price": 12},
-    ]
-    # 中枢字典改为 chan_center 契约：end_stroke → end_bi_idx（start_stroke → start_bi_idx），
-    # 出处 ZS/ZSList.py::cal_bi_zs；detect_third_signals 消费的键 zg/zd 未变，判定逻辑未变。
-    centers = [{"zg": 11.8, "zd": 10.5, "start_bi_idx": 0, "end_bi_idx": 2,
-                "start_idx": 0, "end_idx": 9, "bi_count": 3}]
-    sig = cs.detect_third_signals(strokes, centers)
-    assert any(s["type"] == "third_buy" for s in sig)
+def _bi(idx, direction, begin, end):
+    return {"dir": direction, "start_price": begin, "end_price": end,
+            "high": max(begin, end), "low": min(begin, end),
+            "start_idx": idx * 4, "end_idx": idx * 4 + 3, "is_sure": True, "used_to_be_sure": True}
 
 
-def test_detect_top_divergence():
-    strokes = [
-        {"dir": "up", "start_idx": 0, "end_idx": 3, "high": 12, "low": 10, "start_price": 10, "end_price": 12},
-        {"dir": "down", "start_idx": 4, "end_idx": 7, "high": 12, "low": 9, "start_price": 12, "end_price": 9},
-        {"dir": "up", "start_idx": 8, "end_idx": 11, "high": 13, "low": 9, "start_price": 9, "end_price": 13},
-    ]
-    hist = [None] * 12
-    for j in range(0, 4):
-        hist[j] = 3.0    # prev up 动能面积 12
-    for j in range(8, 12):
-        hist[j] = 1.0    # last up 动能面积 4 < 12 → 顶背驰
-    sig = cs.detect_divergence(strokes, hist)
-    assert sig and sig[0]["type"] == "top_divergence"
+def _flat_bars(bis):
+    return [{"high": 100.0, "low": 90.0, "close": 95.0, "open": 95.0, "date": None}
+            for _ in range(max(b["end_idx"] for b in bis) + 1)]
+
+
+def test_third_buy_comes_from_chan_bsp():
+    """旧 test_detect_third_buy 的等价用例。
+    规则变更：三买不再由"最后一个中枢之后回踩不破上沿"近似生成（chan_structure.detect_third_signals
+    已删除），改为 chan_bsp 的正宗三类买卖点（出处 third_party/chan_py_reference/BuySellPoint/
+    BSPointList.py::treat_bsp3_after + bsp3_back2zs）。行为差异：① 中枢必须落在**下一条线段**内且
+    是多笔中枢；② 锚定笔是中枢出笔的后一笔，其低点必须不低于中枢上沿；③ 判据不再看"离开笔"。
+    穷尽判别在 tests/test_chan_bsp.py，本用例只守 chan_structure 仍产出 third_buy 这条契约。"""
+    bis = [_bi(0, "up", 10, 12), _bi(1, "down", 12, 11), _bi(2, "up", 11, 13),
+           _bi(3, "down", 13, 9), _bi(4, "up", 9, 11), _bi(5, "down", 11, 9.5),
+           _bi(6, "up", 9.5, 13), _bi(7, "down", 13, 11.5)]
+    segs = [{"dir": "up", "start_bi_idx": 0, "end_bi_idx": 2, "is_sure": True},
+            {"dir": "up", "start_bi_idx": 3, "end_bi_idx": 7, "is_sure": True}]
+    centers = [{"zg": 11, "zd": 9.5, "peak_high": 11, "peak_low": 9.5, "start_bi_idx": 4,
+                "end_bi_idx": 5, "bi_count": 2, "bi_in_idx": 3, "bi_out_idx": 6, "seg_idx": 1}]
+    cfg = cs.chan_bsp.BspConfig(bsp3_follow_1=False)
+    sig = cs.chan_bsp.build_signals(bis, segs, centers, _flat_bars(bis), config=cfg)
+    assert any(s["type"] == "third_buy" and s["bsp_type"] == "3a" for s in sig), sig
+
+
+def test_top_divergence_comes_from_chan_bsp():
+    """旧 test_detect_top_divergence 的等价用例。
+    规则变更：顶背驰不再由"最近两段同向笔 MACD 面积比较"近似生成（chan_structure.detect_divergence
+    已删除），改为 chan_bsp 的一类卖点（出处 BuySellPoint/BSPointList.py::treat_bsp1 +
+    ZS/ZS.py::is_divergence）。行为差异：① 锚定笔固定为**线段末笔**且必须突破中枢；
+    ② 背驰比较的是中枢进笔 vs 出笔（不是最近两段同向笔）；③ divergence_rate 默认 inf = 保送，
+    动能大小不再是成立条件，只写进 feature_dict。"""
+    bis = [_bi(0, "up", 10, 15), _bi(1, "down", 15, 13), _bi(2, "up", 13, 15.5),
+           _bi(3, "down", 15.5, 13.5), _bi(4, "up", 13.5, 18)]
+    segs = [{"dir": "up", "start_bi_idx": 0, "end_bi_idx": 4, "is_sure": True}]
+    centers = [{"zg": 15.5, "zd": 13.5, "peak_high": 15.5, "peak_low": 13, "start_bi_idx": 1,
+                "end_bi_idx": 3, "bi_count": 3, "bi_in_idx": 0, "bi_out_idx": 4, "seg_idx": 0}]
+    sig = cs.chan_bsp.build_signals(bis, segs, centers, _flat_bars(bis))
+    top = [s for s in sig if s["type"] == "top_divergence"]
+    assert top and top[0]["bsp_type"] == "1" and top[0]["is_buy"] is False, sig
 
 
 def test_analyze_end_to_end():
