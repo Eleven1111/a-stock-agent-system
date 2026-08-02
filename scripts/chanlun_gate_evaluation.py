@@ -75,6 +75,18 @@ OUTPUT_FILE = data_file("chanlun-backtest", "gate_evaluation_latest.json")
 ARTIFACT_DIR = os.path.join(
     os.path.dirname(OUTPUT_FILE), "evidence", "gate_evaluation"
 )
+# 2026-08 T6：v2 谱系（12 个 chanlun_bsp{...}_v2 假设，新 split）写独立产物路径，
+# 不与 legacy 四类型的已登记台账/证据文件混写或覆盖（docs/chanlun-upgrade-plan-2026-08.md §0）。
+OUTPUT_FILE_V2 = data_file("chanlun-backtest", "gate_evaluation_v2_latest.json")
+ARTIFACT_DIR_V2 = os.path.join(
+    os.path.dirname(OUTPUT_FILE_V2), "evidence", "gate_evaluation_v2"
+)
+
+
+def _output_paths(lineage: str) -> tuple[str, str]:
+    if lineage == "v2":
+        return OUTPUT_FILE_V2, ARTIFACT_DIR_V2
+    return OUTPUT_FILE, ARTIFACT_DIR
 
 
 def _synthetic_series(n_codes: int = 6, n_bars: int = 260) -> dict[str, Any]:
@@ -184,7 +196,14 @@ def run_evaluation(
     min_oos_samples: int = 30,
     n_perm: int = 5000,
     persist: bool = True,
+    lineage: str = "legacy",
 ) -> dict[str, Any]:
+    """`lineage="legacy"` (default) reproduces the 2026-07-03 four-signal
+    evaluation unchanged. `lineage="v2"` runs the 2026-08 T6 versioned
+    bsp_type lineage (12 `chanlun_bsp{...}_v2` IDs) — separate output/artifact
+    paths, never touches the legacy OOS ledger or `strategy_registry`
+    (no `--register` call exists in this script for either lineage).
+    """
     payload, meta = _load_payload_for_mode(mode, codes=codes, start_date=start_date)
 
     result = backtest.analyze_payload(
@@ -192,22 +211,25 @@ def run_evaluation(
         split_date=split_date,
         min_oos_samples=min_oos_samples,
         n_perm=n_perm,
+        lineage=lineage,
     )
 
+    artifact_dir = _output_paths(lineage)[1]
     if persist:
-        os.makedirs(ARTIFACT_DIR, exist_ok=True)
-        input_snapshot = os.path.join(ARTIFACT_DIR, f"{mode}_input_snapshot.json")
+        os.makedirs(artifact_dir, exist_ok=True)
+        input_snapshot = os.path.join(artifact_dir, f"{mode}_input_snapshot.json")
         atomic_write_json(input_snapshot, payload)
         result = backtest.persist_evidence(
             result,
             input_path=input_snapshot,
-            artifact_dir=ARTIFACT_DIR,
+            artifact_dir=artifact_dir,
         )
 
     result["evaluation"] = {
         "schema": SCHEMA,
         "generated_at": datetime.now().isoformat(),
         "data_mode": mode,
+        "lineage": lineage,
         "data_range": _data_range(payload.get("series") or []),
         **meta,
     }
@@ -262,6 +284,10 @@ def main() -> int:
     parser.add_argument("--min-oos-samples", type=int, default=30)
     parser.add_argument("--permutations", type=int, default=5000)
     parser.add_argument("--no-persist", action="store_true", help="不写证据产物文件")
+    parser.add_argument(
+        "--lineage", choices=["legacy", "v2"], default="legacy",
+        help="legacy=2026-07 四类型协议（不动）；v2=2026-08 T6 版本化全谱系协议（12 个 bsp_type ID）",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -273,13 +299,15 @@ def main() -> int:
         min_oos_samples=args.min_oos_samples,
         n_perm=args.permutations,
         persist=not args.no_persist,
+        lineage=args.lineage,
     )
     summary = summarize_for_report(result)
     result["summary"] = summary
 
+    output_file = _output_paths(args.lineage)[0]
     if not args.no_persist:
-        os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-        atomic_write_json(OUTPUT_FILE, result)
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        atomic_write_json(output_file, result)
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))

@@ -159,6 +159,40 @@ def test_summarize_for_report_verdict_b_when_all_fail_or_block():
     assert summary["verdict"] == "B_structure_filter_only"
 
 
+def test_v2_lineage_synthetic_pipeline_stays_pending_and_never_registers():
+    """2026-08 T6：v2 谱系（12 个 chanlun_bsp{...}_v2）合成管线自检。输出必须标注
+    pending_real_data_run，不可作为 A/B 结论——真实结论只来自
+    docs/chanlun-gate-evaluation-2026-08.md 记录的 --mode real 运行。"""
+    module = load_module()
+
+    result = module.run_evaluation(
+        mode="synthetic",
+        split_date="2024-07-01",
+        start_date="2024-01-01",
+        min_oos_samples=3,
+        n_perm=50,
+        persist=False,
+        lineage="v2",
+    )
+    summary = module.summarize_for_report(result)
+
+    assert result["evaluation"]["lineage"] == "v2"
+    assert set(result["strategies"]) == set(module.backtest.STRATEGY_DIRECTIONS_V2)
+    assert summary["verdict"] == "pending_real_data_run"
+    assert result["research_protocol"]["lineage"] == "v2"
+
+
+def test_v2_lineage_output_paths_are_separate_from_legacy():
+    module = load_module()
+    legacy_output, legacy_dir = module._output_paths("legacy")
+    v2_output, v2_dir = module._output_paths("v2")
+
+    assert legacy_output != v2_output
+    assert legacy_dir != v2_dir
+    assert legacy_output == module.OUTPUT_FILE
+    assert v2_output == module.OUTPUT_FILE_V2
+
+
 def test_run_evaluation_persists_evidence_and_output_file(tmp_path, monkeypatch):
     module = load_module()
     output_file = tmp_path / "gate_evaluation_latest.json"

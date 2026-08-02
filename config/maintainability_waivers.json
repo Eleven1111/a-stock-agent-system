@@ -3,6 +3,26 @@
   "waivers": [
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing sys.path mutation in chanlun_gate_evaluation.py, unrelated to the T6 --lineage v2 output-path change that touched this file",
+      "violation_id": "02a08608b84dfc62d469"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing sys.path mutation in chan_signal_backtest.py, unrelated to the T6 v2 lineage parametrization that touched this file",
+      "violation_id": "16e6781a28e487494538"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing long function extract_signal_events in chan_signal_backtest.py (legacy walk-forward loop), only parametrized (not lengthened in substance) for T6 v2 lineage support",
+      "violation_id": "18d41420f6ea6e9bf1c9"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing long function analyze_events in chan_signal_backtest.py (legacy IS/OOS + FDR loop), only parametrized (not lengthened in substance) for T6 v2 lineage support",
+      "violation_id": "071dd6132097bacf548d"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "06d8ccfe4f39ffb9d4ea"
     },
