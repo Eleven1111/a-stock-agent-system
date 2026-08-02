@@ -87,6 +87,69 @@ def _revalidate_model_manifests(
     return checked
 
 
+_STRUCTURE_RISK_FLAG_LABELS = {
+    "seg_end_divergence": "线段末端背驰",
+    "third_sell_structure": "三卖后反弹未过中枢下沿",
+}
+
+
+def _structure_position_risk_flags(task: dict[str, Any]) -> list[str]:
+    """从任务的 evidence_pack 读取 candidate_entry.research_evidence.structure_position
+    .risk_flags（chanlun verdict B 遗留项 2：结构位置只作证据陈列，不预测方向）。
+
+    只读已缓存的 evidence_pack（research_evidence.build_research_evidence 早在
+    candidate_discovery 阶段算好、随 candidate_pool 落盘），不新增网络调用；
+    pack 缺失/字段不存在时静默返回空列表（fail-open，这只是陈列性证据）。
+    """
+    ref = str(task.get("evidence_pack_ref") or "")
+    if not ref:
+        return []
+    try:
+        import evidence_pack
+    except ImportError:
+        return []
+    pack = evidence_pack.load_pack(ref)
+    if not pack:
+        return []
+    subject_data = (pack.get("payload") or {}).get("subject_data")
+    if not isinstance(subject_data, dict):
+        return []
+    candidate = subject_data.get("candidate_entry")
+    if not isinstance(candidate, dict):
+        return []
+    structure_position = (candidate.get("research_evidence") or {}).get("structure_position")
+    if not isinstance(structure_position, dict):
+        return []
+    raw_flags = structure_position.get("risk_flags") or []
+    return [
+        f"[结构位置]{_STRUCTURE_RISK_FLAG_LABELS.get(flag, flag)}"
+        for flag in raw_flags if isinstance(flag, str)
+    ]
+
+
+def _augment_risk_redteam_with_structure_position(
+    task: dict[str, Any],
+    findings: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """把 structure_position.risk_flags 并入 risk_redteam 的证据文本。
+
+    只作证据陈列（追加到 risk_flags 供 `_merge_lists` 渲染进报告的"风险标记"），
+    不改 stance/confidence——risk_redteam 的一票否决逻辑（decide_verdict 里的
+    stance==oppose 判定）完全不受影响。
+    """
+    risk_finding = findings.get("risk_redteam")
+    if not isinstance(risk_finding, dict):
+        return findings
+    extra_flags = _structure_position_risk_flags(task)
+    if not extra_flags:
+        return findings
+    existing = list(risk_finding.get("risk_flags") or [])
+    merged_flags = existing + [flag for flag in extra_flags if flag not in existing]
+    if merged_flags == existing:
+        return findings
+    return {**findings, "risk_redteam": {**risk_finding, "risk_flags": merged_flags}}
+
+
 def _confidence(finding: dict[str, Any]) -> float:
     try:
         return max(0.0, min(1.0, float(finding.get("confidence", 0.0))))
@@ -335,6 +398,7 @@ def synthesize_task(
 
     timestamp = _now_text(now)
     findings = _revalidate_model_manifests(task, findings, config, timestamp)
+    findings = _augment_risk_redteam_with_structure_position(task, findings)
     synthesis_cfg = config.get("synthesis") or {}
     decision = decide_verdict(findings, synthesis_cfg)
     if decision["verdict"] == "disputed":

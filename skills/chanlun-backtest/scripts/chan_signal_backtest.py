@@ -40,10 +40,18 @@ STRATEGY_DIRECTIONS = {
     "chanlun_third_sell": "bearish",
     "chanlun_top_divergence": "bearish",
 }
+# 2026-08 T6：结构升级后的全谱系买卖点（chan_bsp.py 输出的 strategy_id_v2），版本化 ID +
+# 新留出集重评，legacy 四类型的既有代码路径/台账不动（见 docs/chanlun-upgrade-plan-2026-08.md §0）。
+BSP_TYPES_V2 = ("1", "1p", "2", "2s", "3a", "3b")
+STRATEGY_DIRECTIONS_V2 = {
+    **{f"chanlun_bsp{t}_buy_v2": "bullish" for t in BSP_TYPES_V2},
+    **{f"chanlun_bsp{t}_sell_v2": "bearish" for t in BSP_TYPES_V2},
+}
 REQUIRED_CONTROLS = ["random_entry", "simple_breakout", "buy_hold"]
 REQUIRED_TESTS = ["t_test", "bootstrap", "permutation"]
 RUN_REGISTRY_FILE = data_file("stock-triage", "chanlun_oos_runs.json")
 RULES_VERSION = "chan-walk-forward-v2"
+RULES_VERSION_V2 = "chan-structural-v2-t1t4-bsp-lineage"
 
 
 ROUND_TRIP_COST = -engine.net_return(1.0, 1.0)
@@ -140,6 +148,7 @@ def build_control_pools(
     series: list[dict[str, Any]],
     *,
     benchmark_bars: list[dict[str, Any]] | None = None,
+    strategy_directions: dict[str, str] | None = None,
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """Build three observable, reproducible control families.
 
@@ -147,13 +156,18 @@ def build_control_pools(
     technical control is a 20-day close breakout for bullish strategies and a
     symmetric close breakdown for bearish strategies. buy_hold uses benchmark
     open-to-close returns for each available date.
+
+    `strategy_directions` defaults to the legacy four-signal map; T6 passes
+    `STRATEGY_DIRECTIONS_V2` (12 versioned bsp_type IDs) without touching this
+    default so the legacy call sites and registered OOS ledger are untouched.
     """
+    directions = strategy_directions or STRATEGY_DIRECTIONS
     pools = {
         strategy_id: {name: [] for name in REQUIRED_CONTROLS}
-        for strategy_id in STRATEGY_DIRECTIONS
+        for strategy_id in directions
     }
     benchmark = _benchmark_returns(benchmark_bars)
-    for strategy_id, direction in STRATEGY_DIRECTIONS.items():
+    for strategy_id, direction in directions.items():
         pools[strategy_id]["buy_hold"] = [
             {
                 "date": trade_date,
@@ -181,7 +195,7 @@ def build_control_pools(
                 )
             except (KeyError, TypeError, ValueError):
                 continue
-            for strategy_id, direction in STRATEGY_DIRECTIONS.items():
+            for strategy_id, direction in directions.items():
                 event = _control_event(code, bars, detected_idx, direction)
                 if not event:
                     continue
@@ -202,19 +216,33 @@ def extract_signal_events(
     *,
     benchmark_by_date: dict[str, dict[str, float]] | None = None,
     analyzer: Callable[[list[dict[str, Any]]], dict[str, Any]] | None = None,
+    strategy_directions: dict[str, str] | None = None,
+    strategy_id_field: str = "strategy_id",
+    require_is_sure: bool = False,
 ) -> list[dict[str, Any]]:
-    """Detect first observability on historical prefixes and enter next open."""
+    """Detect first observability on historical prefixes and enter next open.
+
+    `strategy_id_field`/`strategy_directions`/`require_is_sure` select which
+    signal lineage to extract: legacy (`strategy_id`, four IDs, no is_sure
+    filter — default, unchanged behavior) or T6's versioned bsp_type lineage
+    (`strategy_id_field="strategy_id_v2"`, `STRATEGY_DIRECTIONS_V2`,
+    `require_is_sure=True` — only anchored/confirmed strokes count, per the
+    2026-08 evaluation protocol).
+    """
     analyze = analyzer or chan_structure.analyze
     benchmark = benchmark_by_date or {}
+    directions = strategy_directions or STRATEGY_DIRECTIONS
     events = []
     seen = set()
     for detected_idx in range(4, len(bars) - 2):
         result = analyze(bars[:detected_idx + 1])
         for raw in result.get("signals") or []:
-            strategy_id = str(raw.get("strategy_id") or "")
-            direction = STRATEGY_DIRECTIONS.get(strategy_id)
+            strategy_id = str(raw.get(strategy_id_field) or "")
+            direction = directions.get(strategy_id)
             signal_idx = raw.get("idx")
             if direction is None or not isinstance(signal_idx, int):
+                continue
+            if require_is_sure and not raw.get("is_sure"):
                 continue
             if signal_idx < 0 or signal_idx > detected_idx:
                 continue
@@ -368,11 +396,18 @@ def analyze_events(
     min_oos_samples: int = 30,
     n_perm: int = 5000,
     control_pools: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
+    strategy_directions: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Produce independent IS/OOS evidence and gate decisions for four IDs."""
+    """Produce independent IS/OOS evidence and gate decisions per strategy ID.
+
+    Defaults to the legacy four-ID map; T6 passes `STRATEGY_DIRECTIONS_V2`
+    (12 IDs) so the FDR correction below runs across all 12 hypotheses
+    together, per the 2026-08 evaluation protocol.
+    """
+    directions = strategy_directions or STRATEGY_DIRECTIONS
     prepared = {}
     pvalues = []
-    for strategy_id, direction in STRATEGY_DIRECTIONS.items():
+    for strategy_id, direction in directions.items():
         selected = [
             event for event in events
             if event.get("strategy_id") == strategy_id
@@ -466,7 +501,7 @@ def analyze_events(
 
     fdr = stats.benjamini_hochberg(pvalues, q=0.10)
     output = {}
-    for index, strategy_id in enumerate(STRATEGY_DIRECTIONS):
+    for index, strategy_id in enumerate(directions):
         item = prepared[strategy_id]
         primary = item["variants"]["t1"]["oos"]
         signal_mean = float(primary["signal"]["mean"])
@@ -510,13 +545,77 @@ def analyze_events(
     }
 
 
+def _lineage_config(lineage: str) -> dict[str, Any]:
+    """Resolve the strategy-ID lineage for `analyze_payload`.
+
+    `"legacy"` is the untouched four-ID path used by the 2026-07 gate
+    evaluation and its registered OOS ledger. `"v2"` is the 2026-08 T6
+    versioned bsp_type lineage: `strategy_id_v2` field, 12 IDs, `is_sure`
+    filtering (only anchored/confirmed strokes count) — a distinct
+    rules_version so it can never be mistaken for a legacy protocol rerun.
+    """
+    if lineage == "v2":
+        return {
+            "directions": STRATEGY_DIRECTIONS_V2,
+            "strategy_id_field": "strategy_id_v2",
+            "require_is_sure": True,
+            "rules_version": RULES_VERSION_V2,
+        }
+    if lineage == "legacy":
+        return {
+            "directions": STRATEGY_DIRECTIONS,
+            "strategy_id_field": "strategy_id",
+            "require_is_sure": False,
+            "rules_version": RULES_VERSION,
+        }
+    raise ValueError(f"unknown lineage: {lineage!r}, expected 'legacy' or 'v2'")
+
+
+def _research_protocol(
+    payload: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    lineage: str,
+    split_date: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    ).encode()
+    rules = json.dumps(
+        {
+            "version": config["rules_version"],
+            "entry_rule": result["entry_rule"],
+            "return_convention": result["return_convention"],
+            "strategies": config["directions"],
+            "controls": REQUIRED_CONTROLS,
+            "require_is_sure": config["require_is_sure"],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return {
+        "lineage": lineage,
+        "rules_version": config["rules_version"],
+        "split_date": split_date,
+        "rules_fingerprint": hashlib.sha256(rules).hexdigest(),
+        "dataset_fingerprint": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
 def analyze_payload(
     payload: dict[str, Any],
     *,
     split_date: str,
     min_oos_samples: int = 30,
     n_perm: int = 5000,
+    lineage: str = "legacy",
 ) -> dict[str, Any]:
+    """Run the IS/OOS + permutation + FDR pipeline for one strategy-ID lineage
+    (see `_lineage_config`)."""
+    config = _lineage_config(lineage)
+    directions = config["directions"]
+
     benchmark = _benchmark_returns(payload.get("benchmark_bars"))
     series = list(payload.get("series") or [])
     events = []
@@ -526,11 +625,15 @@ def analyze_payload(
                 str(item.get("code") or ""),
                 list(item.get("bars") or []),
                 benchmark_by_date=benchmark,
+                strategy_directions=directions,
+                strategy_id_field=config["strategy_id_field"],
+                require_is_sure=config["require_is_sure"],
             )
         )
     control_pools = build_control_pools(
         series,
         benchmark_bars=payload.get("benchmark_bars"),
+        strategy_directions=directions,
     )
     result = analyze_events(
         events,
@@ -538,35 +641,16 @@ def analyze_payload(
         min_oos_samples=min_oos_samples,
         n_perm=n_perm,
         control_pools=control_pools,
+        strategy_directions=directions,
     )
     result["sample"] = {
         "series": len(series),
         "events": len(events),
         "benchmark_available": bool(benchmark),
     }
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode()
-    rules = json.dumps(
-        {
-            "version": RULES_VERSION,
-            "entry_rule": result["entry_rule"],
-            "return_convention": result["return_convention"],
-            "strategies": STRATEGY_DIRECTIONS,
-            "controls": REQUIRED_CONTROLS,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
-    result["research_protocol"] = {
-        "split_date": split_date,
-        "rules_fingerprint": hashlib.sha256(rules).hexdigest(),
-        "dataset_fingerprint": hashlib.sha256(encoded).hexdigest(),
-    }
+    result["research_protocol"] = _research_protocol(
+        payload, result, lineage=lineage, split_date=split_date, config=config,
+    )
     return result
 
 
@@ -603,9 +687,9 @@ def persist_evidence(
             input_path=input_path,
             strategy_id=strategy_id,
             rules={
-                "rules_version": RULES_VERSION,
+                "rules_version": protocol.get("rules_version", RULES_VERSION),
                 "strategy_id": strategy_id,
-                "direction": STRATEGY_DIRECTIONS.get(strategy_id),
+                "direction": item.get("direction"),
                 **protocol,
             },
             result={

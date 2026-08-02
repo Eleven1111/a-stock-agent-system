@@ -51,6 +51,10 @@ try:
     import chan_structure as _chan
 except Exception:  # noqa: BLE001
     _chan = None
+try:
+    import chan_nested as _chan_nested
+except ImportError:
+    _chan_nested = None
 from strategy_registry import is_allowed_in_live as _chan_allowed
 
 # 技术指标统一走 common/indicators.py（去重，数值与历史实现逐位一致）
@@ -130,19 +134,28 @@ def chan_adjustment(signals, recent_window, total_bars, allow_fn):
     """对最近的缠论结构信号计算技术面调整（纯函数，便于单测）。
 
     allow_fn(strategy_id)->bool 决定该信号是否过 research_gate 计权；未过闸只标
-    "研究假设"、不改分（信号过闸才加权的红线执行点）。返回 (delta, lock_max, notes)。
+    "研究假设"、不改分（信号过闸才加权的红线执行点）。
+
+    展示噪声收敛（T4 遗留）：strategy_id 为 None 的新谱系信号（bsp1p/bsp2/bsp2s，
+    无 legacy 映射）不逐条追加备注，聚合成一条计数——legacy 四类型（strategy_id
+    有值但未过闸）逐条备注的行为不变。返回 (delta, lock_max, notes)。
     """
     delta = 0.0
     lock_max = None
     notes = []
+    new_lineage_count = 0
     for s in signals or []:
         idx = s.get("idx")
         if idx is None or idx < total_bars - recent_window:
             continue  # 信号不够新，忽略
         t = s.get("type")
         label = _CHAN_LABELS.get(t, t)
-        if not allow_fn(s.get("strategy_id")):
-            notes.append(f"[研究假设]{label}(未过闸·0权重)")
+        strategy_id = s.get("strategy_id")
+        if not allow_fn(strategy_id):
+            if strategy_id is None:
+                new_lineage_count += 1
+            else:
+                notes.append(f"[研究假设]{label}(未过闸·0权重)")
             continue
         if t == "third_buy":
             delta += 1.5
@@ -158,6 +171,8 @@ def chan_adjustment(signals, recent_window, total_bars, allow_fn):
             delta -= 1.5
             lock_max = 5.0 if lock_max is None else min(lock_max, 5.0)
             notes.append(f"{label}⚠️-1.5锁分")
+    if new_lineage_count:
+        notes.append(f"[研究假设]缠论新谱系信号×{new_lineage_count}(未过闸·0权重)")
     return delta, lock_max, notes
 
 
@@ -1148,6 +1163,7 @@ def score_short_term_entry(code: str, name: str) -> Dict:
                 signals.append(f"30分钟RSI超买({rsi_30[-1]:.0f})")
 
     c_lock = None
+    chan_sigs60 = []
     if _chan is not None and k60 and len(k60) >= 20:
         try:
             chan_sigs60 = _chan.analyze(k60).get("signals", [])
@@ -1157,6 +1173,18 @@ def score_short_term_entry(code: str, name: str) -> Dict:
             chan_sigs60, recent_window=8, total_bars=len(k60), allow_fn=_chan_allowed)
         score += c_delta
         signals.extend(c_notes)
+
+    # 区间套证据（T5，verdict B 遗留）：日线×60m 同向确定买卖点共现，纯展示、0 权重，
+    # 不新增网络请求（daily_klines 已在函数开头取过，供入场价位计算复用）。
+    if (_chan is not None and _chan_nested is not None
+            and daily_klines and len(daily_klines) >= 20 and k60 and len(k60) >= 20):
+        try:
+            chan_sigs_daily = _chan.analyze(daily_klines).get("signals", [])
+            nested_records = _chan_nested.find_nested_confirmations(
+                chan_sigs_daily, len(daily_klines), chan_sigs60, len(k60))
+            signals.extend(_chan_nested.format_nested_notes(nested_records))
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError, ZeroDivisionError):
+            pass
 
     score = max(0, min(10, score))
     if c_lock is not None:

@@ -191,6 +191,97 @@ def test_bounded_escalation_reopens_conflicting_roles_once(config):
     assert bus.find_task(task_id)["status"] == "done"
 
 
+def _write_candidate_pool_with_structure_position(code, risk_flags):
+    from paths import data_file
+
+    path = data_file("stock-triage", "candidate_pool_latest.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    pool = {
+        "status": "ready",
+        "trading_date": "2026-07-02",
+        "candidates": [
+            {
+                "code": code, "name": "贵州茅台", "score": 82.5,
+                "research_evidence": {
+                    "schema": "research_evidence_v1",
+                    "structure_position": {"available": True, "risk_flags": risk_flags},
+                },
+            },
+        ],
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(pool, handle, ensure_ascii=False)
+
+
+def test_risk_redteam_gains_structure_position_evidence_without_changing_verdict(config):
+    """structure_position.risk_flags 并入 risk_redteam 证据文本，但 advance 结论不变
+    （只作证据陈列，decide_verdict 只看 stance/confidence，不看 risk_flags）。"""
+    import evidence_pack
+
+    _write_candidate_pool_with_structure_position("600519", ["seg_end_divergence"])
+    task_id = _run_task(config, {
+        "evidence_auditor": ("support", 0.7),
+        "thesis_builder": ("support", 0.8),
+        "risk_redteam": ("neutral", 0.5),
+    })
+    task = bus.find_task(task_id)
+    built = evidence_pack.build_pack(task, config=config)
+    bus.update_task(task_id, {"evidence_pack_ref": built["ref"]})
+
+    record = synthesis.synthesize_task(task_id, config=config)["synthesis"]
+
+    assert record["verdict"] == "advance"
+    assert "[结构位置]线段末端背驰" in record["risk_flags"]
+    risk_entry = next(f for f in record["findings"] if f["role"] == "risk_redteam")
+    assert risk_entry["stance"] == "neutral" and risk_entry["confidence"] == 0.5
+
+
+def test_structure_position_flags_do_not_alter_risk_redteam_veto(config):
+    """risk_redteam 一票否决逻辑不受 structure_position 证据陈列影响。"""
+    import evidence_pack
+
+    _write_candidate_pool_with_structure_position("600519", ["third_sell_structure"])
+    task_id = _run_task(config, {
+        "evidence_auditor": ("support", 0.9),
+        "thesis_builder": ("support", 0.9),
+        "risk_redteam": ("oppose", 0.8),
+    })
+    task = bus.find_task(task_id)
+    built = evidence_pack.build_pack(task, config=config)
+    bus.update_task(task_id, {"evidence_pack_ref": built["ref"]})
+
+    record = synthesis.synthesize_task(task_id, config=config)["synthesis"]
+
+    assert record["verdict"] == "rejected"
+    assert record["basis"] == "risk_redteam_veto"
+    assert "[结构位置]三卖后反弹未过中枢下沿" in record["risk_flags"]
+
+
+def test_augment_no_op_without_risk_redteam_finding():
+    findings = {"thesis_builder": {"risk_flags": []}}
+    result = synthesis._augment_risk_redteam_with_structure_position(
+        {"evidence_pack_ref": "sha256:does-not-exist"}, findings,
+    )
+    assert result is findings
+
+
+def test_augment_dedupes_and_does_not_mutate_input(monkeypatch):
+    monkeypatch.setattr(
+        synthesis, "_structure_position_risk_flags",
+        lambda task: ["[结构位置]线段末端背驰", "[结构位置]三卖后反弹未过中枢下沿"],
+    )
+    findings = {"risk_redteam": {"stance": "neutral", "risk_flags": ["[结构位置]线段末端背驰", "既有风险"]}}
+
+    augmented = synthesis._augment_risk_redteam_with_structure_position({}, findings)
+
+    assert augmented["risk_redteam"]["risk_flags"] == [
+        "[结构位置]线段末端背驰", "既有风险", "[结构位置]三卖后反弹未过中枢下沿",
+    ]
+    assert augmented["risk_redteam"]["stance"] == "neutral"
+    # 输入 findings 不被就地修改
+    assert findings["risk_redteam"]["risk_flags"] == ["[结构位置]线段末端背驰", "既有风险"]
+
+
 def test_synthesis_requires_all_findings(config):
     created = bus.enqueue_task(
         "candidate_deep_dive",

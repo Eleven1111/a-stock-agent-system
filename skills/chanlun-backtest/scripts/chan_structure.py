@@ -10,8 +10,22 @@ four_dim_scorer 的技术面/择时消费。
 （allowed_in_live_agent=true）之前，下游只能 display-only / 0 权重——闸门由 strategy_registry
 统一裁决，不在此处加权。
 
-实现取舍（务实严谨版）：实现笔 + 笔中枢 + 三类买卖点 + MACD 背驰；线段未单独实现
-（笔中枢已足以给出三类买卖点）。所有核心步骤为纯函数，可用合成 K 线单测。
+实现取舍（务实严谨版）：实现笔 + 笔中枢 + 三类买卖点 + MACD 背驰。所有核心步骤为纯函数，
+可用合成 K 线单测。
+
+分层：
+- 2026-08 T1：去包含/分型/笔拆到同目录 chan_kline.py（分型 4 档有效性检查 + 笔三条件 + 虚笔）；
+- 2026-08 T2：线段拆到同目录 chan_segment.py（特征序列分型 + 缺口情形 + 未确认段 is_sure）；
+- 2026-08 T3：中枢拆到同目录 chan_center.py（段内构造 + 重叠合并 + bi_in/bi_out），旧的
+  "滑窗 3 笔重叠"近似删除；
+- 2026-08 T4：买卖点拆到同目录 chan_bsp.py（T1/T1P/T2/T2S/T3A/T3B 全谱系 + 背驰算法族 +
+  feature_dict），旧的 detect_third_signals / detect_divergence 删除。
+
+本文件退化为纯门面，输出契约向后兼容：analyze() 旧字段全部保留，只增不删
+（last_center 的旧键 zg/zd/start_stroke/end_stroke/start_idx/end_idx/stroke_count 保留，
+值会因中枢算法升级而变化）。signals 里旧四类型（third_buy/third_sell/top_divergence/
+bottom_divergence）继续产出、strategy_id 不变，另增 bsp_type/is_buy/is_sure/feature_dict/
+strategy_id_v2 五个新键；新谱系类型（bsp1p_* / bsp2_* / bsp2s_*）无 legacy strategy_id。
 
 数据源（CLI）：腾讯前复权日线（经 common/a_stock_http，cron-safe）。analyze() 为纯函数，不触网。
 
@@ -20,14 +34,33 @@ Usage:
   python3 chan_structure.py 000001 --days 120
 """
 
+import importlib.util
 import json
 import os
 import sys
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
 from indicators import macd_hist  # noqa: E402  技术指标统一走 common（去重）
+
+def _load_sibling(name: str):
+    """同目录模块：调用方（four_dim_scorer / chan_signal_backtest / CLI）通常已把本目录放进
+    sys.path；被 importlib 按路径加载时（测试）没有，退回按文件名加载。"""
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        spec = importlib.util.spec_from_file_location(
+            name, os.path.join(os.path.dirname(os.path.abspath(__file__)), f"{name}.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+
+chan_kline = _load_sibling("chan_kline")
+chan_segment = _load_sibling("chan_segment")
+chan_center = _load_sibling("chan_center")
+chan_bsp = _load_sibling("chan_bsp")
 
 # strategy_id 命名（与 research_gate / strategy_registry 对齐）
 SIGNAL_STRATEGY = {
@@ -39,170 +72,27 @@ SIGNAL_STRATEGY = {
 
 DEFAULT_MIN_STROKE_GAP = 4   # 一笔至少跨 4 根去包含K线（经典"5根K线一笔"的简化）
 
-
-# ========== 去包含 ==========
-
-def _pick(a_val: float, a_idx: int, b_val: float, b_idx: int, take_max: bool) -> Tuple[float, int]:
-    if take_max:
-        return (a_val, a_idx) if a_val >= b_val else (b_val, b_idx)
-    return (a_val, a_idx) if a_val <= b_val else (b_val, b_idx)
+# 去包含 / 分型 由 chan_kline 提供（同名同契约，旧调用方无需改动）
+merge_klines = chan_kline.merge_klines
+find_fractals = chan_kline.find_fractals
 
 
-def merge_klines(bars: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """去除K线包含关系。返回合并后K线，保留贡献高/低点的原始索引 high_idx/low_idx。"""
-    if not bars:
-        return []
-    merged = [{
-        "high": bars[0]["high"], "low": bars[0]["low"],
-        "high_idx": 0, "low_idx": 0, "idx": 0,
-    }]
-    direction: Optional[str] = None
-    for i in range(1, len(bars)):
-        ch, cl = bars[i]["high"], bars[i]["low"]
-        last = merged[-1]
-        last_contains_cur = ch <= last["high"] and cl >= last["low"]
-        cur_contains_last = ch >= last["high"] and cl <= last["low"]
-        if last_contains_cur or cur_contains_last:
-            take_max = direction != "down"  # 向上(或未定)取高高，向下取低低
-            new_high, hi_idx = _pick(last["high"], last["high_idx"], ch, i, take_max)
-            new_low, lo_idx = _pick(last["low"], last["low_idx"], cl, i, take_max)
-            merged[-1] = {"high": new_high, "low": new_low,
-                          "high_idx": hi_idx, "low_idx": lo_idx, "idx": i}
-        else:
-            if ch > last["high"]:
-                direction = "up"
-            elif cl < last["low"]:
-                direction = "down"
-            merged.append({"high": ch, "low": cl, "high_idx": i, "low_idx": i, "idx": i})
-    return merged
+def bi_config(min_gap: int = DEFAULT_MIN_STROKE_GAP) -> "chan_kline.BiConfig":
+    """把旧参数 min_gap 映射到 chan_kline 的笔配置：>=4 走严格笔（跨度>=4），否则走宽松笔。"""
+    return chan_kline.BiConfig(fx_check="strict", is_strict=min_gap >= 4)
 
 
-# ========== 分型 ==========
+# ========== 中枢（构造在 chan_center，此处只做旧契约映射）==========
 
-def find_fractals(merged: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """在去包含K线上找顶/底分型。idx 指向贡献极值的原始K线。"""
-    fractals = []
-    for i in range(1, len(merged) - 1):
-        a, b, c = merged[i - 1], merged[i], merged[i + 1]
-        if b["high"] > a["high"] and b["high"] > c["high"]:
-            fractals.append({"type": "top", "mi": i, "idx": b["high_idx"], "price": b["high"]})
-        elif b["low"] < a["low"] and b["low"] < c["low"]:
-            fractals.append({"type": "bottom", "mi": i, "idx": b["low_idx"], "price": b["low"]})
-    return fractals
-
-
-# ========== 笔 ==========
-
-def build_strokes(fractals: List[Dict[str, Any]],
-                  min_gap: int = DEFAULT_MIN_STROKE_GAP) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """顶底分型交替连成笔；同类型相邻取更极端，间隔不足则跳过。返回 (strokes, cleaned_fractals)。"""
-    cleaned: List[Dict[str, Any]] = []
-    for f in fractals:
-        if cleaned and cleaned[-1]["type"] == f["type"]:
-            prev = cleaned[-1]
-            if (f["type"] == "top" and f["price"] > prev["price"]) or \
-               (f["type"] == "bottom" and f["price"] < prev["price"]):
-                cleaned[-1] = f
-        else:
-            if cleaned and abs(f["mi"] - cleaned[-1]["mi"]) < min_gap:
-                continue  # 间隔不足，不成笔
-            cleaned.append(f)
-
-    strokes = []
-    for i in range(1, len(cleaned)):
-        s, e = cleaned[i - 1], cleaned[i]
-        strokes.append({
-            "dir": "up" if s["type"] == "bottom" else "down",
-            "start_idx": s["idx"], "end_idx": e["idx"],
-            "start_price": s["price"], "end_price": e["price"],
-            "high": max(s["price"], e["price"]), "low": min(s["price"], e["price"]),
-        })
-    return strokes, cleaned
-
-
-# ========== 中枢 ==========
-
-def build_centers(strokes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """连续≥3笔的重叠区间构成中枢；后续笔与区间重叠则延伸。"""
-    centers = []
-    n = len(strokes)
-    i = 0
-    while i + 2 < n:
-        window = strokes[i:i + 3]
-        zg = min(s["high"] for s in window)
-        zd = max(s["low"] for s in window)
-        if zg > zd:
-            j = i + 3
-            while j < n and strokes[j]["low"] <= zg and strokes[j]["high"] >= zd:
-                j += 1
-            centers.append({
-                "zg": round(zg, 3), "zd": round(zd, 3),
-                "start_stroke": i, "end_stroke": j - 1,
-                "start_idx": strokes[i]["start_idx"], "end_idx": strokes[j - 1]["end_idx"],
-                "stroke_count": j - i,
-            })
-            i = j
-        else:
-            i += 1
-    return centers
-
-
-# ========== 三类买卖点 ==========
-
-def detect_third_signals(strokes: List[Dict[str, Any]],
-                         centers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """基于最后一个中枢判定三买/三卖：离开中枢后回踩不破上沿(三买)/反弹不过下沿(三卖)。"""
-    if not centers:
-        return []
-    c = centers[-1]
-    after = strokes[c["end_stroke"] + 1:]
-    signals = []
-    for k in range(len(after) - 1):
-        leave, pull = after[k], after[k + 1]
-        if leave["dir"] == "up" and leave["high"] > c["zg"] and \
-           pull["dir"] == "down" and pull["low"] > c["zg"]:
-            signals.append({
-                "type": "third_buy", "idx": pull["end_idx"], "price": pull["end_price"],
-                "detail": f"三买:回踩{pull['low']:.2f}未破中枢上沿ZG={c['zg']:.2f}",
-            })
-        elif leave["dir"] == "down" and leave["low"] < c["zd"] and \
-                pull["dir"] == "up" and pull["high"] < c["zd"]:
-            signals.append({
-                "type": "third_sell", "idx": pull["end_idx"], "price": pull["end_price"],
-                "detail": f"三卖:反弹{pull['high']:.2f}未过中枢下沿ZD={c['zd']:.2f}",
-            })
-    return signals
-
-
-# ========== 背驰（MACD 柱面积）==========
-
-def _stroke_macd_area(stroke: Dict[str, Any], hist: List[Optional[float]]) -> float:
-    lo, hi = stroke["start_idx"], stroke["end_idx"]
-    return sum(abs(hist[j]) for j in range(lo, hi + 1)
-               if 0 <= j < len(hist) and hist[j] is not None)
-
-
-def detect_divergence(strokes: List[Dict[str, Any]],
-                      hist: List[Optional[float]]) -> List[Dict[str, Any]]:
-    """比较最近两段同向笔的 MACD 柱面积：价格更极端但动能更弱 → 背驰。"""
-    if len(strokes) < 3:
-        return []
-    last = strokes[-1]
-    prev = next((strokes[i] for i in range(len(strokes) - 2, -1, -1)
-                 if strokes[i]["dir"] == last["dir"]), None)
-    if prev is None:
-        return []
-    area_last = _stroke_macd_area(last, hist)
-    area_prev = _stroke_macd_area(prev, hist)
-    if area_prev <= 0:
-        return []
-    if last["dir"] == "up" and last["high"] > prev["high"] and area_last < area_prev:
-        return [{"type": "top_divergence", "idx": last["end_idx"], "price": last["end_price"],
-                 "detail": f"顶背驰:价创新高但MACD动能{area_last:.1f}<{area_prev:.1f}"}]
-    if last["dir"] == "down" and last["low"] < prev["low"] and area_last < area_prev:
-        return [{"type": "bottom_divergence", "idx": last["end_idx"], "price": last["end_price"],
-                 "detail": f"底背驰:价创新低但MACD动能{area_last:.1f}<{area_prev:.1f}"}]
-    return []
+def _legacy_center(center: Dict[str, Any]) -> Dict[str, Any]:
+    """新中枢 → analyze() 的 last_center 字段：旧键全部保留（值随算法升级而变），
+    另增 is_sure/seg_idx/bi_in_idx/bi_out_idx 四个新键。"""
+    return {"zg": round(center["zg"], 3), "zd": round(center["zd"], 3),
+            "start_stroke": center["start_bi_idx"], "end_stroke": center["end_bi_idx"],
+            "start_idx": center["start_idx"], "end_idx": center["end_idx"],
+            "stroke_count": center["bi_count"],
+            "is_sure": center["is_sure"], "seg_idx": center["seg_idx"],
+            "bi_in_idx": center["bi_in_idx"], "bi_out_idx": center["bi_out_idx"]}
 
 
 # ========== 主入口（纯函数）==========
@@ -214,13 +104,15 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
 
     closes = [b["close"] for b in bars]
     hist = macd_hist(closes) if len(closes) >= 26 else [None] * len(closes)
-    merged = merge_klines(bars)
-    fractals = find_fractals(merged)
-    strokes, cleaned = build_strokes(fractals, min_gap)
-    centers = build_centers(strokes)
+    kline = chan_kline.analyze_klines(bars, bi_config(min_gap))
+    merged, fractals = kline["merged"], kline["fractals"]
+    strokes = kline["bis"]          # 含末段虚笔（is_sure=False），供下游按需过滤
+    seg_view = chan_segment.analyze_segs(strokes)
+    # 中枢：段内构造（无线段时不产出中枢，对齐参考实现 cal_bi_zs 的 normal 分支）
+    centers = chan_center.build_centers(strokes, seg_view["segs"])
 
-    raw_signals = detect_third_signals(strokes, centers) + detect_divergence(strokes, hist)
-    # 回填日期 + strategy_id
+    raw_signals = chan_bsp.build_signals(strokes, seg_view["segs"], centers, bars, hist)
+    # 回填日期 + strategy_id（新谱系类型无 legacy strategy_id → None，下游天然 0 权重）
     signals = []
     for s in raw_signals:
         idx = s["idx"]
@@ -228,17 +120,22 @@ def analyze(bars: List[Dict[str, Any]], min_gap: int = DEFAULT_MIN_STROKE_GAP) -
         s["strategy_id"] = SIGNAL_STRATEGY.get(s["type"])
         signals.append(s)
 
-    last_center = centers[-1] if centers else None
+    last_center = _legacy_center(centers[-1]) if centers else None
     return {
         "ok": True,
         "last_close": round(closes[-1], 3),
         "structure": {
             "merged_count": len(merged),
-            "fractal_count": len(cleaned),
+            "fractal_count": len(fractals),
             "stroke_count": len(strokes),
+            "sure_stroke_count": sum(1 for s in strokes if s.get("is_sure")),
             "center_count": len(centers),
             "last_center": last_center,
             "last_stroke": strokes[-1] if strokes else None,
+            # 2026-08 T2 新增：线段层（T3/T4 起中枢与买卖点均已迁到线段口径）
+            "seg_count": seg_view["seg_count"],
+            "sure_seg_count": seg_view["sure_seg_count"],
+            "last_seg": seg_view["last_seg"],
         },
         "signals": signals,
         "summary": _summary(strokes, centers, signals),
@@ -253,7 +150,7 @@ def _summary(strokes, centers, signals) -> str:
     if signals:
         parts.append("信号:" + ",".join(s["type"] for s in signals))
     else:
-        parts.append("无三类买卖点/背驰")
+        parts.append("无买卖点")
     return " | ".join(parts)
 
 

@@ -199,6 +199,99 @@ def test_formal_registration_is_idempotent_but_blocks_changed_oos(tmp_path):
     assert len(registered) == len(backtest.STRATEGY_DIRECTIONS) * 2
 
 
+def test_v2_lineage_uses_strategy_id_v2_and_filters_unsure_signals(monkeypatch):
+    """2026-08 T6：v2 谱系接入合成数据管线自检（pending_real_data_run）——只验证
+    strategy_id_v2 路由 + is_sure 过滤生效，不构成任何 A/B 结论（结论只能来自
+    docs/chanlun-gate-evaluation-2026-08.md 的真实数据运行）。"""
+    backtest = load_module()
+
+    def fake_analyze(prefix):
+        if len(prefix) < 5:
+            return {"signals": []}
+        return {
+            "signals": [
+                {
+                    "type": "bsp3a_buy",
+                    "strategy_id": None,
+                    "strategy_id_v2": "chanlun_bsp3a_buy_v2",
+                    "idx": 2,
+                    "is_sure": True,
+                },
+                {
+                    "type": "bsp1_buy",
+                    "strategy_id": "chanlun_bottom_divergence",
+                    "strategy_id_v2": "chanlun_bsp1_buy_v2",
+                    "idx": 2,
+                    "is_sure": False,   # 锚定笔未确认，v2 口径下必须被过滤
+                },
+            ]
+        }
+
+    monkeypatch.setattr(backtest.chan_structure, "analyze", fake_analyze)
+
+    v2_events = backtest.extract_signal_events(
+        "000001",
+        _bars(),
+        strategy_directions=backtest.STRATEGY_DIRECTIONS_V2,
+        strategy_id_field="strategy_id_v2",
+        require_is_sure=True,
+    )
+
+    assert len(v2_events) == 1
+    assert v2_events[0]["strategy_id"] == "chanlun_bsp3a_buy_v2"
+    assert v2_events[0]["direction"] == "bullish"
+
+
+def test_v2_lineage_has_twelve_ids_with_distinct_rules_fingerprint():
+    backtest = load_module()
+    assert len(backtest.STRATEGY_DIRECTIONS_V2) == 12
+    for bsp_type in ("1", "1p", "2", "2s", "3a", "3b"):
+        assert backtest.STRATEGY_DIRECTIONS_V2[f"chanlun_bsp{bsp_type}_buy_v2"] == "bullish"
+        assert backtest.STRATEGY_DIRECTIONS_V2[f"chanlun_bsp{bsp_type}_sell_v2"] == "bearish"
+
+    bars = _bars(30)
+    payload = {"series": [{"code": "000001", "bars": bars}], "benchmark_bars": bars}
+    legacy_result = backtest.analyze_payload(
+        payload, split_date="2026-01-05", min_oos_samples=1, n_perm=20, lineage="legacy",
+    )
+    v2_result = backtest.analyze_payload(
+        payload, split_date="2026-01-05", min_oos_samples=1, n_perm=20, lineage="v2",
+    )
+
+    assert set(legacy_result["strategies"]) == set(backtest.STRATEGY_DIRECTIONS)
+    assert set(v2_result["strategies"]) == set(backtest.STRATEGY_DIRECTIONS_V2)
+    assert legacy_result["research_protocol"]["lineage"] == "legacy"
+    assert v2_result["research_protocol"]["lineage"] == "v2"
+    # 版本化 ID + 独立规则指纹：v2 结果不可能被误当成 legacy 协议的重跑。
+    assert (
+        legacy_result["research_protocol"]["rules_fingerprint"]
+        != v2_result["research_protocol"]["rules_fingerprint"]
+    )
+
+
+def test_persist_evidence_uses_item_direction_not_legacy_lookup(tmp_path):
+    """回归：persist_evidence 曾硬编码 STRATEGY_DIRECTIONS.get(strategy_id) 取方向，
+    v2 策略 ID 不在该表中会静默取到 None。改为读 item['direction']（analyze_events
+    的输出，两条谱系都会设置）。"""
+    backtest = load_module()
+    bars = _bars(30)
+    payload = {"series": [{"code": "000001", "bars": bars}], "benchmark_bars": bars}
+    result = backtest.analyze_payload(
+        payload, split_date="2026-01-05", min_oos_samples=1, n_perm=20, lineage="v2",
+    )
+    input_path = tmp_path / "input.json"
+    input_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    persisted = backtest.persist_evidence(
+        result, input_path=str(input_path), artifact_dir=str(tmp_path / "artifacts"),
+    )
+
+    for strategy_id, item in persisted["strategies"].items():
+        artifact = json.loads(Path(item["evidence"]["artifact"]).read_text(encoding="utf-8"))
+        assert artifact["rules"]["direction"] == backtest.STRATEGY_DIRECTIONS_V2[strategy_id]
+        assert artifact["rules"]["rules_version"] == backtest.RULES_VERSION_V2
+
+
 def test_registration_rejects_unpersisted_gate_results(tmp_path):
     backtest = load_module()
     result = {
