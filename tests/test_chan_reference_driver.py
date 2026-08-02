@@ -11,7 +11,14 @@ import datetime
 import os
 import sys
 
+import pytest
+
 PROJ = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# chan.py 参考实现（差分 oracle）使用 typing.Self，要求 Python 3.11+；
+# 生产侧 chan_* 模块不依赖它，仍支持 3.10。低版本上跳过差分校验而非 collection 报错。
+if sys.version_info < (3, 11):  # pragma: no cover - 版本相关分支
+    pytest.skip("chan.py 参考实现需要 Python 3.11+（typing.Self）", allow_module_level=True)
+
 REFERENCE_ROOT = os.path.join(PROJ, "third_party", "chan_py_reference")
 if REFERENCE_ROOT not in sys.path:
     sys.path.insert(0, REFERENCE_ROOT)

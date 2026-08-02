@@ -41,6 +41,16 @@
 全程无网络依赖，返回笔列表与买卖点列表的纯数据快照。仅供
 `tests/test_chan_reference_driver.py` 及后续差分测试调用。
 
+## 运行要求：Python 3.11+
+
+本参考实现使用 `typing.Self`（3.11 引入），在 Python 3.10 上 import 即失败。
+为保持 vendor 代码零改动，依赖它的 5 个测试
+（`test_chan_reference_driver.py` 与四个 `test_chan_*_diff.py`）在 `sys.version_info < (3, 11)`
+时整模块 skip，而不是在 collection 阶段报错。
+
+**生产侧不受影响**：`skills/chanlun-backtest/scripts/chan_*.py` 不依赖本目录、不使用
+3.11+ 语法，仍支持仓库 CI 矩阵中的 3.10。差分保证由 3.13 侧的 CI 与本地运行提供。
+
 ## 本地修补清单
 
 | # | 文件 | 修补内容 | 原因 |
