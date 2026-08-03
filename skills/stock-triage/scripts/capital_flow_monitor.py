@@ -119,22 +119,31 @@ def _market(code: str) -> str:
     return "sh" if code.startswith("6") else "sz"
 
 
-def load_runtime_stocks(max_stocks: int = 20) -> list[tuple[str, str, str]]:
-    """Load stock targets, prioritising portfolio holdings then monitors.
+# 个股资金流每只需一次东财往返（本机实测 1.3~3.5s，生产机曾记录 ~10s）。
+# cron/hermes-cron-manifest.json 中 capital-flow 的 run.timeout_seconds=300，
+# 171 只 × 2.77s ≈ 474s 已必然超时，按 10s 计更是 1710s——超时会让整个作业无产出，
+# 连能跑完的那部分也拿不到。故限定扫描规模：持仓优先、其次监控标的。
+MAX_STOCK_TARGETS = 20
 
-    Capital flow queries are expensive (~10s each via akshare).  Limiting
-    to ``max_stocks`` keeps total runtime under ~3 minutes even when every
-    query is slow.
+
+def load_runtime_stocks(max_stocks: int = MAX_STOCK_TARGETS) -> list[tuple[str, str, str]]:
+    """加载个股扫描标的：持仓优先、其次监控，按 max_stocks 截断。
+
+    截断本身不静默——collect_flow_data 会把 targets_total/targets_scanned/truncated
+    写进产物，未被扫描的标的数在报告里可见（AGENTS.md：降级不得被当作无风险）。
     """
-    targets = runtime_targets.load_stock_targets()
-    # Portfolio holdings first, then monitors
-    portfolio = [t for t in targets if t.get("source") == "portfolio"]
-    monitors = [t for t in targets if t.get("source") != "portfolio"]
-    ordered = portfolio + monitors
     return [
         (target["code"], _market(target["code"]), target["name"])
-        for target in ordered[:max_stocks]
+        for target in prioritized_stock_targets()[:max_stocks]
     ]
+
+
+def prioritized_stock_targets() -> list[dict]:
+    """持仓在前、监控在后；同组内保持 runtime_targets 的既有顺序（不可变，返回新列表）。"""
+    targets = runtime_targets.load_stock_targets()
+    portfolio = [t for t in targets if t.get("source") == "portfolio"]
+    others = [t for t in targets if t.get("source") != "portfolio"]
+    return portfolio + others
 
 
 def load_runtime_sectors() -> tuple[list[tuple[str, str]], list[str]]:
@@ -443,7 +452,11 @@ def collect_flow_data(
     sectors: Optional[list[tuple[str, str]]] = None,
 ) -> Dict[str, Any]:
     """采集资金流向数据"""
-    stocks = load_runtime_stocks() if stocks is None else stocks
+    if stocks is None:
+        targets_total = len(prioritized_stock_targets())
+        stocks = load_runtime_stocks()
+    else:
+        targets_total = len(stocks)
     if sectors is None:
         sectors, unmapped_sectors = load_runtime_sectors()
     else:
@@ -456,6 +469,10 @@ def collect_flow_data(
         "stocks": [],
         "sectors": [],
         "unmapped_sectors": unmapped_sectors,
+        # 扫描规模可见性：截断了多少、还剩多少没看，必须留痕而不是静默少扫
+        "targets_total": targets_total,
+        "targets_scanned": len(stocks),
+        "targets_truncated": max(targets_total - len(stocks), 0),
         "alerts": [],
         "source_health": {
             "northbound": {"selected_provider": None, "attempts": []},
@@ -634,6 +651,12 @@ def format_report(data: Dict) -> str:
 
     # 个股
     lines.append("\n## 📊 跟踪标的资金流")
+    truncated = data.get("targets_truncated") or 0
+    if truncated:
+        lines.append(
+            f"⚠️ 仅扫描 {data.get('targets_scanned')}/{data.get('targets_total')} 只"
+            f"（持仓优先），{truncated} 只未覆盖 — 单只约需数秒，全量会超出作业时限"
+        )
     for s in data.get("stocks", []):
         sig = s.get("signal", "")
         sig_str = f" [{sig}]" if sig else ""
