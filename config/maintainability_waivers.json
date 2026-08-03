@@ -463,6 +463,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt (sys.path bootstrap) in serenity_to_feishu.py touched by the feishu disclosure footer change",
+      "violation_id": "c9d57a5c8be7d257d2b6"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "cc665af84ba2d784cd92"
     },
@@ -523,6 +528,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt (broad except around lark-cli subprocess) in serenity_to_feishu.py touched by the feishu disclosure footer change",
+      "violation_id": "e3d8728aa2958c257f62"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in skills/daban-stock-picker/scripts/auction_collector.py touched by #112/#113 fail-closed fix",
       "violation_id": "e4381a7b9fa29e3d8ca2"
     },
@@ -570,16 +580,6 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "fee0fda7fb28d94c38d1"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt (sys.path bootstrap) in serenity_to_feishu.py touched by the feishu disclosure footer change",
-      "violation_id": "c9d57a5c8be7d257d2b6"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt (broad except around lark-cli subprocess) in serenity_to_feishu.py touched by the feishu disclosure footer change",
-      "violation_id": "e3d8728aa2958c257f62"
     }
   ]
 }
