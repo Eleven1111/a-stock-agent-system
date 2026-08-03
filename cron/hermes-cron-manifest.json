@@ -511,7 +511,7 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 1500
+        "timeout_seconds": 2400
       },
       "external_note": "15:07 全市场扫描并生成约500只双策略深度观察池；社会关注度仅作可选弱证据"
     },
