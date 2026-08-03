@@ -8,23 +8,13 @@
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "pre-existing sys.path mutation in chan_signal_backtest.py, unrelated to the T6 v2 lineage parametrization that touched this file",
-      "violation_id": "16e6781a28e487494538"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing long function extract_signal_events in chan_signal_backtest.py (legacy walk-forward loop), only parametrized (not lengthened in substance) for T6 v2 lineage support",
-      "violation_id": "18d41420f6ea6e9bf1c9"
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "06d8ccfe4f39ffb9d4ea"
     },
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing long function analyze_events in chan_signal_backtest.py (legacy IS/OOS + FDR loop), only parametrized (not lengthened in substance) for T6 v2 lineage support",
       "violation_id": "071dd6132097bacf548d"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "06d8ccfe4f39ffb9d4ea"
     },
     {
       "expires_on": "2026-10-31",
@@ -43,8 +33,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing sys.path mutation in chan_signal_backtest.py, unrelated to the T6 v2 lineage parametrization that touched this file",
+      "violation_id": "16e6781a28e487494538"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "18b15abfa8f067a07fb1"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing long function extract_signal_events in chan_signal_backtest.py (legacy walk-forward loop), only parametrized (not lengthened in substance) for T6 v2 lineage support",
+      "violation_id": "18d41420f6ea6e9bf1c9"
     },
     {
       "expires_on": "2026-10-31",
@@ -80,6 +80,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "27cfc837fe4e5f54521d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
+      "violation_id": "2a0dc78a1cdd2b67af56"
     },
     {
       "expires_on": "2026-10-31",
@@ -368,6 +373,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
+      "violation_id": "aaeea46794a14353de59"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "af2bc6f5da834fb80962"
     },
@@ -413,6 +423,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
+      "violation_id": "c17badeb856071ebbf78"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in skills/common/market_temperature.py touched by #112/#113 fail-closed fix",
       "violation_id": "c1f79748e671c1604acc"
     },
@@ -445,6 +460,11 @@
       "violation_id": "c8aef5dd2e90bf188c87",
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt (sys.path bootstrap) in serenity_to_feishu.py touched by the feishu disclosure footer change",
+      "violation_id": "c9d57a5c8be7d257d2b6"
     },
     {
       "expires_on": "2026-10-31",
@@ -508,8 +528,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt (broad except around lark-cli subprocess) in serenity_to_feishu.py touched by the feishu disclosure footer change",
+      "violation_id": "e3d8728aa2958c257f62"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in skills/daban-stock-picker/scripts/auction_collector.py touched by #112/#113 fail-closed fix",
       "violation_id": "e4381a7b9fa29e3d8ca2"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing sys.path mutation in a_stock_http.py:20, unrelated to the 2026-08-03 Tencent minute-query WAF fallback + throttle change that touched this file",
+      "violation_id": "e47ac2eb52768819dbe9"
     },
     {
       "expires_on": "2026-10-31",
@@ -550,31 +580,6 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "fee0fda7fb28d94c38d1"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
-      "violation_id": "2a0dc78a1cdd2b67af56"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
-      "violation_id": "aaeea46794a14353de59"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
-      "violation_id": "c17badeb856071ebbf78"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt (sys.path bootstrap) in serenity_to_feishu.py touched by the feishu disclosure footer change",
-      "violation_id": "c9d57a5c8be7d257d2b6"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt (broad except around lark-cli subprocess) in serenity_to_feishu.py touched by the feishu disclosure footer change",
-      "violation_id": "e3d8728aa2958c257f62"
     }
   ]
 }

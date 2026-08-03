@@ -93,13 +93,23 @@ def screen_universe(spot_rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, An
     注意：akshare Sina 路线（stock_zh_a_spot）不返回 总市值 和 市盈率-动态 字段，
     仅当整个快照都缺少该字段时才跳过对应过滤。部分行缺值仍按数据不完整
     fail-closed，避免把坏记录误当成源级字段缺失。
+
+    2026-08-03: akshare 返回的代码带交易所前缀（sh600519/sz000001/bj920002），
+    必须剥离前缀并排除北交所（bj，涨跌幅 30% 且腾讯分时接口不支持）。
     """
     has_market_cap_field = any("总市值" in record for record in spot_rows)
     has_pe_field = any("市盈率-动态" in record for record in spot_rows)
     screened = []
     for record in spot_rows:
         name = str(record.get("名称") or "")
-        code = str(record.get("代码") or "").zfill(6)
+        raw_code = str(record.get("代码") or "").strip()
+        # 剥离 sh/sz/bj 前缀；北交所（bj/920xxx）不在尾盘异动扫描范围内
+        market_prefix = ""
+        if raw_code[:2] in ("sh", "sz", "bj"):
+            market_prefix, raw_code = raw_code[:2], raw_code[2:]
+        if market_prefix == "bj" or raw_code.startswith(("920", "8", "4")):
+            continue
+        code = raw_code.zfill(6)
         if not code or _is_excluded_name(name):
             continue
         try:
