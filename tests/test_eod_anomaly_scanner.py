@@ -18,6 +18,16 @@ def test_screen_universe_keeps_row_passing_all_filters():
     assert rows[0]["code"] == "600001"
 
 
+def test_screen_universe_strips_exchange_prefix_and_drops_bse():
+    """2026-08-03: akshare 返回带 sh/sz/bj 前缀的代码，必须剥离；北交所直接排除。"""
+    rows = eas.screen_universe([
+        _spot_row(code="sh600519"),
+        _spot_row(code="sz000001"),
+        _spot_row(code="bj920002"),
+    ])
+    assert [r["code"] for r in rows] == ["600519", "000001"]
+
+
 def test_screen_universe_excludes_st_and_delisting_risk_names():
     rows = eas.screen_universe([_spot_row(name="ST正常"), _spot_row(name="退市股份")])
     assert rows == []
