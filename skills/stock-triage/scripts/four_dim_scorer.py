@@ -41,7 +41,11 @@ from data_provider import fetch_serper_news as _fetch_serper_news
 from data_provider import _next_serper_key
 from http_client import DataSourceError
 from tradeability import assess_tradeability
-from deep_research_cache import read_deep_research, decay_stale_score
+from deep_research_cache import (
+    read_deep_research,
+    decay_stale_score,
+    DEFAULT_MAX_AGE_DAYS as _DEEP_DEFAULT_MAX_AGE_DAYS,
+)
 
 # 缠论结构信号 + 策略闸门（过 research_gate 才计权，否则 display-only 标研究假设）
 _CHANLUN_DIR = os.path.join(os.path.dirname(SKILL_DIR), "chanlun-backtest", "scripts")
@@ -555,6 +559,34 @@ def _eps_score(eps_current: float | None, eps_next: float | None) -> float:
     return round(min(score, 2.0), 2)
 
 
+def _excluded_deep_payload(deep: Dict[str, Any], raw: float, age: int,
+                           pe: Optional[float], cap: Optional[float]) -> Dict[str, Any]:
+    """重度过期深研的返回体：标 excluded，交由 score_stock 移出加权合成。
+
+    分值原样带出（不衰减）仅供展示与排查；`excluded=True` 是唯一的消费契约，
+    下游一律以它为准判断该维度是否有效，不得再读 score 参与任何判定。
+    """
+    up = deep.get("valuation_upside_pct")
+    up_str = f", 中性赔率{up:+.0f}%" if isinstance(up, (int, float)) else ""
+    pe_str = f"; PE={pe:.1f}" if pe is not None else ""
+    return {
+        "score": round(raw, 1),
+        "source": "serenity_deep_excluded",
+        "stale": True,
+        "excluded": True,
+        "asof": deep.get("asof"),
+        "age_days": age,
+        "scorecard_total": deep.get("scorecard_total"),
+        "rating": deep.get("rating"),
+        "valuation_upside_pct": up,
+        "dimensions": deep.get("dimensions", {}),
+        "pe": pe,
+        "market_cap_yi": round(cap, 1) if cap else None,
+        "detail": f"⚠️深研严重过期({age}天)已退出加权 投研{deep.get('rating') or ''}"
+                  f"({deep.get('scorecard_total')}/100→{raw}){up_str}{pe_str}",
+    }
+
+
 def score_deep(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """深度面评分（0-10）——优先读 Serenity 投研缓存，过期衰减，缺失回退 PE 快照。
 
@@ -575,6 +607,12 @@ def score_deep(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> 
     if deep and deep.get("deep_score") is not None:
         raw = deep["deep_score"]
         age = deep.get("age_days") or 0
+        # fail-closed 过期治理阶梯：新鲜（stale=False）满权重；轻度过期（stale=True 但
+        # 未超过 max_age_days + exclude_after_extra_days）沿用衰减、仍满权重参与合成；
+        # 重度过期（超过阶梯上限）deep 维度退出合成加权，见 score_stock 的 scoring_available。
+        severe_threshold = _DEEP_DEFAULT_MAX_AGE_DAYS + DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS
+        if bool(deep.get("stale")) and age > severe_threshold:
+            return _excluded_deep_payload(deep, raw, age, pe, cap)
         if deep.get("stale"):
             score = decay_stale_score(raw, pe_score, age)
             source = "serenity_deep_stale"
@@ -640,6 +678,10 @@ def _load_scoring_config() -> Optional[Dict[str, Any]]:
         return None
 
 
+# 深研过期治理阶梯默认值——与 config/scoring.yaml 的 deep_staleness.exclude_after_extra_days
+# 保持一致；配置缺失或解析失败时 fail-closed 回退到该默认值，不放宽阶梯。
+_DEFAULT_DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS = 30
+
 _scoring_cfg = _load_scoring_config()
 if _scoring_cfg:
     _weights_cfg = _scoring_cfg.get("scoring", {}).get("weights", {})
@@ -653,6 +695,14 @@ if _scoring_cfg:
     _grades_cfg = _scoring_cfg.get("scoring", {}).get("grades", {})
     _confidence_cfg = _scoring_cfg.get("scoring", {}).get("confidence", {})
     _risk_cfg = _scoring_cfg.get("risk", {})
+    try:
+        DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS = int(
+            _scoring_cfg.get("scoring", {}).get("deep_staleness", {}).get(
+                "exclude_after_extra_days", _DEFAULT_DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS
+            )
+        )
+    except (TypeError, ValueError):
+        DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS = _DEFAULT_DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS
 else:
     WEIGHTS = {"technical": 0.30, "sentiment": 0.15, "catalyst": 0.30, "deep": 0.25}
     WEIGHTS_BY_LANE = {"default": WEIGHTS}
@@ -660,6 +710,7 @@ else:
     _grades_cfg = {}
     _confidence_cfg = {}
     _risk_cfg = {}
+    DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS = _DEFAULT_DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS
 
 
 def resolve_weights(strategy_id: str = "four_dim",
@@ -729,14 +780,23 @@ def _grade_by_name(name: str) -> Tuple[str, str, str]:
 
 
 def _detect_coherence(scores: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-    """信号一致性检测：多空维度矛盾/共振判定（纯函数）。"""
+    """信号一致性检测：多空维度矛盾/共振判定（纯函数）。
+
+    深研严重过期被判 excluded 后不只是退出加权合成——作废的证据在这里同样不得投票：
+    既不计入多空维度计数（否则数月前的高分仍能凑出「多维共振」+0.5），也不参与
+    以 deep 为条件的冲突判定。
+    """
     tech_score = scores["technical"]["score"]
     sent_score = scores["sentiment"]["score"]
     cata_score = scores["catalyst"]["score"]
     deep_score = scores["deep"]["score"]
+    deep_excluded = bool(scores["deep"].get("excluded"))
 
-    bullish_dims = sum(1 for s in [tech_score, sent_score, cata_score, deep_score] if s >= 6.5)
-    bearish_dims = sum(1 for s in [tech_score, sent_score, cata_score, deep_score] if s <= 3.5)
+    voting = [tech_score, sent_score, cata_score]
+    if not deep_excluded:
+        voting.append(deep_score)
+    bullish_dims = sum(1 for s in voting if s >= 6.5)
+    bearish_dims = sum(1 for s in voting if s <= 3.5)
     conflicts = []
     tags = []
     delta = 0.0
@@ -758,7 +818,7 @@ def _detect_coherence(scores: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     if sent_score >= 7 and tech_score <= 4:
         conflicts.append("情绪主导超越技术")
         tags.append("短线博弈型")
-    if tech_score >= 7 and deep_score <= 3:
+    if not deep_excluded and tech_score >= 7 and deep_score <= 3:
         conflicts.append("技术走强但基本面差")
         tags.append("投机性反弹风险")
 
@@ -888,6 +948,10 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
     scoring_available = dict(available)
     if not available["catalyst"] and catalyst.get("score") is not None:
         scoring_available["catalyst"] = True
+    # 深研严重过期：退出合成加权（fail-closed 治理阶梯），其余三维按比例归一化。
+    deep_excluded = bool(deep.get("excluded"))
+    if deep_excluded:
+        scoring_available["deep"] = False
     eff = {k: active_weights[k] for k in active_weights if scoring_available.get(k, True)}
     total_w = sum(eff.values())
     if total_w > 0:
@@ -904,10 +968,13 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
 
     g, emoji, advice = grade(weighted)
     score_gates = []
+    # deep 严重过期被排除时 fail-closed：没有有效深研证据就不能认定 S 档
+    # （AGENTS.md：外部数据缺失不得被当作中性证据或无风险）。此处不读它的分值，
+    # 否则一份数月前的高分会替 S 档背书。
     if (
         g == "S"
         and not str(strategy_id or "").startswith("daban")
-        and (catalyst["score"] < 5.5 or deep["score"] < 6.0)
+        and (catalyst["score"] < 5.5 or deep_excluded or deep["score"] < 6.0)
     ):
         score_gates.append("insufficient_catalyst_or_deep_for_s")
         g, emoji, advice = _grade_by_name("A")
@@ -990,6 +1057,7 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "effective_weights": {k: f"{eff.get(k, 0)*100:.0f}%" for k in active_weights},
         "excluded_dims": excluded,
         "degraded_dims": degraded,
+        "deep_excluded": deep_excluded,
         "score_gates": score_gates,
         "deep_source": scores["deep"].get("source"),
         "historical_reference": hist_ref,
@@ -1070,7 +1138,9 @@ def format_report(result: Dict[str, Any]) -> str:
     risks = []
     if s["catalyst"].get("detail") and "澄清" in s["catalyst"]["detail"]:
         risks.append(f"公告风险：{s['catalyst']['detail']}")
-    if s["deep"].get("stale"):
+    if s["deep"].get("excluded"):
+        risks.append(f"深研严重过期({s['deep'].get('age_days', '?')}天)，已退出加权")
+    elif s["deep"].get("stale"):
         risks.append(f"深研过期：{s['deep'].get('age_days', '?')}天未更新")
     if result.get("market_overlay", {}).get("regime") == "risk_off":
         risks.append(f"大盘承压：{result['market_overlay'].get('reason', '')}")
