@@ -12,6 +12,8 @@
 
 import os
 import sys
+import threading
+import time
 from typing import Dict, Any, List, Optional
 from urllib.parse import urlencode
 
@@ -340,14 +342,47 @@ def parse_tencent_minute_response(data: Dict[str, Any], code: str, market: str) 
     return result
 
 
+# ======================== 腾讯分时节流 ========================
+# 2026-08-03: proxy.finance.qq.com 分时接口在高频并发下会触发 WAF 限流
+# （eod_anomaly_scanner 全量 2843 只曾 0 命中）。模块级锁保证同一进程内
+# 两次分时请求间隔 >= _TENCENT_MINUTE_INTERVAL 秒，实测 8 并发 ~8/s 稳定。
+_TENCENT_MINUTE_INTERVAL = 0.05  # 秒
+_tencent_minute_lock = threading.Lock()
+_tencent_minute_last_ts = 0.0
+
+
+def _minute_throttle() -> None:
+    global _tencent_minute_last_ts
+    with _tencent_minute_lock:
+        now = time.monotonic()
+        wait = _TENCENT_MINUTE_INTERVAL - (now - _tencent_minute_last_ts)
+        if wait > 0:
+            time.sleep(wait)
+        _tencent_minute_last_ts = time.monotonic()
+
+
 def fetch_tencent_minute(code: str, market: str = "sz") -> List[Dict[str, Any]]:
-    """腾讯当日分时数据。盘中调用只返回截至当前分钟的数据；收盘后返回全天 9:30-15:00。"""
-    url = f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={market}{code}"
-    try:
-        data = http_get_json(url, timeout=10)
-    except DataSourceError:
-        return []
-    return parse_tencent_minute_response(data, code, market)
+    """腾讯当日分时数据。盘中调用只返回截至当前分钟的数据；收盘后返回全天 9:30-15:00。
+
+    2026-08-03: web.ifzq.gtimg.cn 分时接口被 WAF 拦截(501)，改用备用域名
+    proxy.finance.qq.com（返回结构一致，见 parse_tencent_minute_response）。
+    备用域名高频并发会触发限流（全量扫描曾 0 命中），所以加了模块级节流：
+    每只股票请求间隔 >= _TENCENT_MINUTE_INTERVAL，配合 eod_anomaly_scanner
+    的 8 并发，实测 ~8/s 可稳定跑完全市场。
+    """
+    _minute_throttle()
+    hosts = (
+        "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/minute/query",
+        "https://web.ifzq.gtimg.cn/appstock/app/minute/query",
+    )
+    for host in hosts:
+        url = f"{host}?code={market}{code}"
+        try:
+            data = http_get_json(url, timeout=10)
+        except DataSourceError:
+            continue
+        return parse_tencent_minute_response(data, code, market)
+    return []
 
 
 def fetch_tencent_hk_quote(code_hk: str) -> Dict[str, Any]:
