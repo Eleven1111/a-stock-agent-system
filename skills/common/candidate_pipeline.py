@@ -423,6 +423,26 @@ def build_watch_pool(
     ranked = rank_candidates(eligible, kline_by_code, signal_ctx=signal_ctx)
     ranked = apply_leader_identity(ranked, selection_state, signal_ctx)
     selectable = [item for item in ranked if item["feature_ready"]]
+    # --- non-mainboard quality gate ---
+    # STAR (688) and ChiNext (300/301) stocks with zero daban score or low
+    # trend score are low-quality noise.  Filter them before any lane
+    # selection so they never enter the candidate pool.
+    _filtered_non_mainboard = 0
+    _gated: list = []
+    for item in selectable:
+        code = str(item.get("code") or "")
+        naked = naked_code(code)
+        is_star = naked.startswith("688")
+        is_chinext = naked.startswith("300") or naked.startswith("301")
+        if (is_star or is_chinext) and float(item.get("daban_score") or 0) == 0:
+            # zero daban score = completely ineligible for the strategy
+            _filtered_non_mainboard += 1
+            continue
+        if (is_star or is_chinext) and float(item.get("trend_score") or 0) < 70:
+            _filtered_non_mainboard += 1
+            continue
+        _gated.append(item)
+    selectable = _gated
     selection_gate_enabled = selection_state is not None
 
     delivery_by_code: Dict[str, Dict[str, Any]] = {}
