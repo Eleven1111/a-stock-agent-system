@@ -565,6 +565,16 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
       "violation_id": "c17badeb856071ebbf78"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt (sys.path bootstrap) in serenity_to_feishu.py touched by the feishu disclosure footer change",
+      "violation_id": "c9d57a5c8be7d257d2b6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt (broad except around lark-cli subprocess) in serenity_to_feishu.py touched by the feishu disclosure footer change",
+      "violation_id": "e3d8728aa2958c257f62"
     }
   ]
 }

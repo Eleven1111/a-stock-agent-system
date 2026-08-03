@@ -109,3 +109,20 @@ git diff --check
 
 If a check cannot run, report the exact missing prerequisite and the remaining
 risk. Do not claim completion without reading the verification output.
+
+### Interpreter matrix
+
+CI runs a matrix (`3.10`, `3.13`); the local `.venv` is 3.13 only, so a green
+local run is evidence for one half of the matrix and none for the other. When a
+change touches `third_party/`, uses newer syntax, or adds a dependency, also run
+the lowest matrix version before claiming completion:
+
+```bash
+uv venv --python 3.10 /tmp/py310
+VIRTUAL_ENV=/tmp/py310 uv pip install -c constraints.txt -e ".[dev]"
+/tmp/py310/bin/python -m pytest -q
+```
+
+Trigger: the vendored `third_party/chan_py_reference` uses `typing.Self` (3.11+),
+so five differential tests failed at collection on 3.10 while the local 3.13 run
+reported 2090 passed (PR #144, 2026-08-02).

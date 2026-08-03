@@ -28,6 +28,15 @@ scoring:
     low:
       requires: [realtime]
 
+  # 深研过期治理阶梯（fail-closed，非回拟合参数）：
+  #   新鲜（age <= max_age_days，见 deep_research_cache.DEFAULT_MAX_AGE_DAYS=90）：满权重。
+  #   过渡衰减（max_age_days < age <= max_age_days + exclude_after_extra_days）：
+  #     分值向 PE 快照线性回归（decay_stale_score），仍以满权重参与四维合成。
+  #   重度过期（age > max_age_days + exclude_after_extra_days）：深度面退出合成加权，
+  #     其余三维权重按比例归一化后合成总分，避免过期数月的深研结论继续给排序投票。
+  deep_staleness:
+    exclude_after_extra_days: 30
+
 risk:
   stop_loss_atr_mult: 2.0
   stop_loss_atr_mult_daban: 1.2

@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Optional, Dict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+from feishu_push import DISCLOSURE
 from paths import cron_output_dir
 
 LARK_CLI = "lark-cli"
@@ -48,13 +49,25 @@ def sanitize_markdown(text: str) -> str:
     return "\n".join(lines)
 
 
+def with_disclosure(text: str) -> str:
+    """在文档正文末尾补上与消息出口同一份免责声明，幂等。
+
+    飞书有两类出口：聊天消息走 common/feishu_push.push_text，研究文档走本脚本。
+    两处共用 feishu_push.DISCLOSURE，避免文案漂移导致"只有一半出口合规"。
+    """
+    if DISCLOSURE in text:
+        return text
+    separator = "" if text.endswith("\n") else "\n"
+    return f"{text}{separator}\n{DISCLOSURE}"
+
+
 def create_feishu_doc(title: str, content: str) -> Optional[str]:
     """创建飞书文档"""
     # 飞书文档标题限制
     safe_title = title[:100].replace('"', "'")
 
-    # 清理 markdown（飞书不支持表格）
-    clean_content = sanitize_markdown(content)
+    # 清理 markdown（飞书不支持表格）+ 追加免责声明（出口级，不依赖调用方记得加）
+    clean_content = with_disclosure(sanitize_markdown(content))
 
     # 写入临时文件
     tmpfile = f"/tmp/feishu_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
