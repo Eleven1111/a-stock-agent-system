@@ -1280,9 +1280,7 @@
       "context_scope": "cron",
       "deliver": "origin",
       "max_output_chars": 3000,
-      "context_from": [
-        "four-dim-scorer"
-      ],
+      "context_from": [],
       "dependency_policy": {
         "trading_date": "same_trading_date",
         "max_age_minutes": 30
@@ -1324,7 +1322,6 @@
       "deliver": "origin",
       "max_output_chars": 3500,
       "context_from": [
-        "four-dim-scorer",
         "portfolio-check",
         "capital-flow"
       ],

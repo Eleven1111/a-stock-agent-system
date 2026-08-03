@@ -503,7 +503,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         for path in jobs["open-confirmation"]["allowed_state_writes"]
     )
     assert any("signal_ledger.jsonl" in path for path in jobs["intraday-alert"]["allowed_state_writes"])
-    assert set(jobs["closing-triage"]["context_from"]) >= {"four-dim-scorer", "portfolio-check"}
+    assert set(jobs["closing-triage"]["context_from"]) >= {"portfolio-check"}
     assert jobs["performance-weekly"]["dependency_policy"]["trading_date"] == "same_trading_date"
     assert jobs["performance-weekly"]["context_from"] == ["performance-daily"]
     assert _run_command(jobs["performance-weekly"]).endswith("--json --gate")
