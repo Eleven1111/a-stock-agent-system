@@ -218,3 +218,72 @@ def test_extreme_hot_overlay_deep_adjustment_voided_when_excluded(tmp_path, monk
     # 证明 overlay 的 sentiment 加成仍然生效，未被 deep 排除连带清空。
     pure_normed_sentiment = 0.15 / (0.30 + 0.15 + 0.30)
     assert normed["sentiment"] > pure_normed_sentiment
+
+
+# ========== 作废证据不得经由旁路继续投票（coherence / S 档闸门） ==========
+#
+# 退出加权合成只堵住了一条路。deep 被判 excluded 后，它的分值仍留在
+# scores["deep"]["score"]（而且是**未衰减的原始值**），下面两条路径原本还在读它：
+#   1. _detect_coherence 的多空维度计数与「技术强但基本面差」冲突判定；
+#   2. S 档闸门 `deep["score"] < 6.0`——一份数月前的高分能替 S 档背书。
+# 两处都实测复现过，这里锁死。
+
+def _mock_dims(monkeypatch, tech, sent, cata):
+    for name, payload in (
+        ("score_technical", {"score": tech, "ma5": 10.0, "price": 10.0, "detail": "t"}),
+        ("score_sentiment", {"score": sent, "change_pct": 1.0, "detail": "s"}),
+        ("score_catalyst", {"score": cata, "available": True, "news_count": 1, "detail": "c"}),
+    ):
+        monkeypatch.setattr(fds, name, (lambda p: (lambda *a, **k: p))(payload))
+
+
+def _score_with(monkeypatch, tmp_path, *, tech, sent, cata, age_days, total):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _mock_dims(monkeypatch, tech, sent, cata)
+    _write_deep(age_days=age_days, total=total)
+    return fds.score_stock("000021", "深科技", quote=_quote(), klines=_klines(), market_ctx={})
+
+
+def test_excluded_deep_does_not_count_toward_resonance(tmp_path, monkeypatch):
+    """两维看多 + 作废的高分 deep：不得凑成「多维共振看多」(>=3) 拿 +0.5。"""
+    result = _score_with(monkeypatch, tmp_path,
+                         tech=7.0, sent=7.0, cata=5.0, age_days=135, total=90.0)
+
+    assert result["scores"]["deep"]["excluded"] is True
+    assert result["scores"]["deep"]["score"] >= 6.5, "前提：作废分值本身达到看多档"
+    assert result["coherence"]["bullish_dims"] == 2
+    assert "多维共振看多" not in result["coherence"]["tags"]
+    assert result["coherence"]["delta"] == 0.0
+
+
+def test_non_excluded_deep_still_counts_toward_resonance(tmp_path, monkeypatch):
+    """对照组：同样两维看多，deep 新鲜时应当照常凑成共振——证明上一条不是恒真。"""
+    result = _score_with(monkeypatch, tmp_path,
+                         tech=7.0, sent=7.0, cata=5.0, age_days=10, total=90.0)
+
+    assert result["scores"]["deep"].get("excluded") is not True
+    assert result["coherence"]["bullish_dims"] == 3
+    assert "多维共振看多" in result["coherence"]["tags"]
+    assert result["coherence"]["delta"] == 0.5
+
+
+def test_excluded_deep_does_not_trigger_fundamental_conflict(tmp_path, monkeypatch):
+    """技术强 + 作废的低分 deep：不得打「投机性反弹风险」标签。"""
+    result = _score_with(monkeypatch, tmp_path,
+                         tech=8.0, sent=5.0, cata=5.0, age_days=135, total=20.0)
+
+    assert result["scores"]["deep"]["excluded"] is True
+    assert result["scores"]["deep"]["score"] <= 3.0, "前提：作废分值本身在看空档"
+    assert "投机性反弹风险" not in result["coherence"]["tags"]
+    assert "技术走强但基本面差" not in result["coherence"]["conflicts"]
+
+
+def test_s_grade_gate_fails_closed_when_deep_excluded(tmp_path, monkeypatch):
+    """没有有效深研证据就不能认定 S 档，无论作废分值多高。"""
+    high = _score_with(monkeypatch, tmp_path,
+                       tech=9.5, sent=9.5, cata=9.5, age_days=135, total=90.0)
+    assert high["scores"]["deep"]["excluded"] is True
+    assert high["scores"]["deep"]["score"] >= 6.0, "前提：作废分值高于闸门阈值"
+    assert "insufficient_catalyst_or_deep_for_s" in high["score_gates"]
+    assert high["grade"] != "S"
