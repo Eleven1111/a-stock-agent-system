@@ -21,7 +21,7 @@ import time
 import xml.etree.ElementTree as ET
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, time as dtime
+from datetime import date, datetime, time as dtime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
@@ -917,31 +917,50 @@ def run_discovery(
         if point_in_time
         else {}
     )
-    input_snapshot = materialize_input_snapshot(
-        "candidate-discovery-input",
-        {
+    input_payload = {
+        "schema": "candidate_discovery_inputs_v1",
+        "universe": universe,
+        "quotes": quote_map,
+        "klines": kline_by_code,
+        "signal_context": signal_ctx,
+        "market_temperature": temperature,
+    }
+    source_versions = {
+        "exchange_listing": "exchange-listing-v1",
+        "tencent": "tencent-adapter-v2",
+        "tencent_kline": "tencent-kline-adapter-v2",
+        **dict(
+            (
+                (signal_ctx or {}).get("social_attention") or {}
+            ).get("source_versions") or {}
+        ),
+    }
+    if os.environ.get("A_STOCK_SKIP_INPUT_SNAPSHOT") == "1":
+        # 跳过 263MB 输入快照的写盘+读回校验（candidate-discovery 超时主因）。
+        # 下游只消费 compact_ref 引用字段，不读快照文件，内存引用足够。
+        input_snapshot = {
             "schema": "candidate_discovery_inputs_v1",
-            "universe": universe,
-            "quotes": quote_map,
-            "klines": kline_by_code,
-            "signal_context": signal_ctx,
-            "market_temperature": temperature,
-        },
-        trading_date=asof,
-        batch_id=batch_id,
-        producer="candidate-discovery",
-        source_versions={
-            "exchange_listing": "exchange-listing-v1",
-            "tencent": "tencent-adapter-v2",
-            "tencent_kline": "tencent-kline-adapter-v2",
-            **dict(
-                (
-                    (signal_ctx or {}).get("social_attention") or {}
-                ).get("source_versions") or {}
-            ),
-        },
-        **snapshot_pit,
-    )
+            "snapshot_id": f"mem-{asof}-{batch_id}",
+            "snapshot_path": None,
+            "payload_hash": None,
+            "source_versions": source_versions,
+            "producer": "candidate-discovery",
+            "producer_version": "in-memory",
+            "captured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "point_in_time": snapshot_pit or None,
+            "payload": input_payload,
+            "consumed_from_snapshot": False,
+        }
+    else:
+        input_snapshot = materialize_input_snapshot(
+            "candidate-discovery-input",
+            input_payload,
+            trading_date=asof,
+            batch_id=batch_id,
+            producer="candidate-discovery",
+            source_versions=source_versions,
+            **snapshot_pit,
+        )
     inputs = input_snapshot["payload"]
     quote_map = dict(inputs["quotes"])
     kline_by_code = dict(inputs["klines"])
