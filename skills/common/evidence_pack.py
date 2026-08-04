@@ -25,6 +25,14 @@ from agent_evidence import untrusted_external_text
 
 PACK_SCHEMA = "research_evidence_pack_v1"
 BUILDER_VERSION = "evidence_pack_v1"
+_OPTIONAL_EVIDENCE_ERRORS = (
+    ImportError,
+    OSError,
+    ValueError,
+    TypeError,
+    KeyError,
+    AttributeError,
+)
 
 DEFAULT_SECTION_LIMITS = {
     "agent_state_chars": 6000,
@@ -267,7 +275,7 @@ def _news_evidence(subject_code: str,
             limit=DEFAULT_NEWS_MAX_ITEMS,
             now=anchor,
         )
-    except Exception:  # noqa: BLE001 - news pool must never block a pack
+    except _OPTIONAL_EVIDENCE_ERRORS:
         return {"status": "unavailable", "items": []}
     items = [
         _pick(item, _NEWS_FIELDS)
@@ -291,7 +299,7 @@ def _interactive_qa_evidence(subject_code: str) -> dict[str, Any] | None:
     """
     try:
         from stock_intelligence import read_interactive_qa
-    except Exception:  # noqa: BLE001 - optional section, never blocks a pack
+    except _OPTIONAL_EVIDENCE_ERRORS:
         return None
     result = read_interactive_qa(subject_code)
     if not result.get("available"):
@@ -320,7 +328,7 @@ def _current_regime(trading_date: str) -> str | None:
         from market_temperature import read_temperature
 
         tier = str((read_temperature(event_asof=trading_date or None) or {}).get("tier") or "")
-    except Exception:  # noqa: BLE001 - optional, explanation-only section
+    except _OPTIONAL_EVIDENCE_ERRORS:
         return None
     # "neutral" means the temperature calculator has no usable signal — treat it
     # as "no regime filter" (show all applicable packs), not as its own regime.
@@ -348,7 +356,7 @@ def _strategy_pack_hints(
 
         regime = _current_regime(trading_date)
         hints = strategy_packs.evaluate_pack_hints(candidate_entry, regime=regime)
-    except Exception:  # noqa: BLE001 - explanation-only, never blocks a pack build
+    except _OPTIONAL_EVIDENCE_ERRORS:
         return None
     if not hints:
         return None
@@ -399,7 +407,7 @@ def _subject_data(
         from deep_research_cache import read_deep_research
 
         cache = read_deep_research(subject_code, today=trading_date)
-    except Exception:
+    except _OPTIONAL_EVIDENCE_ERRORS:
         cache = None
     if isinstance(cache, dict):
         data["deep_research"] = {
@@ -418,7 +426,7 @@ def _subject_data(
             subject_code,
             decision_cutoff=created_at,
         )
-    except Exception:  # noqa: BLE001 - missing facts must remain explicit
+    except _OPTIONAL_EVIDENCE_ERRORS:
         fundamentals = None
     if isinstance(fundamentals, dict):
         data["fundamentals"] = _fit(
@@ -429,7 +437,7 @@ def _subject_data(
         import theme_registry
 
         theme_stage = theme_registry.theme_stage_for_code(subject_code, asof=trading_date)
-    except Exception:  # noqa: BLE001 - theme lookup must never block a pack
+    except _OPTIONAL_EVIDENCE_ERRORS:
         theme_stage = None
     if theme_stage:
         data["theme_stage"] = theme_stage
@@ -468,7 +476,7 @@ def _peer_findings_section(
             f"escalation-{round_index}.json",
         )
         value = read_json(source, None)
-    except Exception:  # noqa: BLE001 - peer context is optional
+    except _OPTIONAL_EVIDENCE_ERRORS:
         return None
     if not isinstance(value, dict):
         return None

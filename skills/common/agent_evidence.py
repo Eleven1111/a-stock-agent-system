@@ -13,6 +13,10 @@ MANIFEST_SCHEMA = "model_run_manifest_v1"
 FINDING_APPROVAL_SCHEMA = "research_finding_approval_v1"
 
 
+class ApprovalArtifactError(ValueError):
+    """Trusted approval artifact violates its path or payload contract."""
+
+
 def _canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
@@ -122,12 +126,12 @@ def load_trusted_finding_approval(path: str) -> dict[str, Any]:
         lexically_scoped = False
         resolved_scoped = False
     if not lexically_scoped or not resolved_scoped:
-        raise ValueError("approval_path_untrusted")
+        raise ApprovalArtifactError("approval_path_untrusted")
     cursor = root
     for part in os.path.relpath(candidate, root).split(os.sep):
         cursor = os.path.join(cursor, part)
         if os.path.islink(cursor):
-            raise ValueError("approval_path_symlink_rejected")
+            raise ApprovalArtifactError("approval_path_symlink_rejected")
     descriptor = os.open(
         candidate,
         os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
@@ -135,7 +139,7 @@ def load_trusted_finding_approval(path: str) -> dict[str, Any]:
     with os.fdopen(descriptor, encoding="utf-8") as handle:
         value = json.load(handle)
     if not isinstance(value, dict):
-        raise ValueError("approval_artifact_invalid")
+        raise ApprovalArtifactError("approval_artifact_invalid")
     return value
 
 
@@ -282,7 +286,7 @@ def build_finding_manifest(
             try:
                 if load_trusted_finding_approval(approval_ref) != dict(approval):
                     reasons.append("approval_artifact_mismatch")
-            except (OSError, ValueError, json.JSONDecodeError):
+            except (OSError, ApprovalArtifactError, json.JSONDecodeError):
                 reasons.append("approval_path_untrusted")
     approval_ready = not approval_reasons
     if not approval_ready:
@@ -319,23 +323,12 @@ def build_finding_manifest(
     return manifest
 
 
-def validate_finding_manifest(
-    manifest: Any,
-    *,
+def _manifest_binding_reasons(
+    manifest: Mapping[str, Any],
     evidence_pack: Mapping[str, Any],
     evidence_refs: Sequence[Any],
-    tool_inputs: Mapping[str, Any] | None = None,
-    finding: Mapping[str, Any] | None = None,
-    task_id: str = "",
-    role: str = "",
-    claim_id: str = "",
-    submitter: str = "",
-    require_execution_eligible: bool = True,
-    now: str | None = None,
-    max_age_minutes: int | None = None,
+    tool_inputs: Mapping[str, Any] | None,
 ) -> list[str]:
-    if not isinstance(manifest, Mapping) or manifest.get("schema") != MANIFEST_SCHEMA:
-        return ["model_run_manifest_missing"]
     reasons: list[str] = []
     if manifest.get("evidence_pack_ref") != evidence_pack.get("ref"):
         reasons.append("artifact_hash_mismatch")
@@ -349,39 +342,60 @@ def validate_finding_manifest(
     }
     if tool_inputs is not None and manifest.get("tool_input_hashes") != expected_tools:
         reasons.append("tool_input_hash_mismatch")
-    if tool_inputs is not None and manifest.get("input_sha256") != _hash(
-        {"pack": evidence_pack, "tools": tool_inputs}
-    ):
+    expected_input = _hash({"pack": evidence_pack, "tools": tool_inputs})
+    if tool_inputs is not None and manifest.get("input_sha256") != expected_input:
         reasons.append("input_hash_mismatch")
-    if finding is not None:
-        if manifest.get("output_sha256") != _finding_hash(finding):
-            reasons.append("output_hash_mismatch")
-        if manifest.get("context_sha256") not in (None, manifest.get("input_sha256")):
-            reasons.append("context_hash_mismatch")
-        approval = manifest.get("approval")
-        approval_reasons = validate_finding_approval(
-            approval,
-            task_id=task_id,
-            role=role,
-            claim_id=claim_id,
-            finding=finding,
-            submitter=submitter,
-            now=now,
-        )
-        reasons.extend(approval_reasons)
-        if isinstance(approval, Mapping):
-            if manifest.get("approval_sha256") != _hash(approval):
-                reasons.append("approval_hash_mismatch")
-            approval_ref = str(manifest.get("approval_ref") or "")
-            if not approval_ref:
-                reasons.append("approval_ref_missing")
-            else:
-                try:
-                    trusted_approval = load_trusted_finding_approval(approval_ref)
-                    if trusted_approval != dict(approval):
-                        reasons.append("approval_artifact_mismatch")
-                except (OSError, ValueError, json.JSONDecodeError):
-                    reasons.append("approval_path_untrusted")
+    return reasons
+
+
+def _approval_binding_reasons(
+    manifest: Mapping[str, Any],
+    finding: Mapping[str, Any],
+    *,
+    task_id: str = "",
+    role: str = "",
+    claim_id: str = "",
+    submitter: str = "",
+    now: str | None = None,
+) -> list[str]:
+    reasons: list[str] = []
+    if manifest.get("output_sha256") != _finding_hash(finding):
+        reasons.append("output_hash_mismatch")
+    if manifest.get("context_sha256") not in (None, manifest.get("input_sha256")):
+        reasons.append("context_hash_mismatch")
+    approval = manifest.get("approval")
+    reasons.extend(validate_finding_approval(
+        approval,
+        task_id=task_id,
+        role=role,
+        claim_id=claim_id,
+        finding=finding,
+        submitter=submitter,
+        now=now,
+    ))
+    if not isinstance(approval, Mapping):
+        return reasons
+    if manifest.get("approval_sha256") != _hash(approval):
+        reasons.append("approval_hash_mismatch")
+    approval_ref = str(manifest.get("approval_ref") or "")
+    if not approval_ref:
+        reasons.append("approval_ref_missing")
+        return reasons
+    try:
+        if load_trusted_finding_approval(approval_ref) != dict(approval):
+            reasons.append("approval_artifact_mismatch")
+    except (OSError, ApprovalArtifactError, json.JSONDecodeError):
+        reasons.append("approval_path_untrusted")
+    return reasons
+
+
+def _manifest_authenticity_reasons(
+    manifest: Mapping[str, Any],
+    *,
+    now: str | None,
+    max_age_minutes: int | None,
+) -> list[str]:
+    reasons: list[str] = []
     if not str(manifest.get("model") or "").strip():
         reasons.append("model_version_missing")
     unsigned = dict(manifest)
@@ -399,10 +413,21 @@ def validate_finding_manifest(
                 reasons.append("model_run_stale")
         except (TypeError, ValueError):
             reasons.append("model_run_timestamp_invalid")
-    manifest_reasons = [str(item) for item in manifest.get("reasons") or []]
     reasons.extend(
-        item for item in manifest_reasons if item != "human_review_required"
+        str(item)
+        for item in manifest.get("reasons") or []
+        if str(item) != "human_review_required"
     )
+    return reasons
+
+
+def _manifest_eligibility_reasons(
+    manifest: Mapping[str, Any],
+    existing_reasons: Sequence[str],
+    *,
+    require_execution_eligible: bool,
+) -> list[str]:
+    reasons: list[str] = []
     review_status = str(manifest.get("review_status") or "")
     if review_status not in {"unreviewed", "reviewed", "rejected"}:
         reasons.append("review_status_invalid")
@@ -412,7 +437,7 @@ def validate_finding_manifest(
     )
     if review_status == "reviewed" and not review_ready:
         reasons.append("reviewer_missing")
-    derived_eligible = review_ready and not reasons
+    derived_eligible = review_ready and not existing_reasons and not reasons
     if bool(manifest.get("execution_eligible")) != derived_eligible:
         reasons.append("execution_eligibility_mismatch")
         derived_eligible = False
@@ -420,4 +445,47 @@ def validate_finding_manifest(
         if not review_ready:
             reasons.append("human_review_required")
         reasons.append("model_run_review_only")
+    return reasons
+
+
+def validate_finding_manifest(
+    manifest: Any,
+    *,
+    evidence_pack: Mapping[str, Any],
+    evidence_refs: Sequence[Any],
+    tool_inputs: Mapping[str, Any] | None = None,
+    finding: Mapping[str, Any] | None = None,
+    task_id: str = "",
+    role: str = "",
+    claim_id: str = "",
+    submitter: str = "",
+    require_execution_eligible: bool = True,
+    now: str | None = None,
+    max_age_minutes: int | None = None,
+) -> list[str]:
+    if not isinstance(manifest, Mapping) or manifest.get("schema") != MANIFEST_SCHEMA:
+        return ["model_run_manifest_missing"]
+    reasons = _manifest_binding_reasons(
+        manifest, evidence_pack, evidence_refs, tool_inputs,
+    )
+    if finding is not None:
+        reasons.extend(_approval_binding_reasons(
+            manifest,
+            finding,
+            task_id=task_id,
+            role=role,
+            claim_id=claim_id,
+            submitter=submitter,
+            now=now,
+        ))
+    reasons.extend(_manifest_authenticity_reasons(
+        manifest,
+        now=now,
+        max_age_minutes=max_age_minutes,
+    ))
+    reasons.extend(_manifest_eligibility_reasons(
+        manifest,
+        reasons,
+        require_execution_eligible=require_execution_eligible,
+    ))
     return list(dict.fromkeys(reasons))

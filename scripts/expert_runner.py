@@ -14,13 +14,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import site
 import sys
 from datetime import datetime, timezone
 from typing import Any
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-sys.path.insert(0, COMMON)
+site.addsitedir(COMMON)
 
 import evidence_pack  # noqa: E402
 import agent_evidence  # noqa: E402
@@ -199,6 +200,81 @@ def _read_approval(path: str | None) -> Any:
     return agent_evidence.load_trusted_finding_approval(path)
 
 
+def _attach_finding_manifest(
+    finding: Any,
+    *,
+    args: argparse.Namespace,
+    task: dict[str, Any],
+    pack: dict[str, Any] | None,
+    config: dict[str, Any],
+    submitter: str,
+    approval: Any,
+) -> None:
+    if (
+        not isinstance(finding, dict)
+        or not pack
+        or finding.get("stance") == "abstain"
+    ):
+        return
+    prompt = _profile_text(args.role, config) + json.dumps(
+        _output_contract(task, args.role, config),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    finding["model_run_manifest"] = agent_evidence.build_finding_manifest(
+        model=args.model or os.environ.get("A_STOCK_MODEL_VERSION", ""),
+        prompt=prompt,
+        evidence_pack=pack,
+        evidence_refs=finding.get("evidence_refs") or [],
+        tool_inputs=finding.get("tool_inputs") or {},
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        finding=finding,
+        approval=approval,
+        approval_ref=args.approval_file or "",
+        task_id=args.task,
+        role=args.role,
+        claim_id=args.claim_id,
+        submitter=submitter,
+    )
+
+
+def _submit_finding_result(
+    finding: Any,
+    *,
+    args: argparse.Namespace,
+    task: dict[str, Any],
+    pack: dict[str, Any] | None,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    request = agent_runtime_adapter.build_request(
+        task,
+        args.role,
+        runtime=args.runtime or os.environ.get("A_STOCK_RUNTIME", "hermes"),
+        output_schema=research_bus.FINDING_SCHEMA,
+        max_output_chars=int(
+            _output_contract(task, args.role, config).get("max_finding_chars")
+            or 10000
+        ),
+        claim_id=args.claim_id,
+        model=args.model,
+    )
+    status = (
+        "abstained"
+        if isinstance(finding, dict) and finding.get("stance") == "abstain"
+        else "completed"
+    )
+    parsed = agent_run_contract.parse_result(
+        {"status": status, "finding": finding},
+        request=request,
+        evidence_pack=pack,
+    )
+    return agent_runtime_adapter.submit_result(
+        parsed,
+        worker=args.worker,
+        config=config,
+    )
+
+
 def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     try:
         finding = _read_finding(args)
@@ -227,51 +303,21 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
         if approval_errors:
             _print({"ok": False, "errors": approval_errors})
             return 2
-    if isinstance(finding, dict) and pack and finding.get("stance") != "abstain":
-        prompt = _profile_text(args.role, config) + json.dumps(
-            _output_contract(task or {}, args.role, config),
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        finding["model_run_manifest"] = agent_evidence.build_finding_manifest(
-            model=args.model or os.environ.get("A_STOCK_MODEL_VERSION", ""),
-            prompt=prompt,
-            evidence_pack=pack,
-            evidence_refs=finding.get("evidence_refs") or [],
-            tool_inputs=finding.get("tool_inputs") or {},
-            generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            finding=finding,
-            approval=approval,
-            approval_ref=args.approval_file or "",
-            task_id=args.task,
-            role=args.role,
-            claim_id=args.claim_id,
-            submitter=submitter,
-        )
-    runtime = args.runtime or os.environ.get("A_STOCK_RUNTIME", "hermes")
-    request = agent_runtime_adapter.build_request(
-        task or {}, args.role,
-        runtime=runtime,
-        output_schema=research_bus.FINDING_SCHEMA,
-        max_output_chars=int(
-            (_output_contract(task or {}, args.role, config).get("max_finding_chars") or 10000)
-        ),
-        claim_id=args.claim_id,
-        model=args.model,
+    _attach_finding_manifest(
+        finding,
+        args=args,
+        task=task or {},
+        pack=pack,
+        config=config,
+        submitter=submitter,
+        approval=approval,
     )
-    payload = {
-        "status": (
-            "abstained"
-            if isinstance(finding, dict) and finding.get("stance") == "abstain"
-            else "completed"
-        ),
-        "finding": finding,
-    }
-    parsed = agent_run_contract.parse_result(
-        payload, request=request, evidence_pack=pack,
-    )
-    result = agent_runtime_adapter.submit_result(
-        parsed, worker=args.worker, config=config,
+    result = _submit_finding_result(
+        finding,
+        args=args,
+        task=task or {},
+        pack=pack,
+        config=config,
     )
     if not result.get("ok"):
         _print(result)

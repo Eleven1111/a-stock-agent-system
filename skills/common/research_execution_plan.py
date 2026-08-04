@@ -325,43 +325,43 @@ def _t1_verified(
     return requested > 0 and available >= requested and settled >= requested
 
 
-def compile_execution_plan(
-    proposal: Mapping[str, Any],
-    *,
-    market_context: Mapping[str, Any],
-    portfolio: Mapping[str, Any],
-    config: Mapping[str, Any] | None = None,
-    synthesis_artifact: Mapping[str, Any] | None = None,
-    approval_artifact: Mapping[str, Any] | None = None,
-    now: str | None = None,
-) -> dict[str, Any]:
-    config = dict(config or {})
-    current = _aware_datetime(now or datetime.now().astimezone().isoformat())
-    if current is None:  # Defensive only; the generated default is always aware.
-        raise ValueError("now must be a timezone-aware ISO timestamp")
+def _configured_max_age(config: Mapping[str, Any]) -> int:
     try:
-        proposal_max_age_seconds = int(
+        value = int(
             config.get("proposal_max_age_seconds")
             or DEFAULT_PROPOSAL_MAX_AGE_SECONDS
         )
     except (TypeError, ValueError):
-        proposal_max_age_seconds = DEFAULT_PROPOSAL_MAX_AGE_SECONDS
-    if proposal_max_age_seconds <= 0:
-        proposal_max_age_seconds = DEFAULT_PROPOSAL_MAX_AGE_SECONDS
-    proposal_temporal_reasons, proposal_created_at = (
-        _proposal_temporal_reasons(
-            proposal,
-            current=current,
-            max_age_seconds=proposal_max_age_seconds,
-        )
+        return DEFAULT_PROPOSAL_MAX_AGE_SECONDS
+    return value if value > 0 else DEFAULT_PROPOSAL_MAX_AGE_SECONDS
+
+
+def _temporal_checks(
+    *,
+    proposal: Mapping[str, Any],
+    synthesis_artifact: Mapping[str, Any] | None,
+    current: datetime,
+    config: Mapping[str, Any],
+) -> tuple[list[str], list[str]]:
+    max_age_seconds = _configured_max_age(config)
+    proposal_reasons, proposal_created_at = _proposal_temporal_reasons(
+        proposal,
+        current=current,
+        max_age_seconds=max_age_seconds,
     )
-    synthesis_temporal_reasons = _synthesis_temporal_reasons(
+    synthesis_reasons = _synthesis_temporal_reasons(
         synthesis_artifact,
         proposal_created_at=proposal_created_at,
         current=current,
-        max_age_seconds=proposal_max_age_seconds,
+        max_age_seconds=max_age_seconds,
     )
+    return proposal_reasons, synthesis_reasons
 
+
+def _prepare_candidate(
+    proposal: Mapping[str, Any],
+    market_context: Mapping[str, Any],
+) -> tuple[dict[str, Any], str, str, dict[str, Any], dict[str, Any]]:
     candidate = dict(market_context)
     proposal_code = _normalize_code((proposal.get("subject") or {}).get("code"))
     market_code = _normalize_code(candidate.get("code"))
@@ -369,35 +369,53 @@ def compile_execution_plan(
     candidate.setdefault("name", (proposal.get("subject") or {}).get("name"))
     quality = dict(candidate.get("quality_report") or {})
     strategy = dict(candidate.get("strategy_record") or {})
+    return candidate, proposal_code, market_code, quality, strategy
 
-    market_reasons, market_pit = _validate_context(
-        "market", candidate, current=current,
-    )
-    portfolio_reasons, portfolio_pit = _validate_context(
-        "portfolio", portfolio, current=current,
-    )
-    quality_reasons, quality_pit = _validate_context(
-        "quality", quality, current=current,
-    )
-    strategy_reasons, strategy_pit = _validate_context(
-        "strategy", strategy, current=current,
-    )
 
-    stage = str(candidate.get("stage") or "open")
+def _validate_contexts(
+    *,
+    candidate: Mapping[str, Any],
+    portfolio: Mapping[str, Any],
+    quality: Mapping[str, Any],
+    strategy: Mapping[str, Any],
+    current: datetime,
+) -> tuple[dict[str, list[str]], dict[str, Mapping[str, Any] | None]]:
+    reasons: dict[str, list[str]] = {}
+    bindings: dict[str, Mapping[str, Any] | None] = {}
+    for name, context in (
+        ("market", candidate),
+        ("portfolio", portfolio),
+        ("quality", quality),
+        ("strategy", strategy),
+    ):
+        reasons[name], bindings[name] = _validate_context(
+            name, context, current=current,
+        )
+    return reasons, bindings
+
+
+def _build_decision_outputs(
+    *,
+    proposal: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    portfolio: Mapping[str, Any],
+    quality: Mapping[str, Any],
+    strategy: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     strategy_lane = candidate.get("strategy_lane")
-    base = build_execution_plan(
+    plan = build_execution_plan(
         candidate,
         quality,
         asof=_asof(candidate.get("asof") or proposal.get("trading_date")),
-        stage=stage,
+        stage=str(candidate.get("stage") or "open"),
         atr=candidate.get("atr"),
         strategy_lane=strategy_lane,
     )
-    position_pct = float(base.get("position_pct") or 0)
-    concentration = evaluate_candidate(portfolio, candidate, position_pct)
-    requested_action = str(base.get("decision") or "watch")
+    concentration = evaluate_candidate(
+        portfolio, candidate, float(plan.get("position_pct") or 0),
+    )
     policy_decision = evaluate_decision(
-        requested_action=requested_action,
+        requested_action=str(plan.get("decision") or "watch"),
         quality_report=quality,
         strategy_record=strategy or None,
         t1_block=candidate.get("t1_block"),
@@ -409,31 +427,67 @@ def compile_execution_plan(
         discipline_state=candidate.get("discipline_state"),
         raw_score=candidate.get("raw_score"),
     )
+    return plan, concentration, policy_decision
 
-    synthesis_supplied = synthesis_artifact is not None
+
+def _verify_gates(
+    *,
+    proposal: Mapping[str, Any],
+    synthesis_artifact: Mapping[str, Any] | None,
+    approval_artifact: Mapping[str, Any] | None,
+    synthesis_temporal_reasons: list[str],
+    candidate: Mapping[str, Any],
+    portfolio: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    market_reasons: list[str],
+    current: datetime,
+    config: Mapping[str, Any],
+) -> dict[str, bool]:
     synthesis_verified = (
         _synthesis_verified(proposal, synthesis_artifact)
         and not synthesis_temporal_reasons
     )
-    approval_supplied = approval_artifact is not None
-    approval_verified = _approval_verified(
-        proposal,
-        approval_artifact,
-        current=current,
-        synthesis=synthesis_artifact,
-    )
-    quote_verified = _fresh_quote_verified(
-        candidate,
-        market_reasons=market_reasons,
-        current=current,
-        max_age_seconds=int(config.get("fresh_quote_max_age_seconds") or 300),
-    )
-    t1_verified = _t1_verified(
-        market_context=candidate,
-        portfolio=portfolio,
-        plan=base,
-    )
+    return {
+        "synthesis": synthesis_verified,
+        "approval": _approval_verified(
+            proposal,
+            approval_artifact,
+            current=current,
+            synthesis=synthesis_artifact,
+        ),
+        "quote": _fresh_quote_verified(
+            candidate,
+            market_reasons=market_reasons,
+            current=current,
+            max_age_seconds=int(
+                config.get("fresh_quote_max_age_seconds") or 300
+            ),
+        ),
+        "t1": _t1_verified(
+            market_context=candidate,
+            portfolio=portfolio,
+            plan=plan,
+        ),
+    }
 
+
+def _blocking_checks(
+    *,
+    proposal: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    quality: Mapping[str, Any],
+    proposal_code: str,
+    market_code: str,
+    proposal_temporal_reasons: list[str],
+    synthesis_temporal_reasons: list[str],
+    context_reasons: Mapping[str, list[str]],
+    gates: Mapping[str, bool],
+    synthesis_supplied: bool,
+    approval_supplied: bool,
+    plan: Mapping[str, Any],
+    concentration: Mapping[str, Any],
+    policy_decision: Mapping[str, Any],
+) -> list[str]:
     blocking: list[str] = []
     if proposal.get("schema") != PROPOSAL_SCHEMA:
         blocking.append("proposal_schema_invalid")
@@ -445,23 +499,21 @@ def compile_execution_plan(
         blocking.append("proposal_synthesis_ref_missing")
     blocking.extend(proposal_temporal_reasons)
     blocking.extend(synthesis_temporal_reasons)
-    if approval_supplied and not approval_verified:
+    if approval_supplied and not gates["approval"]:
         blocking.append("approval_artifact_invalid")
-    if synthesis_supplied and not synthesis_verified:
+    if synthesis_supplied and not gates["synthesis"]:
         blocking.append("synthesis_artifact_invalid")
-    if not (approval_verified or synthesis_verified):
+    if not (gates["approval"] or gates["synthesis"]):
         blocking.append("proposal_not_approved_or_synthesis_verified")
     if proposal_code and market_code and proposal_code != market_code:
         blocking.append("proposal_market_code_mismatch")
     if not proposal_code or not market_code:
         blocking.append("code_missing")
-    blocking.extend(market_reasons)
-    blocking.extend(portfolio_reasons)
-    blocking.extend(quality_reasons)
-    blocking.extend(strategy_reasons)
-    if not quote_verified:
+    for name in ("market", "portfolio", "quality", "strategy"):
+        blocking.extend(context_reasons[name])
+    if not gates["quote"]:
         blocking.append("fresh_quote_not_verified")
-    if not t1_verified:
+    if not gates["t1"]:
         blocking.append("t1_locked")
     if quality.get("status") != "passed":
         blocking.append("quality_not_passed")
@@ -469,24 +521,47 @@ def compile_execution_plan(
         blocking.append("not_tradeable")
     if concentration.get("allowed") is not True:
         blocking.extend(str(item) for item in concentration.get("reasons") or [])
-    if base.get("decision") not in {"buy", "conditional_buy"}:
-        blocking.append(f"execution_decision_{base.get('decision')}")
+    if plan.get("decision") not in {"buy", "conditional_buy"}:
+        blocking.append(f"execution_decision_{plan.get('decision')}")
     if policy_decision.get("decision") not in {"buy", "conditional_buy"}:
         blocking.append(f"decision_policy_{policy_decision.get('decision')}")
+    return list(dict.fromkeys(blocking))
 
-    policy = {
+
+def _policy_payload(
+    *,
+    quality: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    concentration: Mapping[str, Any],
+    policy_decision: Mapping[str, Any],
+    gates: Mapping[str, bool],
+) -> dict[str, Any]:
+    return {
         "schema": "research_execution_policy_v1",
         "quality_ready": quality.get("status") == "passed",
         "tradeable": (candidate.get("tradeability") or {}).get("tradeable") is True,
         "portfolio": concentration,
         "decision_policy": policy_decision,
         "fresh_quote_required": True,
-        "fresh_quote_verified": quote_verified,
+        "fresh_quote_verified": gates["quote"],
         "t1_required": True,
-        "t1_verified": t1_verified,
-        "proposal_approved": approval_verified,
-        "synthesis_verified": synthesis_verified,
+        "t1_verified": gates["t1"],
+        "proposal_approved": gates["approval"],
+        "synthesis_verified": gates["synthesis"],
     }
+
+
+def _result_payload(
+    *,
+    proposal: Mapping[str, Any],
+    approval_artifact: Mapping[str, Any] | None,
+    market_code: str,
+    current: datetime,
+    bindings: Mapping[str, Mapping[str, Any] | None],
+    plan: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    blocking: list[str],
+) -> dict[str, Any]:
     result = {
         "schema": SCHEMA,
         "task_id": proposal.get("task_id"),
@@ -503,20 +578,102 @@ def compile_execution_plan(
                 if isinstance(approval_artifact, Mapping)
                 else None
             ),
-            "market_context": dict(market_pit or {}),
-            "portfolio_context": dict(portfolio_pit or {}),
-            "quality_context": dict(quality_pit or {}),
-            "strategy_context": dict(strategy_pit or {}),
+            "market_context": dict(bindings["market"] or {}),
+            "portfolio_context": dict(bindings["portfolio"] or {}),
+            "quality_context": dict(bindings["quality"] or {}),
+            "strategy_context": dict(bindings["strategy"] or {}),
         },
-        "plan": base,
-        "policy": policy,
-        "blocking_checks": list(dict.fromkeys(blocking)),
+        "plan": dict(plan),
+        "policy": dict(policy),
+        "blocking_checks": blocking,
         "policy_gate_required": True,
         "execution_eligible": False,
         "live_effect": "none_until_human_and_decision_policy_gate",
     }
     result["status"] = "ready_for_gate" if not blocking else "blocked"
     return result
+
+
+def compile_execution_plan(
+    proposal: Mapping[str, Any],
+    *,
+    market_context: Mapping[str, Any], portfolio: Mapping[str, Any],
+    config: Mapping[str, Any] | None = None,
+    synthesis_artifact: Mapping[str, Any] | None = None,
+    approval_artifact: Mapping[str, Any] | None = None, now: str | None = None,
+) -> dict[str, Any]:
+    config = dict(config or {})
+    current = _aware_datetime(now or datetime.now().astimezone().isoformat())
+    if current is None:  # Defensive only; the generated default is always aware.
+        raise ValueError("now must be a timezone-aware ISO timestamp")
+    proposal_temporal_reasons, synthesis_temporal_reasons = _temporal_checks(
+        proposal=proposal,
+        synthesis_artifact=synthesis_artifact,
+        current=current,
+        config=config,
+    )
+    candidate, proposal_code, market_code, quality, strategy = _prepare_candidate(
+        proposal, market_context,
+    )
+    context_reasons, bindings = _validate_contexts(
+        candidate=candidate,
+        portfolio=portfolio,
+        quality=quality,
+        strategy=strategy,
+        current=current,
+    )
+    plan, concentration, policy_decision = _build_decision_outputs(
+        proposal=proposal,
+        candidate=candidate,
+        portfolio=portfolio,
+        quality=quality,
+        strategy=strategy,
+    )
+    gates = _verify_gates(
+        proposal=proposal,
+        synthesis_artifact=synthesis_artifact,
+        approval_artifact=approval_artifact,
+        synthesis_temporal_reasons=synthesis_temporal_reasons,
+        candidate=candidate,
+        portfolio=portfolio,
+        plan=plan,
+        market_reasons=context_reasons["market"],
+        current=current,
+        config=config,
+    )
+    blocking = _blocking_checks(
+        proposal=proposal,
+        candidate=candidate,
+        quality=quality,
+        proposal_code=proposal_code,
+        market_code=market_code,
+        proposal_temporal_reasons=proposal_temporal_reasons,
+        synthesis_temporal_reasons=synthesis_temporal_reasons,
+        context_reasons=context_reasons,
+        gates=gates,
+        synthesis_supplied=synthesis_artifact is not None,
+        approval_supplied=approval_artifact is not None,
+        plan=plan,
+        concentration=concentration,
+        policy_decision=policy_decision,
+    )
+    policy = _policy_payload(
+        quality=quality,
+        candidate=candidate,
+        concentration=concentration,
+        policy_decision=policy_decision,
+        gates=gates,
+    )
+    return _result_payload(
+        proposal=proposal,
+        approval_artifact=approval_artifact,
+        market_code=market_code,
+        current=current,
+        bindings=bindings,
+        plan=plan,
+        policy=policy,
+        blocking=blocking,
+    )
 
 
 def persist_execution_plan(path: str, result: Mapping[str, Any]) -> str:

@@ -14,6 +14,7 @@ import json
 import os
 import uuid
 from datetime import date, datetime, timedelta
+from functools import partial
 from typing import Any
 
 from paths import data_file, skill_data_dir
@@ -398,6 +399,110 @@ def record_usage(
     mutate_json(budget_file(trading_date), _mutate, {})
 
 
+def _claimable_role(
+    task: dict[str, Any],
+    roles: list[str] | None,
+    max_attempts: int,
+) -> str | None:
+    for role in task.get("expert_plan") or []:
+        if roles and role not in roles:
+            continue
+        state = (task.get("roles") or {}).get(role) or {}
+        if (
+            state.get("status") == "pending"
+            and int(state.get("attempts") or 0) < max_attempts
+        ):
+            return role
+    return None
+
+
+def _reserve_claim_budget(
+    task: dict[str, Any],
+    config: dict[str, Any],
+    now: str | None,
+) -> bool:
+    budget = task.get("budget") or {}
+    if budget.get("reserved"):
+        return True
+    granted = reserve_budget(
+        str(task.get("id")),
+        int(budget.get("estimated_chars") or 0),
+        str(task.get("trading_date") or date.today().isoformat()),
+        config=config,
+        now=_now_text(now),
+    )
+    if not granted:
+        task["deferred_reason"] = "daily_budget_exhausted"
+        return False
+    budget["reserved"] = True
+    task["budget"] = budget
+    task.pop("deferred_reason", None)
+    return True
+
+
+def _claim_work_mutation(
+    value: Any,
+    *,
+    worker: str,
+    roles: list[str] | None,
+    config: dict[str, Any],
+    current: datetime,
+    ttl_minutes: int,
+    max_attempts: int,
+    now: str | None,
+    claimed: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tasks = list(value) if isinstance(value, list) else []
+    for task in tasks:
+        if task.get("status") in ("pending", "in_progress"):
+            _expire_stale_claims(task, current, ttl_minutes, max_attempts)
+            if _task_has_failed_role(task):
+                task["status"] = "failed"
+    ordered = sorted(
+        (task for task in tasks if task.get("status") in ("pending", "in_progress")),
+        key=lambda item: (-int(item.get("priority") or 0), item.get("created_at") or ""),
+    )
+    for task in ordered:
+        role = _claimable_role(task, roles, max_attempts)
+        if role is None or not _reserve_claim_budget(task, config, now):
+            continue
+        state = task["roles"].setdefault(role, {"status": "pending", "attempts": 0})
+        claim_id = uuid.uuid4().hex
+        state.update({
+            "status": "claimed",
+            "claimed_by": worker,
+            "claimed_at": _now_text(now),
+            "claim_id": claim_id,
+            "attempts": int(state.get("attempts") or 0) + 1,
+        })
+        task["status"] = "in_progress"
+        claimed.update({
+            "task": json.loads(json.dumps(task)),
+            "role": role,
+            "claim_id": claim_id,
+        })
+        break
+    return tasks
+
+
+def _record_claim_turn(
+    claimed: dict[str, Any],
+    worker: str,
+    now: str | None,
+) -> None:
+    task = claimed["task"]
+    role = str(claimed.get("role"))
+    append_turn_event(str(task.get("id")), {
+        "event_type": "research.turn.claimed",
+        "task_id": task.get("id"),
+        "role": claimed.get("role"),
+        "worker": worker,
+        "claim_id": claimed.get("claim_id"),
+        "attempt": (task.get("roles") or {}).get(role, {}).get("attempts"),
+        "at": _now_text(now),
+    })
+
+
 def claim_next_work(
     worker: str,
     *,
@@ -407,92 +512,24 @@ def claim_next_work(
     now: str | None = None,
 ) -> dict[str, Any] | None:
     config = config or load_config()
-    ttl_minutes = int(config.get("claim_ttl_minutes") or 120)
-    max_attempts = int(config.get("max_attempts_per_role") or 2)
-    current = datetime.fromisoformat(_now_text(now))
     claimed: dict[str, Any] = {}
-
-    def _claimable_role(task: dict[str, Any]) -> str | None:
-        for role in task.get("expert_plan") or []:
-            if roles and role not in roles:
-                continue
-            state = (task.get("roles") or {}).get(role) or {}
-            if state.get("status") != "pending":
-                continue
-            if int(state.get("attempts") or 0) >= max_attempts:
-                continue
-            return role
-        return None
-
-    def _mutate(value: Any) -> list[dict[str, Any]]:
-        tasks = list(value) if isinstance(value, list) else []
-        for task in tasks:
-            if task.get("status") in ("pending", "in_progress"):
-                _expire_stale_claims(task, current, ttl_minutes, max_attempts)
-                if _task_has_failed_role(task):
-                    task["status"] = "failed"
-        ordered = sorted(
-            (
-                task for task in tasks
-                if task.get("status") in ("pending", "in_progress")
-            ),
-            key=lambda item: (
-                -int(item.get("priority") or 0),
-                item.get("created_at") or "",
-            ),
-        )
-        for task in ordered:
-            role = _claimable_role(task)
-            if role is None:
-                continue
-            budget = task.get("budget") or {}
-            if not budget.get("reserved"):
-                ok = reserve_budget(
-                    str(task.get("id")),
-                    int(budget.get("estimated_chars") or 0),
-                    str(task.get("trading_date") or date.today().isoformat()),
-                    config=config,
-                    now=_now_text(now),
-                )
-                if not ok:
-                    task["deferred_reason"] = "daily_budget_exhausted"
-                    continue
-                budget["reserved"] = True
-                task["budget"] = budget
-                task.pop("deferred_reason", None)
-            state = task["roles"].setdefault(role, {"status": "pending", "attempts": 0})
-            claim_id = uuid.uuid4().hex
-            state.update({
-                "status": "claimed",
-                "claimed_by": worker,
-                "claimed_at": _now_text(now),
-                "claim_id": claim_id,
-                "attempts": int(state.get("attempts") or 0) + 1,
-            })
-            task["status"] = "in_progress"
-            claimed.update({
-                "task": json.loads(json.dumps(task)),
-                "role": role,
-                "claim_id": claim_id,
-            })
-            return tasks
-        return tasks
-
-    mutate_json(path or queue_file(), _mutate, [])
+    mutate_json(
+        path or queue_file(),
+        partial(
+            _claim_work_mutation,
+            worker=worker,
+            roles=roles,
+            config=config,
+            current=datetime.fromisoformat(_now_text(now)),
+            ttl_minutes=int(config.get("claim_ttl_minutes") or 120),
+            max_attempts=int(config.get("max_attempts_per_role") or 2),
+            now=now,
+            claimed=claimed,
+        ),
+        [],
+    )
     if claimed:
-        append_turn_event(str(claimed["task"].get("id")), {
-            "event_type": "research.turn.claimed",
-            "task_id": claimed["task"].get("id"),
-            "role": claimed.get("role"),
-            "worker": worker,
-            "claim_id": claimed.get("claim_id"),
-            "attempt": (
-                (claimed["task"].get("roles") or {})
-                .get(str(claimed.get("role")), {})
-                .get("attempts")
-            ),
-            "at": _now_text(now),
-        })
+        _record_claim_turn(claimed, worker, now)
     return claimed or None
 
 
@@ -671,6 +708,179 @@ def _validate_stance_fields(
     return errors
 
 
+def _claim_fence_error(
+    state: dict[str, Any],
+    role: str,
+    *,
+    require_fencing: bool,
+    claim_id: str | None,
+    worker: str | None,
+    allow_unowned_worker: bool = False,
+) -> str | None:
+    if state.get("status") != "claimed":
+        return f"role {role} is not claimed"
+    if require_fencing and not claim_id:
+        return "claim_id is required"
+    if require_fencing and state.get("claim_id") != claim_id:
+        return "claim_id does not match the active lease"
+    valid_workers = (None, worker) if allow_unowned_worker else (worker,)
+    if worker is not None and state.get("claimed_by") not in valid_workers:
+        return f"role {role} is claimed by another worker"
+    return None
+
+
+def _completed_submission_result(
+    item: dict[str, Any],
+    state: dict[str, Any],
+    role: str,
+    *,
+    require_fencing: bool,
+    claim_id: str | None,
+    worker: str | None,
+    finding_hash: str,
+) -> dict[str, Any]:
+    same_submission = (
+        require_fencing
+        and claim_id
+        and state.get("submission_claim_id") == claim_id
+        and state.get("submission_worker") == worker
+        and state.get("finding_hash") == finding_hash
+    )
+    if not same_submission:
+        return {"ok": False, "errors": [f"role {role} is already completed"]}
+    return {
+        "ok": True,
+        "idempotent": True,
+        "task_status": item.get("status"),
+        "all_roles_done": item.get("status") == "ready_to_synthesize",
+        "board_path": state.get("finding_path"),
+    }
+
+
+def _publish_finding(
+    item: dict[str, Any],
+    state: dict[str, Any],
+    role: str,
+    finding: dict[str, Any],
+    *,
+    board_path: str,
+    submission_path: str,
+    claim_id: str | None,
+    worker: str | None,
+    finding_hash: str,
+    now: str | None,
+) -> dict[str, Any]:
+    atomic_write_json(board_path, finding)
+    state.update({
+        "status": "done",
+        "finding_path": board_path,
+        "finding_content_path": submission_path,
+        "completed_at": _now_text(now),
+        "submission_claim_id": claim_id,
+        "submission_worker": worker,
+        "finding_hash": finding_hash,
+    })
+    for field in ("claim_id", "claimed_by", "claimed_at"):
+        state.pop(field, None)
+    item["roles"][role] = state
+    statuses = {
+        str(entry.get("status"))
+        for entry in (item.get("roles") or {}).values()
+    }
+    if statuses <= {"done"}:
+        item["status"] = "ready_to_synthesize"
+    return {
+        "ok": True,
+        "task_status": item.get("status"),
+        "all_roles_done": statuses <= {"done"},
+    }
+
+
+def _submit_finding_mutation(
+    value: Any,
+    *,
+    task_id: str,
+    role: str,
+    finding: dict[str, Any],
+    board_path: str,
+    submission_path: str,
+    claim_id: str | None,
+    worker: str | None,
+    finding_hash: str,
+    require_fencing: bool,
+    now: str | None,
+    result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tasks = list(value) if isinstance(value, list) else []
+    for item in tasks:
+        if item.get("id") != task_id:
+            continue
+        state = (item.get("roles") or {}).get(role) or {}
+        if state.get("status") == "done":
+            result.update(_completed_submission_result(
+                item,
+                state,
+                role,
+                require_fencing=require_fencing,
+                claim_id=claim_id,
+                worker=worker,
+                finding_hash=finding_hash,
+            ))
+            return tasks
+        fence_error = _claim_fence_error(
+            state,
+            role,
+            require_fencing=require_fencing,
+            claim_id=claim_id,
+            worker=worker,
+        )
+        if fence_error:
+            result.update({"ok": False, "errors": [fence_error]})
+            return tasks
+        result.update(_publish_finding(
+            item,
+            state,
+            role,
+            finding,
+            board_path=board_path,
+            submission_path=submission_path,
+            claim_id=claim_id,
+            worker=worker,
+            finding_hash=finding_hash,
+            now=now,
+        ))
+        return tasks
+    return tasks
+
+
+def _record_submitted_finding(
+    task: dict[str, Any],
+    role: str,
+    finding: dict[str, Any],
+    *,
+    worker: str | None,
+    claim_id: str | None,
+    finding_hash: str,
+    now: str | None,
+) -> None:
+    task_id = str(task.get("id"))
+    record_usage(
+        task_id,
+        len(json.dumps(finding, ensure_ascii=False)),
+        str(task.get("trading_date") or date.today().isoformat()),
+        now=now,
+    )
+    append_turn_event(task_id, {
+        "event_type": "research.turn.submitted",
+        "task_id": task_id,
+        "role": role,
+        "worker": worker,
+        "claim_id": claim_id,
+        "finding_hash": finding_hash,
+        "at": _now_text(now),
+    })
+
+
 def submit_finding(
     task_id: str,
     role: str,
@@ -687,14 +897,11 @@ def submit_finding(
     if not task:
         return {"ok": False, "errors": ["task not found"]}
     initial_state = (task.get("roles") or {}).get(role) or {}
-    require_fencing = bool(config.get("require_claim_fencing", True))
+    expected_worker = worker
+    if worker is None:
+        worker_field = "submission_worker" if initial_state.get("status") == "done" else "claimed_by"
+        expected_worker = initial_state.get(worker_field)
     finding_hash = _finding_hash(finding)
-    if worker is not None:
-        expected_worker = worker
-    elif initial_state.get("status") == "done":
-        expected_worker = initial_state.get("submission_worker")
-    else:
-        expected_worker = initial_state.get("claimed_by")
     errors = validate_finding(
         finding,
         task=task,
@@ -705,124 +912,114 @@ def submit_finding(
     )
     if errors:
         return {"ok": False, "errors": errors}
-
     board_path = os.path.join(board_dir(task_id), f"{_safe(role)}.json")
-    submission_path = _finding_submission_path(
-        task_id, role, claim_id, finding_hash,
-    )
+    submission_path = _finding_submission_path(task_id, role, claim_id, finding_hash)
     atomic_write_json(submission_path, finding)
     result: dict[str, Any] = {}
-
-    def _mutate(value: Any) -> list[dict[str, Any]]:
-        tasks = list(value) if isinstance(value, list) else []
-        for item in tasks:
-            if item.get("id") != task_id:
-                continue
-            role_state = (item.get("roles") or {}).get(role) or {}
-            if role_state.get("status") == "done":
-                if (
-                    require_fencing
-                    and claim_id
-                    and role_state.get("submission_claim_id") == claim_id
-                    and role_state.get("submission_worker") == expected_worker
-                    and role_state.get("finding_hash") == finding_hash
-                ):
-                    result.update({
-                        "ok": True,
-                        "idempotent": True,
-                        "task_status": item.get("status"),
-                        "all_roles_done": (
-                            item.get("status") == "ready_to_synthesize"
-                        ),
-                        "board_path": role_state.get("finding_path"),
-                    })
-                else:
-                    result.update({
-                        "ok": False,
-                        "errors": [f"role {role} is already completed"],
-                    })
-                return tasks
-            if role_state.get("status") != "claimed":
-                result.update({
-                    "ok": False,
-                    "errors": [f"role {role} is not claimed"],
-                })
-                return tasks
-            if require_fencing and not claim_id:
-                result.update({
-                    "ok": False,
-                    "errors": ["claim_id is required"],
-                })
-                return tasks
-            if require_fencing and role_state.get("claim_id") != claim_id:
-                result.update({
-                    "ok": False,
-                    "errors": ["claim_id does not match the active lease"],
-                })
-                return tasks
-            if (
-                expected_worker is not None
-                and role_state.get("claimed_by") != expected_worker
-            ):
-                result.update({
-                    "ok": False,
-                    "errors": [f"role {role} is claimed by another worker"],
-                })
-                return tasks
-            # The queue lock held by mutate_json is the submit CAS boundary.
-            # Publish the fixed role path only after the active lease matches;
-            # a rejected stale submission remains isolated at submission_path.
-            atomic_write_json(board_path, finding)
-            role_state.update({
-                "status": "done",
-                "finding_path": board_path,
-                "finding_content_path": submission_path,
-                "completed_at": _now_text(now),
-                "submission_claim_id": claim_id,
-                "submission_worker": expected_worker,
-                "finding_hash": finding_hash,
-            })
-            role_state.pop("claim_id", None)
-            role_state.pop("claimed_by", None)
-            role_state.pop("claimed_at", None)
-            item["roles"][role] = role_state
-            statuses = {
-                str(entry.get("status"))
-                for entry in (item.get("roles") or {}).values()
-            }
-            if statuses <= {"done"}:
-                item["status"] = "ready_to_synthesize"
-            result.update({
-                "ok": True,
-                "task_status": item.get("status"),
-                "all_roles_done": statuses <= {"done"},
-            })
-            return tasks
-        return tasks
-
-    mutate_json(path or queue_file(), _mutate, [])
+    mutate_json(
+        path or queue_file(),
+        partial(
+            _submit_finding_mutation,
+            task_id=task_id,
+            role=role,
+            finding=finding,
+            board_path=board_path,
+            submission_path=submission_path,
+            claim_id=claim_id,
+            worker=expected_worker,
+            finding_hash=finding_hash,
+            require_fencing=bool(config.get("require_claim_fencing", True)),
+            now=now,
+            result=result,
+        ),
+        [],
+    )
     if not result:
         return {"ok": False, "errors": ["task disappeared during submit"]}
-    if not result.get("ok"):
+    if not result.get("ok") or result.get("idempotent"):
         return result
-    if result.get("idempotent"):
-        return result
-    record_usage(
-        task_id,
-        len(json.dumps(finding, ensure_ascii=False)),
-        str(task.get("trading_date") or date.today().isoformat()),
+    _record_submitted_finding(
+        task,
+        role,
+        finding,
+        worker=expected_worker,
+        claim_id=claim_id,
+        finding_hash=finding_hash,
         now=now,
     )
+    return {"board_path": board_path, **result}
+
+
+def _fail_role_mutation(
+    value: Any,
+    *,
+    task_id: str,
+    role: str,
+    error: str,
+    retry: bool,
+    worker: str | None,
+    claim_id: str | None,
+    require_fencing: bool,
+    max_attempts: int,
+    now: str | None,
+    result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tasks = list(value) if isinstance(value, list) else []
+    for item in tasks:
+        if item.get("id") != task_id:
+            continue
+        state = (item.get("roles") or {}).get(role)
+        if not isinstance(state, dict):
+            result.update({"ok": False, "errors": [f"unknown role {role}"]})
+            return tasks
+        fence_error = _claim_fence_error(
+            state,
+            role,
+            require_fencing=require_fencing,
+            claim_id=claim_id,
+            worker=worker,
+            allow_unowned_worker=True,
+        )
+        if fence_error:
+            result.update({"ok": False, "errors": [fence_error]})
+            return tasks
+        attempts = int(state.get("attempts") or 0)
+        state.update({
+            "status": "failed" if (attempts >= max_attempts or not retry) else "pending",
+            "last_error": str(error)[:500],
+            "failed_at": _now_text(now),
+        })
+        for field in ("claimed_by", "claimed_at", "claim_id"):
+            state.pop(field, None)
+        if state["status"] == "failed":
+            item["status"] = "failed"
+        result.update({"ok": True, "role_status": state["status"]})
+        return tasks
+    return tasks
+
+
+def _record_failed_turn(
+    task_id: str,
+    role: str,
+    error: str,
+    *,
+    retry: bool,
+    worker: str | None,
+    claim_id: str | None,
+    role_status: str | None,
+    now: str | None,
+) -> None:
     append_turn_event(task_id, {
-        "event_type": "research.turn.submitted",
+        "event_type": "research.turn.failed",
         "task_id": task_id,
         "role": role,
-        "worker": expected_worker,
+        "worker": worker,
         "claim_id": claim_id,
-        "finding_hash": finding_hash,
+        "error": str(error)[:500],
+        "retry": retry,
+        "role_status": role_status,
         "at": _now_text(now),
     })
-    return {"board_path": board_path, **result}
 
 
 def fail_role(
@@ -838,60 +1035,35 @@ def fail_role(
     now: str | None = None,
 ) -> dict[str, Any]:
     config = config or load_config()
-    max_attempts = int(config.get("max_attempts_per_role") or 2)
     result: dict[str, Any] = {}
-
-    def _mutate(value: Any) -> list[dict[str, Any]]:
-        tasks = list(value) if isinstance(value, list) else []
-        for item in tasks:
-            if item.get("id") != task_id:
-                continue
-            state = (item.get("roles") or {}).get(role)
-            if not isinstance(state, dict):
-                result.update({"ok": False, "errors": [f"unknown role {role}"]})
-                return tasks
-            require_fencing = bool(config.get("require_claim_fencing", True))
-            if state.get("status") != "claimed":
-                result.update({"ok": False, "errors": [f"role {role} is not claimed"]})
-                return tasks
-            if require_fencing and not claim_id:
-                result.update({"ok": False, "errors": ["claim_id is required"]})
-                return tasks
-            if require_fencing and state.get("claim_id") != claim_id:
-                result.update({"ok": False, "errors": ["claim_id does not match the active lease"]})
-                return tasks
-            if worker and state.get("claimed_by") not in (None, worker):
-                result.update({"ok": False, "errors": [f"role {role} is claimed by another worker"]})
-                return tasks
-            attempts = int(state.get("attempts") or 0)
-            exhausted = attempts >= max_attempts
-            state.update({
-                "status": "failed" if (exhausted or not retry) else "pending",
-                "last_error": str(error)[:500],
-                "failed_at": _now_text(now),
-            })
-            state.pop("claimed_by", None)
-            state.pop("claimed_at", None)
-            state.pop("claim_id", None)
-            if state["status"] == "failed":
-                item["status"] = "failed"
-            result.update({"ok": True, "role_status": state["status"]})
-            break
-        return tasks
-
-    mutate_json(path or queue_file(), _mutate, [])
+    mutate_json(
+        path or queue_file(),
+        partial(
+            _fail_role_mutation,
+            task_id=task_id,
+            role=role,
+            error=error,
+            retry=retry,
+            worker=worker,
+            claim_id=claim_id,
+            require_fencing=bool(config.get("require_claim_fencing", True)),
+            max_attempts=int(config.get("max_attempts_per_role") or 2),
+            now=now,
+            result=result,
+        ),
+        [],
+    )
     if result.get("ok"):
-        append_turn_event(task_id, {
-            "event_type": "research.turn.failed",
-            "task_id": task_id,
-            "role": role,
-            "worker": worker,
-            "claim_id": claim_id,
-            "error": str(error)[:500],
-            "retry": retry,
-            "role_status": result.get("role_status"),
-            "at": _now_text(now),
-        })
+        _record_failed_turn(
+            task_id,
+            role,
+            error,
+            retry=retry,
+            worker=worker,
+            claim_id=claim_id,
+            role_status=result.get("role_status"),
+            now=now,
+        )
     return result or {"ok": False, "errors": ["task not found"]}
 
 

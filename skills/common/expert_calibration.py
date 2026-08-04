@@ -32,6 +32,9 @@ METRIC_DEFINITIONS = {
     "precision": "true_positive / (true_positive + false_positive)",
     "recall": "true_positive / (true_positive + false_negative)",
 }
+CalibrationKey = tuple[str, str, str]
+Lineage = dict[str, str]
+TemporalIndex = dict[CalibrationKey, tuple[date, datetime]]
 
 
 class CalibrationDataError(ValueError):
@@ -121,97 +124,152 @@ def _timestamp(
     return parsed
 
 
+def _row_identity(
+    row: Mapping[str, Any],
+    *,
+    side: str,
+    row_number: int,
+) -> tuple[CalibrationKey, date]:
+    task_id = _required_text(
+        row,
+        "task_id",
+        side=side,
+        row_number=row_number,
+    )
+    code = _required_text(
+        row,
+        "code",
+        side=side,
+        row_number=row_number,
+    )
+    decision = _decision_date(
+        row,
+        side=side,
+        row_number=row_number,
+    )
+    return (task_id, code, decision.isoformat()), decision
+
+
+def _row_lineage(
+    row: Mapping[str, Any],
+    *,
+    side: str,
+    row_number: int,
+) -> Lineage:
+    lineage = {
+        field: _required_text(
+            row,
+            field,
+            side=side,
+            row_number=row_number,
+        )
+        for field in LINEAGE_FIELDS
+    }
+    split = _required_text(
+        row,
+        "evaluation_split",
+        side=side,
+        row_number=row_number,
+    ).lower()
+    if split != "oos":
+        raise CalibrationDataError(f"{side}_not_oos: row={row_number}")
+    lineage["evaluation_split"] = split
+    return lineage
+
+
+def _require_same_lineage(
+    expected: Lineage,
+    actual: Lineage,
+    *,
+    side: str | None = None,
+    row_number: int | None = None,
+) -> None:
+    location = (
+        f": side={side} row={row_number}"
+        if side is not None and row_number is not None
+        else ""
+    )
+    for field in LINEAGE_FIELDS:
+        if expected[field] != actual[field]:
+            name = field.removesuffix("_id")
+            raise CalibrationDataError(f"{name}_lineage_mismatch{location}")
+
+
+def _validate_occurrence(
+    row: Mapping[str, Any],
+    *,
+    side: str,
+    row_number: int,
+    timestamp_field: str,
+    decision: date,
+) -> datetime:
+    occurred_at = _timestamp(
+        row,
+        timestamp_field,
+        side=side,
+        row_number=row_number,
+    )
+    if side == "prediction" and occurred_at.date() < decision:
+        raise CalibrationDataError(
+            f"prediction_before_decision_date: row={row_number}"
+        )
+    if side == "prediction" and occurred_at.date() > decision:
+        raise CalibrationDataError(
+            f"prediction_after_decision_date: row={row_number}"
+        )
+    if side == "outcome" and occurred_at.date() < decision:
+        raise CalibrationDataError(
+            f"settlement_before_decision_date: row={row_number}"
+        )
+    return occurred_at
+
+
 def _validated_rows(
     rows: Sequence[Mapping[str, Any]],
     *,
     side: str,
     timestamp_field: str,
 ) -> tuple[
-    dict[tuple[str, str, str], Mapping[str, Any]],
-    dict[tuple[str, str, str], tuple[date, datetime]],
-    dict[str, str] | None,
+    dict[CalibrationKey, Mapping[str, Any]],
+    TemporalIndex,
+    Lineage | None,
 ]:
-    index: dict[tuple[str, str, str], Mapping[str, Any]] = {}
-    temporal: dict[tuple[str, str, str], tuple[date, datetime]] = {}
-    lineage: dict[str, str] | None = None
+    index: dict[CalibrationKey, Mapping[str, Any]] = {}
+    temporal: TemporalIndex = {}
+    lineage: Lineage | None = None
     for row_number, row in enumerate(rows, start=1):
         if not isinstance(row, Mapping):
             raise CalibrationDataError(
                 f"invalid_{side}_row: row={row_number}"
             )
-        task_id = _required_text(
-            row,
-            "task_id",
-            side=side,
-            row_number=row_number,
-        )
-        code = _required_text(
-            row,
-            "code",
-            side=side,
-            row_number=row_number,
-        )
-        decision = _decision_date(
+        key, decision = _row_identity(
             row,
             side=side,
             row_number=row_number,
         )
-        key = (task_id, code, decision.isoformat())
         if key in index:
-            raise CalibrationDataError(
-                f"duplicate_{side}_key: key={key}"
-            )
-
-        row_lineage = {
-            field: _required_text(
-                row,
-                field,
+            raise CalibrationDataError(f"duplicate_{side}_key: key={key}")
+        current_lineage = _row_lineage(
+            row,
+            side=side,
+            row_number=row_number,
+        )
+        if lineage is None:
+            lineage = current_lineage
+        else:
+            _require_same_lineage(
+                lineage,
+                current_lineage,
                 side=side,
                 row_number=row_number,
             )
-            for field in LINEAGE_FIELDS
-        }
-        split = _required_text(
+        occurred_at = _validate_occurrence(
             row,
-            "evaluation_split",
             side=side,
             row_number=row_number,
-        ).lower()
-        if split != "oos":
-            raise CalibrationDataError(
-                f"{side}_not_oos: row={row_number}"
-            )
-        row_lineage["evaluation_split"] = split
-        if lineage is None:
-            lineage = row_lineage
-        else:
-            for field in LINEAGE_FIELDS:
-                if lineage[field] != row_lineage[field]:
-                    raise CalibrationDataError(
-                        f"{field.removesuffix('_id')}_lineage_mismatch: "
-                        f"side={side} row={row_number}"
-                    )
-
-        occurred_at = _timestamp(
-            row,
-            timestamp_field,
-            side=side,
-            row_number=row_number,
+            timestamp_field=timestamp_field,
+            decision=decision,
         )
-        if side == "prediction":
-            if occurred_at.date() < decision:
-                raise CalibrationDataError(
-                    f"prediction_before_decision_date: row={row_number}"
-                )
-            if occurred_at.date() > decision:
-                raise CalibrationDataError(
-                    f"prediction_after_decision_date: row={row_number}"
-                )
-        elif occurred_at.date() < decision:
-            raise CalibrationDataError(
-                f"settlement_before_decision_date: row={row_number}"
-            )
-
         index[key] = row
         temporal[key] = (decision, occurred_at)
     return index, temporal, lineage
@@ -219,6 +277,196 @@ def _validated_rows(
 
 def _rate(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator, 4) if denominator else None
+
+
+def _new_bucket() -> dict[str, int]:
+    return {
+        "predictions": 0,
+        "settled": 0,
+        "correct": 0,
+        "true_positive": 0,
+        "true_negative": 0,
+        "false_positive": 0,
+        "false_negative": 0,
+        "actual_positive": 0,
+        "actual_negative": 0,
+        "predicted_positive": 0,
+        "predicted_negative": 0,
+        "abstained": 0,
+        "unmatched": 0,
+        "non_final": 0,
+        "invalid_outcome": 0,
+    }
+
+
+def _record_confusion(
+    bucket: dict[str, int],
+    *,
+    stance: str,
+    actual: str,
+) -> None:
+    bucket["settled"] += 1
+    bucket["predicted_positive" if stance == "support" else "predicted_negative"] += 1
+    bucket["actual_positive" if actual == "support" else "actual_negative"] += 1
+    if stance == "support" and actual == "support":
+        bucket["true_positive"] += 1
+        bucket["correct"] += 1
+    elif stance == "oppose" and actual == "oppose":
+        bucket["true_negative"] += 1
+        bucket["correct"] += 1
+    elif stance == "support" and actual == "oppose":
+        bucket["false_positive"] += 1
+    else:
+        bucket["false_negative"] += 1
+
+
+def _accumulate_prediction(
+    key: CalibrationKey,
+    row: Mapping[str, Any],
+    *,
+    bucket: dict[str, int],
+    outcome_index: Mapping[CalibrationKey, Mapping[str, Any]],
+    prediction_temporal: TemporalIndex,
+    outcome_temporal: TemporalIndex,
+    outcome_key: str,
+    positive_threshold: float,
+) -> None:
+    stance = _stance(row.get("stance"))
+    if stance is None:
+        bucket["abstained"] += 1
+        return
+    bucket["predictions"] += 1
+    outcome = outcome_index.get(key)
+    if not outcome:
+        bucket["unmatched"] += 1
+        return
+    if (
+        outcome.get("settlement_status") != "final"
+        or outcome.get("resolved") is not True
+    ):
+        bucket["non_final"] += 1
+        return
+    if prediction_temporal[key][1] >= outcome_temporal[key][1]:
+        raise CalibrationDataError(
+            f"prediction_not_before_settlement: key={key}"
+        )
+    actual = _outcome_label(outcome.get(outcome_key), positive_threshold)
+    if actual not in {"support", "oppose"}:
+        bucket["invalid_outcome"] += 1
+        return
+    _record_confusion(bucket, stance=stance, actual=actual)
+
+
+def _accumulate_roles(
+    prediction_index: Mapping[CalibrationKey, Mapping[str, Any]],
+    outcome_index: Mapping[CalibrationKey, Mapping[str, Any]],
+    *,
+    prediction_temporal: TemporalIndex,
+    outcome_temporal: TemporalIndex,
+    outcome_key: str,
+    positive_threshold: float,
+) -> dict[str, dict[str, int]]:
+    buckets: dict[str, dict[str, int]] = defaultdict(_new_bucket)
+    for key, row in prediction_index.items():
+        role = str(row.get("role") or "unknown")
+        _accumulate_prediction(
+            key,
+            row,
+            bucket=buckets[role],
+            outcome_index=outcome_index,
+            prediction_temporal=prediction_temporal,
+            outcome_temporal=outcome_temporal,
+            outcome_key=outcome_key,
+            positive_threshold=positive_threshold,
+        )
+    return buckets
+
+
+def _render_role_metric(bucket: Mapping[str, int]) -> dict[str, Any]:
+    settled = bucket["settled"]
+    actual_negative = bucket["false_positive"] + bucket["true_negative"]
+    actual_positive = bucket["false_negative"] + bucket["true_positive"]
+    predicted_positive = bucket["true_positive"] + bucket["false_positive"]
+    return {
+        **bucket,
+        "accuracy": _rate(bucket["correct"], settled),
+        "false_positive_rate": _rate(
+            bucket["false_positive"],
+            actual_negative,
+        ),
+        "false_negative_rate": _rate(
+            bucket["false_negative"],
+            actual_positive,
+        ),
+        "precision": _rate(
+            bucket["true_positive"],
+            predicted_positive,
+        ),
+        "recall": _rate(
+            bucket["true_positive"],
+            actual_positive,
+        ),
+        "status": "ok" if settled else "insufficient_data",
+    }
+
+
+def _render_metrics(
+    buckets: Mapping[str, Mapping[str, int]],
+) -> dict[str, dict[str, Any]]:
+    return {
+        role: _render_role_metric(bucket)
+        for role, bucket in sorted(buckets.items())
+    }
+
+
+def _class_definitions(
+    outcome_key: str,
+    positive_threshold: float,
+) -> dict[str, str]:
+    return {
+        "positive": f"{outcome_key} > {positive_threshold}",
+        "negative": f"{outcome_key} < {positive_threshold}",
+        "neutral": (
+            f"{outcome_key} == {positive_threshold}; excluded from metrics"
+        ),
+        "settled": (
+            "settlement_status == 'final' and resolved is true and "
+            "outcome is finite and directional"
+        ),
+    }
+
+
+def _calibration_report(
+    *,
+    stances: Sequence[Mapping[str, Any]],
+    outcomes: Sequence[Mapping[str, Any]],
+    outcome_key: str,
+    positive_threshold: float,
+    lineage: Lineage | None,
+    metrics: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema": SCHEMA,
+        "research_only": True,
+        "automatic_strategy_mutation": False,
+        "outcome_key": outcome_key,
+        "positive_threshold": positive_threshold,
+        "stance_rows": len(stances),
+        "outcome_rows": len(outcomes),
+        "join_fields": list(JOIN_FIELDS),
+        "lineage": lineage,
+        "class_definitions": _class_definitions(
+            outcome_key,
+            positive_threshold,
+        ),
+        "metric_definitions": dict(METRIC_DEFINITIONS),
+        "roles": dict(metrics),
+        "status": (
+            "ok"
+            if any(item["settled"] for item in metrics.values())
+            else "insufficient_data"
+        ),
+    }
 
 
 def compute_calibration(
@@ -246,138 +494,25 @@ def compute_calibration(
         timestamp_field="settled_at",
     )
     if prediction_lineage and outcome_lineage:
-        for field in LINEAGE_FIELDS:
-            if prediction_lineage[field] != outcome_lineage[field]:
-                raise CalibrationDataError(
-                    f"{field.removesuffix('_id')}_lineage_mismatch"
-                )
+        _require_same_lineage(prediction_lineage, outcome_lineage)
     lineage = prediction_lineage or outcome_lineage
-
-    buckets: dict[str, dict[str, int]] = defaultdict(lambda: {
-        "predictions": 0,
-        "settled": 0,
-        "correct": 0,
-        "true_positive": 0,
-        "true_negative": 0,
-        "false_positive": 0, "false_negative": 0,
-        "actual_positive": 0,
-        "actual_negative": 0,
-        "predicted_positive": 0,
-        "predicted_negative": 0,
-        "abstained": 0,
-        "unmatched": 0,
-        "non_final": 0,
-        "invalid_outcome": 0,
-    })
-    for key, row in prediction_index.items():
-        role = str(row.get("role") or "unknown")
-        bucket = buckets[role]
-        stance = _stance(row.get("stance"))
-        if stance is None:
-            bucket["abstained"] += 1
-            continue
-        bucket["predictions"] += 1
-        outcome = outcome_index.get(key)
-        if not outcome:
-            bucket["unmatched"] += 1
-            continue
-        if (
-            outcome.get("settlement_status") != "final"
-            or outcome.get("resolved") is not True
-        ):
-            bucket["non_final"] += 1
-            continue
-
-        predicted_at = prediction_temporal[key][1]
-        settled_at = outcome_temporal[key][1]
-        if predicted_at >= settled_at:
-            raise CalibrationDataError(
-                f"prediction_not_before_settlement: key={key}"
-            )
-
-        actual = _outcome_label(outcome.get(outcome_key), positive_threshold)
-        if actual not in {"support", "oppose"}:
-            bucket["invalid_outcome"] += 1
-            continue
-        bucket["settled"] += 1
-        if stance == "support":
-            bucket["predicted_positive"] += 1
-        else:
-            bucket["predicted_negative"] += 1
-        if actual == "support":
-            bucket["actual_positive"] += 1
-        else:
-            bucket["actual_negative"] += 1
-
-        if stance == "support" and actual == "support":
-            bucket["true_positive"] += 1
-            bucket["correct"] += 1
-        elif stance == "oppose" and actual == "oppose":
-            bucket["true_negative"] += 1
-            bucket["correct"] += 1
-        elif stance == "support" and actual == "oppose":
-            bucket["false_positive"] += 1
-        else:
-            bucket["false_negative"] += 1
-
-    metrics: dict[str, Any] = {}
-    for role, bucket in sorted(buckets.items()):
-        settled = bucket["settled"]
-        actual_negative = (
-            bucket["false_positive"] + bucket["true_negative"]
-        )
-        actual_positive = (
-            bucket["false_negative"] + bucket["true_positive"]
-        )
-        predicted_positive = (
-            bucket["true_positive"] + bucket["false_positive"]
-        )
-        metrics[role] = {
-            **bucket,
-            "accuracy": _rate(bucket["correct"], settled),
-            "false_positive_rate": _rate(
-                bucket["false_positive"],
-                actual_negative,
-            ),
-            "false_negative_rate": _rate(
-                bucket["false_negative"],
-                actual_positive,
-            ),
-            "precision": _rate(
-                bucket["true_positive"],
-                predicted_positive,
-            ),
-            "recall": _rate(
-                bucket["true_positive"],
-                actual_positive,
-            ),
-            "status": "ok" if settled else "insufficient_data",
-        }
-    return {
-        "schema": SCHEMA,
-        "research_only": True,
-        "automatic_strategy_mutation": False,
-        "outcome_key": outcome_key,
-        "positive_threshold": positive_threshold,
-        "stance_rows": len(stances),
-        "outcome_rows": len(outcomes),
-        "join_fields": list(JOIN_FIELDS),
-        "lineage": lineage,
-        "class_definitions": {
-            "positive": f"{outcome_key} > {positive_threshold}",
-            "negative": f"{outcome_key} < {positive_threshold}",
-            "neutral": (
-                f"{outcome_key} == {positive_threshold}; excluded from metrics"
-            ),
-            "settled": (
-                "settlement_status == 'final' and resolved is true and "
-                "outcome is finite and directional"
-            ),
-        },
-        "metric_definitions": dict(METRIC_DEFINITIONS),
-        "roles": metrics,
-        "status": "ok" if any(item["settled"] for item in metrics.values()) else "insufficient_data",
-    }
+    buckets = _accumulate_roles(
+        prediction_index,
+        outcome_index,
+        prediction_temporal=prediction_temporal,
+        outcome_temporal=outcome_temporal,
+        outcome_key=outcome_key,
+        positive_threshold=positive_threshold,
+    )
+    metrics = _render_metrics(buckets)
+    return _calibration_report(
+        stances=stances,
+        outcomes=outcomes,
+        outcome_key=outcome_key,
+        positive_threshold=positive_threshold,
+        lineage=lineage,
+        metrics=metrics,
+    )
 
 
 def build_review_registry(

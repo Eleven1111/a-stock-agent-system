@@ -6,13 +6,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
+import site
 from pathlib import Path
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(ROOT, "skills", "common"))
+site.addsitedir(ROOT)
+site.addsitedir(os.path.join(ROOT, "skills", "common"))
 
-from expert_calibration import (  # noqa: E402
+from skills.common.expert_calibration import (  # noqa: E402
     CalibrationDataError,
     build_review_registry,
     compute_calibration,

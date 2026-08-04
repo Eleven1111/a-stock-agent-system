@@ -328,6 +328,189 @@ def _validate_restatement_availability(
         raise ValueError("restatement_availability_not_newer")
 
 
+def _normalize_write_request(
+    code: str,
+    payload: Mapping[str, Any],
+    *,
+    trading_date: str,
+    batch_id: str,
+    producer: str,
+    producer_version: str,
+    source_versions: Mapping[str, str] | None,
+) -> tuple[str, str, str, str, dict[str, str] | None, dict[str, Any]]:
+    trading_day = _trading_day(trading_date)
+    normalized_batch_id = _strict_string(batch_id, "batch_id")
+    normalized_producer = _strict_string(producer, "producer")
+    normalized_producer_version = _strict_string(
+        producer_version,
+        "producer_version",
+    )
+    normalized_source_versions = (
+        _string_mapping(source_versions, "source_versions")
+        if source_versions is not None
+        else None
+    )
+    facts = _normalize_payload(code, payload)
+    errors = validate_fundamental_facts(facts, code=code)
+    if errors:
+        raise ValueError("invalid fundamental facts: " + ",".join(errors))
+    return (
+        trading_day,
+        normalized_batch_id,
+        normalized_producer,
+        normalized_producer_version,
+        normalized_source_versions,
+        facts,
+    )
+
+
+def _precheck_new_version(
+    versions: list[dict[str, Any]],
+    *,
+    facts: Mapping[str, Any],
+    event_time: str,
+    published_at: str,
+    available_at: str,
+) -> None:
+    if _duplicate_version(
+        versions,
+        event_time=event_time,
+        published_at=published_at,
+        available_at=available_at,
+    ):
+        raise ValueError("duplicate_fundamental_version")
+    _validate_restatement_availability(
+        versions,
+        facts=facts,
+        available_at=available_at,
+    )
+
+
+def _precheck_write(
+    *,
+    code: str,
+    facts: Mapping[str, Any],
+    event_time: str,
+    published_at: str,
+    available_at: str,
+    captured_at: str,
+    watermark: Mapping[str, Any],
+    sealed_at: str,
+) -> None:
+    _validate_observed_timeline(
+        facts=facts,
+        event_time=event_time,
+        published_at=published_at,
+        available_at=available_at,
+        captured_at=captured_at,
+        watermark=watermark,
+        sealed_at=sealed_at,
+    )
+    current_versions = _index_versions(read_json(index_file(), {}), code)
+    _precheck_new_version(
+        current_versions,
+        facts=facts,
+        event_time=event_time,
+        published_at=published_at,
+        available_at=available_at,
+    )
+
+
+def _write_strict_fundamental_snapshot(
+    facts: Mapping[str, Any],
+    *,
+    trading_day: str,
+    batch_id: str,
+    producer: str,
+    producer_version: str,
+    source_versions: Mapping[str, str] | None,
+    event_time: str,
+    published_at: str,
+    available_at: str,
+    captured_at: str,
+    watermark: Mapping[str, Any],
+    sealed_at: str,
+    max_clock_drift_seconds: float,
+) -> dict[str, Any]:
+    return write_snapshot(
+        DATASET,
+        facts,
+        trading_date=trading_day,
+        batch_id=batch_id,
+        producer=producer,
+        producer_version=producer_version,
+        source_versions=source_versions,
+        captured_at=captured_at,
+        event_asof=trading_day,
+        evidence_time=published_at,
+        decision_mode="replay",
+        stage_policy=build_stage_policy(
+            stage="fundamental_facts",
+            cutoff_time="23:59:59",
+            timezone_name=TIMEZONE_NAME,
+        ),
+        event_time=event_time,
+        available_time=available_at,
+        watermark=watermark,
+        sealed_at=sealed_at,
+        max_clock_drift_seconds=max_clock_drift_seconds,
+    )
+
+
+def _updated_version_index(
+    value: Any,
+    *,
+    code: str,
+    facts: Mapping[str, Any],
+    new_entry: dict[str, Any],
+    event_time: str,
+    published_at: str,
+    available_at: str,
+) -> dict[str, Any]:
+    versions = _index_versions(value, code)
+    _precheck_new_version(
+        versions,
+        facts=facts,
+        event_time=event_time,
+        published_at=published_at,
+        available_at=available_at,
+    )
+    versions.append(new_entry)
+    versions.sort(
+        key=lambda item: (
+            str(item.get("available_at") or ""),
+            str(item.get("sealed_at") or ""),
+            str(item.get("snapshot_id") or ""),
+        )
+    )
+    entries = dict(value.get("entries") or {}) if isinstance(value, Mapping) else {}
+    entries[code] = versions
+    return {"schema": INDEX_SCHEMA, "entries": entries}
+
+
+def _update_version_index(
+    *,
+    code: str,
+    facts: Mapping[str, Any],
+    new_entry: dict[str, Any],
+    event_time: str,
+    published_at: str,
+    available_at: str,
+) -> None:
+    def _mutate(value: Any) -> dict[str, Any]:
+        return _updated_version_index(
+            value,
+            code=code,
+            facts=facts,
+            new_entry=new_entry,
+            event_time=event_time,
+            published_at=published_at,
+            available_at=available_at,
+        )
+
+    mutate_json(index_file(), _mutate, {})
+
+
 def write_fundamental_snapshot(
     code: str,
     payload: Mapping[str, Any],
@@ -346,23 +529,25 @@ def write_fundamental_snapshot(
     max_clock_drift_seconds: float = MAX_CLOCK_DRIFT_SECONDS,
 ) -> dict[str, Any]:
     """Write one provider-observed, strictly sealed fundamental version."""
-    trading_day = _trading_day(trading_date)
-    normalized_batch_id = _strict_string(batch_id, "batch_id")
-    normalized_producer = _strict_string(producer, "producer")
-    normalized_producer_version = _strict_string(
-        producer_version,
-        "producer_version",
+    (
+        trading_day,
+        normalized_batch_id,
+        normalized_producer,
+        normalized_producer_version,
+        normalized_source_versions,
+        facts,
+    ) = _normalize_write_request(
+        code,
+        payload,
+        trading_date=trading_date,
+        batch_id=batch_id,
+        producer=producer,
+        producer_version=producer_version,
+        source_versions=source_versions,
     )
-    normalized_source_versions = (
-        _string_mapping(source_versions, "source_versions")
-        if source_versions is not None
-        else None
-    )
-    facts = _normalize_payload(code, payload)
-    errors = validate_fundamental_facts(facts, code=code)
-    if errors:
-        raise ValueError("invalid fundamental facts: " + ",".join(errors))
-    _validate_observed_timeline(
+    normalized_code = _code(code)
+    _precheck_write(
+        code=normalized_code,
         facts=facts,
         event_time=event_time,
         published_at=published_at,
@@ -371,74 +556,29 @@ def write_fundamental_snapshot(
         watermark=watermark,
         sealed_at=sealed_at,
     )
-    normalized_code = _code(code)
-    current_index = read_json(index_file(), {})
-    current_versions = _index_versions(current_index, normalized_code)
-    if _duplicate_version(
-        current_versions,
-        event_time=event_time,
-        published_at=published_at,
-        available_at=available_at,
-    ):
-        raise ValueError("duplicate_fundamental_version")
-    _validate_restatement_availability(
-        current_versions,
-        facts=facts,
-        available_at=available_at,
-    )
-
-    snapshot = write_snapshot(
-        DATASET,
+    snapshot = _write_strict_fundamental_snapshot(
         facts,
-        trading_date=trading_day,
+        trading_day=trading_day,
         batch_id=normalized_batch_id,
         producer=normalized_producer,
         producer_version=normalized_producer_version,
         source_versions=normalized_source_versions,
-        captured_at=captured_at,
-        event_asof=trading_day,
-        evidence_time=published_at,
-        decision_mode="replay",
-        stage_policy=build_stage_policy(
-            stage="fundamental_facts",
-            cutoff_time="23:59:59",
-            timezone_name=TIMEZONE_NAME,
-        ),
         event_time=event_time,
-        available_time=available_at,
+        published_at=published_at,
+        available_at=available_at,
+        captured_at=captured_at,
         watermark=watermark,
         sealed_at=sealed_at,
         max_clock_drift_seconds=max_clock_drift_seconds,
     )
-    new_entry = _version_entry(snapshot, facts)
-
-    def _mutate(value: Any) -> dict[str, Any]:
-        versions = _index_versions(value, normalized_code)
-        if _duplicate_version(
-            versions,
-            event_time=event_time,
-            published_at=published_at,
-            available_at=available_at,
-        ):
-            raise ValueError("duplicate_fundamental_version")
-        _validate_restatement_availability(
-            versions,
-            facts=facts,
-            available_at=available_at,
-        )
-        versions.append(new_entry)
-        versions.sort(
-            key=lambda item: (
-                str(item.get("available_at") or ""),
-                str(item.get("sealed_at") or ""),
-                str(item.get("snapshot_id") or ""),
-            )
-        )
-        entries = dict(value.get("entries") or {}) if isinstance(value, Mapping) else {}
-        entries[normalized_code] = versions
-        return {"schema": INDEX_SCHEMA, "entries": entries}
-
-    mutate_json(index_file(), _mutate, {})
+    _update_version_index(
+        code=normalized_code,
+        facts=facts,
+        new_entry=_version_entry(snapshot, facts),
+        event_time=event_time,
+        published_at=published_at,
+        available_at=available_at,
+    )
     return snapshot
 
 
