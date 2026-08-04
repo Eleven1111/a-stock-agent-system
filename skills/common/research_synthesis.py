@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from datetime import datetime
 from typing import Any
 
-from state_store import atomic_write_json, read_json
+from state_store import atomic_write_json, file_lock, read_json
 
 import research_bus
 
@@ -57,23 +58,35 @@ def _revalidate_model_manifests(
             role: {**finding, "model_run_manifest": {"execution_eligible": False}}
             for role, finding in findings.items()
         }
-    pack = evidence_pack.load_pack(str(task.get("evidence_pack_ref") or ""))
-    if not pack:
-        return {
-            role: {**finding, "model_run_manifest": {"execution_eligible": False}}
-            for role, finding in findings.items()
-        }
     checked: dict[str, dict[str, Any]] = {}
     for role, finding in findings.items():
         item = dict(finding)
         if item.get("stance") == "abstain":
             checked[role] = item
             continue
+        manifest = item.get("model_run_manifest") or {}
+        pack = evidence_pack.load_pack(str(manifest.get("evidence_pack_ref") or ""))
+        if not pack:
+            checked[role] = {
+                **item,
+                "model_run_manifest": {
+                    **dict(manifest),
+                    "execution_eligible": False,
+                },
+                "model_integrity_errors": ["artifact_hash_mismatch"],
+            }
+            continue
+        role_state = (task.get("roles") or {}).get(role) or {}
         errors = agent_evidence.validate_finding_manifest(
-            item.get("model_run_manifest"),
+            manifest,
             evidence_pack=pack,
             evidence_refs=item.get("evidence_refs") or [],
             tool_inputs=item.get("tool_inputs") or {},
+            finding=item,
+            task_id=str(task.get("id") or ""),
+            role=role,
+            claim_id=str(role_state.get("submission_claim_id") or ""),
+            submitter=str(role_state.get("submission_worker") or ""),
             require_execution_eligible=False,
             now=now,
             max_age_minutes=int(finding_cfg.get("manifest_max_age_minutes") or 10),
@@ -157,14 +170,9 @@ def _confidence(finding: dict[str, Any]) -> float:
         return 0.0
 
 
-def decide_verdict(
+def _review_gate_decision(
     findings: dict[str, dict[str, Any]],
-    synthesis_cfg: dict[str, Any],
-) -> dict[str, Any]:
-    stances = {
-        role: str(finding.get("stance") or "neutral")
-        for role, finding in findings.items()
-    }
+) -> dict[str, Any] | None:
     review_only_roles = [
         role
         for role, finding in findings.items()
@@ -178,16 +186,96 @@ def decide_verdict(
             "verdict": "review_only",
             "basis": "human_review_required:" + ",".join(sorted(review_only_roles)),
         }
-    if stances and all(stance == "abstain" for stance in stances.values()):
+    stances = [
+        str(finding.get("stance") or "neutral")
+        for finding in findings.values()
+    ]
+    if stances and all(stance == "abstain" for stance in stances):
         return {"verdict": "abstained", "basis": "all_roles_abstained"}
-    veto_at = float(synthesis_cfg.get("veto_confidence") or 0.7)
-    conflict_at = float(synthesis_cfg.get("conflict_confidence") or 0.6)
-    advance_at = float(synthesis_cfg.get("advance_min_support_confidence") or 0.6)
+    return None
 
-    risk = findings.get("risk_redteam")
-    if risk and risk.get("stance") == "oppose" and _confidence(risk) >= veto_at:
-        return {"verdict": "rejected", "basis": "risk_redteam_veto"}
 
+def _adjudicator_decision(
+    findings: dict[str, dict[str, Any]],
+    synthesis_cfg: dict[str, Any],
+    task: dict[str, Any] | None,
+    conflict_at: float,
+) -> dict[str, Any] | None:
+    adjudicator = findings.get("adjudicator")
+    if not isinstance(adjudicator, dict):
+        return None
+    escalation = synthesis_cfg.get("escalation") or {}
+    adjudicator_cfg = escalation.get("adjudicator") or {}
+    round_index = int((task or {}).get("escalation_round") or 0)
+    max_rounds = int(escalation.get("max_rounds") or 1)
+    plan = (task or {}).get("expert_plan") or []
+    problems: list[str] = []
+    if not (
+        escalation.get("enabled")
+        and adjudicator_cfg.get("enabled")
+        and round_index == max_rounds
+        and "adjudicator" in plan
+    ):
+        problems.append("illegal_round")
+    stance = str(adjudicator.get("stance") or "")
+    if stance not in {"support", "oppose"}:
+        problems.append("stance")
+    minimum = float(adjudicator_cfg.get("min_confidence") or conflict_at)
+    if _confidence(adjudicator) < minimum:
+        problems.append("confidence")
+    peer_roles = {
+        str(ref).removeprefix("peer_findings.findings.").split(".", 1)[0]
+        for ref in adjudicator.get("evidence_refs") or []
+        if str(ref).startswith("peer_findings.findings.")
+    }
+    eligible_peers = {
+        role
+        for role, finding in findings.items()
+        if role != "adjudicator"
+        and finding.get("stance") in {"support", "oppose"}
+    }
+    if not peer_roles.intersection(eligible_peers):
+        problems.append("peer_evidence")
+    if not adjudicator.get("adjudication_points"):
+        problems.append("adjudication_points")
+    if problems:
+        return {
+            "verdict": "disputed",
+            "basis": "adjudicator_fail_closed:" + ",".join(problems),
+            "final_stance": "oppose",
+        }
+    return {
+        "verdict": "adjudicated",
+        "basis": f"adjudicator_{stance}",
+        "final_stance": stance,
+    }
+
+
+def _risk_consensus_decision(
+    findings: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    risk_roles = {"risk_redteam", "risk_aggressive", "risk_neutral"}
+    risk_findings = [
+        finding
+        for role, finding in findings.items()
+        if role in risk_roles and finding.get("stance") in {"support", "oppose"}
+    ]
+    if len(risk_findings) >= 2 and all(
+        finding.get("stance") == "oppose" for finding in risk_findings
+    ):
+        return {
+            "verdict": "disputed",
+            "basis": "risk_triad_unanimous_oppose",
+        }
+    return None
+
+
+def _directional_decision(
+    findings: dict[str, dict[str, Any]],
+    *,
+    conflict_at: float,
+    advance_at: float,
+) -> dict[str, Any]:
     support = max(
         (_confidence(f) for f in findings.values() if f.get("stance") == "support"),
         default=0.0,
@@ -204,6 +292,36 @@ def decide_verdict(
     if support >= advance_at and oppose < conflict_at:
         return {"verdict": "advance", "basis": f"max_support_{support:.2f}"}
     return {"verdict": "watch", "basis": "no_confident_direction"}
+
+
+def decide_verdict(
+    findings: dict[str, dict[str, Any]],
+    synthesis_cfg: dict[str, Any],
+    *,
+    task: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    gated = _review_gate_decision(findings)
+    if gated:
+        return gated
+    veto_at = float(synthesis_cfg.get("veto_confidence") or 0.7)
+    conflict_at = float(synthesis_cfg.get("conflict_confidence") or 0.6)
+    advance_at = float(synthesis_cfg.get("advance_min_support_confidence") or 0.6)
+    risk = findings.get("risk_redteam")
+    if risk and risk.get("stance") == "oppose" and _confidence(risk) >= veto_at:
+        return {"verdict": "rejected", "basis": "risk_redteam_veto"}
+    adjudicated = _adjudicator_decision(
+        findings, synthesis_cfg, task, conflict_at,
+    )
+    if adjudicated:
+        return adjudicated
+    consensus = _risk_consensus_decision(findings)
+    if consensus:
+        return consensus
+    return _directional_decision(
+        findings,
+        conflict_at=conflict_at,
+        advance_at=advance_at,
+    )
 
 
 def _merge_lists(
@@ -289,6 +407,11 @@ def _write_proposal(
         "trading_date": task.get("trading_date"),
         "created_at": now,
         "verdict": synthesis["verdict"],
+        "synthesis_ref": os.path.join(
+            research_bus.board_dir(str(task.get("id"))),
+            "synthesis.json",
+        ),
+        "synthesis_sha256": synthesis["synthesis_sha256"],
         "summary": [entry.get("summary") for entry in synthesis["findings"]],
         "counterevidence": synthesis.get("counterevidence") or [],
         "invalidation_conditions": synthesis.get("invalidation_conditions") or [],
@@ -298,40 +421,100 @@ def _write_proposal(
     return path
 
 
+def _synthesis_sha256(synthesis: dict[str, Any]) -> str:
+    """Hash the semantic synthesis, excluding self-hash and storage locators."""
+    payload = {
+        key: value
+        for key, value in synthesis.items()
+        if key not in {
+            "synthesis_sha256", "report_path", "proposal_path",
+        }
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _maybe_escalate(
     task: dict[str, Any],
     findings: dict[str, dict[str, Any]],
     synthesis_cfg: dict[str, Any],
     now: str,
+    config: dict[str, Any],
 ) -> dict[str, Any] | None:
     escalation = synthesis_cfg.get("escalation") or {}
     if not escalation.get("enabled"):
         return None
     round_index = int(task.get("escalation_round") or 0)
-    if round_index >= int(escalation.get("max_rounds") or 1):
+    max_rounds = int(escalation.get("max_rounds") or 1)
+    adjudicator_cfg = escalation.get("adjudicator") or {}
+    if round_index >= max_rounds:
+        if adjudicator_cfg.get("enabled") and "adjudicator" not in (
+            task.get("expert_plan") or []
+        ):
+            roles = dict(task.get("roles") or {})
+            roles["adjudicator"] = {"status": "pending", "attempts": 0}
+            plan = list(task.get("expert_plan") or []) + ["adjudicator"]
+            research_bus.update_task(str(task.get("id")), {
+                "status": "in_progress",
+                "roles": roles,
+                "expert_plan": plan,
+            })
+            return {"needs_adjudicator": True}
         return None
     conflicted = [
         role for role, finding in findings.items()
         if finding.get("stance") in ("support", "oppose")
     ]
     board = research_bus.board_dir(str(task.get("id")))
+    next_round = round_index + 1
+    conflicting_findings = {role: findings[role] for role in conflicted}
+    import evidence_pack
+
+    context_hash = evidence_pack.peer_context_sha256(conflicting_findings)
     atomic_write_json(
-        os.path.join(board, f"escalation-{round_index + 1}.json"),
+        os.path.join(board, f"escalation-{next_round}.json"),
         {
-            "round": round_index + 1,
+            "round": next_round,
             "created_at": now,
-            "conflicting_findings": {role: findings[role] for role in conflicted},
+            "peer_context_sha256": context_hash,
+            "conflicting_findings": conflicting_findings,
         },
     )
     roles = dict(task.get("roles") or {})
     for role in conflicted:
         roles[role] = {"status": "pending", "attempts": 0}
-    research_bus.update_task(str(task.get("id")), {
+    plan = list(task.get("expert_plan") or [])
+    refreshed_task = {
+        **task,
         "status": "in_progress",
-        "escalation_round": round_index + 1,
+        "escalation_round": next_round,
         "roles": roles,
+        "expert_plan": plan,
+    }
+    previous_ref = task.get("evidence_pack_ref")
+    refreshed_pack = evidence_pack.build_pack(refreshed_task, config=config)
+    refreshed_task["evidence_pack_ref"] = refreshed_pack["ref"]
+    research_bus.update_task(str(task.get("id")), {
+        key: refreshed_task[key]
+        for key in (
+            "status", "escalation_round", "roles", "expert_plan",
+            "evidence_pack_ref",
+        )
     })
-    return {"escalated": True, "round": round_index + 1, "roles": conflicted}
+    return {
+        "escalated": True,
+        "round": next_round,
+        "roles": conflicted,
+        "previous_evidence_pack_ref": previous_ref,
+        "evidence_pack_ref": refreshed_pack["ref"],
+        "peer_context_sha256": context_hash,
+    }
 
 
 _TERMINAL_STATUS = {
@@ -341,6 +524,7 @@ _TERMINAL_STATUS = {
     "rejected": "rejected",
     "abstained": "abstained",
     "review_only": "done",
+    "adjudicated": "done",
 }
 
 
@@ -364,53 +548,60 @@ def _persist_synthesis(
     return board_path
 
 
-def synthesize_task(
-    task_id: str,
-    *,
-    config: dict[str, Any] | None = None,
-    now: str | None = None,
-) -> dict[str, Any]:
-    config = config or research_bus.load_config()
-    task = research_bus.find_task(task_id)
-    if not task:
-        return {"ok": False, "error": "task not found"}
-    findings = load_findings(task)
+def _existing_synthesis(task: dict[str, Any]) -> dict[str, Any] | None:
+    if task.get("status") not in {"done", "rejected", "abstained"}:
+        return None
+    path = str(task.get("synthesis_path") or "")
+    value = read_json(path, None) if path else None
+    return value if isinstance(value, dict) else None
+
+
+def _finding_readiness_error(
+    task: dict[str, Any],
+    findings: dict[str, dict[str, Any]],
+) -> str | None:
     missing = [
         role for role in task.get("expert_plan") or []
         if role not in findings
     ]
     if missing:
-        return {"ok": False, "error": f"findings missing for roles: {missing}"}
-
-    # A failed agent turn is an absence of evidence, not neutral evidence. If a
-    # role failed after writing a finding on an earlier attempt, the stale
-    # finding must not be reduced into a verdict.
-    failed_roles = sorted(
+        return f"findings missing for roles: {missing}"
+    failed = sorted(
         role
         for role, state in (task.get("roles") or {}).items()
         if isinstance(state, dict) and str(state.get("status")) == "failed"
     )
-    if failed_roles:
-        return {
-            "ok": False,
-            "error": f"agent failure is not neutral evidence; failed roles: {failed_roles}",
+    if failed:
+        return f"agent failure is not neutral evidence; failed roles: {failed}"
+    return None
+
+
+def _effective_synthesis_config(
+    task: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    synthesis_cfg = dict(config.get("synthesis") or {})
+    kind_cfg = (config.get("task_kinds") or {}).get(str(task.get("kind"))) or {}
+    if isinstance(kind_cfg.get("escalation"), dict):
+        synthesis_cfg["escalation"] = {
+            **dict(synthesis_cfg.get("escalation") or {}),
+            **dict(kind_cfg["escalation"]),
         }
+    return synthesis_cfg
 
-    timestamp = _now_text(now)
-    findings = _revalidate_model_manifests(task, findings, config, timestamp)
-    findings = _augment_risk_redteam_with_structure_position(task, findings)
-    synthesis_cfg = config.get("synthesis") or {}
-    decision = decide_verdict(findings, synthesis_cfg)
-    if decision["verdict"] == "disputed":
-        escalated = _maybe_escalate(task, findings, synthesis_cfg, timestamp)
-        if escalated:
-            return {"ok": True, **escalated}
 
-    synthesis: dict[str, Any] = {
+def _build_synthesis_record(
+    task: dict[str, Any],
+    findings: dict[str, dict[str, Any]],
+    decision: dict[str, Any],
+    timestamp: str,
+) -> dict[str, Any]:
+    verdict = decision["verdict"]
+    record: dict[str, Any] = {
         "schema": SYNTHESIS_SCHEMA,
-        "task_id": task_id,
+        "task_id": task.get("id"),
         "generated_at": timestamp,
-        "verdict": decision["verdict"],
+        "verdict": verdict,
         "basis": decision["basis"],
         "findings": _digest(findings),
         "counterevidence": _merge_lists(findings, "counterevidence"),
@@ -418,17 +609,52 @@ def synthesize_task(
             findings, "invalidation_conditions",
         ),
         "risk_flags": _merge_lists(findings, "risk_flags"),
-        "policy_gate_required": decision["verdict"] in ("advance", "watch"),
+        "policy_gate_required": (
+            verdict in ("advance", "watch")
+            or (
+                verdict == "adjudicated"
+                and decision.get("final_stance") == "support"
+            )
+        ),
+        "expert_stances": [
+            {
+                "role": role,
+                "stance": finding.get("stance"),
+                "confidence": finding.get("confidence"),
+                "round": int(task.get("escalation_round") or 0),
+            }
+            for role, finding in sorted(findings.items())
+        ],
     }
-    if decision["verdict"] == "advance":
-        synthesis["proposal_path"] = _write_proposal(task, synthesis, timestamp)
+    if "final_stance" in decision:
+        record["final_stance"] = decision["final_stance"]
+    record["synthesis_sha256"] = _synthesis_sha256(record)
+    return record
 
+
+def _proposal_required(decision: dict[str, Any]) -> bool:
+    return decision["verdict"] == "advance" or (
+        decision["verdict"] == "adjudicated"
+        and decision.get("final_stance") == "support"
+    )
+
+
+def _commit_synthesis(
+    task: dict[str, Any],
+    synthesis: dict[str, Any],
+    decision: dict[str, Any],
+    timestamp: str,
+) -> None:
+    task_id = str(task.get("id"))
     board_path = _persist_synthesis(task, task_id, synthesis)
-    research_bus.update_task(task_id, {
+    update = {
         "status": _TERMINAL_STATUS[decision["verdict"]],
         "verdict": decision["verdict"],
         "synthesis_path": board_path,
-    })
+    }
+    if "final_stance" in decision:
+        update["final_stance"] = decision["final_stance"]
+    research_bus.update_task(task_id, update)
     research_bus.append_ledger_event({
         "event_type": "research.synthesized",
         "task_id": task_id,
@@ -438,7 +664,53 @@ def synthesize_task(
         "verdict": decision["verdict"],
         "at": timestamp,
     })
+
+
+def _synthesize_task_locked(
+    task_id: str,
+    *,
+    config: dict[str, Any] | None = None,
+    now: str | None = None,
+) -> dict[str, Any]:
+    config = config or research_bus.load_config()
+    task = research_bus.find_task(task_id)
+    if not task:
+        return {"ok": False, "error": "task not found"}
+    existing = _existing_synthesis(task)
+    if existing:
+        return {"ok": True, "idempotent": True, "synthesis": existing}
+    findings = load_findings(task)
+    readiness_error = _finding_readiness_error(task, findings)
+    if readiness_error:
+        return {"ok": False, "error": readiness_error}
+    timestamp = _now_text(now)
+    findings = _revalidate_model_manifests(task, findings, config, timestamp)
+    findings = _augment_risk_redteam_with_structure_position(task, findings)
+    synthesis_cfg = _effective_synthesis_config(task, config)
+    decision = decide_verdict(findings, synthesis_cfg, task=task)
+    if decision["verdict"] == "disputed":
+        escalated = _maybe_escalate(
+            task, findings, synthesis_cfg, timestamp, config,
+        )
+        if escalated:
+            return {"ok": True, **escalated}
+    synthesis = _build_synthesis_record(task, findings, decision, timestamp)
+    if _proposal_required(decision):
+        synthesis["proposal_path"] = _write_proposal(task, synthesis, timestamp)
+    _commit_synthesis(task, synthesis, decision, timestamp)
     return {"ok": True, "synthesis": synthesis}
+
+
+def synthesize_task(
+    task_id: str,
+    *,
+    config: dict[str, Any] | None = None,
+    now: str | None = None,
+) -> dict[str, Any]:
+    """Serialize the terminal compare-and-commit boundary per research task."""
+    guard = os.path.join(research_bus.board_dir(task_id), "synthesis.commit")
+    with file_lock(guard, timeout=30.0):
+        return _synthesize_task_locked(task_id, config=config, now=now)
 
 
 def synthesize_ready_tasks(

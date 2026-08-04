@@ -83,6 +83,12 @@ def _enqueue_anomaly(config):
     )["task"]
 
 
+def _trusted_approval_path(tmp_path, name="approval.json"):
+    root = tmp_path / "state" / "approvals" / "research-committee"
+    root.mkdir(parents=True, exist_ok=True)
+    return root / name
+
+
 def test_next_reports_idle_on_empty_queue(monkeypatch, capsys):
     code, output = _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
     assert code == 0
@@ -103,6 +109,8 @@ def test_full_cycle_work_order_submit_and_synthesis(
     assert order["evidence_pack"]["quality"]["status"] == "ok"
     assert order["output_contract"]["schema"] == "research_finding_v1"
     assert order["instructions"].strip()
+    assert order["claim_id"] in order["submit_command"]
+    assert order["claim_id"] in order["abstain_command"]
 
     refreshed = bus.find_task(task["id"])
     assert refreshed["evidence_pack_ref"] == order["evidence_pack_ref"]
@@ -119,12 +127,24 @@ def test_full_cycle_work_order_submit_and_synthesis(
     }
     finding_path = tmp_path / "finding.json"
     finding_path.write_text(json.dumps(finding, ensure_ascii=False), encoding="utf-8")
+    approval_path = _trusted_approval_path(tmp_path)
+    approval_path.write_text(json.dumps({
+        "schema": "research_finding_approval_v1",
+        "task_id": task["id"],
+        "role": "risk_redteam",
+        "claim_id": order["claim_id"],
+        "finding_sha256": runner.agent_evidence.finding_sha256(finding),
+        "status": "approved",
+        "reviewer": "risk-owner",
+        "approved_at": "2026-07-02T16:00:00+00:00",
+    }), encoding="utf-8")
 
     code, result = _run_cli(
         monkeypatch, capsys,
         "submit", "--task", task["id"], "--role", "risk_redteam",
         "--file", str(finding_path), "--worker", "openclaw",
-        "--model", "fixture-model", "--reviewed-by", "risk-owner",
+        "--claim-id", order["claim_id"],
+        "--model", "fixture-model", "--approval-file", str(approval_path),
     )
     assert code == 0
     assert result["ok"] is True
@@ -132,6 +152,136 @@ def test_full_cycle_work_order_submit_and_synthesis(
     assert result["synthesis"]["synthesis"]["verdict"] == "rejected"
     assert os.path.exists(result["synthesis"]["synthesis"]["report_path"])
     assert bus.find_task(task["id"])["status"] == "rejected"
+
+
+def test_reviewed_by_alone_cannot_self_certify(
+    monkeypatch, capsys, tmp_path, config_file,
+):
+    _write_artifact("capital-flow")
+    task = _enqueue_anomaly(config_file)
+    _, order = _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
+    finding = {
+        "schema": "research_finding_v1",
+        "task_id": task["id"],
+        "role": "risk_redteam",
+        "stance": "oppose",
+        "confidence": 0.8,
+        "summary": "资金面证据与候选逻辑冲突。",
+        "evidence_refs": ["fact_artifacts.capital-flow"],
+        "risk_flags": ["capital_outflow"],
+    }
+    finding_path = tmp_path / "finding.json"
+    finding_path.write_text(json.dumps(finding), encoding="utf-8")
+
+    code, result = _run_cli(
+        monkeypatch, capsys,
+        "submit", "--task", task["id"], "--role", "risk_redteam",
+        "--file", str(finding_path), "--worker", "openclaw",
+        "--claim-id", order["claim_id"], "--model", "fixture-model",
+        "--reviewed-by", "arbitrary-name",
+    )
+
+    assert code == 0
+    assert result["synthesis"]["synthesis"]["verdict"] == "review_only"
+
+
+def test_mismatched_approval_fails_closed_before_submission(
+    monkeypatch, capsys, tmp_path, config_file,
+):
+    _write_artifact("capital-flow")
+    task = _enqueue_anomaly(config_file)
+    _, order = _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
+    finding = {
+        "schema": "research_finding_v1",
+        "task_id": task["id"],
+        "role": "risk_redteam",
+        "stance": "oppose",
+        "confidence": 0.8,
+        "summary": "资金面证据与候选逻辑冲突。",
+        "evidence_refs": ["fact_artifacts.capital-flow"],
+        "risk_flags": ["capital_outflow"],
+    }
+    finding_path = tmp_path / "finding.json"
+    finding_path.write_text(json.dumps(finding), encoding="utf-8")
+    approval_path = _trusted_approval_path(tmp_path)
+    approval_path.write_text(json.dumps({
+        "schema": "research_finding_approval_v1",
+        "task_id": task["id"],
+        "role": "risk_redteam",
+        "claim_id": "stale-claim",
+        "finding_sha256": runner.agent_evidence.finding_sha256(finding),
+        "status": "approved",
+        "reviewer": "risk-owner",
+        "approved_at": "2026-07-02T16:00:00+00:00",
+    }), encoding="utf-8")
+
+    code, result = _run_cli(
+        monkeypatch, capsys,
+        "submit", "--task", task["id"], "--role", "risk_redteam",
+        "--file", str(finding_path), "--worker", "openclaw",
+        "--claim-id", order["claim_id"], "--model", "fixture-model",
+        "--approval-file", str(approval_path),
+    )
+
+    assert code == 2
+    assert "approval_claim_mismatch" in result["errors"]
+    assert bus.find_task(task["id"])["roles"]["risk_redteam"]["status"] == "claimed"
+
+
+def test_approval_outside_trusted_root_or_via_symlink_is_rejected(
+    monkeypatch, capsys, tmp_path, config_file,
+):
+    _write_artifact("capital-flow")
+    task = _enqueue_anomaly(config_file)
+    _, order = _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
+    finding = {
+        "schema": "research_finding_v1",
+        "task_id": task["id"],
+        "role": "risk_redteam",
+        "stance": "oppose",
+        "confidence": 0.8,
+        "summary": "资金面证据与候选逻辑冲突。",
+        "evidence_refs": ["fact_artifacts.capital-flow"],
+        "risk_flags": ["capital_outflow"],
+    }
+    finding_path = tmp_path / "finding.json"
+    finding_path.write_text(json.dumps(finding), encoding="utf-8")
+    untrusted = tmp_path / "untrusted-approval.json"
+    untrusted.write_text(json.dumps({
+        "schema": "research_finding_approval_v1",
+        "task_id": task["id"],
+        "role": "risk_redteam",
+        "claim_id": order["claim_id"],
+        "finding_sha256": runner.agent_evidence.finding_sha256(finding),
+        "status": "approved",
+        "reviewer": "risk-owner",
+        "approved_at": "2026-07-02T16:00:00+00:00",
+    }), encoding="utf-8")
+
+    code, result = _run_cli(
+        monkeypatch, capsys,
+        "submit", "--task", task["id"], "--role", "risk_redteam",
+        "--file", str(finding_path), "--worker", "openclaw",
+        "--claim-id", order["claim_id"], "--model", "fixture-model",
+        "--approval-file", str(untrusted),
+    )
+    assert code == 2
+    assert "approval_path_untrusted" in result["errors"][0]
+
+    symlink = _trusted_approval_path(tmp_path, "approval-link.json")
+    symlink.symlink_to(untrusted)
+    code, result = _run_cli(
+        monkeypatch, capsys,
+        "submit", "--task", task["id"], "--role", "risk_redteam",
+        "--file", str(finding_path), "--worker", "openclaw",
+        "--claim-id", order["claim_id"], "--model", "fixture-model",
+        "--approval-file", str(symlink),
+    )
+    assert code == 2
+    assert (
+        "approval_path_untrusted" in result["errors"][0]
+        or "approval_path_symlink_rejected" in result["errors"][0]
+    )
 
 
 def test_unreviewed_model_finding_is_review_only():
@@ -165,7 +315,7 @@ def test_submit_rejects_contract_violations(
 ):
     _write_artifact("capital-flow")
     task = _enqueue_anomaly(config_file)
-    _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
+    _, order = _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
 
     bad = {
         "schema": "research_finding_v1",
@@ -181,7 +331,7 @@ def test_submit_rejects_contract_violations(
     code, result = _run_cli(
         monkeypatch, capsys,
         "submit", "--task", task["id"], "--role", "risk_redteam",
-        "--file", str(bad_path),
+        "--file", str(bad_path), "--claim-id", order["claim_id"],
     )
     assert code == 2
     assert result["ok"] is False
@@ -192,12 +342,12 @@ def test_submit_rejects_contract_violations(
 def test_abstain_command_completes_role(monkeypatch, capsys, config_file):
     _write_artifact("capital-flow")
     task = _enqueue_anomaly(config_file)
-    _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
+    _, order = _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
 
     code, result = _run_cli(
         monkeypatch, capsys,
         "abstain", "--task", task["id"], "--role", "risk_redteam",
-        "--reason", "证据包缺少盘口数据",
+        "--reason", "证据包缺少盘口数据", "--claim-id", order["claim_id"],
     )
     assert code == 0
     assert result["ok"] is True
@@ -207,12 +357,13 @@ def test_abstain_command_completes_role(monkeypatch, capsys, config_file):
 def test_status_and_fail_paths(monkeypatch, capsys, config_file):
     _write_artifact("capital-flow")
     task = _enqueue_anomaly(config_file)
-    _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
+    _, order = _run_cli(monkeypatch, capsys, "next", "--worker", "openclaw")
 
     code, result = _run_cli(
         monkeypatch, capsys,
         "fail", "--task", task["id"], "--role", "risk_redteam",
-        "--error", "model timeout",
+        "--error", "model timeout", "--worker", "openclaw",
+        "--claim-id", order["claim_id"],
     )
     assert code == 0
     assert result["role_status"] == "pending"

@@ -188,6 +188,7 @@ def build_request(
     allowed_state_reads: tuple[str, ...] = (),
     max_output_chars: int = agent_run_contract.DEFAULT_MAX_OUTPUT_CHARS,
     deadline: Optional[str] = None,
+    claim_id: Optional[str] = None,
     model: Optional[str] = None,
     model_metadata: Optional[Mapping[str, Any]] = None,
 ) -> AgentRunRequest:
@@ -202,6 +203,7 @@ def build_request(
         allowed_state_reads=tuple(allowed_state_reads),
         max_output_chars=max_output_chars,
         deadline=deadline,
+        claim_id=claim_id,
         model=model,
         model_metadata=dict(model_metadata or {}),
     )
@@ -230,6 +232,7 @@ def submit_result(
             result.role,
             ",".join(result.reason_codes) or result.status,
             retry=result.status != "blocked",
+            claim_id=result.claim_id,
             config=dict(config) if config else None,
             path=path,
             now=now,
@@ -239,6 +242,7 @@ def submit_result(
         result.role,
         finding,
         worker=worker,
+        claim_id=result.claim_id,
         config=dict(config) if config else None,
         path=path,
         now=now,

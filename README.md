@@ -22,7 +22,7 @@ A multi-agent research system for China's A-share market. Fifteen repository ski
 ```mermaid
 flowchart LR
     HB["launchd 60-second heartbeat"] --> DS["cron_dispatch.py manifest scheduler"]
-    MF["Cron manifest<br/>54 registered / 42 enabled"] --> DS
+    MF["Cron manifest<br/>56 registered / 44 enabled"] --> DS
     DS --> O["Runtime-neutral resumable DAG"]
     S["External data"] --> A["Shared data adapters"]
     PS["Official policy sources"] --> PW["official-policy-watch"]
@@ -92,7 +92,7 @@ background-task contract and stop/start instructions live in
 | **policy-intent-decoder** | Official policy source hierarchy, real-intent inference, transmission chain, beneficiary/pressure maps for stock-selection support | Official government/media sources |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
 | **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit. Five request-routing modes (theme scan, single-company challenge, candidate comparison, research-partner dialogue, learning mode); theme-scan reports separate a supply-chain-tier ranking from the company ranking and answer five questions per finalist. Deep reports must clear a hard lint floor (`report_lint.py`: ≥3 value-chain tiers, ≥20-name candidate universe, ≥25-source evidence ledger, a mandatory "downgraded consensus picks" section). The weighted scorecard flows back into the four-dim deep dimension via a freshness-decayed cache | cninfo, pypdf, `web_search.py` |
-| **research-committee** | Multi-expert research plane: a panel of specialist experts (see `skills/research-committee/experts/`) debates a thesis before it reaches the evidence layer; orchestrated via `skills/research-committee/SKILL.md` | Internal, consumes other skills' evidence |
+| **research-committee** | Multi-expert research plane with claim fencing, immutable PIT evidence packs, bounded round-specific debate, fail-closed adjudication, independently bound approvals, deterministic single-winner synthesis, and research-only execution-plan/calibration artifacts | Internal; consumes immutable evidence from other skills |
 | **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(15%) × catalyst(30%) × deep(25%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals and (at zero weight until gated) emotion-cycle features | All above |
 | **hk-a-linkage** | AH premium spreads, HSI divergence, key HK stock movements | Tencent, yfinance |
 | **capital-flow-monitor** | Northbound flows, institutional/retail flows, sector-level flows | Eastmoney |
@@ -351,7 +351,7 @@ All jobs are defined in [`cron/hermes-cron-manifest.json`](cron/hermes-cron-mani
 Despite the historical filename, the manifest is shared by Hermes, OpenClaw,
 system cron, and local runs.
 
-The current manifest registers **54 jobs, 42 enabled**. On the documented macOS
+The current manifest registers **56 jobs, 44 enabled**. On the documented macOS
 deployment, launchd invokes `scripts/cron_dispatch.py` once per minute; the
 dispatcher handles cron matching and same-minute deduplication before starting
 the due DAG command. `AUTOPILOT.md` is the source of truth for the installed
@@ -455,6 +455,44 @@ named `blocked`/`failed` state with no finding, so a failure can never be merged
 into a synthesis as neutral or supporting evidence. Findings that claim live
 ranking weight, request a T+1 bypass or ask for a strategy promotion are blocked
 outright.
+
+### Research committee integrity path
+
+The research committee turns those bounded agent calls into a replayable,
+research-only workflow:
+
+1. `research-dispatch` deterministically enqueues tasks from DAG facts.
+   `expert_runner.py next` claims one `(task, role)` lease with a fenced
+   `claim_id`; an expired or superseded claim cannot submit.
+2. Each role receives an immutable, content-addressed PIT evidence pack. Debate
+   escalation creates a new pack bound to the prior round instead of reading a
+   mutable blackboard.
+3. A non-abstain finding is bound to its task, role, claim, output, tool inputs
+   and evidence hashes. It remains review-only unless an independently written
+   approval under
+   `$A_STOCK_STATE_HOME/approvals/research-committee/` also validates.
+4. Synthesis is deterministic and idempotent. Conflicts can escalate only for
+   the configured number of rounds; the adjudicator is valid only in the final
+   authorized round and otherwise fails closed.
+5. Fundamental inputs are append-only `fundamental_facts_v1` PIT snapshots.
+   Execution-plan compilation requires fresh market, portfolio, quality and
+   strategy contexts plus a bound synthesis or proposal approval. Its output is
+   always `execution_eligible=false` and has no broker/order side effect.
+6. Expert calibration requires unique decision keys, settled outcomes and
+   matching OOS dataset/batch lineage. It creates a human-review registry and
+   never rewrites expert or strategy weights automatically.
+
+Operational entry points:
+
+```bash
+python scripts/research_dispatch.py --kind deep_debate --code 600519 --reason "review"
+python scripts/expert_runner.py next --worker hermes
+python scripts/expert_runner.py status
+python scripts/expert_runner.py synthesize
+python scripts/fundamentals_snapshot.py --help
+python scripts/compile_research_execution_plan.py --help
+python scripts/expert_calibration.py --help
+```
 
 Replay the frozen evaluation set with:
 
@@ -674,7 +712,7 @@ a-stock-agent-system/
 ├── config/nl_screening.yaml     # NL screening condition templates (generic, no hardcoded picks)
 ├── config/web_search.json      # Web-search provider order/timeout/max_results (non-secret)
 ├── config/strategy_packs/       # dragon_head.yaml, emotion_cycle.yaml (explanatory only)
-├── cron/hermes-cron-manifest.json  # 54 registered jobs (42 currently enabled), typed argv
+├── cron/hermes-cron-manifest.json  # 56 registered jobs (44 currently enabled), typed argv
 ├── evals/agent_harness/        # Frozen agent replay cases + evidence-pack fixtures
 ├── scripts/
 │   ├── cron_dispatch.py        # launchd heartbeat → due manifest jobs (shell=False)
@@ -682,6 +720,10 @@ a-stock-agent-system/
 │   ├── run_agent_dag.py        # Dependency ordering, retry, resume
 │   ├── execution_trace_report.py  # Shadow-gate report over the execution trace
 │   ├── evaluate_agent_harness.py  # Deterministic agent replay evaluation
+│   ├── expert_runner.py       # Fenced committee claims and finding submission
+│   ├── fundamentals_snapshot.py # Append-only PIT fundamental snapshot writer
+│   ├── compile_research_execution_plan.py # Research-only gated plan compiler
+│   ├── expert_calibration.py  # Strict OOS expert review/calibration artifacts
 │   ├── agent_state_projector.py # Ledger-to-agent current-state projection
 │   ├── agent_runtime_context.py # Required state refresh for agent reasoning
 │   ├── hermes_job_runner.py    # Backward-compatible runner implementation
@@ -697,7 +739,9 @@ a-stock-agent-system/
 ├── skills/
 │   ├── common/                 # Adapters, snapshots, policy, ledger, shared state,
 │   │                           # execution_trace, manifest_command, agent_run_contract,
-│   │                           # agent_runtime_adapter,
+│   │                           # agent_runtime_adapter, research_bus/synthesis,
+│   │                           # fundamentals_snapshot, research_execution_plan,
+│   │                           # expert_calibration,
 │   │                           # nl_screening, interactive_qa, news_sources, strategy_packs,
 │   │                           # emotion_cycle_features, reflexivity, paper_trading, web_search
 │   ├── stock-triage/           # Orchestrator hub

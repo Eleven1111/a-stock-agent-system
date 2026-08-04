@@ -14,18 +14,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import site
 import sys
 from datetime import datetime, timezone
 from typing import Any
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-sys.path.insert(0, COMMON)
+site.addsitedir(COMMON)
 
 import evidence_pack  # noqa: E402
 import agent_evidence  # noqa: E402
+import agent_run_contract  # noqa: E402
 import research_bus  # noqa: E402
 import research_synthesis  # noqa: E402
+import agent_runtime_adapter  # noqa: E402
 from runtime_context import resolve_runtime_name  # noqa: E402
 from state_store import read_json  # noqa: E402
 
@@ -123,7 +126,9 @@ def _auto_abstain(
         "abstain_reason": reason,
     }
     result = research_bus.submit_finding(
-        str(task.get("id")), role, finding, config=config,
+        str(task.get("id")), role, finding,
+        claim_id=str(((task.get("roles") or {}).get(role) or {}).get("claim_id") or ""),
+        config=config,
     )
     outcome: dict[str, Any] = {
         "status": "abstained_insufficient_evidence",
@@ -157,6 +162,7 @@ def cmd_next(args: argparse.Namespace, config: dict[str, Any]) -> int:
         "schema": "research_work_order_v1",
         "status": "work",
         "worker": worker,
+        "claim_id": work.get("claim_id"),
         "task_id": task.get("id"),
         "kind": task.get("kind"),
         "role": role,
@@ -169,11 +175,13 @@ def cmd_next(args: argparse.Namespace, config: dict[str, Any]) -> int:
         "submit_command": (
             f"python scripts/expert_runner.py submit "
             f"--task {task.get('id')} --role {role} --model <model-version> "
+            f"--claim-id {work.get('claim_id')} "
             f"--file <finding.json>"
         ),
         "abstain_command": (
             f"python scripts/expert_runner.py abstain "
-            f"--task {task.get('id')} --role {role} --reason <为何弃权>"
+            f"--task {task.get('id')} --role {role} "
+            f"--claim-id {work.get('claim_id')} --reason <为何弃权>"
         ),
     })
     return 0
@@ -186,6 +194,87 @@ def _read_finding(args: argparse.Namespace) -> Any:
     return json.load(sys.stdin)
 
 
+def _read_approval(path: str | None) -> Any:
+    if not path:
+        return None
+    return agent_evidence.load_trusted_finding_approval(path)
+
+
+def _attach_finding_manifest(
+    finding: Any,
+    *,
+    args: argparse.Namespace,
+    task: dict[str, Any],
+    pack: dict[str, Any] | None,
+    config: dict[str, Any],
+    submitter: str,
+    approval: Any,
+) -> None:
+    if (
+        not isinstance(finding, dict)
+        or not pack
+        or finding.get("stance") == "abstain"
+    ):
+        return
+    prompt = _profile_text(args.role, config) + json.dumps(
+        _output_contract(task, args.role, config),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    finding["model_run_manifest"] = agent_evidence.build_finding_manifest(
+        model=args.model or os.environ.get("A_STOCK_MODEL_VERSION", ""),
+        prompt=prompt,
+        evidence_pack=pack,
+        evidence_refs=finding.get("evidence_refs") or [],
+        tool_inputs=finding.get("tool_inputs") or {},
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        finding=finding,
+        approval=approval,
+        approval_ref=args.approval_file or "",
+        task_id=args.task,
+        role=args.role,
+        claim_id=args.claim_id,
+        submitter=submitter,
+    )
+
+
+def _submit_finding_result(
+    finding: Any,
+    *,
+    args: argparse.Namespace,
+    task: dict[str, Any],
+    pack: dict[str, Any] | None,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    request = agent_runtime_adapter.build_request(
+        task,
+        args.role,
+        runtime=args.runtime or os.environ.get("A_STOCK_RUNTIME", "hermes"),
+        output_schema=research_bus.FINDING_SCHEMA,
+        max_output_chars=int(
+            _output_contract(task, args.role, config).get("max_finding_chars")
+            or 10000
+        ),
+        claim_id=args.claim_id,
+        model=args.model,
+    )
+    status = (
+        "abstained"
+        if isinstance(finding, dict) and finding.get("stance") == "abstain"
+        else "completed"
+    )
+    parsed = agent_run_contract.parse_result(
+        {"status": status, "finding": finding},
+        request=request,
+        evidence_pack=pack,
+    )
+    return agent_runtime_adapter.submit_result(
+        parsed,
+        worker=args.worker,
+        config=config,
+    )
+
+
 def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
     try:
         finding = _read_finding(args)
@@ -193,26 +282,42 @@ def cmd_submit(args: argparse.Namespace, config: dict[str, Any]) -> int:
         _print({"ok": False, "errors": [f"cannot read finding JSON: {error}"]})
         return 2
     task = research_bus.find_task(args.task)
+    role_state = ((task or {}).get("roles") or {}).get(args.role) or {}
+    submitter = str(args.worker or role_state.get("claimed_by") or "")
     ref = str((task or {}).get("evidence_pack_ref") or "")
     pack = evidence_pack.load_pack(ref) if ref else None
-    if isinstance(finding, dict) and pack and finding.get("stance") != "abstain":
-        prompt = _profile_text(args.role, config) + json.dumps(
-            _output_contract(task or {}, args.role, config),
-            ensure_ascii=False,
-            sort_keys=True,
+    try:
+        approval = _read_approval(args.approval_file)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        _print({"ok": False, "errors": [f"cannot read approval JSON: {error}"]})
+        return 2
+    if approval is not None:
+        approval_errors = agent_evidence.validate_finding_approval(
+            approval,
+            task_id=args.task,
+            role=args.role,
+            claim_id=args.claim_id,
+            finding=finding if isinstance(finding, dict) else {},
+            submitter=submitter,
         )
-        finding["model_run_manifest"] = agent_evidence.build_finding_manifest(
-            model=args.model or os.environ.get("A_STOCK_MODEL_VERSION", ""),
-            prompt=prompt,
-            evidence_pack=pack,
-            evidence_refs=finding.get("evidence_refs") or [],
-            tool_inputs=finding.get("tool_inputs") or {},
-            generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            review_status="reviewed" if args.reviewed_by else "unreviewed",
-            reviewed_by=args.reviewed_by or "",
-        )
-    result = research_bus.submit_finding(
-        args.task, args.role, finding, worker=args.worker, config=config,
+        if approval_errors:
+            _print({"ok": False, "errors": approval_errors})
+            return 2
+    _attach_finding_manifest(
+        finding,
+        args=args,
+        task=task or {},
+        pack=pack,
+        config=config,
+        submitter=submitter,
+        approval=approval,
+    )
+    result = _submit_finding_result(
+        finding,
+        args=args,
+        task=task or {},
+        pack=pack,
+        config=config,
     )
     if not result.get("ok"):
         _print(result)
@@ -236,7 +341,8 @@ def cmd_abstain(args: argparse.Namespace, config: dict[str, Any]) -> int:
         "abstain_reason": args.reason,
     }
     result = research_bus.submit_finding(
-        args.task, args.role, finding, worker=args.worker, config=config,
+        args.task, args.role, finding, worker=args.worker,
+        claim_id=args.claim_id, config=config,
     )
     if result.get("ok") and result.get("all_roles_done"):
         result["synthesis"] = research_synthesis.synthesize_task(
@@ -249,7 +355,8 @@ def cmd_abstain(args: argparse.Namespace, config: dict[str, Any]) -> int:
 def cmd_fail(args: argparse.Namespace, config: dict[str, Any]) -> int:
     result = research_bus.fail_role(
         args.task, args.role, args.error,
-        retry=not args.no_retry, config=config,
+        retry=not args.no_retry, worker=args.worker,
+        claim_id=args.claim_id, config=config,
     )
     _print(result)
     return 0 if result.get("ok") else 1
@@ -284,10 +391,19 @@ def main() -> int:
     submit.add_argument("--role", required=True)
     submit.add_argument("--file")
     submit.add_argument("--worker")
+    submit.add_argument("--claim-id", required=True)
     submit.add_argument("--model")
+    submit.add_argument("--runtime")
+    submit.add_argument(
+        "--approval-file",
+        help=(
+            "独立 research_finding_approval_v1 JSON；必须绑定 "
+            "task/role/claim/finding hash"
+        ),
+    )
     submit.add_argument(
         "--reviewed-by",
-        help="明确记录已完成人工复核的责任人；缺省输出只能进入 review-only",
+        help="已弃用，仅作兼容记录；不能授予 execution eligibility",
     )
 
     abstain = sub.add_parser("abstain", help="主动弃权")
@@ -295,12 +411,15 @@ def main() -> int:
     abstain.add_argument("--role", required=True)
     abstain.add_argument("--reason", required=True)
     abstain.add_argument("--worker")
+    abstain.add_argument("--claim-id", required=True)
 
     fail = sub.add_parser("fail", help="上报角色执行失败")
     fail.add_argument("--task", required=True)
     fail.add_argument("--role", required=True)
     fail.add_argument("--error", required=True)
     fail.add_argument("--no-retry", action="store_true")
+    fail.add_argument("--worker")
+    fail.add_argument("--claim-id", required=True)
 
     status = sub.add_parser("status", help="查看队列/任务状态")
     status.add_argument("--task")

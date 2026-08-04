@@ -23,7 +23,7 @@ A 股多智能体投研系统。15 个仓内专业 Skill、四维打分引擎、
 ```mermaid
 flowchart LR
     HB["launchd 每60秒心跳"] --> DS["cron_dispatch.py manifest 调度器"]
-    MF["Cron manifest<br/>54个登记任务 / 42个启用"] --> DS
+    MF["Cron manifest<br/>56个登记任务 / 44个启用"] --> DS
     DS --> O["跨运行时可恢复 DAG"]
     S["外部数据源"] --> A["统一 Data Adapters"]
     PS["一手官方政策源"] --> PW["official-policy-watch"]
@@ -90,7 +90,7 @@ flowchart LR
 | **policy-intent-decoder** | 官方政策来源位阶、真实意图、传导链、受益/承压方向和选股辅助维度 | 政府/官媒官方来源 |
 | **news-to-sector** | 实时资讯→18条产业链映射 + 预期差分析 | SerpAPI |
 | **serenity-investment-research** | 深度投研：供应链拆解、财务分析、估值情景、熊市审计。五种请求路由模式（主题扫描/单公司挑战/候选对比/研究伙伴对话/学习模式）；主题扫描先给产业链层级排序再给公司排序，每个最终候选要回答五问；深度报告需过 `report_lint.py` 硬闸（≥3个价值链层级、候选宇宙≥20家、证据台账≥25条来源、必含"被降级的热门方向"章节）。加权评分卡通过带新鲜度衰减的缓存回流四维评分的深度维度 | cninfo、pypdf、`web_search.py` |
-| **research-committee** | 多专家研究平面：一组专家（见 `skills/research-committee/experts/`）在结论进入证据层之前先做交叉质询辩论，由 `skills/research-committee/SKILL.md` 编排 | 内部，消费其他 Skill 的证据 |
+| **research-committee** | 多专家研究平面：claim fencing、不可变 PIT 证据包、有界逐轮辩论、fail-closed 裁决、独立绑定审批、单赢家确定性合成，以及 research-only 执行计划与校准 artifact | 内部，消费其他 Skill 的不可变证据 |
 | **four-dim scorer** | S/A/B/C 加权分级：技术(30%)×情绪(15%)×催化(30%)×深度(25%)。深度维度由 Serenity 驱动（非简单PE分桶）；技术维度纳入已过闸的缠论结构信号 | 以上全部 |
 | **hk-a-linkage** | AH溢价率、恒生背离、港股权重异动 | 腾讯、yfinance |
 | **capital-flow-monitor** | 北向资金、主力/散户资金、板块资金 | 东方财富 |
@@ -309,7 +309,7 @@ export SEARXNG_BASE_URLS=https://searxng1.example.com,https://searxng2.example.c
 所有任务定义在 [`cron/hermes-cron-manifest.json`](cron/hermes-cron-manifest.json)。
 文件名为历史兼容命名，manifest 实际由 Hermes、OpenClaw、system cron 和本地运行共用。
 
-当前 manifest 共登记 **54 个任务，其中 42 个启用**。在文档登记的 macOS 部署中，
+当前 manifest 共登记 **56 个任务，其中 44 个启用**。在文档登记的 macOS 部署中，
 launchd 每分钟调用一次 `scripts/cron_dispatch.py`；dispatcher 负责 cron 匹配和同分钟去重，
 然后启动到期任务对应的 DAG 命令。`AUTOPILOT.md` 是已安装后台进程的事实源，manifest
 仍是任务定义、启用状态、时间表、交付方式和执行命令的事实源。
@@ -393,6 +393,37 @@ OpenClaw 实现同一接口，由同一套 conformance 测试覆盖。
 错误、证据引用无法解析、输出过长、使用未声明工具、以及任何声明过的事实平面写入，都会映射
 到具名的 `blocked`/`failed` 终态且不产出 finding，因此一次失败永远不会被合成为中性或支持性
 证据。声称获得实盘权重、要求绕过 T+1 或要求策略晋级的 finding 一律直接 blocked。
+
+### 研究委员会完整性链路
+
+研究委员会把有界 Agent 调用组织成可回放、仅用于研究的工作流：
+
+1. `research-dispatch` 根据 DAG 事实确定性入队；`expert_runner.py next` 用带 fencing 的
+   `claim_id` 认领一个 `(task, role)` 租约，过期或已被替换的 claim 无法提交。
+2. 每个角色只接收不可变、内容寻址的 PIT 证据包。争议升级会生成绑定上一轮 finding 的新
+   证据包，不直接读取可变黑板。
+3. 非 abstain finding 同时绑定 task、role、claim、输出、工具输入和证据哈希；只有模型可写区
+   之外的 `$A_STOCK_STATE_HOME/approvals/research-committee/` 独立审批也校验通过，才会
+   脱离 review-only。
+4. 合成过程确定且幂等。冲突只能在配置的轮数内升级；adjudicator 只允许在最终合法轮次裁决，
+   其他情况一律 fail closed。
+5. 基本面输入使用只追加的 `fundamental_facts_v1` PIT 快照。执行计划必须同时校验新鲜的市场、
+   组合、质量和策略上下文，以及已绑定的 synthesis 或 proposal approval；输出始终
+   `execution_eligible=false`，无券商或下单副作用。
+6. 专家校准要求唯一决策键、最终结算结果和一致的 OOS dataset/batch lineage；它只生成
+   人工复核 registry，不会自动修改专家或策略权重。
+
+常用入口：
+
+```bash
+python scripts/research_dispatch.py --kind deep_debate --code 600519 --reason "复核"
+python scripts/expert_runner.py next --worker hermes
+python scripts/expert_runner.py status
+python scripts/expert_runner.py synthesize
+python scripts/fundamentals_snapshot.py --help
+python scripts/compile_research_execution_plan.py --help
+python scripts/expert_calibration.py --help
+```
 
 回放固定评测集：
 
@@ -575,11 +606,15 @@ a-stock-agent-system/
 ├── config/reflexivity_strategy.json # 反身性防守护栏版本、阈值与配置指纹
 ├── config/paper_trading.json   # 10万元模拟账户、Chanlun门槛与成交纪律
 ├── config/strategy_packs/       # dragon_head.yaml、emotion_cycle.yaml（纯解释性）
-├── cron/hermes-cron-manifest.json  # 54个登记任务（当前42个启用）
+├── cron/hermes-cron-manifest.json  # 56个登记任务（当前44个启用）
 ├── scripts/
 │   ├── cron_dispatch.py        # launchd心跳→到期manifest任务
 │   ├── agent_job_runner.py     # Hermes/OpenClaw共用任务入口
 │   ├── run_agent_dag.py        # 依赖排序、重试、断点续跑
+│   ├── expert_runner.py        # 研究委员会 fencing 认领与 finding 提交
+│   ├── fundamentals_snapshot.py # 只追加的 PIT 基本面快照写入器
+│   ├── compile_research_execution_plan.py # research-only 门控执行计划编译器
+│   ├── expert_calibration.py   # 严格 OOS 专家复核/校准 artifact
 │   ├── agent_state_projector.py # 账本到Agent当前状态投影
 │   ├── agent_runtime_context.py # Agent推理前强制刷新统一状态
 │   ├── hermes_job_runner.py    # 兼容保留的runner实现
@@ -593,6 +628,8 @@ a-stock-agent-system/
 ├── tests/                      # 全量回归测试
 ├── skills/
 │   ├── common/                 # 共享HTTP/状态 + 候选排序/生命周期，
+│   │                           # research_bus/synthesis、fundamentals_snapshot、
+│   │                           # research_execution_plan、expert_calibration、
 │   │                           # nl_screening、interactive_qa、news_sources、
 │   │                           # strategy_packs、emotion_cycle_features、web_search
 │   ├── stock-triage/           # 编排中枢
