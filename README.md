@@ -22,7 +22,7 @@ A multi-agent research system for China's A-share market. Fifteen repository ski
 ```mermaid
 flowchart LR
     HB["launchd 60-second heartbeat"] --> DS["cron_dispatch.py manifest scheduler"]
-    MF["Cron manifest<br/>54 registered / 42 enabled"] --> DS
+    MF["Cron manifest<br/>56 registered / 44 enabled"] --> DS
     DS --> O["Runtime-neutral resumable DAG"]
     S["External data"] --> A["Shared data adapters"]
     PS["Official policy sources"] --> PW["official-policy-watch"]
@@ -92,7 +92,7 @@ background-task contract and stop/start instructions live in
 | **policy-intent-decoder** | Official policy source hierarchy, real-intent inference, transmission chain, beneficiary/pressure maps for stock-selection support | Official government/media sources |
 | **news-to-sector** | Real-time news → 18 supply-chain impact maps with divergence analysis | SerpAPI |
 | **serenity-investment-research** | Deep-dive: supply chain, financials, valuation scenarios, bear-case audit. Five request-routing modes (theme scan, single-company challenge, candidate comparison, research-partner dialogue, learning mode); theme-scan reports separate a supply-chain-tier ranking from the company ranking and answer five questions per finalist. Deep reports must clear a hard lint floor (`report_lint.py`: ≥3 value-chain tiers, ≥20-name candidate universe, ≥25-source evidence ledger, a mandatory "downgraded consensus picks" section). The weighted scorecard flows back into the four-dim deep dimension via a freshness-decayed cache | cninfo, pypdf, `web_search.py` |
-| **research-committee** | Multi-expert research plane: a panel of specialist experts (see `skills/research-committee/experts/`) debates a thesis before it reaches the evidence layer; orchestrated via `skills/research-committee/SKILL.md` | Internal, consumes other skills' evidence |
+| **research-committee** | Multi-expert research plane with claim fencing, immutable PIT evidence packs, bounded round-specific debate, fail-closed adjudication, independently bound approvals, deterministic single-winner synthesis, and research-only execution-plan/calibration artifacts | Internal; consumes immutable evidence from other skills |
 | **four-dim scorer** | Weighted S/A/B/C grading: technical(30%) × sentiment(15%) × catalyst(30%) × deep(25%). Deep dimension is Serenity-backed (not a PE bucket); technical dimension folds in gated Chan-structure signals and (at zero weight until gated) emotion-cycle features | All above |
 | **hk-a-linkage** | AH premium spreads, HSI divergence, key HK stock movements | Tencent, yfinance |
 | **capital-flow-monitor** | Northbound flows, institutional/retail flows, sector-level flows | Eastmoney |

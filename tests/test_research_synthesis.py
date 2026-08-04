@@ -1,8 +1,11 @@
 import json
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+import agent_evidence
 import research_bus as bus
 import research_synthesis as synthesis
 
@@ -79,7 +82,7 @@ def _run_task(config, stances):
         stance, confidence = stances[role]
         result = bus.submit_finding(
             task_id, role, _finding(task_id, role, stance, confidence),
-            config=config,
+            claim_id=work["claim_id"], config=config,
         )
         assert result["ok"], result
     return task_id
@@ -99,6 +102,8 @@ def test_unanimous_support_advances_with_gated_proposal(config):
     proposal = json.load(open(record["proposal_path"], encoding="utf-8"))
     assert proposal["policy_gate_required"] is True
     assert proposal["live_effect"].startswith("none_until")
+    assert proposal["synthesis_sha256"] == record["synthesis_sha256"]
+    assert proposal["synthesis_ref"].endswith("/synthesis.json")
     assert os.path.exists(record["report_path"])
     task = bus.find_task(task_id)
     assert task["status"] == "done"
@@ -107,6 +112,233 @@ def test_unanimous_support_advances_with_gated_proposal(config):
         event = json.loads(handle.readline())
     assert event["event_type"] == "research.synthesized"
 
+
+def test_terminal_synthesis_is_idempotent_and_does_not_append_ledger_again(config):
+    task_id = _run_task(config, {
+        "evidence_auditor": ("neutral", 0.5),
+        "thesis_builder": ("neutral", 0.4),
+        "risk_redteam": ("neutral", 0.5),
+    })
+    first = synthesis.synthesize_task(task_id, config=config, now="2026-07-02T16:00:00")
+    second = synthesis.synthesize_task(task_id, config=config, now="2026-07-02T17:00:00")
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert second["idempotent"] is True
+    with open(bus.ledger_file(), encoding="utf-8") as handle:
+        events = [json.loads(line) for line in handle if line.strip()]
+    assert [event["event_type"] for event in events].count("research.synthesized") == 1
+
+
+def test_concurrent_synthesis_has_one_commit_winner(monkeypatch, config):
+    task_id = _run_task(config, {
+        "evidence_auditor": ("support", 0.7),
+        "thesis_builder": ("support", 0.8),
+        "risk_redteam": ("neutral", 0.5),
+    })
+    original = synthesis._persist_synthesis
+
+    def slow_persist(*args, **kwargs):
+        time.sleep(0.05)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(synthesis, "_persist_synthesis", slow_persist)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(
+            lambda _: synthesis.synthesize_task(task_id, config=config),
+            range(2),
+        ))
+
+    assert sum(not result.get("idempotent", False) for result in results) == 1
+    assert sum(bool(result.get("idempotent")) for result in results) == 1
+    with open(bus.ledger_file(), encoding="utf-8") as handle:
+        events = [json.loads(line) for line in handle if line.strip()]
+    assert [event["event_type"] for event in events].count("research.synthesized") == 1
+    report_paths = {
+        result["synthesis"]["report_path"] for result in results
+    }
+    proposal_paths = {
+        result["synthesis"]["proposal_path"] for result in results
+    }
+    assert len(report_paths) == len(proposal_paths) == 1
+
+
+def test_risk_triad_opposition_is_disputed_before_any_live_proposal(config):
+    findings = {
+        "risk_redteam": _finding("t", "risk_redteam", "oppose", 0.4),
+        "risk_aggressive": _finding("t", "risk_aggressive", "oppose", 0.4),
+        "risk_neutral": {
+            **_finding("t", "risk_neutral", "oppose", 0.4),
+            "strategy_suggestion": "watch",
+        },
+    }
+    decision = synthesis.decide_verdict(findings, config["synthesis"])
+    assert decision == {"verdict": "disputed", "basis": "risk_triad_unanimous_oppose"}
+
+
+def test_risk_redteam_veto_wins_even_when_risk_triad_unanimously_opposes(config):
+    findings = {
+        "risk_redteam": _finding("t", "risk_redteam", "oppose", 0.8),
+        "risk_aggressive": _finding("t", "risk_aggressive", "oppose", 0.7),
+        "risk_neutral": {
+            **_finding("t", "risk_neutral", "oppose", 0.7),
+            "strategy_suggestion": "watch",
+        },
+    }
+
+    assert synthesis.decide_verdict(findings, config["synthesis"]) == {
+        "verdict": "rejected",
+        "basis": "risk_redteam_veto",
+    }
+
+
+def test_adjudicator_can_resolve_only_configured_final_escalation_round():
+    findings = {
+        "evidence_auditor": _finding("t", "evidence_auditor", "support", 0.8),
+        "risk_redteam": _finding("t", "risk_redteam", "oppose", 0.8),
+        "adjudicator": {
+            **_finding("t", "adjudicator", "support", 0.7),
+            "adjudication_points": ["证据时点一致"],
+            "evidence_refs": ["peer_findings.findings.risk_redteam"],
+        },
+    }
+    decision = synthesis.decide_verdict(
+        findings,
+        {"veto_confidence": 0.95, "conflict_confidence": 0.6,
+         "advance_min_support_confidence": 0.9,
+         "escalation": {
+             "enabled": True,
+             "max_rounds": 1,
+             "adjudicator": {"enabled": True, "min_confidence": 0.7},
+         }},
+        task={
+            "escalation_round": 1,
+            "expert_plan": ["evidence_auditor", "risk_redteam", "adjudicator"],
+        },
+    )
+    assert decision["verdict"] == "adjudicated"
+    assert decision["final_stance"] == "support"
+
+    too_early = synthesis.decide_verdict(
+        findings,
+        {"veto_confidence": 0.95, "conflict_confidence": 0.6,
+         "advance_min_support_confidence": 0.9,
+         "escalation": {
+             "enabled": True,
+             "max_rounds": 2,
+             "adjudicator": {"enabled": True, "min_confidence": 0.7},
+         }},
+        task={
+            "escalation_round": 1,
+            "expert_plan": ["evidence_auditor", "risk_redteam", "adjudicator"],
+        },
+    )
+    assert too_early["verdict"] == "disputed"
+    assert too_early["final_stance"] == "oppose"
+
+
+def test_adjudicator_low_confidence_or_missing_peer_evidence_fails_closed():
+    base = {
+        "evidence_auditor": _finding("t", "evidence_auditor", "support", 0.8),
+        "risk_redteam": _finding("t", "risk_redteam", "oppose", 0.8),
+    }
+    cfg = {
+        "veto_confidence": 0.95,
+        "conflict_confidence": 0.6,
+        "advance_min_support_confidence": 0.9,
+        "escalation": {
+            "enabled": True,
+            "max_rounds": 1,
+            "adjudicator": {"enabled": True, "min_confidence": 0.7},
+        },
+    }
+    task = {
+        "escalation_round": 1,
+        "expert_plan": ["evidence_auditor", "risk_redteam", "adjudicator"],
+    }
+
+    low_confidence = synthesis.decide_verdict({
+        **base,
+        "adjudicator": {
+            **_finding("t", "adjudicator", "support", 0.69),
+            "adjudication_points": ["冲突未充分消解"],
+            "evidence_refs": ["peer_findings.findings.risk_redteam"],
+        },
+    }, cfg, task=task)
+    missing_peer_ref = synthesis.decide_verdict({
+        **base,
+        "adjudicator": {
+            **_finding("t", "adjudicator", "support", 0.9),
+            "adjudication_points": ["未引用同轮冲突意见"],
+        },
+    }, cfg, task=task)
+
+    assert low_confidence["verdict"] == "disputed"
+    assert low_confidence["final_stance"] == "oppose"
+    assert "confidence" in low_confidence["basis"]
+    assert missing_peer_ref["verdict"] == "disputed"
+    assert missing_peer_ref["final_stance"] == "oppose"
+    assert "peer_evidence" in missing_peer_ref["basis"]
+
+    nonexistent_peer = synthesis.decide_verdict({
+        **base,
+        "adjudicator": {
+            **_finding("t", "adjudicator", "support", 0.9),
+            "adjudication_points": ["引用了不存在的同轮意见"],
+            "evidence_refs": ["peer_findings.findings.nonexistent"],
+        },
+    }, cfg, task=task)
+    assert nonexistent_peer["verdict"] == "disputed"
+    assert "peer_evidence" in nonexistent_peer["basis"]
+
+
+def test_adjudicator_final_stance_is_persisted(config):
+    config["task_kinds"]["candidate_deep_dive"]["experts"] = [
+        "evidence_auditor", "risk_redteam", "adjudicator",
+    ]
+    config["experts"]["adjudicator"] = {"max_output_chars": 5000}
+    config["synthesis"].update({
+        "veto_confidence": 0.95,
+        "escalation": {
+            "enabled": True,
+            "max_rounds": 1,
+            "adjudicator": {"enabled": True, "min_confidence": 0.7},
+        },
+    })
+    created = bus.enqueue_task(
+        "candidate_deep_dive",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="test_adjudication",
+        trading_date="2026-07-02",
+        config=config,
+    )
+    task_id = created["task"]["id"]
+    bus.update_task(task_id, {"escalation_round": 1})
+    for _ in range(3):
+        work = bus.claim_next_work("hermes", config=config)
+        role = work["role"]
+        if role == "adjudicator":
+            finding = {
+                **_finding(task_id, role, "support", 0.8),
+                "evidence_refs": ["peer_findings.findings.risk_redteam"],
+                "adjudication_points": ["风险反证不足以推翻主论点"],
+            }
+        elif role == "risk_redteam":
+            finding = _finding(task_id, role, "oppose", 0.8)
+        else:
+            finding = _finding(task_id, role, "support", 0.8)
+        assert bus.submit_finding(
+            task_id,
+            role,
+            finding,
+            claim_id=work["claim_id"],
+            config=config,
+        )["ok"]
+
+    result = synthesis.synthesize_task(task_id, config=config)
+
+    assert result["synthesis"]["verdict"] == "adjudicated"
+    assert result["synthesis"]["final_stance"] == "support"
+    assert bus.find_task(task_id)["final_stance"] == "support"
 
 def test_risk_redteam_veto_rejects(config):
     task_id = _run_task(config, {
@@ -176,6 +408,14 @@ def test_bounded_escalation_reopens_conflicting_roles_once(config):
     assert task["escalation_round"] == 1
     assert task["roles"]["thesis_builder"]["status"] == "pending"
     assert task["roles"]["risk_redteam"]["status"] == "pending"
+    assert task["evidence_pack_ref"] != first.get("previous_evidence_pack_ref")
+    refreshed_pack = __import__("evidence_pack").load_pack(task["evidence_pack_ref"])
+    assert refreshed_pack["payload"]["manifest"]["escalation_round"] == 1
+    assert len(refreshed_pack["payload"]["manifest"]["peer_context_sha256"]) == 64
+    assert agent_evidence.validate_reference_paths(
+        refreshed_pack,
+        ["peer_findings.findings.risk_redteam"],
+    ) == []
 
     for _ in range(2):
         work = bus.claim_next_work("openclaw", config=config)
@@ -183,12 +423,58 @@ def test_bounded_escalation_reopens_conflicting_roles_once(config):
         stance, confidence = stances[role]
         assert bus.submit_finding(
             task_id, role, _finding(task_id, role, stance, confidence),
-            config=config,
+            claim_id=work["claim_id"], config=config,
         )["ok"]
 
     second = synthesis.synthesize_task(task_id, config=config)
     assert second["synthesis"]["verdict"] == "disputed"
     assert bus.find_task(task_id)["status"] == "done"
+
+
+def test_evidence_pack_uses_task_created_at_as_fundamentals_cutoff(
+    monkeypatch, config,
+):
+    import evidence_pack
+    import fundamentals_snapshot
+
+    calls = []
+    monkeypatch.setattr(
+        fundamentals_snapshot,
+        "read_latest_fundamentals",
+        lambda code, **kwargs: calls.append((code, kwargs)) or {
+            "code": code,
+            "asof": "2026-07-01",
+        },
+    )
+    task = {
+        "id": "task-pit",
+        "kind": "candidate_deep_dive",
+        "subject": {"code": "600519"},
+        "trading_date": "2026-07-02",
+        "created_at": "2026-07-02T10:30:00+08:00",
+    }
+
+    evidence_pack._subject_data(
+        "600519",
+        "2026-07-02",
+        evidence_pack.DEFAULT_SECTION_LIMITS,
+        task=task,
+    )
+
+    assert calls == [(
+        "600519",
+        {"decision_cutoff": "2026-07-02T10:30:00+08:00"},
+    )]
+    calls.clear()
+    task["created_at"] = "2026-07-02T10:30:00"
+    data = evidence_pack._subject_data(
+        "600519",
+        "2026-07-02",
+        evidence_pack.DEFAULT_SECTION_LIMITS,
+        task=task,
+    )
+    assert calls == []
+    assert not isinstance(data, dict) or "fundamentals" not in data
 
 
 def _write_candidate_pool_with_structure_position(code, risk_flags):

@@ -2,6 +2,7 @@
   "schema": "research_committee_config_v1",
   "claim_ttl_minutes": 120,
   "max_attempts_per_role": 2,
+  "require_claim_fencing": true,
   "budget": {
     "daily_char_budget": 400000,
     "instructions_chars_estimate": 3000
@@ -75,6 +76,33 @@
         "news-monitor"
       ],
       "required_sections": ["agent_state"]
+    },
+    "deep_debate": {
+      "experts": [
+        "evidence_auditor",
+        "fundamentals_narrator",
+        "thesis_builder",
+        "risk_redteam",
+        "risk_aggressive",
+        "risk_neutral"
+      ],
+      "priority": 80,
+      "cooldown_days": 5,
+      "pack_budget_chars": 32000,
+      "pack_jobs": [
+        "closing-triage",
+        "four-dim-scorer",
+        "candidate-discovery",
+        "hot-money-context",
+        "capital-flow"
+      ],
+      "required_sections": ["agent_state", "fact_artifacts", "fundamentals"],
+      "escalation": {
+        "enabled": true,
+        "max_rounds": 2,
+        "adjudicator": {"enabled": true}
+      },
+      "trade_proposal": false
     }
   },
   "experts": {
@@ -92,6 +120,26 @@
     },
     "deep_researcher": {
       "profile": "skills/research-committee/experts/deep_researcher.md",
+      "max_output_chars": 3000
+    },
+    "fundamentals_narrator": {
+      "profile": "skills/research-committee/experts/fundamentals_narrator.md",
+      "max_output_chars": 5000
+    },
+    "risk_aggressive": {
+      "profile": "skills/research-committee/experts/risk_aggressive.md",
+      "max_output_chars": 4000
+    },
+    "risk_neutral": {
+      "profile": "skills/research-committee/experts/risk_neutral.md",
+      "max_output_chars": 4000
+    },
+    "adjudicator": {
+      "profile": "skills/research-committee/experts/adjudicator.md",
+      "max_output_chars": 6000
+    },
+    "trade_proposer": {
+      "profile": "skills/research-committee/experts/trade_proposer.md",
       "max_output_chars": 3000
     }
   },

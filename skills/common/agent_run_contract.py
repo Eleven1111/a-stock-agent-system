@@ -83,6 +83,7 @@ class AgentRunRequest:
     forbidden_state_writes: tuple[str, ...] = FACT_PLANE_WRITE_MARKERS
     max_output_chars: int = DEFAULT_MAX_OUTPUT_CHARS
     deadline: Optional[str] = None
+    claim_id: Optional[str] = None
     model: Optional[str] = None
     model_metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -124,6 +125,7 @@ class AgentRunRequest:
             "forbidden_state_writes": list(self.forbidden_state_writes),
             "max_output_chars": self.max_output_chars,
             "deadline": self.deadline,
+            "claim_id": self.claim_id,
             "model": self.model,
             "model_metadata": dict(self.model_metadata),
         }
@@ -145,6 +147,7 @@ class AgentRunResult:
     model_usage: Mapping[str, Any] = field(default_factory=dict)
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+    claim_id: Optional[str] = None
 
     @property
     def produced_evidence(self) -> bool:
@@ -166,6 +169,7 @@ class AgentRunResult:
             "model_usage": dict(self.model_usage),
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "claim_id": self.claim_id,
         }
 
 
@@ -177,6 +181,7 @@ def failure(
     finished_at: Optional[str] = None,
     tool_usage_summary: Optional[Mapping[str, Any]] = None,
     model_usage: Optional[Mapping[str, Any]] = None,
+    claim_id: Optional[str] = None,
 ) -> AgentRunResult:
     """A terminal non-success. Carries no finding, by construction."""
     if status not in TERMINAL_FAILURE_STATUSES:
@@ -192,6 +197,7 @@ def failure(
         model_usage=dict(model_usage or {}),
         started_at=started_at,
         finished_at=finished_at or _now(),
+        claim_id=claim_id or request.claim_id,
     )
 
 
@@ -329,6 +335,7 @@ def _success(
         role=request.role,
         runtime=request.runtime,
         finding=finding,
+        claim_id=request.claim_id,
         **fields,
     )
 

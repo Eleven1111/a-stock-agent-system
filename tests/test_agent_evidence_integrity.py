@@ -1,3 +1,5 @@
+import json
+
 import agent_evidence
 
 
@@ -16,6 +18,47 @@ PACK = {
         ],
     },
 }
+
+
+def _approval(finding, *, task_id="task-1", role="risk_redteam", claim_id="claim-1"):
+    return {
+        "schema": "research_finding_approval_v1",
+        "task_id": task_id,
+        "role": role,
+        "claim_id": claim_id,
+        "finding_sha256": agent_evidence.finding_sha256(finding),
+        "status": "approved",
+        "reviewer": "risk-owner",
+        "approved_at": "2026-07-10T01:59:00+00:00",
+    }
+
+
+def _trusted_approval_ref(tmp_path, monkeypatch, approval):
+    state = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state))
+    path = state / "approvals" / "research-committee" / "approval.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(approval), encoding="utf-8")
+    return str(path)
+
+
+def test_trusted_approval_root_may_be_configured_via_symlink(
+    tmp_path, monkeypatch,
+):
+    actual = tmp_path / "actual-state"
+    linked = tmp_path / "linked-state"
+    linked.symlink_to(actual, target_is_directory=True)
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(linked))
+    approval = _approval({"summary": "risk"})
+    path = actual / "approvals" / "research-committee" / "approval.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(approval), encoding="utf-8")
+
+    loaded = agent_evidence.load_trusted_finding_approval(
+        str(linked / "approvals" / "research-committee" / "approval.json")
+    )
+
+    assert loaded == approval
 
 
 def test_manifest_binds_model_prompt_tools_inputs_and_citations():
@@ -79,24 +122,32 @@ def test_finding_manifest_is_bound_to_pack_refs_and_model():
     )
     assert agent_evidence.validate_finding_manifest(
         manifest, evidence_pack=PACK, evidence_refs=refs
-    ) == ["human_review_required", "model_run_review_only"]
+    ) == [
+        "approval_artifact_missing",
+        "human_review_required",
+        "model_run_review_only",
+    ]
     assert agent_evidence.validate_finding_manifest(
         manifest,
         evidence_pack=PACK,
         evidence_refs=refs,
         require_execution_eligible=False,
-    ) == []
+    ) == ["approval_artifact_missing"]
     assert agent_evidence.validate_finding_manifest(
         manifest,
         evidence_pack=PACK,
         evidence_refs=["fact_artifacts.nonexistent"],
         require_execution_eligible=False,
-    ) == ["citation_unbound"]
+    ) == ["citation_unbound", "approval_artifact_missing"]
 
 
-def test_reviewed_manifest_recomputes_all_hashes_and_detects_tampering():
+def test_reviewed_manifest_recomputes_all_hashes_and_detects_tampering(
+    tmp_path, monkeypatch,
+):
     refs = ["fact_artifacts.closing-triage"]
     tools = {"quote": {"code": "600519"}}
+    finding = {"role": "risk_redteam", "stance": "oppose", "summary": "risk"}
+    approval = _approval(finding)
     manifest = agent_evidence.build_finding_manifest(
         model="gpt-fixture",
         prompt="role instructions",
@@ -104,8 +155,13 @@ def test_reviewed_manifest_recomputes_all_hashes_and_detects_tampering():
         evidence_refs=refs,
         tool_inputs=tools,
         generated_at="2026-07-10T02:00:00+00:00",
-        review_status="reviewed",
-        reviewed_by="risk-owner",
+        finding=finding,
+        approval=approval,
+        approval_ref=_trusted_approval_ref(tmp_path, monkeypatch, approval),
+        task_id="task-1",
+        role="risk_redteam",
+        claim_id="claim-1",
+        submitter="openclaw",
     )
     assert manifest["execution_eligible"] is True
     assert agent_evidence.validate_finding_manifest(
@@ -113,6 +169,11 @@ def test_reviewed_manifest_recomputes_all_hashes_and_detects_tampering():
         evidence_pack=PACK,
         evidence_refs=refs,
         tool_inputs=tools,
+        finding=finding,
+        task_id="task-1",
+        role="risk_redteam",
+        claim_id="claim-1",
+        submitter="openclaw",
     ) == []
 
     tampered = dict(manifest, model="other-model")
@@ -121,6 +182,11 @@ def test_reviewed_manifest_recomputes_all_hashes_and_detects_tampering():
         evidence_pack=PACK,
         evidence_refs=refs,
         tool_inputs=tools,
+        finding=finding,
+        task_id="task-1",
+        role="risk_redteam",
+        claim_id="claim-1",
+        submitter="openclaw",
     )
 
 
@@ -135,7 +201,7 @@ def test_review_claim_without_reviewer_is_not_execution_eligible():
         review_status="reviewed",
     )
     assert manifest["execution_eligible"] is False
-    assert "reviewer_missing" in manifest["reasons"]
+    assert "approval_artifact_missing" in manifest["reasons"]
 
 
 def test_unreviewed_manifest_cannot_forge_eligibility_by_rehashing():
@@ -161,3 +227,138 @@ def test_unreviewed_manifest_cannot_forge_eligibility_by_rehashing():
     )
 
     assert "execution_eligibility_mismatch" in reasons
+
+
+def test_reviewed_finding_manifest_binds_output_and_context_hashes(
+    tmp_path, monkeypatch,
+):
+    refs = ["fact_artifacts.closing-triage"]
+    finding = {"role": "risk_redteam", "stance": "oppose", "summary": "risk"}
+    approval = _approval(finding)
+    manifest = agent_evidence.build_finding_manifest(
+        model="gpt-fixture", prompt="p", evidence_pack=PACK,
+        evidence_refs=refs, tool_inputs={"quote": {"code": "600519"}},
+        generated_at="2026-07-10T02:00:00+00:00", finding=finding,
+        approval=approval,
+        approval_ref=_trusted_approval_ref(tmp_path, monkeypatch, approval),
+        task_id="task-1",
+        role="risk_redteam", claim_id="claim-1", submitter="openclaw",
+    )
+    assert len(manifest["output_sha256"]) == 64
+    assert agent_evidence.validate_finding_manifest(
+        manifest, evidence_pack=PACK, evidence_refs=refs,
+        tool_inputs={"quote": {"code": "600519"}}, finding=finding,
+        task_id="task-1", role="risk_redteam", claim_id="claim-1",
+        submitter="openclaw",
+    ) == []
+    assert "output_hash_mismatch" in agent_evidence.validate_finding_manifest(
+        manifest, evidence_pack=PACK, evidence_refs=refs,
+        tool_inputs={"quote": {"code": "600519"}},
+        finding={**finding, "summary": "changed"},
+        task_id="task-1", role="risk_redteam", claim_id="claim-1",
+        submitter="openclaw",
+    )
+
+
+def test_independent_finding_approval_binds_claim_and_output():
+    finding = {"role": "risk_redteam", "stance": "oppose", "summary": "risk"}
+    approval = {
+        "schema": "research_finding_approval_v1",
+        "task_id": "task-1",
+        "role": "risk_redteam",
+        "claim_id": "claim-1",
+        "finding_sha256": agent_evidence.finding_sha256(finding),
+        "status": "approved",
+        "reviewer": "independent-risk-owner",
+        "approved_at": "2026-07-10T02:01:00+00:00",
+    }
+
+    assert agent_evidence.validate_finding_approval(
+        approval,
+        task_id="task-1",
+        role="risk_redteam",
+        claim_id="claim-1",
+        finding=finding,
+        submitter="openclaw",
+    ) == []
+    assert "approval_claim_mismatch" in agent_evidence.validate_finding_approval(
+        approval,
+        task_id="task-1",
+        role="risk_redteam",
+        claim_id="other-claim",
+        finding=finding,
+        submitter="openclaw",
+    )
+    assert "approval_task_mismatch" in agent_evidence.validate_finding_approval(
+        approval,
+        task_id="other-task",
+        role="risk_redteam",
+        claim_id="claim-1",
+        finding=finding,
+        submitter="openclaw",
+    )
+    assert "approval_role_mismatch" in agent_evidence.validate_finding_approval(
+        approval,
+        task_id="task-1",
+        role="thesis_builder",
+        claim_id="claim-1",
+        finding=finding,
+        submitter="openclaw",
+    )
+    assert "approval_finding_mismatch" in agent_evidence.validate_finding_approval(
+        approval,
+        task_id="task-1",
+        role="risk_redteam",
+        claim_id="claim-1",
+        finding={**finding, "summary": "tampered"},
+        submitter="openclaw",
+    )
+
+
+def test_finding_approval_time_chain_fails_closed():
+    finding = {
+        "role": "risk_redteam",
+        "stance": "oppose",
+        "summary": "risk",
+        "generated_at": "2026-07-10T02:00:00+00:00",
+    }
+    approval = _approval(finding)
+    approval["approved_at"] = "2026-07-10T01:59:00+00:00"
+    assert "approval_predates_finding" in agent_evidence.validate_finding_approval(
+        approval,
+        task_id="task-1",
+        role="risk_redteam",
+        claim_id="claim-1",
+        finding=finding,
+        submitter="openclaw",
+        now="2026-07-10T02:02:00+00:00",
+    )
+
+    approval["approved_at"] = "2026-07-10T02:03:00+00:00"
+    assert "approval_from_future" in agent_evidence.validate_finding_approval(
+        approval,
+        task_id="task-1",
+        role="risk_redteam",
+        claim_id="claim-1",
+        finding=finding,
+        submitter="openclaw",
+        now="2026-07-10T02:02:00+00:00",
+    )
+
+
+def test_reviewed_by_string_without_approval_cannot_self_certify():
+    finding = {"role": "risk_redteam", "stance": "oppose", "summary": "risk"}
+    manifest = agent_evidence.build_finding_manifest(
+        model="gpt-fixture",
+        prompt="p",
+        evidence_pack=PACK,
+        evidence_refs=["fact_artifacts.closing-triage"],
+        tool_inputs={},
+        generated_at="2026-07-10T02:00:00+00:00",
+        finding=finding,
+        review_status="reviewed",
+        reviewed_by="arbitrary-name",
+    )
+
+    assert manifest["execution_eligible"] is False
+    assert "approval_artifact_missing" in manifest["reasons"]

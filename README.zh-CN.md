@@ -23,7 +23,7 @@ A 股多智能体投研系统。15 个仓内专业 Skill、四维打分引擎、
 ```mermaid
 flowchart LR
     HB["launchd 每60秒心跳"] --> DS["cron_dispatch.py manifest 调度器"]
-    MF["Cron manifest<br/>54个登记任务 / 42个启用"] --> DS
+    MF["Cron manifest<br/>56个登记任务 / 44个启用"] --> DS
     DS --> O["跨运行时可恢复 DAG"]
     S["外部数据源"] --> A["统一 Data Adapters"]
     PS["一手官方政策源"] --> PW["official-policy-watch"]
@@ -90,7 +90,7 @@ flowchart LR
 | **policy-intent-decoder** | 官方政策来源位阶、真实意图、传导链、受益/承压方向和选股辅助维度 | 政府/官媒官方来源 |
 | **news-to-sector** | 实时资讯→18条产业链映射 + 预期差分析 | SerpAPI |
 | **serenity-investment-research** | 深度投研：供应链拆解、财务分析、估值情景、熊市审计。五种请求路由模式（主题扫描/单公司挑战/候选对比/研究伙伴对话/学习模式）；主题扫描先给产业链层级排序再给公司排序，每个最终候选要回答五问；深度报告需过 `report_lint.py` 硬闸（≥3个价值链层级、候选宇宙≥20家、证据台账≥25条来源、必含"被降级的热门方向"章节）。加权评分卡通过带新鲜度衰减的缓存回流四维评分的深度维度 | cninfo、pypdf、`web_search.py` |
-| **research-committee** | 多专家研究平面：一组专家（见 `skills/research-committee/experts/`）在结论进入证据层之前先做交叉质询辩论，由 `skills/research-committee/SKILL.md` 编排 | 内部，消费其他 Skill 的证据 |
+| **research-committee** | 多专家研究平面：claim fencing、不可变 PIT 证据包、有界逐轮辩论、fail-closed 裁决、独立绑定审批、单赢家确定性合成，以及 research-only 执行计划与校准 artifact | 内部，消费其他 Skill 的不可变证据 |
 | **four-dim scorer** | S/A/B/C 加权分级：技术(30%)×情绪(15%)×催化(30%)×深度(25%)。深度维度由 Serenity 驱动（非简单PE分桶）；技术维度纳入已过闸的缠论结构信号 | 以上全部 |
 | **hk-a-linkage** | AH溢价率、恒生背离、港股权重异动 | 腾讯、yfinance |
 | **capital-flow-monitor** | 北向资金、主力/散户资金、板块资金 | 东方财富 |

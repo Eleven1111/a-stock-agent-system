@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from datetime import datetime
 from typing import Any
 
 from agent_state import load_agent_state
@@ -33,6 +34,8 @@ DEFAULT_SECTION_LIMITS = {
     "max_artifacts": 6,
     "recent_recommendations": 3,
     "recent_signals": 3,
+    "fundamentals_chars": 8000,
+    "peer_findings_chars": 6000,
 }
 
 _REC_FIELDS = (
@@ -47,6 +50,10 @@ _SIGNAL_FIELDS = (
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def peer_context_sha256(findings: Any) -> str:
+    return hashlib.sha256(_canonical(findings).encode("utf-8")).hexdigest()
 
 
 def _size(value: Any) -> int:
@@ -401,6 +408,24 @@ def _subject_data(
             if cache.get(key) is not None
         }
     try:
+        import fundamentals_snapshot
+
+        created_at = str((task or {}).get("created_at") or "")
+        parsed_cutoff = datetime.fromisoformat(created_at)
+        if parsed_cutoff.tzinfo is None:
+            raise ValueError("task_created_at_must_be_timezone_aware")
+        fundamentals = fundamentals_snapshot.read_latest_fundamentals(
+            subject_code,
+            decision_cutoff=created_at,
+        )
+    except Exception:  # noqa: BLE001 - missing facts must remain explicit
+        fundamentals = None
+    if isinstance(fundamentals, dict):
+        data["fundamentals"] = _fit(
+            fundamentals,
+            int(limits.get("fundamentals_chars") or 8000),
+        )
+    try:
         import theme_registry
 
         theme_stage = theme_registry.theme_stage_for_code(subject_code, asof=trading_date)
@@ -429,6 +454,51 @@ def _subject_data(
     return _fit(data, int(limits.get("subject_data_chars") or 4000))
 
 
+def _peer_findings_section(
+    task: dict[str, Any], limits: dict[str, Any],
+) -> dict[str, Any] | None:
+    round_index = int(task.get("escalation_round") or 0)
+    if round_index <= 0:
+        return None
+    try:
+        import research_bus
+
+        source = os.path.join(
+            research_bus.board_dir(str(task.get("id"))),
+            f"escalation-{round_index}.json",
+        )
+        value = read_json(source, None)
+    except Exception:  # noqa: BLE001 - peer context is optional
+        return None
+    if not isinstance(value, dict):
+        return None
+    conflicting = value.get("conflicting_findings") or {}
+    expected_context_hash = peer_context_sha256(conflicting)
+    claimed_context_hash = str(value.get("peer_context_sha256") or "")
+    if claimed_context_hash and claimed_context_hash != expected_context_hash:
+        return None
+    peers: dict[str, dict[str, Any]] = {}
+    for role, finding in conflicting.items():
+        if not isinstance(finding, dict):
+            continue
+        peers[str(role)] = {
+            "role": role,
+            "stance": finding.get("stance"),
+            "confidence": finding.get("confidence"),
+            "summary": finding.get("summary"),
+            "evidence_refs": list(finding.get("evidence_refs") or [])[:5],
+            "risk_flags": list(finding.get("risk_flags") or [])[:5],
+        }
+    if not peers:
+        return None
+    return _fit({
+        "section": "peer_findings",
+        "escalation_round": round_index,
+        "context_sha256": expected_context_hash,
+        "findings": dict(list(sorted(peers.items()))[:8]),
+    }, int(limits.get("peer_findings_chars") or 6000))
+
+
 def _quality(
     payload: dict[str, Any],
     required_sections: list[str],
@@ -441,6 +511,17 @@ def _quality(
     present = [entry for entry in artifacts if not entry.get("missing")]
     if "fact_artifacts" in required_sections and not present:
         missing.append("fact_artifacts")
+    subject_data = payload.get("subject_data") or {}
+    fundamentals = subject_data.get("fundamentals") if isinstance(subject_data, dict) else None
+    if "fundamentals" in required_sections:
+        if not isinstance(fundamentals, dict):
+            missing.append("fundamentals")
+        elif fundamentals.get("stale"):
+            missing.append("fundamentals_stale")
+        elif fundamentals.get("_truncated"):
+            missing.append("fundamentals_truncated")
+    if "peer_findings" in required_sections and payload.get("peer_findings") is None:
+        missing.append("peer_findings")
     absent = [entry.get("job_id") for entry in artifacts if entry.get("missing")]
     stale = [entry.get("job_id") for entry in present if entry.get("stale")]
     if absent:
@@ -459,8 +540,10 @@ def _quality(
 def _reduce_to_budget(
     payload: dict[str, Any],
     budget_chars: int,
+    required_sections: list[str] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     reductions: list[str] = []
+    required = set(required_sections or [])
 
     def _over() -> bool:
         return _size(payload) > budget_chars
@@ -469,7 +552,7 @@ def _reduce_to_budget(
         for entry in payload.get("fact_artifacts") or []:
             entry.pop("stdout_excerpt", None)
         reductions.append("dropped_artifact_excerpts")
-    if _over() and payload.get("subject_data") is not None:
+    if _over() and payload.get("subject_data") is not None and "fundamentals" not in required:
         payload["subject_data"] = None
         reductions.append("dropped_subject_data")
     if _over():
@@ -508,6 +591,7 @@ def build_pack(
         : int(limits.get("max_artifacts") or 6)
     ]
     subject_data = _subject_data(code, trading_date, limits, task=task)
+    peer_findings = _peer_findings_section(task, limits)
     deep_research_gap = (
         subject_data.get("deep_research_gap")
         if isinstance(subject_data, dict) else None
@@ -517,13 +601,22 @@ def build_pack(
         "kind": task.get("kind"),
         "subject": task.get("subject") or {},
         "trading_date": trading_date,
+        "manifest": {
+            "task_id": task.get("id"),
+            "escalation_round": int(task.get("escalation_round") or 0),
+            "peer_context_sha256": (
+                peer_findings.get("context_sha256")
+                if isinstance(peer_findings, dict) else None
+            ),
+        },
         "agent_state": _slice_agent_state(load_agent_state(), code, limits),
         "fact_artifacts": [
             _artifact_entry(job_id, trading_date, limits) for job_id in jobs
         ],
         "subject_data": subject_data,
+        "peer_findings": peer_findings,
     }
-    payload, reductions = _reduce_to_budget(payload, budget_chars)
+    payload, reductions = _reduce_to_budget(payload, budget_chars, required)
     payload["quality"] = _quality(payload, required)
     if deep_research_gap:
         # Recorded even if _reduce_to_budget dropped subject_data under

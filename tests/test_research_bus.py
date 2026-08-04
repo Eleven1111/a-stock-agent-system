@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime
 
 import pytest
 
@@ -98,6 +99,13 @@ def _valid_finding(task, role, stance="support"):
     return finding
 
 
+def _submit(work, finding, *, config):
+    return bus.submit_finding(
+        work["task"]["id"], work["role"], finding,
+        claim_id=work["claim_id"], config=config,
+    )
+
+
 def test_enqueue_creates_task_with_expert_plan(config):
     result = _enqueue(config)
     assert result["enqueued"] is True
@@ -108,6 +116,20 @@ def test_enqueue_creates_task_with_expert_plan(config):
     ]
     assert set(task["roles"]) == set(task["expert_plan"])
     assert task["budget"]["estimated_chars"] > 24000
+
+
+def test_enqueue_default_created_at_is_timezone_aware(config):
+    task = bus.enqueue_task(
+        "candidate_deep_dive",
+        {"code": "600519", "name": "贵州茅台"},
+        reason="timezone_contract",
+        trading_date="2026-07-02",
+        config=config,
+    )["task"]
+
+    created_at = datetime.fromisoformat(task["created_at"])
+    assert created_at.tzinfo is not None
+    assert created_at.utcoffset() is not None
 
 
 def test_enqueue_dedupes_active_subject(config):
@@ -157,14 +179,173 @@ def test_claim_expires_stale_leases(config):
     assert reclaimed["task"]["roles"]["risk_redteam"]["claimed_by"] == "openclaw"
 
 
+def test_aware_clock_can_expire_legacy_naive_claim(config):
+    _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
+    first = bus.claim_next_work(
+        "hermes",
+        config=config,
+        now="2026-07-02T16:00:00",
+    )
+    assert first is not None
+
+    reclaimed = bus.claim_next_work(
+        "openclaw",
+        config=config,
+        now="2026-07-02T18:30:00+08:00",
+    )
+
+    assert reclaimed is not None
+    assert reclaimed["task"]["roles"]["risk_redteam"]["claimed_by"] == "openclaw"
+
+
+def test_expired_lease_at_attempt_limit_fails_task_instead_of_sticking(config):
+    limited = dict(config)
+    limited["max_attempts_per_role"] = 1
+    _enqueue(limited, kind="anomaly_review", subject={"code": "000001"})
+    first = bus.claim_next_work(
+        "hermes", config=limited, now="2026-07-02T16:00:00",
+    )
+    assert first is not None
+    assert bus.claim_next_work(
+        "openclaw", config=limited, now="2026-07-02T19:00:00",
+    ) is None
+    task = bus.find_task(first["task"]["id"])
+    assert task["status"] == "failed"
+    assert task["roles"]["risk_redteam"]["status"] == "failed"
+
+
+def test_reclaimed_lease_fences_old_worker_submission(config):
+    _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
+    old = bus.claim_next_work("hermes", config=config, now="2026-07-02T16:00:00")
+    new = bus.claim_next_work("openclaw", config=config, now="2026-07-02T19:00:00")
+    finding = _valid_finding(new["task"], new["role"], stance="neutral")
+    stale = bus.submit_finding(
+        old["task"]["id"], old["role"], finding,
+        worker="hermes", claim_id=old["claim_id"], config=config,
+    )
+    assert stale["ok"] is False
+    assert "claim_id does not match" in stale["errors"][0]
+    accepted = bus.submit_finding(
+        new["task"]["id"], new["role"], finding,
+        worker="openclaw", claim_id=new["claim_id"], config=config,
+    )
+    assert accepted["ok"] is True
+
+
+def test_submit_cas_rechecks_lease_before_publishing_finding(
+    config, monkeypatch,
+):
+    _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
+    old = bus.claim_next_work("hermes", config=config, now="2026-07-02T16:00:00")
+    stale_finding = _valid_finding(
+        old["task"], old["role"], stance="neutral",
+    )
+    stale_finding["summary"] = "旧 lease 的过期结论"
+
+    original_mutate_json = bus.mutate_json
+    reclaimed = {}
+    intercepting = False
+
+    def _reclaim_before_submit_cas(path, mutator, default=None):
+        nonlocal intercepting
+        if not intercepting:
+            intercepting = True
+            reclaimed.update(
+                bus.claim_next_work(
+                    "openclaw",
+                    config=config,
+                    now="2026-07-02T19:00:00",
+                )
+                or {}
+            )
+        return original_mutate_json(path, mutator, default)
+
+    monkeypatch.setattr(bus, "mutate_json", _reclaim_before_submit_cas)
+    stale = bus.submit_finding(
+        old["task"]["id"],
+        old["role"],
+        stale_finding,
+        worker="hermes",
+        claim_id=old["claim_id"],
+        config=config,
+    )
+
+    assert reclaimed["claim_id"] != old["claim_id"]
+    assert stale["ok"] is False
+    assert "claim_id does not match" in stale["errors"][0]
+    current = bus.find_task(old["task"]["id"])
+    role_state = current["roles"][old["role"]]
+    assert role_state["status"] == "claimed"
+    assert role_state["claim_id"] == reclaimed["claim_id"]
+    assert role_state["claimed_by"] == "openclaw"
+    assert not os.path.exists(
+        os.path.join(bus.board_dir(old["task"]["id"]), f"{old['role']}.json")
+    )
+
+    monkeypatch.setattr(bus, "mutate_json", original_mutate_json)
+    valid_finding = _valid_finding(
+        reclaimed["task"], reclaimed["role"], stance="neutral",
+    )
+    valid_finding["summary"] = "新 lease 的有效结论"
+    accepted = bus.submit_finding(
+        reclaimed["task"]["id"],
+        reclaimed["role"],
+        valid_finding,
+        worker="openclaw",
+        claim_id=reclaimed["claim_id"],
+        config=config,
+    )
+    assert accepted["ok"] is True
+    with open(accepted["board_path"], encoding="utf-8") as handle:
+        assert json.load(handle)["summary"] == "新 lease 的有效结论"
+
+
+def test_turn_stream_records_claim_and_submit(config):
+    _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
+    work = bus.claim_next_work("worker-a", config=config)
+    finding = _valid_finding(work["task"], work["role"], stance="neutral")
+    assert bus.submit_finding(
+        work["task"]["id"], work["role"], finding, worker="worker-a",
+        claim_id=work["claim_id"], config=config,
+    )["ok"]
+    with open(bus.turns_file(work["task"]["id"]), encoding="utf-8") as handle:
+        events = [json.loads(line) for line in handle if line.strip()]
+    assert [event["event_type"] for event in events] == [
+        "research.turn.claimed", "research.turn.submitted",
+    ]
+    assert all(event["event_id"] for event in events)
+
+
+def test_duplicate_submission_is_idempotent_for_same_claim(config):
+    _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
+    work = bus.claim_next_work("hermes", config=config)
+    finding = _valid_finding(work["task"], work["role"], stance="neutral")
+    first = _submit(work, finding, config=config)
+    second = bus.submit_finding(
+        work["task"]["id"], work["role"], finding,
+        worker="hermes", claim_id=work["claim_id"], config=config,
+    )
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert second["idempotent"] is True
+
+
+def test_submit_rejects_fact_plane_directive(config):
+    _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
+    work = bus.claim_next_work("hermes", config=config)
+    finding = _valid_finding(work["task"], work["role"], stance="neutral")
+    finding["place_order"] = True
+    result = _submit(work, finding, config=config)
+    assert result["ok"] is False
+    assert "fact_plane_directive" in result["errors"]
+
+
 def test_submit_rejects_support_without_counterevidence(config):
     _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
     work = bus.claim_next_work("hermes", config=config)
     finding = _valid_finding(work["task"], work["role"])
     finding.pop("counterevidence")
-    result = bus.submit_finding(
-        work["task"]["id"], work["role"], finding, config=config,
-    )
+    result = _submit(work, finding, config=config)
     assert result["ok"] is False
     assert any("counterevidence" in error for error in result["errors"])
 
@@ -173,9 +354,7 @@ def test_submit_writes_board_and_completes_single_role_task(config):
     _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
     work = bus.claim_next_work("hermes", config=config)
     finding = _valid_finding(work["task"], work["role"])
-    result = bus.submit_finding(
-        work["task"]["id"], work["role"], finding, config=config,
-    )
+    result = _submit(work, finding, config=config)
     assert result["ok"] is True
     assert result["all_roles_done"] is True
     assert result["task_status"] == "ready_to_synthesize"
@@ -198,7 +377,7 @@ def test_multi_role_task_synthesizes_only_after_all_roles(config):
     for _ in range(3):
         work = bus.claim_next_work("hermes", config=config)
         finding = _valid_finding(work["task"], work["role"], stance="neutral")
-        result = bus.submit_finding(task_id, work["role"], finding, config=config)
+        result = _submit(work, finding, config=config)
         assert result["ok"] is True
     assert bus.find_task(task_id)["status"] == "ready_to_synthesize"
 
@@ -218,11 +397,15 @@ def test_fail_role_retries_then_fails_task(config):
     _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
     work = bus.claim_next_work("hermes", config=config)
     task_id = work["task"]["id"]
-    first = bus.fail_role(task_id, "risk_redteam", "timeout", config=config)
+    first = bus.fail_role(
+        task_id, "risk_redteam", "timeout", claim_id=work["claim_id"], config=config,
+    )
     assert first["role_status"] == "pending"
     work = bus.claim_next_work("hermes", config=config)
     assert work is not None
-    second = bus.fail_role(task_id, "risk_redteam", "timeout", config=config)
+    second = bus.fail_role(
+        task_id, "risk_redteam", "timeout", claim_id=work["claim_id"], config=config,
+    )
     assert second["role_status"] == "failed"
     assert bus.find_task(task_id)["status"] == "failed"
     assert bus.claim_next_work("hermes", config=config) is None
@@ -232,7 +415,7 @@ def test_budget_ledger_records_reservation_and_usage(config):
     created = _enqueue(config, kind="anomaly_review", subject={"code": "000001"})
     work = bus.claim_next_work("hermes", config=config)
     finding = _valid_finding(work["task"], work["role"], stance="neutral")
-    bus.submit_finding(created["task"]["id"], work["role"], finding, config=config)
+    _submit(work, finding, config=config)
     usage = json.load(open(bus.budget_file("2026-07-02"), encoding="utf-8"))
     assert usage["reserved_chars"] > 0
     assert usage["entries"][0]["task_id"] == created["task"]["id"]
@@ -329,7 +512,7 @@ def test_submit_serenity_refresh_requires_fresh_cache(config, monkeypatch, tmp_p
         "summary": "深研已完成但未写缓存",
         "evidence_refs": ["deep_research_cache:600519:2026-07-02"],
     }
-    result = bus.submit_finding(task_id, "deep_researcher", finding, config=config)
+    result = _submit(work, finding, config=config)
     assert result["ok"] is False
     assert any("cache" in error for error in result["errors"])
     assert work["task"]["roles"]["deep_researcher"]["status"] != "done"
@@ -347,7 +530,7 @@ def test_submit_serenity_refresh_accepts_after_fresh_cache_write(
         config=config,
     )
     task_id = created["task"]["id"]
-    bus.claim_next_work("openclaw", config=config)
+    work = bus.claim_next_work("openclaw", config=config)
     finding = {
         "schema": "research_finding_v1",
         "task_id": task_id,
@@ -357,7 +540,7 @@ def test_submit_serenity_refresh_accepts_after_fresh_cache_write(
         "summary": "深研完成，缓存已写入",
         "evidence_refs": ["deep_research_cache:600519:2026-07-02"],
     }
-    result = bus.submit_finding(task_id, "deep_researcher", finding, config=config)
+    result = _submit(work, finding, config=config)
     assert result["ok"] is True
     assert result["all_roles_done"] is True
 
@@ -374,7 +557,7 @@ def test_submit_serenity_refresh_rejects_cache_older_than_trading_date(
         config=config,
     )
     task_id = created["task"]["id"]
-    bus.claim_next_work("openclaw", config=config)
+    work = bus.claim_next_work("openclaw", config=config)
     finding = {
         "schema": "research_finding_v1",
         "task_id": task_id,
@@ -384,7 +567,7 @@ def test_submit_serenity_refresh_rejects_cache_older_than_trading_date(
         "summary": "深研完成但缓存过期于交易日之前",
         "evidence_refs": ["deep_research_cache:600519:2026-06-30"],
     }
-    result = bus.submit_finding(task_id, "deep_researcher", finding, config=config)
+    result = _submit(work, finding, config=config)
     assert result["ok"] is False
     assert any("predates" in error for error in result["errors"])
 
@@ -398,7 +581,7 @@ def test_submit_serenity_refresh_abstain_bypasses_cache_check(config):
         config=config,
     )
     task_id = created["task"]["id"]
-    bus.claim_next_work("openclaw", config=config)
+    work = bus.claim_next_work("openclaw", config=config)
     finding = {
         "schema": "research_finding_v1",
         "task_id": task_id,
@@ -408,5 +591,5 @@ def test_submit_serenity_refresh_abstain_bypasses_cache_check(config):
         "summary": "标的停牌，无法深研",
         "abstain_reason": "标的停牌",
     }
-    result = bus.submit_finding(task_id, "deep_researcher", finding, config=config)
+    result = _submit(work, finding, config=config)
     assert result["ok"] is True
