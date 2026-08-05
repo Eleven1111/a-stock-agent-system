@@ -11,15 +11,42 @@ Usage (standalone)::
     quote = fetch_mootdx_quote("600519")
 
 The functions return empty containers on failure (connectivity, import, parse)
-so callers can treat them as transparent fallback sources.
+so callers can treat them as transparent fallback sources. "Empty" is therefore
+ambiguous by design — call :func:`mootdx_available` when the caller needs to tell
+"the package is not installed here" apart from "the TCP source had no data".
 """
 
 from __future__ import annotations
 
+import logging
+from functools import lru_cache
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
+
+MOOTDX_MISSING_HINT = (
+    "mootdx 未安装，通达信深历史源不可用（回测将只剩 akshare 的最近 3-4 周）；"
+    "修复：pip install -e '.[deephistory]'"
+)
 
 _MOOTDX_CLIENT = None
 _MOOTDX_CLIENT_LOCK = False
+
+
+@lru_cache(maxsize=1)
+def mootdx_available() -> bool:
+    """Whether the mootdx package is importable in this environment.
+
+    ``mootdx`` ships in the optional ``deephistory`` extra, so CI and the default
+    production install do not have it. Without this probe a missing package looks
+    exactly like an empty upstream response.
+    """
+    try:
+        from mootdx.quotes import Quotes  # noqa: F401
+    except ImportError:
+        LOGGER.warning(MOOTDX_MISSING_HINT)
+        return False
+    return True
 
 
 def _normal_code(code: Any) -> str:
@@ -37,10 +64,9 @@ def _get_client():
     global _MOOTDX_CLIENT, _MOOTDX_CLIENT_LOCK
     if _MOOTDX_CLIENT is not None:
         return _MOOTDX_CLIENT
-    try:
-        from mootdx.quotes import Quotes
-    except ImportError:
+    if not mootdx_available():
         return None
+    from mootdx.quotes import Quotes
     if _MOOTDX_CLIENT_LOCK:
         return None
     _MOOTDX_CLIENT_LOCK = True
@@ -49,7 +75,8 @@ def _get_client():
         # Quick connectivity probe
         _ = client.quotes(symbol="000001")
         _MOOTDX_CLIENT = client
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("mootdx 连接失败（通达信 TCP 7709）err=%s", exc)
         _MOOTDX_CLIENT = None
     finally:
         _MOOTDX_CLIENT_LOCK = False

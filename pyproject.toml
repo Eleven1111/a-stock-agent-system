@@ -14,13 +14,14 @@ dependencies = [
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "pyyaml>=6.0",
+    "pypdf>=3.0",   # 公告正文抽取（announcement-radar 第四步深读）——曾是 extra，生产环境缺失导致静默降级
 ]
 
 [project.optional-dependencies]
 charts = ["matplotlib>=3.7"]
 fundamentals = ["baostock>=0.9"]
 deephistory = ["mootdx>=0.11"]   # 通达信 TCP 深历史回测源（akshare 免费仅最近 3-4 周）
-research = ["pypdf>=3.0"]
+research = ["pypdf>=3.0"]   # 已并入主依赖，保留仅为兼容既有 `pip install .[research]` 命令
 dev = ["pytest>=7.0", "ruff>=0.1"]
 
 [build-system]
