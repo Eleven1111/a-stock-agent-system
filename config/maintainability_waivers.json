@@ -168,6 +168,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "deliberate last-resort net in hermes_job_runner.run_job (issue #159): any runner-internal exception must still land a terminal artifact, otherwise the job reads as 'never ran' to the dependency gate and the DAG short-circuit",
+      "violation_id": "4b1674792acbb6d1c4fb"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in skills/stock-triage/scripts/intraday_monitor.py touched by #115 sector-monitor degradation notice",
       "violation_id": "5514a8644c3abcd824e0"
     },

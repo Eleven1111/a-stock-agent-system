@@ -276,6 +276,14 @@ def validate(filepath):
             timeout = run.get("timeout_seconds")
             if timeout is not None and (not isinstance(timeout, int) or timeout <= 0):
                 errors.append(f"job[{i}] ({jid}) run.timeout_seconds must be positive int")
+            # run.env carries per-job business flags with the manifest. It must
+            # not reach the keys that decide state home, run identity or PATH —
+            # the runner ignores those at runtime, this fails the same input
+            # loudly at gate time.
+            errors.extend(
+                f"job[{i}] ({jid}) {message}"
+                for message in manifest_command.env_errors(run)
+            )
 
         # 仓库 cron 必须自包含。不能依赖 Gateway/agent 在触发时动态注入模板变量，
         # 否则会重新走 in-process AIAgent import 路径，触发上下文污染和导入冲突。

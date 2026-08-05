@@ -486,6 +486,121 @@ def test_weekend_run_belongs_to_latest_trading_date():
     assert resolve_trading_date("2026-06-14T10:00:00+08:00") == "2026-06-12"
 
 
+def test_timeout_after_worker_wrote_stderr_still_lands_a_timeout_artifact(
+    tmp_path,
+    monkeypatch,
+):
+    """Regression for issue #159: the timeout handler must not crash the runner.
+
+    ``subprocess.run(text=True, timeout=...)`` returns decoded output on the
+    happy path, but ``TimeoutExpired.stdout/.stderr`` come back as raw bytes.
+    Concatenating those with a str raised TypeError inside the except branch, so
+    the runner died before writing anything: no artifact, no ``job.finished`` —
+    the ghost failure that made every downstream gate see "never ran".
+
+    The worker writes stderr *before* sleeping on purpose; without that byte the
+    handler gets ``None`` and the bug stays invisible.
+    """
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import sys, time\n"
+        "sys.stderr.write('warming up\\n')\n"
+        "sys.stderr.flush()\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    job = _base_job("slow-worker")
+    job["run"]["argv"] = [sys.executable, str(worker)]
+    job["run"]["timeout_seconds"] = 1
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    monkeypatch.delenv("A_STOCK_STATE_ID", raising=False)
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args(["slow-worker", "--manifest", str(manifest)])
+    )
+
+    assert result == 124
+    ledger = read_json(str(state_home / "cron" / "output" / "job_runs.json"), [])
+    assert len(ledger) == 1
+    artifact = read_json(ledger[0]["artifact_path"], {})
+    assert artifact["status"] == "timeout"
+    assert "TIMEOUT after 1s" in artifact["stderr"]
+    assert "warming up" in artifact["stderr"]
+
+
+def test_runner_crash_still_writes_a_terminal_artifact(tmp_path, monkeypatch):
+    """Any runner-internal error must remain visible as a failed artifact."""
+    job = _base_job("crashy")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    monkeypatch.delenv("A_STOCK_STATE_ID", raising=False)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated runner defect")
+
+    monkeypatch.setattr(job_runner.subprocess, "run", _boom)
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args(["crashy", "--manifest", str(manifest)])
+    )
+
+    assert result == 1
+    ledger = read_json(str(state_home / "cron" / "output" / "job_runs.json"), [])
+    assert len(ledger) == 1
+    artifact = read_json(ledger[0]["artifact_path"], {})
+    assert artifact["status"] == "failed"
+    assert "simulated runner defect" in artifact["stderr"]
+
+
+def test_manifest_run_env_reaches_worker_without_overriding_reserved_keys(
+    tmp_path,
+    monkeypatch,
+):
+    """Per-job env travels with the manifest; runner-owned identity does not."""
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json, os\n"
+        "print(json.dumps({\n"
+        "    'schema': 'demo_v1',\n"
+        "    'skip': os.environ.get('A_STOCK_SKIP_INPUT_SNAPSHOT'),\n"
+        "    'state_home': os.environ.get('A_STOCK_STATE_HOME'),\n"
+        "    'job_id': os.environ.get('A_STOCK_JOB_ID'),\n"
+        "    'lowercase': os.environ.get('a_stock_lowercase'),\n"
+        "}))\n",
+        encoding="utf-8",
+    )
+    job = _base_job("env-demo")
+    job["run"]["argv"] = [sys.executable, str(worker)]
+    job["run"]["env"] = {
+        "A_STOCK_SKIP_INPUT_SNAPSHOT": "1",
+        "A_STOCK_STATE_HOME": "/tmp/hijacked-state-home",
+        "A_STOCK_JOB_ID": "forged",
+        "a_stock_lowercase": "rejected",
+    }
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+    state_home = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state_home))
+    monkeypatch.delenv("A_STOCK_STATE_ID", raising=False)
+
+    result = job_runner.run_job(
+        job_runner.build_parser().parse_args(["env-demo", "--manifest", str(manifest)])
+    )
+
+    assert result == 0
+    ledger = read_json(str(state_home / "cron" / "output" / "job_runs.json"), [])
+    payload = json.loads(read_json(ledger[0]["artifact_path"], {})["stdout"])
+    assert payload["skip"] == "1"
+    assert payload["state_home"] == str(state_home)
+    assert payload["job_id"] == "env-demo"
+    assert payload["lowercase"] is None
+
+
 def test_runner_maps_business_block_returncode_to_blocked_artifact(tmp_path):
     worker = tmp_path / "worker.py"
     worker.write_text(
