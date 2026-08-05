@@ -59,6 +59,10 @@
       "timeout_seconds": 8,
       "max_attempts": 2
     },
+    "cninfo_bulk": {
+      "timeout_seconds": 15,
+      "max_attempts": 2
+    },
     "xueqiu": {
       "timeout_seconds": 10,
       "max_attempts": 2

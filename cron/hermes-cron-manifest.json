@@ -2486,6 +2486,129 @@
         "timeout_seconds": 60
       },
       "external_note": "检查候选池是否健康（存在、有候选、新鲜），异常时告警"
+    },
+    {
+      "id": "announcement-radar-evening",
+      "name": "公告召回雷达 — 当日收口",
+      "schedule": "30 21 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "announcement-radar-evening",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": false,
+      "external": true,
+      "expected_output": "text",
+      "deliver": "local",
+      "push": false,
+      "emit": false,
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "max_output_chars": 2400,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/announcement-radar/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/announcement-radar/scripts/radar.py",
+          "--date",
+          "today",
+          "--emit-brief"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 1800
+      },
+      "external_note": "21:30 抓当日全市场公告，三桶召回（分歧/漏网/极值）；分流用，不产出排序名单"
+    },
+    {
+      "id": "announcement-radar-premarket",
+      "name": "公告召回雷达 — 盘前补抓",
+      "schedule": "40 7 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "announcement-radar-premarket",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": false,
+      "external": true,
+      "expected_output": "text",
+      "deliver": "local",
+      "push": false,
+      "emit": false,
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "max_output_chars": 2400,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/announcement-radar/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/announcement-radar/scripts/radar.py",
+          "--date",
+          "today",
+          "--emit-brief"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 1800
+      },
+      "external_note": "07:40 补抓凌晨增量，产物赶在 08:30 候选池引导之前；与晚间跑按日期覆盖同一 artifact"
+    },
+    {
+      "id": "announcement-radar-weekend",
+      "name": "公告召回雷达 — 周末",
+      "schedule": "0 9 * * 6",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "announcement-radar-weekend",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": false,
+      "external": true,
+      "expected_output": "text",
+      "deliver": "local",
+      "push": false,
+      "emit": false,
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "max_output_chars": 2400,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/announcement-radar/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/announcement-radar/scripts/radar.py",
+          "--date",
+          "today",
+          "--emit-brief"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 1800
+      },
+      "external_note": "周六 09:00；实测 2026-08-01（周六）仍有 1440 条公告，周末不可跳过"
     }
   ],
   "external_dependencies": {

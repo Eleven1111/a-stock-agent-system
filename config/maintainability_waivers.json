@@ -18,6 +18,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing broad except in scan_many (per-stock failures must not abort the batch); file modified only to reuse the shared cninfo_client transport",
+      "violation_id": "0b6daca4ac23566f502f"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "0c7bb541ac06ebf2bb84"
     },
@@ -75,6 +80,11 @@
       "expires_on": "2026-10-31",
       "reason": "dispatcher swallows any trace-import failure on purpose: observability must never stop all scheduling",
       "violation_id": "2538c8dd9a7283f65041"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "new skill entrypoint announcement-radar/radar.py: sys.path bootstrap matching the existing skill-script convention (news-to-sector etc.); budget raised 119->121 alongside",
+      "violation_id": "27b1d71d015d8f94c03a"
     },
     {
       "expires_on": "2026-10-31",
@@ -303,6 +313,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing broad except in extract_pdf_text (best-effort PDF text); file modified only to reuse the shared cninfo_client transport",
+      "violation_id": "92c312f3a611ab9c422b"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
       "violation_id": "944712e9fab0cf807f6b"
     },
@@ -315,6 +330,11 @@
       "expires_on": "2026-10-31",
       "reason": "industry_map module __main__: pre-existing sys.path insert, the established skills/common CLI convention",
       "violation_id": "9669b6d25f7f2bbb600e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "new skill entrypoint announcement-radar/radar.py: sys.path bootstrap matching the existing skill-script convention (news-to-sector etc.); budget raised 119->121 alongside",
+      "violation_id": "974a80755c741128b154"
     },
     {
       "expires_on": "2026-10-31",
