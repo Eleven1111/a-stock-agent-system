@@ -144,6 +144,27 @@ def test_candidate_jobs_carry_the_input_snapshot_switch_in_the_manifest():
         }
 
 
+def test_auction_finalize_lets_a_failed_snapshot_through_so_it_can_degrade():
+    """依赖门挡住 finalize 等于全链静默；放行后由 finalize 自己判空走降级报告。"""
+    policy = _manifest_job("auction-finalize")["dependency_policy"]
+
+    assert set(policy["accepted_statuses"]) == {"ok", "timeout", "failed"}
+
+
+def test_auction_chain_watchdog_is_registered_and_survives_a_broken_chain():
+    """watchdog 必须在链路挂掉时照跑，所以它不能有任何上游依赖。"""
+    job = _manifest_job("auction-chain-watch")
+
+    assert job["enabled"] is True
+    assert job["context_from"] == []
+    assert "dependency_policy" not in job
+    assert job["deliver"] == "feishu_direct"
+    assert job["silent_when_no_signal"] is True
+    assert "scripts/cron_failure_watch.py" in _run_command(job)
+    # 09:35 竞价链应已收口，10:35 复查一次做双保险
+    assert job["schedule"] == "35 9,10 * * 1-5"
+
+
 def test_run_env_cannot_override_runner_owned_keys():
     for env in (
         {"A_STOCK_STATE_HOME": "/tmp/elsewhere"},

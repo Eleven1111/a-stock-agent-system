@@ -641,7 +641,12 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 15
+        "max_age_minutes": 15,
+        "accepted_statuses": [
+          "ok",
+          "timeout",
+          "failed"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -663,7 +668,7 @@
         "cwd": ".",
         "timeout_seconds": 180
       },
-      "external_note": "09:26 收口竞价因子，输出条件买入/关注计划和公告质检，并把重点标的加入动态监控"
+      "external_note": "09:26 收口竞价因子，输出条件买入/关注计划和公告质检，并把重点标的加入动态监控；accepted_statuses 放行失败的竞价快照，由 finalize 自己判空走 fail-closed 降级报告，避免依赖门把全链变成静默"
     },
     {
       "id": "auction-intelligence-brief",
@@ -709,6 +714,43 @@
         "timeout_seconds": 15
       },
       "external_note": "09:27 推送全市场竞价涨跌TOP5、打板高分票及其是否进入执行短名单"
+    },
+    {
+      "id": "auction-chain-watch",
+      "name": "集合竞价链路失败汇总",
+      "schedule": "35 9,10 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "auction-chain-watch",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "text",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "feishu_direct",
+      "max_output_chars": 1500,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/auction-chain-watch/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "scripts/cron_failure_watch.py"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 30
+      },
+      "external_note": "09:35 与 10:35 各查一次竞价链 5 个作业当日 artifact；全绿静默，missing 与 failed 分开报。只读，不得有 context_from —— 链路挂掉时它必须照跑"
     },
     {
       "id": "open-confirmation",

@@ -324,6 +324,36 @@ def test_finalize_flags_empty_collection_instead_of_reporting_ready(tmp_path, mo
     assert ac.monitor_registry.active_entries("stock", asof=event_asof) == []
 
 
+def test_finalize_degrades_when_the_snapshot_job_never_ran(tmp_path, monkeypatch):
+    """依赖门放行失败的上游后，finalize 必须自己判空降级，而不是抛异常或报结论。
+
+    auction-finalize 的 dependency_policy 接受 timeout/failed 的 auction-snapshot，
+    因此 finalize 会在"当日竞价状态文件根本不存在、观察池也没有"的裸状态下被调起。
+    此时唯一可接受的产出是 fail-closed 的降级报告。
+    """
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    event_asof = "2026-06-11"
+
+    result = ac.finalize(event_asof, shortlist_limit=5)
+
+    assert result["status"] == "degraded"
+    assert result["collection_status"] == "empty"
+    assert result["research_only"] is True
+    assert result["shortlist"] == []
+    assert result["preopen_decisions"] == []
+    assert ac.monitor_registry.active_entries("stock", asof=event_asof) == []
+    # 报告层同样不得把"没有观测"渲染成"没有机会"
+    report = ac.json_report(result)
+    assert report["status"] == "degraded"
+    assert report["research_only"] is True
+    assert report["decision_count"] == 0
+    assert report["degraded_reasons"]
+
+
 def test_json_report_passes_through_research_only_instead_of_hardcoding_false():
     """research_only 曾被硬编码 False，使降级报告自相矛盾（status=degraded 却 research_only=False）。"""
     degraded = {
