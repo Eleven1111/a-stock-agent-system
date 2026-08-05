@@ -693,9 +693,8 @@ def test_extreme_weak_market_keeps_research_only_candidates_out_of_live_targets(
     assert result["candidates"] == []
     assert result["research_only"] is True
     assert result["auction_scan_codes"] == ["sh600001"]
-    assert result["warnings"] == [
-        "candidate_count=0_after_weak_market_delivery_gate"
-    ]
+    # 测试环境没有行业映射缓存，会额外带一条退化告警，故只断言包含关系。
+    assert "candidate_count=0_after_weak_market_delivery_gate" in result["warnings"]
     assert captured["targets"] == []
     lifecycle = read_json(
         discovery.candidate_lifecycle.lifecycle_file("2026-06-10"),
@@ -840,3 +839,66 @@ def test_discovery_temperature_exception_blocks_new_risk(monkeypatch):
     assert temperature["position_multiplier"] == 0.0
     assert temperature["top_n_limit"] == 0
     assert "broken cache" in temperature["notes"][0]
+
+
+# ── 行业映射退化必须可见（不允许静默降级为"其他"）──────────────
+
+def _universe_rows():
+    return [
+        {"code": "600519", "industry": ""},          # SSE：交易所列表无行业
+        {"code": "688981", "industry": ""},          # 科创板：主源与交易所均无
+        {"code": "300750", "industry": "电池"},      # SZSE：列表自带证监会行业
+        {"code": "000001", "industry": "货币金融服务"},
+    ]
+
+
+def test_industry_health_separates_cache_hits_from_effective_coverage(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "industry_cache_status",
+        lambda asof: {"status": "ok", "reason": "", "cache_asof": asof, "age_days": 0,
+                      "stock_count": 4053},
+    )
+    health = discovery.build_industry_health(
+        "2026-08-04", _universe_rows(), {"600519": "酿酒行业"}
+    )
+    assert health["cache_mapped_rate"] == 0.25       # 只有 600519 命中缓存
+    assert health["industry_mapped_rate"] == 0.75    # 深市两只用交易所行业兜底
+    assert health["cache_status"] == "ok"
+
+
+def test_missing_industry_cache_produces_an_explicit_warning(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "industry_cache_status",
+        lambda asof: {"status": "missing", "reason": "行业映射缓存文件不存在或不可读",
+                      "cache_asof": None, "age_days": None, "stock_count": 0},
+    )
+    health = discovery.build_industry_health("2026-08-04", _universe_rows(), {})
+    warnings = discovery.industry_health_warnings(health)
+
+    assert len(warnings) == 1
+    assert "industry_map_cache_missing" in warnings[0]
+    assert "缓存文件不存在" in warnings[0]
+
+
+def test_low_mapped_rate_warns_even_when_cache_looks_fresh():
+    health = {"cache_status": "ok", "industry_mapped_rate": 0.42}
+    warnings = discovery.industry_health_warnings(health)
+    assert len(warnings) == 1 and "42.0%" in warnings[0]
+
+
+def test_healthy_industry_map_produces_no_warning():
+    health = {"cache_status": "ok", "industry_mapped_rate": 0.95}
+    assert discovery.industry_health_warnings(health) == []
+
+
+def test_json_report_surfaces_industry_health_and_warnings():
+    report = discovery.json_report({
+        "schema": "candidate_pool_v1",
+        "status": "ready",
+        "warnings": ["industry_map_cache_missing:x"],
+        "industry_map_health": {"cache_status": "missing", "industry_mapped_rate": 0.0},
+    })
+    assert report["warnings"] == ["industry_map_cache_missing:x"]
+    assert report["industry_map_health"]["cache_status"] == "missing"

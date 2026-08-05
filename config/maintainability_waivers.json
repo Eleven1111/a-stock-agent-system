@@ -98,6 +98,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "industry_map._resolve_pace: pre-existing — config lookup is best-effort and must fall back to the default pace rather than block the refresh job",
+      "violation_id": "328f6b5039c7d613ea4c"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in recommendation_audit.py touched by tail-close audit integration",
       "violation_id": "32f37759c28fcdfd6eec"
     },
@@ -110,6 +115,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "3caff1b13ad07da6708b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "industry_map.fill_industry_gaps: the gap-fill universe fetch is best-effort by design — if unavailable, the primary Sina result must still be persisted",
+      "violation_id": "3d8f8b0ba3cfccb3ed93"
     },
     {
       "expires_on": "2026-10-31",
@@ -195,6 +205,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "628ca709910d9be859df"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "industry_map._default_boards_fetcher: one Sina board-list table failing must not abort the refresh (the other still yields usable coverage); urllib/JSON failure modes are not a closed set",
+      "violation_id": "642a75fb8c5284de287d"
     },
     {
       "expires_on": "2026-10-31",
@@ -298,6 +313,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "industry_map module __main__: pre-existing sys.path insert, the established skills/common CLI convention",
+      "violation_id": "9669b6d25f7f2bbb600e"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "987bb9e9545a5776f9e0"
     },
@@ -395,6 +415,11 @@
       "expires_on": "2026-10-31",
       "reason": "an agent runtime crash must map to a terminal failed state, not propagate out of the adapter",
       "violation_id": "b42a2c325734d2dbdfd3"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "industry_map.fill_industry_gaps: gap-fill failure (currently Baidu ResultCode=403) is recorded in the gap_fill report and must never block the primary source from being written",
+      "violation_id": "b71c027789d2dcace93c"
     },
     {
       "expires_on": "2026-10-31",
@@ -548,6 +573,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "industry_map._fetch_with_retry: generic retry wrapper over a caller-injected fetcher, so its exception types cannot be enumerated here; a failing unit is recorded in failed_units instead of propagating",
+      "violation_id": "e777880ed77f60251ad4"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in recommendation_audit.py touched by tail-close audit integration",
       "violation_id": "e81a193115b3be6777c1"
     },
@@ -575,6 +605,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "fa4fa719166da01a91c3"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "industry_map.refresh: pre-existing — a build failure must degrade to keeping the prior cache (stale_cache) rather than raising, so a bad data source never erases a usable map",
+      "violation_id": "fd05f5a7b7f710f8b9f0"
     },
     {
       "expires_on": "2026-10-31",
