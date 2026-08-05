@@ -16,6 +16,7 @@ import subprocess
 import re
 from datetime import datetime
 from typing import Optional, Dict
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from feishu_push import DISCLOSURE
@@ -24,6 +25,13 @@ from paths import cron_output_dir
 LARK_CLI = "lark-cli"
 REPORT_ROOT = cron_output_dir()
 FEISHU_FOLDER = ""  # 不依赖 folder token，直接创建到飞书根目录
+
+# 飞书文档域名白名单。按 host 精确匹配或匹配子域，**不做整行子串判断** ——
+# 子串判断会让 https://evil.example/?ref=feishu.cn 通过（CodeQL
+# py/incomplete-url-substring-sanitization）。
+FEISHU_DOC_HOSTS = ("feishu.cn", "larksuite.com")
+# 结束边界含中英文标点：CLI 输出常把 URL 嵌在中文句子里（「已创建：https://…。」）
+_URL_RE = re.compile(r"https?://[^\s\"'<>()（）「」【】，。；：]+")
 
 
 def sanitize_markdown(text: str) -> str:
@@ -61,6 +69,39 @@ def with_disclosure(text: str) -> str:
     return f"{text}{separator}\n{DISCLOSURE}"
 
 
+def is_feishu_doc_url(candidate: str) -> bool:
+    """URL 的 host 是否属于飞书文档域。
+
+    只认 http/https，且 host 必须等于白名单域或是其子域。
+    ``https://evil.example/?ref=feishu.cn``、``https://feishu.cn.evil.example``
+    都必须判否 —— 前者是查询串里带域名，后者是把白名单域当子域前缀。
+    """
+    try:
+        parsed = urlparse(candidate)
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    return any(
+        host == domain or host.endswith("." + domain)
+        for domain in FEISHU_DOC_HOSTS
+    )
+
+
+def extract_feishu_doc_url(stdout: str) -> Optional[str]:
+    """从 CLI 输出里取第一个真正指向飞书文档域的 URL。
+
+    旧实现是「整行含 feishu.cn 就返回整行」，既可能返回非 URL 文本，
+    也会被任意位置出现的域名字符串骗过。
+    """
+    for match in _URL_RE.finditer(stdout or ""):
+        url = match.group(0).rstrip(".,;:。，；：、")
+        if is_feishu_doc_url(url):
+            return url
+    return None
+
+
 def create_feishu_doc(title: str, content: str) -> Optional[str]:
     """创建飞书文档"""
     # 飞书文档标题限制
@@ -85,11 +126,8 @@ def create_feishu_doc(title: str, content: str) -> Optional[str]:
                     return doc_url
             except json.JSONDecodeError:
                 pass
-            # fallback：扫描输出中的 URL
-            for line in result.stdout.split("\n"):
-                if "feishu.cn" in line or "larksuite.com" in line:
-                    return line.strip()
-            return result.stdout.strip()
+            # fallback：JSON 解析失败时，从输出里提取飞书文档域下的 URL
+            return extract_feishu_doc_url(result.stdout)
         else:
             print(f"❌ 飞书创建失败: {result.stderr}", file=sys.stderr)
             return None
