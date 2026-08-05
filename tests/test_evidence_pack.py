@@ -423,7 +423,11 @@ def test_pack_surfaces_interactive_qa_with_reply_graded_b_and_question_lead_only
     unanswered = next(item for item in items if not item["has_reply"])
     assert replied["grade"] == "B"
     assert unanswered["grade"] == "attention_only"
-    assert replied["url"].startswith("https://irm.cninfo.com.cn")
+    # 整串相等，不用 startswith：前缀断言对任何 questionId 都通过，
+    # 拼错 id 也不会失败（顺带消掉 CodeQL 的
+    # py/incomplete-url-substring-sanitization 误报）
+    assert replied["url"] == "https://irm.cninfo.com.cn/mobile/rmDetail?questionId=1"
+    assert unanswered["url"] == "https://irm.cninfo.com.cn/mobile/rmDetail?questionId=2"
 
 
 def test_pack_marks_interactive_qa_missing_when_cache_absent():
