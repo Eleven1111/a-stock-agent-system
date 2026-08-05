@@ -1,0 +1,37 @@
+{
+  "_meta": {
+    "purpose": "三桶召回阈值。分流用，不产生排序名单。",
+    "calibrated_on": ["2026-07-31", "2026-08-01"],
+    "calibrated_at": "2026-08-04",
+    "expected_yield": {
+      "2026-07-31": {"A": 83, "B": 18, "C": 64, "merged": 160, "companies": 127},
+      "2026-08-01": {"A": 98, "B": 18, "C": 63, "merged": 169, "companies": 105}
+    },
+    "note": "改阈值必须复跑这两日并更新 expected_yield，否则回归测试会失败"
+  },
+  "divergence": {
+    "_comment": "A 桶：规则分与历史统计位置不一致处才有信息量",
+    "min_abs_divergence": 3
+  },
+  "unmatched": {
+    "_comment": "B 桶：分类未命中但标题含强事件词。这张表要随漏网样本迭代。",
+    "strong_event_terms": [
+      "中标", "核准", "获批", "批准", "收购", "涨价", "提价", "取得",
+      "认证", "注册", "突破", "签署", "合作", "控制权", "一致行动",
+      "专利", "量产", "投产"
+    ]
+  },
+  "extreme": {
+    "_comment": "C 桶：先验极值。排除回购/股权激励——两者每日 ~105 条，是低信息量常态噪音，其中真正异常的会由 A 桶接住。",
+    "min_abs_nss": 6,
+    "exclude_categories": ["回购股权", "股权激励"]
+  },
+  "limits": {
+    "_comment": "护栏：产出条数异常时 fail loud，不静默交付",
+    "min_expected_rows": 60,
+    "max_expected_rows": 400,
+    "min_fetch_rows": 300,
+    "min_classification_rate": 0.85,
+    "brief_top_per_bucket": 5
+  }
+}

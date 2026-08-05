@@ -10,7 +10,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（49 个作业，当前 42 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（59 个作业，当前 44 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -54,6 +54,29 @@ A_STOCK_EXECUTION_TRACE=off
 类型化命令：dispatcher 只接受 `command_argv` 数组并以 `shell=False` 执行。作业启动失败时
 先看 `dispatch-jobs.log` 与调度器 err 日志里的 `skip job ...` 行 —— 可执行文件缺失、cwd
 越界、argv 里出现 shell 元字符都会 fail closed 并记录原因，不会静默降级回 shell。
+
+### 待启用：公告召回雷达（announcement-radar）
+
+三个作业已登记进 manifest，但**当前 `enabled: false`**，处于待观察状态：
+
+| id | schedule | 说明 |
+|---|---|---|
+| `announcement-radar-evening` | `30 21 * * 1-5` | 主跑，抓当日全市场公告 |
+| `announcement-radar-premarket` | `40 7 * * 1-5` | 补抓凌晨增量，赶在 08:30 候选池引导前 |
+| `announcement-radar-weekend` | `0 9 * * 6` | 周六跑（实测 08-01 周六仍有 1440 条） |
+
+启用前需连续 5 个交易日手动跑并满足：抓取量 > 1000、分类命中率 ≥ 85%、
+召回 100~250 条、`cninfo` 源既有调用失败率无上升。手动跑：
+
+```bash
+A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
+  .venv/bin/python skills/announcement-radar/scripts/radar.py --date today --emit-brief
+```
+
+**耗时 6~14 分钟**（2026-08-04 两次实测：5:59 与约 13 分钟，网络波动导致差异大）：
+全市场约 50 次接口请求 × `http_client` 2.5s/源 节流。
+因此 `run.timeout_seconds` 设为 1800，不可套用其他作业的 15~60s。
+产物：`$A_STOCK_STATE_HOME/cron/output/announcement-radar/<date>.json`。
 
 ### 历史与注意事项
 
