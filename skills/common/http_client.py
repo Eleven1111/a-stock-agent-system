@@ -57,21 +57,28 @@ _last_request_ts: Dict[str, float] = {}
 _throttle_lock = threading.Lock()
 
 
-def _throttle_wait(source: str) -> None:
-    """Block until at least ``_THROTTLE_INTERVAL`` seconds have elapsed since
-    the last request to *source* in this process.
+def _throttle_wait(source: str, min_interval: Optional[float] = None) -> None:
+    """Block until at least the minimum interval has elapsed since the last
+    request to *source* in this process.
+
+    The default interval targets WAF-protected quote endpoints. Callers that
+    sweep a catalogue endpoint hundreds of times in one batch job may pass a
+    smaller ``min_interval`` — but only for sources that are demonstrably not
+    rate limited, and never for eastmoney, which keeps its jitter regardless.
 
     Eastmoney requests get extra jitter (0.5-1.5s random) on top of the base
     interval to reduce the chance of triggering WAF sliding-window rate limits.
     """
+    is_eastmoney = "eastmoney" in source.lower()
+    base = _THROTTLE_INTERVAL
+    if min_interval is not None and not is_eastmoney:
+        base = max(0.0, float(min_interval))
     with _throttle_lock:
         last = _last_request_ts.get(source, 0.0)
         elapsed = time.monotonic() - last
         # Extra jitter for eastmoney sources to avoid WAF pattern detection
-        extra_jitter = 0.0
-        if "eastmoney" in source.lower():
-            extra_jitter = random.uniform(0.5, 1.5)
-        total_wait = _THROTTLE_INTERVAL + extra_jitter
+        extra_jitter = random.uniform(0.5, 1.5) if is_eastmoney else 0.0
+        total_wait = base + extra_jitter
         if elapsed < total_wait:
             time.sleep(total_wait - elapsed)
         _last_request_ts[source] = time.monotonic()
@@ -179,10 +186,12 @@ class HttpClient:
         clock: Callable[[], datetime] = _utc_now,
         sleeper: Callable[[float], None] = time.sleep,
         max_retry_after_seconds: float = 60,
+        min_interval_seconds: Optional[float] = None,
     ):
         self.source = source
         self.timeout = float(timeout)
         self.max_attempts = min(max(int(max_attempts), 1), 2)
+        self.min_interval_seconds = min_interval_seconds
         self._opener = opener or _build_proxy_aware_opener()
         self._clock = clock
         self._sleeper = sleeper
@@ -216,7 +225,7 @@ class HttpClient:
         *,
         headers: Optional[Dict[str, str]] = None,
     ) -> HttpResult[bytes]:
-        _throttle_wait(self.source)
+        _throttle_wait(self.source, self.min_interval_seconds)
         request_obj = _request(request, headers)
         last_error: Optional[DataSourceError] = None
         started = time.monotonic()
@@ -344,8 +353,14 @@ def request_bytes(
     timeout: float = 10,
     max_attempts: int = 2,
     headers: Optional[Dict[str, str]] = None,
+    min_interval_seconds: Optional[float] = None,
 ) -> HttpResult[bytes]:
-    return HttpClient(source, timeout=timeout, max_attempts=max_attempts).request_bytes(
+    return HttpClient(
+        source,
+        timeout=timeout,
+        max_attempts=max_attempts,
+        min_interval_seconds=min_interval_seconds,
+    ).request_bytes(
         request,
         headers=headers,
     )
@@ -359,8 +374,14 @@ def request_text(
     max_attempts: int = 2,
     encoding: str = "utf-8",
     headers: Optional[Dict[str, str]] = None,
+    min_interval_seconds: Optional[float] = None,
 ) -> HttpResult[str]:
-    return HttpClient(source, timeout=timeout, max_attempts=max_attempts).request_text(
+    return HttpClient(
+        source,
+        timeout=timeout,
+        max_attempts=max_attempts,
+        min_interval_seconds=min_interval_seconds,
+    ).request_text(
         request,
         encoding=encoding,
         headers=headers,
@@ -375,8 +396,14 @@ def request_json(
     max_attempts: int = 2,
     encoding: str = "utf-8",
     headers: Optional[Dict[str, str]] = None,
+    min_interval_seconds: Optional[float] = None,
 ) -> HttpResult[Any]:
-    return HttpClient(source, timeout=timeout, max_attempts=max_attempts).request_json(
+    return HttpClient(
+        source,
+        timeout=timeout,
+        max_attempts=max_attempts,
+        min_interval_seconds=min_interval_seconds,
+    ).request_json(
         request,
         encoding=encoding,
         headers=headers,
