@@ -136,6 +136,45 @@ def test_high_frequency_idle_prone_jobs_opt_into_adaptive_backoff():
         assert _manifest_job(job_id)["adaptive_backoff"] is True
 
 
+def test_candidate_jobs_carry_the_input_snapshot_switch_in_the_manifest():
+    """The switch must travel with the repo, not with one machine's .env."""
+    for job_id in ("candidate-preopen", "candidate-discovery"):
+        assert _manifest_job(job_id)["run"]["env"] == {
+            "A_STOCK_SKIP_INPUT_SNAPSHOT": "1"
+        }
+
+
+def test_run_env_cannot_override_runner_owned_keys():
+    for env in (
+        {"A_STOCK_STATE_HOME": "/tmp/elsewhere"},
+        {"PATH": "/tmp/bin"},
+        {"A_STOCK_RUN_ID": "forged"},
+        {"lowercase_key": "1"},
+        {"A_STOCK_FLAG": ["not", "scalar"]},
+    ):
+        job = json.loads(json.dumps(VALID_JOB))
+        job["run"]["env"] = env
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"jobs": [job]}, f)
+            path = f.name
+        try:
+            assert validate(path) is False, env
+        finally:
+            os.unlink(path)
+
+
+def test_run_env_accepts_a_plain_business_flag():
+    job = json.loads(json.dumps(VALID_JOB))
+    job["run"]["env"] = {"A_STOCK_SKIP_INPUT_SNAPSHOT": "1"}
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump({"jobs": [job]}, f)
+        path = f.name
+    try:
+        assert validate(path) is True
+    finally:
+        os.unlink(path)
+
+
 def test_missing_field():
     manifest = {"jobs": [{"id": "bad", "name": "Bad"}]}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:

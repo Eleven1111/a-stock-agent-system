@@ -40,6 +40,13 @@ except ImportError:
     _QUALITY_GATE_AVAILABLE = False
 
 
+# Statuses that mean a dependency already reached a terminal failure in this
+# batch. A *missing* artifact is deliberately not in this set: on a machine that
+# slept through its cron trigger "never ran" is the normal case and must still
+# bootstrap.
+TERMINAL_FAILURE_STATUSES = frozenset({"failed", "timeout", "error", "blocked"})
+
+
 def _load_manifest(path: str) -> dict[str, Any]:
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
@@ -271,6 +278,37 @@ def execute_dag(
                 "run_id": existing.get("run_id"),
             })
             continue
+
+        # Fail fast on a dependency that already failed today instead of paying
+        # for it again: without this, every downstream firing re-ran the same
+        # expensive upstream job and multiplied one failure by
+        # (firings x attempts x lease waits). ``existing`` is already loaded, so
+        # this costs no extra IO, and ``_load_artifact`` is scoped to this
+        # trading date. Targets are never short-circuited — a manual rerun of a
+        # failed job must stay possible.
+        if (
+            job_id not in target_set
+            and existing
+            and existing.get("status") in TERMINAL_FAILURE_STATUSES
+        ):
+            runs.append({
+                "job_id": job_id,
+                "status": "blocked",
+                "reason": "upstream_failed",
+                "upstream_status": existing.get("status"),
+                "upstream_run_id": existing.get("run_id"),
+                "artifact_path": existing.get("artifact_path"),
+            })
+            result = {
+                "schema": "a_stock_dag_run_v1",
+                "status": "blocked",
+                "runtime": runtime,
+                "trading_date": day,
+                "batch_id": batch,
+                "targets": targets,
+                "runs": runs,
+            }
+            return _apply_quality_gate(result, jobs, targets)
 
         command = [
             sys.executable,
@@ -540,6 +578,35 @@ def target_output(
     return output
 
 
+def blocked_notice(targets: list[str], result: Mapping[str, Any]) -> str:
+    """One human-readable line explaining why a target never ran.
+
+    A blocked DAG used to print NO_REPLY, which is indistinguishable from "no
+    signal today" — the failure was silent by construction on both the announce
+    channel and in the dispatch log.
+    """
+    target = targets[0] if targets else str(result.get("targets") or "")
+    culprit = next(
+        (
+            run
+            for run in result.get("runs") or []
+            if run.get("status") in {"blocked", "failed", "timeout", "error"}
+        ),
+        None,
+    )
+    if not culprit:
+        return f"⚠️ {target} 未执行：DAG 状态 {result.get('status')}"
+    reason = str(
+        culprit.get("reason")
+        or culprit.get("upstream_status")
+        or culprit.get("status")
+    )
+    job_id = str(culprit.get("job_id") or "")
+    if job_id == target:
+        return f"⚠️ {target} 未执行：{reason}"
+    return f"⚠️ {target} 未执行：依赖 {job_id} {reason}"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("targets", nargs="+")
@@ -564,8 +631,10 @@ def main() -> None:
         max_attempts=args.max_attempts,
         reuse_targets=args.reuse_targets,
     )
-    if args.emit_target and result["status"] in ("skipped_non_trading_day", "blocked"):
+    if args.emit_target and result["status"] == "skipped_non_trading_day":
         print("NO_REPLY")
+    elif args.emit_target and result["status"] == "blocked":
+        print(blocked_notice(args.targets, result))
     elif args.emit_target and result["status"] == "ok" and len(args.targets) == 1:
         artifact = _load_artifact(
             args.targets[0],
@@ -591,9 +660,10 @@ def main() -> None:
             err_msg = artifact["stderr"][:200]
             parts.append(f"错误: {err_msg}")
         print("\n".join(parts))
-    raise SystemExit(
-        0 if result["status"] in {"ok", "skipped_non_trading_day", "blocked"} else 1
-    )
+    # blocked is a failure to produce the target, not a quiet day: it must not
+    # report success to any exit-code consumer (OpenClaw lastRunStatus today,
+    # anything reading the dispatch log tomorrow).
+    raise SystemExit(0 if result["status"] in {"ok", "skipped_non_trading_day"} else 1)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 from typing import Any, Dict, List, Optional
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -120,6 +121,22 @@ def _push_feishu(
         **ctx,
     )
     return result
+
+
+def _subprocess_text(value: Any) -> str:
+    """Normalise subprocess output to text.
+
+    ``subprocess.run(text=True, ...)`` decodes on the happy path, but the
+    partial output carried by ``TimeoutExpired`` is handed back as raw bytes.
+    Concatenating that with a str raised ``TypeError`` inside the timeout
+    handler, so the runner died before writing anything — a job that timed out
+    after emitting one stderr byte left no artifact and no ``job.finished``.
+    """
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
 
 
 def _dependency_reason_codes(dependency_gate: Optional[Dict[str, Any]]) -> List[str]:
@@ -245,10 +262,15 @@ def run_job(args: argparse.Namespace) -> int:
     }
     execution_trace.emit("job.started", **trace_ctx)
 
+    # Guards the one-started-one-finished contract when the crash net below
+    # fires after a normal finish has already been emitted.
+    finish_state = {"emitted": False}
+
     def _finish(
         artifact: Dict[str, Any],
         *,
         reason_codes: Optional[List[str]] = None,
+        emit: bool = True,
     ) -> None:
         path = write_artifact(artifact)
         record_run(artifact)
@@ -261,7 +283,9 @@ def run_job(args: argparse.Namespace) -> int:
             reason_codes=reason_codes,
             **trace_ctx,
         )
-        _emit(job, artifact, args.emit_local, trace_ctx)
+        finish_state["emitted"] = True
+        if emit:
+            _emit(job, artifact, args.emit_local, trace_ctx)
 
     state_check = ensure_state_identity(runtime, env=run_env)
 
@@ -434,113 +458,160 @@ def run_job(args: argparse.Namespace) -> int:
         "A_STOCK_AGENT_STATE_PATH": agent_state_path(),
         execution_trace.TRACE_ID_ENV: str(trace_ctx["trace_id"] or ""),
     })
+    # Per-job flags declared in the manifest, so a job carries its own switches
+    # instead of depending on one machine's .env. Runner-owned keys (state home,
+    # run identity, PATH) are filtered out by manifest_command.env_overrides.
+    env.update(manifest_command.env_overrides(run))
 
     start = time.monotonic()
     timed_out = False
-    with claim(
-        job["id"],
-        trading_date=trading_date,
-        batch_id=batch_id,
-        run_id=run_id,
-        runtime=runtime,
-        ttl_seconds=max(timeout * 2, 60),
-    ) as lease:
-        if not lease["acquired"]:
-            print(json.dumps({
-                "schema": "a_stock_duplicate_run_v1",
-                "status": "duplicate_skipped",
-                "job_id": job["id"],
-                "trading_date": trading_date,
-                "batch_id": batch_id,
-                "holder": lease.get("holder"),
-            }, ensure_ascii=False))
-            execution_trace.emit(
-                "job.finished",
-                status="duplicate_skipped",
-                reason_codes=["run_lease_held"],
-                **trace_ctx,
-            )
-            return 76
-        try:
-            completed = subprocess.run(
-                argv,
-                shell=False,
-                cwd=cwd,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            returncode = completed.returncode
-            stdout = completed.stdout
-            stderr = completed.stderr
-        except subprocess.TimeoutExpired as exc:
-            timed_out = True
-            returncode = 124
-            stdout = exc.stdout or ""
-            stderr = (exc.stderr or "") + f"\nTIMEOUT after {timeout}s"
-
-    finished_at = now_iso()
-    duration = time.monotonic() - start
-    snapshot_ref = None
-    parsed_output = None
-    if returncode == 0:
-        try:
-            parsed_output = json.loads(stdout)
-        except (json.JSONDecodeError, TypeError):
-            parsed_output = None
-    if parsed_output is not None:
-        snapshot = write_snapshot(
+    try:
+        with claim(
             job["id"],
-            parsed_output,
             trading_date=trading_date,
             batch_id=batch_id,
-            producer=job["id"],
-            producer_version=_producer_version(),
-            captured_at=finished_at,
-        )
-        snapshot_ref = {
-            key: snapshot[key]
-            for key in (
-                "schema",
-                "snapshot_id",
-                "snapshot_path",
-                "payload_hash",
-                "source_versions",
+            run_id=run_id,
+            runtime=runtime,
+            ttl_seconds=max(timeout * 2, 60),
+        ) as lease:
+            if not lease["acquired"]:
+                print(json.dumps({
+                    "schema": "a_stock_duplicate_run_v1",
+                    "status": "duplicate_skipped",
+                    "job_id": job["id"],
+                    "trading_date": trading_date,
+                    "batch_id": batch_id,
+                    "holder": lease.get("holder"),
+                }, ensure_ascii=False))
+                execution_trace.emit(
+                    "job.finished",
+                    status="duplicate_skipped",
+                    reason_codes=["run_lease_held"],
+                    **trace_ctx,
+                )
+                finish_state["emitted"] = True
+                return 76
+            try:
+                completed = subprocess.run(
+                    argv,
+                    shell=False,
+                    cwd=cwd,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+                returncode = completed.returncode
+                stdout = completed.stdout
+                stderr = completed.stderr
+            except subprocess.TimeoutExpired as exc:
+                timed_out = True
+                returncode = 124
+                stdout = _subprocess_text(exc.stdout)
+                stderr = _subprocess_text(exc.stderr) + f"\nTIMEOUT after {timeout}s"
+
+        finished_at = now_iso()
+        duration = time.monotonic() - start
+        snapshot_ref = None
+        parsed_output = None
+        if returncode == 0:
+            try:
+                parsed_output = json.loads(stdout)
+            except (json.JSONDecodeError, TypeError):
+                parsed_output = None
+        if parsed_output is not None:
+            snapshot = write_snapshot(
+                job["id"],
+                parsed_output,
+                trading_date=trading_date,
+                batch_id=batch_id,
+                producer=job["id"],
+                producer_version=_producer_version(),
+                captured_at=finished_at,
             )
-        }
-    status_override = "blocked" if returncode in BLOCKED_RETURNCODES and not timed_out else None
-    artifact = build_artifact(
-        job=job,
-        run_id=run_id,
-        command=command,
-        cwd=cwd,
-        returncode=returncode,
-        stdout=stdout,
-        stderr=stderr,
-        started_at=started_at,
-        finished_at=finished_at,
-        duration_seconds=duration,
-        context_artifacts=context_artifacts,
-        timed_out=timed_out,
-        trading_date=trading_date,
-        batch_id=batch_id,
-        dependency_gate=dependency_gate,
-        runtime=runtime,
-        snapshot_ref=snapshot_ref,
-        calendar_gate=calendar_gate,
-        status_override=status_override,
-        adaptive_schedule=adaptive_decision,
-    )
-    if job.get("adaptive_backoff") and artifact["status"] == "ok":
-        adaptive_schedule.record_outcome(
-            job["id"], ran=True, has_signal=artifact["has_signal"]
+            snapshot_ref = {
+                key: snapshot[key]
+                for key in (
+                    "schema",
+                    "snapshot_id",
+                    "snapshot_path",
+                    "payload_hash",
+                    "source_versions",
+                )
+            }
+        status_override = "blocked" if returncode in BLOCKED_RETURNCODES and not timed_out else None
+        artifact = build_artifact(
+            job=job,
+            run_id=run_id,
+            command=command,
+            cwd=cwd,
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_seconds=duration,
+            context_artifacts=context_artifacts,
+            timed_out=timed_out,
+            trading_date=trading_date,
+            batch_id=batch_id,
+            dependency_gate=dependency_gate,
+            runtime=runtime,
+            snapshot_ref=snapshot_ref,
+            calendar_gate=calendar_gate,
+            status_override=status_override,
+            adaptive_schedule=adaptive_decision,
         )
-    _finish(
-        artifact,
-        reason_codes=(["timeout"] if timed_out else None),
-    )
-    return returncode
+        if job.get("adaptive_backoff") and artifact["status"] == "ok":
+            adaptive_schedule.record_outcome(
+                job["id"], ran=True, has_signal=artifact["has_signal"]
+            )
+        _finish(
+            artifact,
+            reason_codes=(["timeout"] if timed_out else None),
+        )
+        return returncode
+    except Exception as exc:  # noqa: BLE001 - last-resort net; see comment below
+        # A defect in the runner itself must not read as "this job never ran".
+        # Without a terminal artifact the dependency gate, the DAG short-circuit
+        # and any watchdog all see missing data and keep respawning the job.
+        detail = traceback.format_exc()
+        sys.stderr.write(detail)
+        if finish_state["emitted"]:
+            return 1
+        summary = "".join(traceback.format_exception_only(type(exc), exc)).strip()
+        crash_artifact = build_artifact(
+            job=job,
+            run_id=run_id,
+            command=command,
+            cwd=cwd,
+            returncode=1,
+            stdout="",
+            stderr=f"RUNNER CRASH: {summary}\n{detail[-2000:]}",
+            started_at=started_at,
+            finished_at=now_iso(),
+            duration_seconds=time.monotonic() - start,
+            context_artifacts=context_artifacts,
+            trading_date=trading_date,
+            batch_id=batch_id,
+            dependency_gate=dependency_gate,
+            status_override="failed",
+            runtime=runtime,
+            calendar_gate=calendar_gate,
+        )
+        try:
+            # Nothing to deliver on a crash: emit=False keeps a broken run out
+            # of the push channels while still landing the artifact.
+            _finish(crash_artifact, reason_codes=["runner_crash"], emit=False)
+        except (OSError, TimeoutError):
+            # Artifact storage is unreachable; the trace contract outlives it.
+            execution_trace.emit(
+                "job.finished",
+                status="failed",
+                reason_codes=["runner_crash", "artifact_write_failed"],
+                **trace_ctx,
+            )
+        return 1
 
 
 def build_parser() -> argparse.ArgumentParser:

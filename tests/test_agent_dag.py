@@ -222,6 +222,222 @@ def test_dag_does_not_rerun_after_concurrent_holder_times_out(tmp_path, monkeypa
     assert result["runs"][0]["artifact_path"] == "/tmp/holder.json"
 
 
+def _seed_artifact(state_home, job_id, *, run_id, status, trading_date, batch_id):
+    directory = state_home / "cron" / "output" / job_id
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{run_id}.json"
+    path.write_text(json.dumps({
+        "schema": "hermes_cron_artifact_v2",
+        "job_id": job_id,
+        "run_id": run_id,
+        "batch_id": batch_id,
+        "trading_date": trading_date,
+        "status": status,
+        "returncode": 124 if status == "timeout" else 1,
+        "artifact_path": str(path),
+        "started_at": f"{trading_date}T09:15:00+08:00",
+        "finished_at": f"{trading_date}T09:25:00+08:00",
+        "stdout": "",
+        "stderr": "TIMEOUT after 600s",
+    }), encoding="utf-8")
+    return path
+
+
+def test_dag_blocks_instead_of_rerunning_a_dependency_that_already_failed(
+    tmp_path,
+    monkeypatch,
+):
+    """A dependency that already failed today must not be respawned.
+
+    Issue #159: every downstream firing re-launched the same expensive upstream
+    job, multiplying one failure by (firings x attempts x lease waits).
+    """
+    state_home = tmp_path / "state"
+    day = "2026-06-12"
+    batch = run_agent_dag.make_batch_id(day)
+    _seed_artifact(
+        state_home,
+        "upstream",
+        run_id="upstream-timeout",
+        status="timeout",
+        trading_date=day,
+        batch_id=batch,
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [
+        _job("upstream", "true"),
+        _job("downstream", "true", ["upstream"]),
+    ]}), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(
+        run_agent_dag.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append(args),
+    )
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(state_home)
+    env.pop("A_STOCK_STATE_ID", None)
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["downstream"],
+        trading_date=day,
+        batch_id=batch,
+        env=env,
+    )
+
+    assert calls == []
+    assert result["status"] == "blocked"
+    assert result["runs"] == [{
+        "job_id": "upstream",
+        "status": "blocked",
+        "reason": "upstream_failed",
+        "upstream_status": "timeout",
+        "upstream_run_id": "upstream-timeout",
+        "artifact_path": str(
+            state_home / "cron" / "output" / "upstream" / "upstream-timeout.json"
+        ),
+    }]
+
+
+def test_dag_still_bootstraps_a_dependency_that_never_ran(tmp_path, monkeypatch):
+    """Missing != failed. A machine that slept through cron must still bootstrap."""
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [
+        _job("upstream", "true"),
+        _job("downstream", "true", ["upstream"]),
+    ]}), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(
+        run_agent_dag.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append(args[0][2]) or subprocess.CompletedProcess(
+            args[0], 0, stdout="", stderr=""
+        ),
+    )
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["downstream"],
+        trading_date="2026-06-12",
+        env=env,
+    )
+
+    assert calls == ["upstream", "downstream"]
+    assert result["status"] == "ok"
+
+
+def test_dag_never_short_circuits_the_target_itself(tmp_path, monkeypatch):
+    """Rerunning a failed target by hand stays possible."""
+    state_home = tmp_path / "state"
+    day = "2026-06-12"
+    batch = run_agent_dag.make_batch_id(day)
+    _seed_artifact(
+        state_home,
+        "target",
+        run_id="target-failed",
+        status="failed",
+        trading_date=day,
+        batch_id=batch,
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps({"jobs": [_job("target", "true")]}), encoding="utf-8"
+    )
+    calls = []
+    monkeypatch.setattr(
+        run_agent_dag.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append(args[0][2]) or subprocess.CompletedProcess(
+            args[0], 0, stdout="", stderr=""
+        ),
+    )
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(state_home)
+    env.pop("A_STOCK_STATE_ID", None)
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["target"],
+        trading_date=day,
+        batch_id=batch,
+        env=env,
+    )
+
+    assert calls == ["target"]
+    assert result["status"] == "ok"
+
+
+def test_blocked_dag_exits_nonzero_and_explains_itself(monkeypatch, capsys):
+    """blocked used to exit 0 with NO_REPLY — a silent failure by construction."""
+    monkeypatch.setattr(
+        run_agent_dag,
+        "execute_dag",
+        lambda **kwargs: {
+            "schema": "a_stock_dag_run_v1",
+            "status": "blocked",
+            "runtime": "hermes",
+            "trading_date": "2026-06-12",
+            "batch_id": "a-share-20260612",
+            "targets": ["auction-snapshot"],
+            "runs": [{
+                "job_id": "candidate-preopen",
+                "status": "blocked",
+                "reason": "upstream_failed",
+                "upstream_status": "timeout",
+            }],
+        },
+    )
+    monkeypatch.setattr(
+        run_agent_dag.sys,
+        "argv",
+        ["run_agent_dag.py", "auction-snapshot", "--emit-target"],
+    )
+
+    try:
+        run_agent_dag.main()
+    except SystemExit as exc:
+        code = exc.code
+
+    output = capsys.readouterr().out
+    assert code == 1
+    assert "NO_REPLY" not in output
+    assert "auction-snapshot" in output
+    assert "candidate-preopen" in output
+
+
+def test_skipped_non_trading_day_stays_silent_and_exits_zero(monkeypatch, capsys):
+    monkeypatch.setattr(
+        run_agent_dag,
+        "execute_dag",
+        lambda **kwargs: {
+            "schema": "a_stock_dag_run_v1",
+            "status": "skipped_non_trading_day",
+            "runtime": "hermes",
+            "trading_date": "2026-06-13",
+            "batch_id": "a-share-20260613",
+            "targets": ["auction-snapshot"],
+            "runs": [],
+        },
+    )
+    monkeypatch.setattr(
+        run_agent_dag.sys,
+        "argv",
+        ["run_agent_dag.py", "auction-snapshot", "--emit-target"],
+    )
+
+    try:
+        run_agent_dag.main()
+    except SystemExit as exc:
+        code = exc.code
+
+    assert code == 0
+    assert capsys.readouterr().out.strip() == "NO_REPLY"
+
+
 def test_target_output_records_push_telemetry_jsonl(tmp_path):
     telemetry = tmp_path / "state" / "cron" / "push_telemetry.jsonl"
 

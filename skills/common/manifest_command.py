@@ -14,9 +14,10 @@ release, and is never auto-promoted back into a shell execution path.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
-from typing import Any, Iterable, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
 
 
 #: Characters that only mean something to a shell. In an argv element they are
@@ -25,6 +26,42 @@ SHELL_METACHARACTERS = ("|", ">", "<", "$", "`", ";", "&", "\n", "*", "?")
 
 PLACEHOLDER_OPEN = "{"
 PLACEHOLDER_CLOSE = "}"
+
+#: Environment keys the runner owns. ``run.env`` exists so a job can carry its
+#: own business feature flags (they must travel with the manifest, not with one
+#: machine's .env). It is deliberately not a general environment override: these
+#: keys decide where state lives, which identity the run claims, and which
+#: binary executes — the fail-closed contract that state_integrity, the run
+#: lease and artifact routing are all keyed on. A manifest value for them is
+#: ignored at runtime and rejected at validation time.
+RESERVED_ENV_KEYS = frozenset({
+    "PATH",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "HOME",
+    "HERMES_HOME",
+    "HERMES_JOB_ID",
+    "HERMES_RUN_ID",
+    "HERMES_BATCH_ID",
+    "HERMES_TRADING_DATE",
+    "HERMES_CONTEXT_SCOPE",
+    "HERMES_CONTEXT_FROM",
+    "A_STOCK_STATE_HOME",
+    "A_STOCK_STATE_ID",
+    "A_STOCK_ENV_FILE",
+    "A_STOCK_BACKUP_HOME",
+    "A_STOCK_RUNTIME",
+    "A_STOCK_JOB_ID",
+    "A_STOCK_RUN_ID",
+    "A_STOCK_BATCH_ID",
+    "A_STOCK_TRADING_DATE",
+    "A_STOCK_AGENT_STATE_PATH",
+    "A_STOCK_TRACE_ID",
+})
+
+#: Conventional POSIX-ish environment name. Anything else is a typo or an
+#: attempt to smuggle something past the reserved-key check.
+ENV_KEY_RE = re.compile(r"[A-Z][A-Z0-9_]*")
 
 
 class CommandContractError(ValueError):
@@ -104,6 +141,44 @@ def argv_errors(argv: Any, *, label: str) -> list[str]:
                 )
                 break
     return errors
+
+
+def env_errors(run: Any, *, label: str = "run.env") -> list[str]:
+    """Structural problems with a job's ``run.env`` block."""
+    raw = (run or {}).get("env") if isinstance(run, Mapping) else None
+    if raw is None:
+        return []
+    if not isinstance(raw, Mapping):
+        return [f"{label} must be an object of NAME=value strings"]
+    errors: list[str] = []
+    for key, value in raw.items():
+        name = str(key)
+        if not ENV_KEY_RE.fullmatch(name):
+            errors.append(f"{label} key must be UPPER_SNAKE_CASE: {name!r}")
+            continue
+        if name in RESERVED_ENV_KEYS:
+            errors.append(f"{label} must not override runner-owned key: {name}")
+            continue
+        if not isinstance(value, (str, int, float, bool)):
+            errors.append(f"{label}[{name}] must be a scalar value")
+    return errors
+
+
+def env_overrides(run: Any) -> Dict[str, str]:
+    """Per-job environment from the manifest, minus anything runner-owned.
+
+    Filtering rather than raising keeps a bad manifest from turning into a job
+    that never runs: the runner-owned value is the correct one anyway, and
+    ``validate_cron_manifest.py`` fails the same input at gate time.
+    """
+    raw = (run or {}).get("env") if isinstance(run, Mapping) else None
+    if not isinstance(raw, Mapping):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in raw.items()
+        if ENV_KEY_RE.fullmatch(str(key)) and str(key) not in RESERVED_ENV_KEYS
+    }
 
 
 def undeclared_placeholders(argv: Sequence[str], declared: Iterable[str] = ()) -> list[str]:

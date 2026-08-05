@@ -261,7 +261,10 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 600
+        "timeout_seconds": 600,
+        "env": {
+          "A_STOCK_SKIP_INPUT_SNAPSHOT": "1"
+        }
       },
       "external_note": "08:30 复用有效的 D0 收盘候选池；仅冷启动或池过期时扫描，且不在盘前价格结算历史候选"
     },
@@ -511,7 +514,10 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 2400
+        "timeout_seconds": 2400,
+        "env": {
+          "A_STOCK_SKIP_INPUT_SNAPSHOT": "1"
+        }
       },
       "external_note": "15:07 全市场扫描并生成约500只双策略深度观察池；社会关注度仅作可选弱证据"
     },
