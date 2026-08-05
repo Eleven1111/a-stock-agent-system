@@ -590,3 +590,29 @@ def test_auction_fade_from_limit_up_to_flat_is_detected():
     assert f["auction_faded_from_limit_up"] is True
     assert f["board_status"] == "flat_or_low_open"
     assert f["is_limit_down"] is False
+
+
+def test_zero_volume_and_mirrored_book_marked_degraded():
+    """issue #140 免费源局限：竞价量能恒 0、五档买卖完全相等 → 数据质量降级。"""
+    base = {"name": "天融信", "prev_close": 6.60, "volume": 0, "market_cap": 78.0}
+    snaps = [
+        {**base, "t": "09:20:00", "price": 7.25,
+         "bids": [(7.25, 16988)] * 5, "asks": [(7.25, 16988)] * 5},
+        {**base, "t": "09:25:00", "price": 6.60,
+         "bids": [(6.60, 39263)] * 5, "asks": [(6.60, 39263)] * 5},
+    ]
+    f = ac.compute_auction_factors(snaps, "sz002212", "天融信")
+    assert f["auction_data_quality"] == "degraded"
+    notes = " ".join(f["auction_data_quality_notes"])
+    assert "量能" in notes and "五档" in notes
+
+
+def test_real_book_is_not_degraded():
+    snaps = [{
+        "t": "09:25:00", "name": "北方稀土", "price": 21.5, "prev_close": 20.0,
+        "volume": 30000, "market_cap": 300.0,
+        "bids": [(21.5, 4000)] * 5, "asks": [(21.51, 2000)] * 5,
+    }]
+    f = ac.compute_auction_factors(snaps, "sh600111", "北方稀土")
+    assert f["auction_data_quality"] == "ok"
+    assert f["auction_data_quality_notes"] == []

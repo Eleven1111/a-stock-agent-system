@@ -13,7 +13,7 @@ import json
 import os
 import sys
 from datetime import date, datetime
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 SCRIPT_DIR = os.path.dirname(__file__)
 sys.path.insert(0, SCRIPT_DIR)
@@ -294,6 +294,26 @@ def _apply_policy(
     return result
 
 
+INDICATIVE_PRICE_MAX_DEVIATION_PCT = 2.0
+
+
+def _indicative_price_reliability(
+    factor: Mapping[str, Any],
+    quote: Mapping[str, Any],
+) -> Tuple[Optional[float], Optional[bool]]:
+    """09:25 指示价 vs 实际开盘价的偏差（%）与可信标记。
+
+    免费源的竞价指示价可能被撤单和镜像盘口污染；开盘价一出来就能事后校验一次。
+    数据不全时返回 (None, None) —— 不知道就不表态（issue #140 P2）。
+    """
+    indicative = factor.get("indicative_price")
+    open_price = quote.get("open")
+    if indicative in (None, 0) or open_price in (None, 0):
+        return None, None
+    deviation = round((float(open_price) - float(indicative)) / float(indicative) * 100, 2)
+    return deviation, abs(deviation) <= INDICATIVE_PRICE_MAX_DEVIATION_PCT
+
+
 def evaluate_open_confirmation(
     factor: Dict[str, Any],
     quote: Dict[str, Any],
@@ -304,9 +324,15 @@ def evaluate_open_confirmation(
     tradeability = assess_tradeability(quote, _naked_code(code), name)
     change_pct = quote.get("change_pct")
     price = quote.get("price")
+    indicative_deviation_pct, indicative_reliable = _indicative_price_reliability(factor, quote)
 
     action = "skip"
     reasons: List[str] = []
+    if indicative_reliable is False:
+        reasons.append(
+            f"09:25竞价指示价与实际开盘价偏差{indicative_deviation_pct:+.2f}%，"
+            f"竞价因子标记不可信"
+        )
     if factor.get("error"):
         reasons.append(factor["error"])
     elif tradeability.get("tradeable") is False:
@@ -334,6 +360,8 @@ def evaluate_open_confirmation(
         "prev_close": quote.get("prev_close"),
         "change_pct": change_pct,
         "auction_gap_pct": factor.get("auction_gap_pct"),
+        "auction_indicative_deviation_pct": indicative_deviation_pct,
+        "auction_indicative_reliable": indicative_reliable,
         "board_status": factor.get("board_status"),
         "action": action,
         "tradeability": tradeability,
