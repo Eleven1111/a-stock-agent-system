@@ -315,14 +315,14 @@ def test_gap_fill_keeps_partial_results_when_the_source_is_cut_off():
             return {"600519": "食品饮料"}
         raise ConnectionError("banned")
 
-    # 首批命中 600519，其后 10 批连续失败 → 触发熔断
+    # 首只命中 600519，其后连续失败 → 触发熔断（批大小默认 1，批即只）
     filled, report = im.fill_industry_gaps(
         {},
         universe_fetcher=lambda: ["600519"] + [f"{i:06d}" for i in range(1, 240)],
         batch_fetcher=dies_after_one,
         pace_seconds=0,
         retry=0,
-        max_batches=50,
+        max_codes=50,
     )
     assert report["status"] == "aborted"
     assert filled == {"600519": "食品饮料"}   # 熔断前取到的照单收下
@@ -360,9 +360,9 @@ def test_gap_fill_only_queries_codes_the_boards_missed():
     assert report["missing"] == 5 and report["filled"] == 5
 
 
-def test_gap_fill_respects_per_run_batch_budget():
-    """单轮补口有预算上限，补不完的留给下一个交易日（缓存合并累积覆盖）。"""
-    universe = [f"{i:06d}" for i in range(1, 121)]        # 120 只 → 满编 24 批
+def test_gap_fill_respects_per_run_code_budget():
+    """单轮补口预算按**只**封顶——按批计会在批大小变化时静默漂移。"""
+    universe = [f"{i:06d}" for i in range(1, 121)]        # 120 只缺口
     asked = []
 
     def batch(codes):
@@ -374,10 +374,11 @@ def test_gap_fill_respects_per_run_batch_budget():
         universe_fetcher=lambda: universe,
         batch_fetcher=batch,
         pace_seconds=0,
-        max_batches=2,
+        max_codes=40,
+        batch_size=20,
     )
     assert report["missing"] == 120
-    assert report["attempted"] == 40                      # 2 批 × 20 只封顶
+    assert report["attempted"] == 40                      # 预算按「只」封顶
     assert len(asked) == 40 and len(filled) == 40
 
 
@@ -542,3 +543,128 @@ def test_cli_exits_zero_on_successful_refresh(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["industry_map.py", "--refresh", "--json"])
     monkeypatch.setattr(im, "refresh", lambda asof: {"status": "ok", "stock_count": 7})
     assert im.main() == 0
+
+
+# ---------------------------------------------- 申万补口（默认 gap fetcher）
+
+class _FakeSwFrame:
+    """最小 DataFrame 替身：只支持本模块用到的布尔掩码与列取值。"""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def __len__(self):
+        return len(self._rows)
+
+    def __getitem__(self, key):
+        if isinstance(key, _FakeSwMask):
+            return _FakeSwFrame([r for r, keep in zip(self._rows, key.flags) if keep])
+        return _FakeSwColumn([r.get(key) for r in self._rows])
+
+    @property
+    def iloc(self):
+        return self
+
+
+class _FakeSwColumn:
+    def __init__(self, values):
+        self.values = values
+
+    def notna(self):
+        return _FakeSwMask([v is not None for v in self.values])
+
+    def __eq__(self, other):
+        return _FakeSwMask([v == other for v in self.values])
+
+    @property
+    def iloc(self):
+        return self
+
+    def __getitem__(self, index):
+        return self.values[index]
+
+
+class _FakeSwMask:
+    def __init__(self, flags):
+        self.flags = flags
+
+
+def _sw_frame(pairs):
+    return _FakeSwFrame([
+        {"industry_type": level, "industry_name": name} for level, name in pairs
+    ])
+
+
+def _patch_adata(monkeypatch, responses):
+    import types
+
+    calls = []
+
+    def get_industry_sw(stock_code=None, **_):
+        calls.append(stock_code)
+        value = responses[stock_code]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    fake = types.SimpleNamespace(
+        stock=types.SimpleNamespace(info=types.SimpleNamespace(get_industry_sw=get_industry_sw))
+    )
+    monkeypatch.setitem(sys.modules, "adata", fake)
+    return calls
+
+
+def test_sw_gap_fetcher_returns_level1_only(monkeypatch):
+    _patch_adata(monkeypatch, {
+        "300750": _sw_frame([("申万一级", "电力设备"), ("申万二级", "电池")]),
+    })
+
+    assert im._default_batch_industry_fetcher(["300750"]) == {"300750": "电力设备"}
+
+
+def test_sw_gap_fetcher_treats_missing_level1_as_normal_empty(monkeypatch):
+    """约 12% 的代码没有申万一级（新上市/退市/北交所），是空值不是限流。"""
+    _patch_adata(monkeypatch, {
+        "300750": _sw_frame([("申万一级", "电力设备")]),
+        "873169": _sw_frame([]),
+        "688981": _sw_frame([("申万三级", "集成电路制造")]),
+    })
+
+    assert im._default_batch_industry_fetcher(["300750", "873169", "688981"]) == {
+        "300750": "电力设备",
+    }
+
+
+def test_sw_gap_fetcher_propagates_errors_to_the_batch_layer(monkeypatch):
+    """异常不在 fetcher 里吞掉：批级重试与连续失败熔断才是处理它的地方。"""
+    _patch_adata(monkeypatch, {"300750": RuntimeError("timeout")})
+
+    with pytest.raises(RuntimeError, match="timeout"):
+        im._default_batch_industry_fetcher(["300750"])
+
+
+def test_sw_batch_size_is_one_so_a_batch_is_a_single_stock():
+    """批即只：单只失败被 _fetch_with_retry 接住，不会连累同批其他股票。"""
+    assert im._SW_BATCH_SIZE == 1
+
+
+def test_empty_mapping_is_success_not_failure(monkeypatch):
+    """没有申万一级的股票返回空 dict —— build_industry_map_batched 只把
+    None 当失败，空 dict 是成功，因此不会误触发熔断。"""
+    _patch_adata(monkeypatch, {"873169": _sw_frame([])})
+    fetched = im._fetch_with_retry(im._default_batch_industry_fetcher, ["873169"], 0, 0)
+
+    assert fetched == {}
+    assert fetched is not None
+
+
+def test_sw_gap_fetcher_normalizes_codes(monkeypatch):
+    _patch_adata(monkeypatch, {"600519": _sw_frame([("申万一级", "食品饮料")])})
+
+    assert im._default_batch_industry_fetcher(["600519"]) == {"600519": "食品饮料"}
+
+
+def test_baidu_fetcher_is_no_longer_the_default():
+    """百度源 403 熔断后已降级为备用，默认必须是申万源。"""
+    assert im._default_batch_industry_fetcher is not im._baidu_batch_industry_fetcher
+    assert "get_industry_sw" in im._default_batch_industry_fetcher.__doc__

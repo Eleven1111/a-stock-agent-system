@@ -17,11 +17,21 @@
 缓存文件从未生成，下游行业归属长期静默退化。现改为两段式：
 
 1. **主源 = 新浪行业板块**（新浪行业 49 个 + 证监会行业 84 个，共 133 次请求、
-   约 20s）。直连可达、无风控，实测覆盖全市场约 68%。
-2. **补口 = 百度股市通逐只直查**（``getrelatedblock``，20 只/批），只补主源
-   覆盖不到的代码（次新股、北交所等），**按批次预算封顶**并礼貌限速。该接口
-   在高频调用下会返回 ``ResultCode=403`` 且封禁窗口较长，因此只能当补口用；
-   补口失败不影响主源结果落盘，缺口靠逐日与旧缓存合并累积收敛。
+   约 20s）。直连可达、无风控，实测单独覆盖全市场约 63%。
+2. **补口 = adata ``get_industry_sw`` 逐只直查**，只补主源覆盖不到的代码，
+   **按批次预算封顶**。直接返回申万一级（与 ``sw_to_group`` 同源），
+   2026-08-05 实测：200 只抽样零失败；全量回补 2165 只同样 **0 失败**，
+   总耗时 847s，覆盖率 **62.6% → 94.3%**。残余约 190 只确实没有申万一级数据
+   （新上市/北交所/退市），换任何源都补不到，属不可约残差。
+
+   补口原为百度股市通 ``getrelatedblock``，但它在高频下返回 ``ResultCode=403``
+   且封禁窗口以小时计——实跑 107 批只跑通 10 批即熔断、``filled=0``。
+   函数保留为 :func:`_baidu_batch_industry_fetcher`，不再是默认。
+
+主源覆盖是**结构性偏斜**的，不是随机缺失：2026-08-05 实测缺口 1779 只中
+创业板占 944（该板缺 67%）、科创板 423（缺 69%），而沪深主板只缺 6.6%/20%。
+缺的正是科技成长股集中处——抽样 200 只里 58% 属申万「电子/医药生物/电力设备/
+计算机」。因此补口不是锦上添花：不补，「科技」组会被系统性低估。
 
 设计要点
 ========
@@ -74,6 +84,19 @@ _BAIDU_TIMEOUT_SECONDS = 12.0
 # 的批次数设上限——补不完的留给下一个交易日（缓存合并会累积）。
 _BAIDU_PACE_SECONDS = 1.5
 _BAIDU_MAX_BATCHES_PER_RUN = 120
+
+# 申万补口（现默认）：adata get_industry_sw 逐只直查，直接给申万一级 —— 与
+# sw_to_group 的报告口径同源，不需要任何名称映射。2026-08-05 实测 200 只
+# 零失败、中位 0.20s、总耗时 58s；约 12% 的代码没有申万一级数据（新上市/
+# 退市/北交所），属正常空值，不是限流。
+# 批大小取 1：``get_industry_sw`` 本就是逐只接口，让每只股票各成一批，
+# 单只失败/重试/连续失败熔断全部复用 build_industry_map_batched 既有的批级
+# 容错，fetcher 自身不需要再吞异常（也就不引入新的宽泛 except）。
+_SW_BATCH_SIZE = 1
+_SW_PACE_SECONDS = 0.05
+# 单轮补口预算按**只**计（不按批），批大小一变语义就漂。
+# 1779 只缺口 × 实测 0.29s ≈ 8.6 分钟，加主源 3 分钟仍在作业 1200s 预算内。
+_SW_MAX_CODES_PER_RUN = 2000
 
 # 覆盖率低于此值即认为构建失败（宁可保留旧缓存，也不写一份残缺映射覆盖它）。
 MIN_COVERAGE_RATE = 0.50
@@ -242,6 +265,32 @@ def parse_baidu_related_blocks(payload: Mapping[str, Any]) -> Dict[str, str]:
 
 
 def _default_batch_industry_fetcher(codes: Sequence[str]) -> Dict[str, str]:
+    """一批股票 → ``code -> 申万一级行业``（adata ``get_industry_sw``，逐只直查）。
+
+    相比百度补口的两点优势：直接返回**申万一级**（与 ``sw_to_group`` 同源，
+    省掉一层名称映射），且实测无限流——百度那条在高频下返回 ``ResultCode=403``，
+    实跑 107 批里只跑通 10 批就熔断。
+
+    单只取不到申万一级（新上市/退市/北交所，实测约 12%）是**正常空值**：
+    返回空 mapping 而非抛错，不会被误判成限流。异常一律向上抛，由
+    :func:`build_industry_map_batched` 的批级重试与连续失败熔断处理——
+    ``_SW_BATCH_SIZE = 1`` 使「批」即「只」，于是熔断阈值就是「连续 N 只失败」。
+    """
+    import adata  # 惰性导入
+
+    mapping: Dict[str, str] = {}
+    for code in codes:
+        frame = adata.stock.info.get_industry_sw(stock_code=code)
+        if frame is None or len(frame) == 0:
+            continue
+        rows = frame[frame["industry_name"].notna()]
+        level1 = rows[rows["industry_type"] == "申万一级"]
+        if len(level1):
+            mapping[_norm_code(code)] = str(level1["industry_name"].iloc[0]).strip()
+    return mapping
+
+
+def _baidu_batch_industry_fetcher(codes: Sequence[str]) -> Dict[str, str]:
     """一批（≤20 只）股票 → ``code -> 申万一级行业``；空结果视为可重试失败。
 
     被限流时接口返回 HTTP 200 但 ``ResultCode=403`` + 空 ``Result``，因此空结果
@@ -442,14 +491,20 @@ def fill_industry_gaps(
     *,
     universe_fetcher: UniverseFetcher,
     batch_fetcher: BatchIndustryFetcher,
-    pace_seconds: float = _BAIDU_PACE_SECONDS,
+    pace_seconds: float = _SW_PACE_SECONDS,
     retry: int = 1,
-    max_batches: int = _BAIDU_MAX_BATCHES_PER_RUN,
+    max_codes: int = _SW_MAX_CODES_PER_RUN,
+    batch_size: int = _SW_BATCH_SIZE,
 ) -> Tuple[Dict[str, str], Dict[str, Any]]:
     """给主源覆盖不到的代码逐只补行业。返回 ``(补充映射, 补口报告)``。
 
     补口是尽力而为：失败只记录，不影响主源结果落盘；单轮批次数封顶，补不完的
-    留给下一个交易日（:func:`refresh` 与旧缓存合并，覆盖率逐日累积）。
+    留给下一个交易日（:func:`refresh` 与旧缓存合并）。
+
+    注意：「逐日累积必然收敛」只在补口数据源可用时成立。2026-08-05 用百度源
+    实跑时该假设不成立——接口 403 熔断，``filled=0``，覆盖率连续两日不升反降。
+    现默认改用申万源（无限流），但报告里的 ``status``/``filled`` 仍必须被消费方
+    如实看待，不能默认「明天就好了」。
     """
     try:
         universe = [code for code in (_norm_code(item) for item in universe_fetcher()) if code]
@@ -460,7 +515,7 @@ def fill_industry_gaps(
     if not missing:
         return {}, {"status": "complete", "universe_count": len(universe), "missing": 0, "filled": 0}
 
-    budget = missing[: max_batches * _BAIDU_BATCH_SIZE]
+    budget = missing[:max_codes]
     report: Dict[str, Any] = {
         "universe_count": len(universe),
         "missing": len(missing),
@@ -470,6 +525,7 @@ def fill_industry_gaps(
         built = build_industry_map_batched(
             universe_fetcher=lambda: budget,
             batch_fetcher=batch_fetcher,
+            batch_size=batch_size,
             pace_seconds=pace_seconds,
             retry=retry,
         )
@@ -530,7 +586,7 @@ def refresh(
 ) -> Dict[str, Any]:
     """构建并落盘行业映射，与昨日缓存合并；整体失败则保留旧缓存。
 
-    两段式：板块主源（新浪）→ 逐只补口（百度，尽力而为、有预算上限）。
+    两段式：板块主源（新浪）→ 逐只补口（申万，尽力而为、有预算上限）。
     """
     cache_file = cache_file or _default_cache_file()
     prior, prior_map = _read_prior_cache(cache_file)
@@ -555,7 +611,7 @@ def refresh(
             universe_fetcher=universe_fetcher or _default_universe_fetcher,
             batch_fetcher=batch_fetcher or _default_batch_industry_fetcher,
             pace_seconds=(
-                _BAIDU_PACE_SECONDS if gap_pace_seconds is None else float(gap_pace_seconds)
+                _SW_PACE_SECONDS if gap_pace_seconds is None else float(gap_pace_seconds)
             ),
         )
         new_map = {**filled, **new_map}
