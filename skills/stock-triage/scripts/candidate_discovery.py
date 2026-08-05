@@ -56,6 +56,8 @@ from state_store import atomic_write_json, read_json  # noqa: E402
 
 CONFIG_FILE = str(config_path("candidate_selection"))
 MAX_BOOTSTRAP_POOL_AGE_DAYS = 4
+# 行业映射命中率低于此值即视为退化（板块聚类/主线识别失真），显式告警。
+MIN_INDUSTRY_MAPPED_RATE = 0.80
 
 
 def load_config() -> Dict[str, Any]:
@@ -741,10 +743,26 @@ def load_signal_context_for_discovery(
         }
 
 
+def industry_cache_status(asof: str) -> Dict[str, Any]:
+    """行业映射缓存的可用性诊断（供 warn / 报告用，不触网）。"""
+    industry_config = dict(load_config().get("industry_map") or {})
+    if not industry_config.get("enabled", True):
+        return {"status": "disabled", "reason": "industry_map.enabled=false", "stock_count": 0}
+    status = industry_map.load_cached_status(
+        asof,
+        max_age_days=int(industry_config.get("cache_max_age_days", 5)),
+        max_future_days=int(
+            industry_config.get("cache_max_future_days", industry_map.DEFAULT_MAX_FUTURE_DAYS)
+        ),
+    )
+    return {key: value for key, value in status.items() if key != "cache_file"}
+
+
 def load_cached_industry(asof: str) -> Mapping[str, str]:
     """读取按日缓存的全市场行业映射（消费端只读缓存，不触网）。
 
     缓存缺失/过期/被禁用 → 返回空映射，注入退化为 no-op，主链无回归。
+    退化原因由 :func:`industry_cache_status` 单独暴露，不允许无声发生。
     """
     industry_config = dict(load_config().get("industry_map") or {})
     if not industry_config.get("enabled", True):
@@ -752,7 +770,63 @@ def load_cached_industry(asof: str) -> Mapping[str, str]:
     return industry_map.load_cached(
         asof,
         max_age_days=int(industry_config.get("cache_max_age_days", 5)),
+        max_future_days=int(
+            industry_config.get("cache_max_future_days", industry_map.DEFAULT_MAX_FUTURE_DAYS)
+        ),
     )
+
+
+def build_industry_health(
+    asof: str,
+    universe: Sequence[Mapping[str, Any]],
+    industry_by_code: Mapping[str, str],
+) -> Dict[str, Any]:
+    """行业映射健康度：缓存状态 + 两个命中率（对齐 announcement-radar 的口径）。
+
+    ``cache_mapped_rate`` 只算行业映射缓存命中的部分；``industry_mapped_rate``
+    算注入后每条记录**最终**有没有行业（深市列表自带证监会行业可以兜底），
+    后者才是下游板块聚类真正吃到的覆盖。
+    """
+    status = industry_cache_status(asof)
+    total = len(universe)
+    cache_hits = sum(
+        1
+        for item in universe
+        if industry_by_code.get(candidate_pipeline.naked_code(item.get("code")))
+    )
+    effective_hits = sum(
+        1
+        for item in universe
+        if str(item.get("industry") or "").strip()
+        or industry_by_code.get(candidate_pipeline.naked_code(item.get("code")))
+    )
+    return {
+        "cache_status": status.get("status"),
+        "cache_reason": status.get("reason"),
+        "cache_asof": status.get("cache_asof"),
+        "cache_age_days": status.get("age_days"),
+        "cache_stock_count": status.get("stock_count", 0),
+        "universe_count": total,
+        "cache_mapped_rate": (cache_hits / total) if total else 0.0,
+        "industry_mapped_rate": (effective_hits / total) if total else 0.0,
+    }
+
+
+def industry_health_warnings(health: Mapping[str, Any]) -> List[str]:
+    """把行业映射的退化翻译成显式 warning（缓存不可用 / 命中率过低）。"""
+    warnings: List[str] = []
+    status = str(health.get("cache_status") or "")
+    if status != "ok":
+        warnings.append(
+            f"industry_map_cache_{status or 'unknown'}:{health.get('cache_reason') or ''}"
+            "（板块归属退化为交易所粗口径，主线/龙头判断可能失真）"
+        )
+    elif float(health.get("industry_mapped_rate") or 0.0) < MIN_INDUSTRY_MAPPED_RATE:
+        warnings.append(
+            f"industry_mapped_rate={health.get('industry_mapped_rate'):.1%}"
+            f"低于下限 {MIN_INDUSTRY_MAPPED_RATE:.0%}"
+        )
+    return warnings
 
 
 def universe_sector_fallback(universe: Sequence[Mapping[str, Any]]) -> Dict[str, str]:
@@ -850,10 +924,17 @@ def run_discovery(
 
     universe = list(universe_fetcher())
     industry_by_code = dict(industry_provider(asof) or {})
+    # 行业映射缺失会让全市场板块归属退化到交易所粗口径（沪市主板/科创板直接为空），
+    # 主线/龙头判断随之失真。退化本身允许，但必须留痕——见 industry-map-refresh
+    # 长期超时却无人察觉的事故。
+    industry_health = build_industry_health(asof, universe, industry_by_code)
     if industry_by_code:
         universe = industry_map.enrich_records(universe, industry_by_code)
     else:
         industry_by_code = universe_sector_fallback(universe)
+        industry_health["fallback_mapped_rate"] = (
+            len(industry_by_code) / len(universe) if universe else 0.0
+        )
 
     nl_recall_report: Dict[str, Any] | None = None
     if nl_screening_config.get("enabled", True):
@@ -1049,6 +1130,7 @@ def run_discovery(
         "enriched_count": len(kline_by_code),
         "market_temperature": temperature,
         "hot_money_selection": selection_state,
+        "industry_map_health": industry_health,
         "input_snapshot": compact_ref(input_snapshot),
         "nl_screening_recall": {
             "channels": (nl_recall_report or {}).get("channels", []),
@@ -1062,6 +1144,9 @@ def run_discovery(
         ],
         "auction_scan_count": min(len(evaluated), 200),
     })
+    result["warnings"] = list(result.get("warnings") or []) + industry_health_warnings(
+        industry_health
+    )
     # --- candidate_count > 0 assertion ---
     # Zero deliverable candidates used to mean an upstream data failure. After
     # the weak-market delivery gate, it can also be a valid "research-only"
@@ -1228,6 +1313,8 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "rejected_count": result.get("rejected_count", 0),
         "enriched_count": result.get("enriched_count", 0),
         "candidate_count": result.get("candidate_count", 0),
+        "warnings": list(result.get("warnings") or []),
+        "industry_map_health": result.get("industry_map_health"),
         "hot_money_selection": {
             "status": selection.get("status") or "insufficient_data",
             "daban_ready": bool(selection.get("daban_ready")),
