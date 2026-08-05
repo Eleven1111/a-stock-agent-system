@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import logging
 import math
 import os
 import time
@@ -30,6 +31,8 @@ from paths import cache_dir
 from provider_contract import transport_contract
 from state_store import atomic_write_json, read_json
 
+
+LOGGER = logging.getLogger(__name__)
 
 ADAPTER_VERSIONS = {
     "resilient_market_data": "multi-source-market-adapter-v1",
@@ -636,12 +639,18 @@ def fetch_a_share_quote(code: str) -> dict[str, Any]:
 
 
 def _mootdx_kline(code: str, *, days: int = 60) -> list[dict[str, Any]]:
-    """Thin wrapper so the fallback-chain lambda can call mootdx lazily."""
+    """Thin wrapper so the fallback-chain lambda can call mootdx lazily.
+
+    Returns [] on any failure — but a missing ``mootdx`` package is logged by
+    ``mootdx_adapter.mootdx_available()`` rather than being indistinguishable
+    from an empty upstream response.
+    """
     try:
         from mootdx_adapter import fetch_mootdx_bars
         bars = fetch_mootdx_bars(code, days=days)
         return _normalize_bar_records(bars)[-days:] if bars else []
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("mootdx K 线获取失败 code=%s err=%s", code, exc)
         return []
 
 
