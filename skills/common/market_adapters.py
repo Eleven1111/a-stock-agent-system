@@ -15,6 +15,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Mapping, Sequence
@@ -57,6 +58,9 @@ KNOWN_DECISION_MODES = {"live", "replay"}
 
 _AKSHARE_PACE_SECONDS = 0.35
 _CACHE_SCHEMA = "market_adapter_cache_v1"
+# 东财板块代码形如 BK0477。同花顺的行业/概念码是 885xxx / 308xxx，喂给东财无效。
+_EASTMONEY_BOARD_CODE_RE = re.compile(r"^BK\d{4}$")
+
 _EASTMONEY_HEADERS = {
     "User-Agent": "Mozilla/5.0 (A-Stock-Agent; degraded push2 probe)",
     "Referer": "https://quote.eastmoney.com/",
@@ -406,6 +410,24 @@ def _records_frame(records: list[dict[str, Any]]):
     import pandas as pd
 
     return pd.DataFrame(records)
+
+
+def _first_code(*values: Any) -> str:
+    """First value that is a real code, skipping None / NaN / blanks.
+
+    A plain ``a or b`` chain is wrong here: pandas leaves missing cells as
+    ``float('nan')``, which is **truthy**, so the chain stops on the NaN and
+    the caller ends up with the string ``"nan"`` as a board code.
+    """
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, float) and math.isnan(value):
+            continue
+        text = str(value).strip()
+        if text and text.lower() != "nan":
+            return text
+    return ""
 
 
 def _number(value: Any) -> float | None:
@@ -1211,7 +1233,7 @@ def fetch_board_quotes() -> list[dict[str, Any]]:
         rows = _frame_records(ak.stock_board_industry_summary_ths())
         return [
             {
-                "f12": row.get("代码") or row.get("code") or row.get("板块"),
+                "f12": _first_code(row.get("代码"), row.get("code"), row.get("板块")),
                 "f14": row.get("板块"),
                 "f3": _number(row.get("涨跌幅")),
                 "f62": _number(row.get("净流入")),
@@ -1227,7 +1249,14 @@ def fetch_board_quotes() -> list[dict[str, Any]]:
 
         rows = _frame_records(adata.stock.info.all_concept_code_ths())
         return [
-            {"f12": row.get("index_code") or row.get("code"), "f14": row.get("name"), "provider": "adata", "raw": row}
+            {
+                # index_code 常为 NaN、真值落在 concept_code；NaN 是 truthy，
+                # 用 or 链会把 NaN 直接带出去（实测 361 行里 271 行 code 变 "nan"）
+                "f12": _first_code(row.get("index_code"), row.get("concept_code"), row.get("code")),
+                "f14": row.get("name"),
+                "provider": "adata",
+                "raw": row,
+            }
             for row in rows
             if row.get("name")
         ]
@@ -1265,13 +1294,38 @@ def fetch_board_quotes() -> list[dict[str, Any]]:
 
 
 def fetch_industry_boards() -> list[tuple[str, str]]:
-    """Industry board code/name catalog used by industry_map refresh."""
-    boards = fetch_board_quotes()
-    return [
-        (str(row.get("f12") or row.get("code") or row.get("raw", {}).get("code") or row.get("f14")), str(row.get("f14")))
-        for row in boards
-        if row.get("f14")
-    ]
+    """行业板块「东财 BK 代码 → 名称」目录。
+
+    **只返回东财 BK 代码**，其余一律丢弃。唯一消费者
+    ``capital_flow_monitor.resolve_sector_code`` 要把结果当 BK 代码去查东财，
+    而 :func:`fetch_board_quotes` 的兜底链只有 push2 那一路给 BK 码：
+    akshare 给的是同花顺**行业**（885xxx）、adata 给的是同花顺**概念**
+    （885xxx/308xxx）。把它们返回出去会同时犯两个错——拿概念当行业，
+    拿同花顺码当 BK 码——而且是静默的。
+
+    本机 akshare 那一路因 py_mini_racer 原生库不可用而恒失败，所以兜底链
+    实际总是落到 adata 概念源；宁可返回空，让下游把标签记进
+    ``unmapped_sectors``，也不要让缺口以错数据的形式消失。
+    """
+    boards = []
+    dropped = 0
+    for row in fetch_board_quotes():
+        name = str(row.get("f14") or "").strip()
+        code = _first_code(row.get("f12"), row.get("code"), (row.get("raw") or {}).get("code"))
+        if not name:
+            continue
+        if not _EASTMONEY_BOARD_CODE_RE.match(code):
+            dropped += 1
+            continue
+        boards.append((code, name))
+    if dropped:
+        LOGGER.warning(
+            "fetch_industry_boards: 丢弃 %d 个非东财 BK 代码的板块（上游给的是同花顺行业/概念码），"
+            "返回 %d 个；下游板块解析会退化为 unmapped",
+            dropped,
+            len(boards),
+        )
+    return boards
 
 
 def fetch_dragon_tiger_rows(code: str, *, asof: date | str | None = None) -> dict[str, Any]:
