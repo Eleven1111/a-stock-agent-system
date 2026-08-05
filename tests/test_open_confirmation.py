@@ -872,3 +872,46 @@ def test_build_confirmation_computes_real_discipline_state_from_ledger(tmp_path,
     assert "consecutive_losses_freeze" in result["discipline_state"]["reasons"]
     report = oc.json_report(result)
     assert report["discipline_state"]["blocked"] is True
+
+
+def test_open_confirmation_flags_unreliable_indicative_price():
+    """issue #140 P2：竞价指示价与实际开盘价偏差 >2% → 竞价信号标记不可信。"""
+    factor = {
+        "code": "sz002212",
+        "name": "天融信",
+        "auction_gap_pct": 0.0,
+        "indicative_price": 6.60,
+        "board_status": "flat_or_low_open",
+        "is_yiziban": False,
+    }
+    quote = {
+        "price": 6.41, "prev_close": 6.60, "open": 6.41,
+        "low": 6.40, "high": 6.45, "volume": 1000, "change_pct": -2.88,
+    }
+
+    result = oc.evaluate_open_confirmation(factor, quote)
+
+    assert result["auction_indicative_reliable"] is False
+    assert result["auction_indicative_deviation_pct"] == -2.88
+    assert any("不可信" in reason for reason in result["reasons"])
+
+
+def test_open_confirmation_keeps_indicative_price_reliable_when_close():
+    factor = {
+        "code": "sz002156",
+        "name": "通富微电",
+        "auction_gap_pct": 4.0,
+        "indicative_price": 10.4,
+        "board_status": "high_open",
+        "is_yiziban": False,
+    }
+    quote = {
+        "price": 10.5, "prev_close": 10.0, "open": 10.4,
+        "low": 10.3, "high": 10.6, "volume": 1000, "change_pct": 5.0,
+    }
+
+    result = oc.evaluate_open_confirmation(factor, quote)
+
+    assert result["auction_indicative_reliable"] is True
+    assert result["auction_indicative_deviation_pct"] == 0.0
+    assert result["action"] == "trend_watch"

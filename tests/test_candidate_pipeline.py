@@ -698,3 +698,63 @@ def test_auction_zero_volume_does_not_earn_median_amount_percentile():
     assert shortlist[0]["auction_score"] < with_volume[0]["auction_score"]
     assert all("竞价量能为0" in note for item in shortlist
                for note in [" ".join(item["auction_weakness_notes"])])
+
+
+def test_auction_degraded_book_halves_bid_and_delta_weight():
+    """issue #140 P2：竞价数据降级时，委比/委买净增的权重减半，不得按可信数据计分。"""
+    pool = _auction_pool(
+        {"code": "sh600001", "name": "甲", "daban_score": 70, "trend_score": 70},
+        {"code": "sh600002", "name": "乙", "daban_score": 70, "trend_score": 70},
+    )
+
+    def _factors(quality):
+        return [
+            {
+                "code": code,
+                "auction_gap_pct": 2.0,
+                "auction_price_decay_pct": 0.0,
+                "auction_amount": amount,
+                "auction_bid_ask_ratio": ratio,
+                "auction_net_bid_delta": delta,
+                "board_status": "high_open",
+                "auction_data_quality": quality,
+                "is_yiziban": False,
+            }
+            for code, amount, ratio, delta in (
+                ("sh600001", 30_000_000, 2.0, 10_000),
+                ("sh600002", 10_000_000, 1.0, 0),
+            )
+        ]
+
+    def _top_score(quality):
+        shortlist = cp.rank_auction_shortlist(pool, _factors(quality), limit=20)["shortlist"]
+        return {item["code"]: item["auction_score"] for item in shortlist}["sh600001"]
+
+    assert _top_score("degraded") < _top_score("ok")
+
+
+def test_balanced_fill_does_not_revive_low_scoring_auction():
+    """issue #140 P2：兜底通道设分数门槛，弱竞价票不得被 balanced_fill 捞回短名单。"""
+    pool = _auction_pool({
+        "code": "sz002212",
+        "name": "弱竞价兜底",
+        "daban_score": 40.0,
+        "trend_score": 40.0,
+        "selected_by": {"daban": False, "trend": False, "balanced_fill": True},
+    })
+    factors = [{
+        "code": "sz002212",
+        "auction_gap_pct": 0.5,
+        "auction_price_decay_pct": 3.0,
+        "auction_amount": 0,
+        "auction_bid_ask_ratio": 1.0,
+        "auction_net_bid_delta": 0,
+        "board_status": "high_open",
+        "auction_data_quality": "degraded",
+        "is_yiziban": False,
+    }]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=20)
+
+    assert result["shortlist"] == []
+    assert any("兜底" in reason for reason in result["rejected"][0]["rejection_reasons"])

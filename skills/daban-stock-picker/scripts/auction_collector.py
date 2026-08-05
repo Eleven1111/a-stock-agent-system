@@ -86,6 +86,22 @@ def _gap_series(snapshots: List[Dict[str, Any]], prev_close: float) -> List[floa
     return series
 
 
+def _data_quality_notes(snapshots: List[Dict[str, Any]], volume: float) -> List[str]:
+    """免费源已知局限：竞价量能恒 0、五档委买委卖完全镜像 → 盘口不可当真信号。"""
+    notes: List[str] = []
+    if volume <= 0:
+        notes.append("竞价量能为0，免费源未提供竞价成交量")
+    books = [
+        (_snapshot_bid_vol(snap), _sum_vol(snap.get("asks", [])))
+        for snap in snapshots
+        if snap.get("bids") or snap.get("asks")
+    ]
+    real_books = [(bid, ask) for bid, ask in books if bid > 0 or ask > 0]
+    if real_books and all(abs(bid - ask) < 1e-6 for bid, ask in real_books):
+        notes.append("五档委买与委卖全时点完全相等，盘口疑似镜像填充")
+    return notes
+
+
 def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: str = "") -> Dict[str, Any]:
     """从一只票的竞价快照序列算出真竞价因子（纯函数，不触网）。
 
@@ -130,6 +146,8 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     else:
         board_status = "flat_or_low_open"
 
+    quality_notes = _data_quality_notes(snapshots, volume)
+
     seal_ratio_pct = None
     if at_limit and market_cap_yi:
         seal_ratio_pct = round(best_bid_vol * 100 * price / (market_cap_yi * 1e8) * 100, 3)
@@ -154,6 +172,8 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
         "snapshots_used": len(snapshots),
         "is_yiziban": board_status == "yizi_seal",
         "is_limit_down": at_limit_down,
+        "auction_data_quality": "degraded" if quality_notes else "ok",
+        "auction_data_quality_notes": quality_notes,
     }
 
 

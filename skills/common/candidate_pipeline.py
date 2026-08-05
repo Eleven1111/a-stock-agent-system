@@ -558,6 +558,15 @@ AUCTION_DECAY_PENALTY_START_PCT = 2.0
 AUCTION_DECAY_PENALTY_PER_PCT = 3.0
 AUCTION_DECAY_PENALTY_CAP = 15.0
 AUCTION_FLAT_OPEN_PENALTY = 12.0   # 涨停次日平开/低开是弱势信号
+AUCTION_DEGRADED_BOOK_SCALE = 0.5  # 数据降级时委比/委买净增只按半权计
+AUCTION_FILL_MIN_SCORE = 55.0      # balanced_fill 兜底通道的入选下限
+
+
+def _auction_degraded(item: Mapping[str, Any]) -> bool:
+    """竞价盘口是否不可当真信号（免费源零量能/镜像五档）。"""
+    if str(item.get("auction_data_quality") or "") == "degraded":
+        return True
+    return _num(item.get("auction_amount")) <= 0
 
 
 def _auction_gap_quality(gap: float) -> float:
@@ -586,6 +595,8 @@ def _auction_weakness(item: Mapping[str, Any]) -> Tuple[float, List[str]]:
         notes.append(f"竞价指示价自高点回落{decay:.2f}% -{decay_penalty:.1f}")
     if _num(item.get("auction_amount")) <= 0:
         notes.append("竞价量能为0，量能分位归零（免费源局限）")
+    if _auction_degraded(item):
+        notes.append(f"竞价盘口数据降级，委比/委买净增按 {AUCTION_DEGRADED_BOOK_SCALE:g} 权重计")
     return round(penalty, 2), notes
 
 
@@ -650,11 +661,15 @@ def rank_auction_shortlist(
         item["auction_weakness_notes"] = weakness_notes
         prior_daban = _num(item.get("daban_score")) / 100
         prior_trend = _num(item.get("trend_score")) / 100
+        # 盘口降级时不把丢掉的权重再分配出去——数据缺失不该换来分数。
+        book_scale = AUCTION_DEGRADED_BOOK_SCALE if _auction_degraded(item) else 1.0
         shared_score = (
             AUCTION_GAP_WEIGHT * gap_quality
             + AUCTION_AMOUNT_WEIGHT * amount_p.get(code, 0.0)
-            + AUCTION_BID_ASK_WEIGHT * bid_p.get(code, 0.0)
-            + AUCTION_DELTA_WEIGHT * delta_p.get(code, 0.0)
+            + book_scale * (
+                AUCTION_BID_ASK_WEIGHT * bid_p.get(code, 0.0)
+                + AUCTION_DELTA_WEIGHT * delta_p.get(code, 0.0)
+            )
         )
         item["auction_daban_score"] = _auction_lane_score(prior_daban, shared_score, penalty)
         item["auction_trend_score"] = _auction_lane_score(prior_trend, shared_score, penalty)
@@ -779,6 +794,16 @@ def rank_auction_shortlist(
                         delivery_quality["reasons"]
                         or ["弱市交付门禁未通过"]
                     ),
+                })
+                continue
+            # 兜底通道只补名额，不负责把弱竞价票捞回来（issue #140：天融信正是兜底进的池）。
+            if _num(item.get("auction_score")) < AUCTION_FILL_MIN_SCORE:
+                rejected.append({
+                    **item,
+                    "rejection_reasons": [
+                        f"竞价分{_num(item.get('auction_score')):.2f}低于兜底门槛"
+                        f"{AUCTION_FILL_MIN_SCORE:g}"
+                    ],
                 })
                 continue
             chosen = dict(item)
