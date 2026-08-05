@@ -53,6 +53,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "new script scripts/cron_failure_watch.py (issue #159 watchdog): sys.path bootstrap to skills/common, the repository-wide convention for every scripts/ entrypoint that imports runtime_context",
+      "violation_id": "190b6b359c6314f4f27f"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "1a4ca28d2bf6f834c573"
     },

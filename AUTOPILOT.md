@@ -10,7 +10,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（59 个作业，当前 44 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（60 个作业，当前 45 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -54,6 +54,29 @@ A_STOCK_EXECUTION_TRACE=off
 类型化命令：dispatcher 只接受 `command_argv` 数组并以 `shell=False` 执行。作业启动失败时
 先看 `dispatch-jobs.log` 与调度器 err 日志里的 `skip job ...` 行 —— 可执行文件缺失、cwd
 越界、argv 里出现 shell 元字符都会 fail closed 并记录原因，不会静默降级回 shell。
+
+### 集合竞价链路失败汇总（auction-chain-watch）
+
+| 项 | 值 |
+|---|---|
+| id | `auction-chain-watch`（`enabled: true`） |
+| 调度 | `35 9,10 * * 1-5`（09:35 竞价链应已收口，10:35 复查做双保险） |
+| 执行 | `python scripts/cron_failure_watch.py`（只读 artifact，不写业务状态） |
+| 推送 | `deliver: feishu_direct`；全绿时无输出，`silent_when_no_signal` 直接静默 |
+| 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
+
+存在理由：本机调度器 `Popen` fire-and-forget 起作业，**没有任何消费者读退出码**，
+所以链路失败在本机原本完全不可见（issue #159）。它读当日竞价链 5 个作业最新
+artifact 的 `status`，并把 `missing`（当日无 artifact，多半是 Mac 睡眠错过 launchd
+心跳）与 `failed/timeout/blocked`（跑了但没跑通）分开报 —— 两者运维动作不同。
+
+未配置 `A_STOCK_FEISHU_CHAT_ID` 时 `feishu_push` 返回 `not_configured`，作业照常
+跑完、trace 记一条 `delivery.failed not_configured`，不报错也不重试。手动跑：
+
+```bash
+A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
+  .venv/bin/python scripts/cron_failure_watch.py --json
+```
 
 ### 待启用：公告召回雷达（announcement-radar）
 
