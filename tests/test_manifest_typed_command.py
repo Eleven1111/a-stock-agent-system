@@ -47,6 +47,7 @@ def _base_job(**overrides):
             "argv": ["python", "skills/stock-triage/scripts/context_digest.py", "--json"],
             "cwd": ".",
             "timeout_seconds": 10,
+            "timeout_tier": "short",
         },
     }
     job.update(overrides)
@@ -124,7 +125,12 @@ def test_validator_accepts_shell_string_on_disabled_job():
     job = _base_job(enabled=False)
     job.pop("command_argv")
     job["command"] = "python scripts/run_agent_dag.py typed-job --emit-target"
-    job["run"] = {"command": "python script.py --json", "cwd": ".", "timeout_seconds": 10}
+    job["run"] = {
+        "command": "python script.py --json",
+        "cwd": ".",
+        "timeout_seconds": 10,
+        "timeout_tier": "short",
+    }
 
     assert _validate(job) is True
 

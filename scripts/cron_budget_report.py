@@ -22,12 +22,81 @@ from state_store import read_json  # noqa: E402
 from paths import hermes_home  # noqa: E402
 
 
+#: Headroom a manifest timeout should keep over the observed p95. Purely
+#: multiplicative on purpose: ``dependency_timeout_budget`` adds a flat 60s
+#: grace because it sums a whole chain, but per job that constant would flag
+#: every short job unconditionally (production paper-trading-monitor runs a
+#: 0.717s p95 under a 30s timeout and would "need" 62s).
+MARGIN_FACTOR = 3.0
+
+#: Below this many samples the empirical p95 is literally ``max(samples)``:
+#: with k < 20 the estimator index collapses onto the last element, and the
+#: chance that a k-sample maximum even reaches the true 95th percentile is
+#: 1 - 0.95^k — 40% at k=10. Ten samples is also ~two trading weeks for a
+#: daily job. Fewer than that yields an advisory, never a verdict.
+MIN_MARGIN_SAMPLES = 10
+
+
 def _percentile(values: Iterable[float], percentile: float) -> float | None:
     ordered = sorted(float(value) for value in values)
     if not ordered:
         return None
     index = max(0, math.ceil(percentile * len(ordered)) - 1)
     return round(ordered[index], 3)
+
+
+def _margin(
+    samples: int,
+    p95: float | None,
+    timeout: int,
+) -> tuple[str, int, float | None]:
+    """Classify one job's timeout headroom against its observed p95.
+
+    Returns ``(status, recommended_timeout_seconds, margin_ratio)``. The
+    recommendation is ``max(manifest_timeout, ceil(p95 * MARGIN_FACTOR))`` — it
+    may raise a timeout and never lower one. That asymmetry is not politeness:
+    the sample set only contains ``status == "ok"`` runs, and until PR #162 a
+    timed-out run left no artifact at all, so history holds the fast successes
+    and none of the slow deaths. Any p95 computed here is a floor.
+    """
+    if not p95 or samples <= 0:
+        return "no_samples", timeout, None
+    recommended = max(timeout, math.ceil(p95 * MARGIN_FACTOR))
+    ratio = round(timeout / p95, 3)
+    if samples < MIN_MARGIN_SAMPLES:
+        return "insufficient_samples", recommended, ratio
+    if recommended > timeout:
+        return "thin_margin", recommended, ratio
+    return "ok", recommended, ratio
+
+
+def _margin_entry(job_id: str, row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "job_id": job_id,
+        "level": row["margin_status"],
+        "samples": row["samples"],
+        "observed_p95_seconds": row["observed_p95_seconds"],
+        "job_timeout_seconds": row["job_timeout_seconds"],
+        "recommended_timeout_seconds": row["recommended_timeout_seconds"],
+        "margin_ratio": row["margin_ratio"],
+    }
+
+
+def _margin_lists(
+    rows: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split thin-margin jobs into confirmed warnings and sample-poor hints."""
+    warnings: list[dict[str, Any]] = []
+    advisories: list[dict[str, Any]] = []
+    for job_id, row in rows.items():
+        thin = row["recommended_timeout_seconds"] > row["job_timeout_seconds"]
+        if row["margin_status"] == "thin_margin":
+            warnings.append(_margin_entry(job_id, row))
+        elif row["margin_status"] == "insufficient_samples" and thin:
+            advisories.append(_margin_entry(job_id, row))
+    warnings.sort(key=lambda item: (item["margin_ratio"], item["job_id"]))
+    advisories.sort(key=lambda item: (item["margin_ratio"], item["job_id"]))
+    return warnings, advisories
 
 
 def build_budget_report(
@@ -47,21 +116,34 @@ def build_budget_report(
         if not job.get("enabled", True):
             continue
         samples = durations.get(job_id, [])
+        p95 = _percentile(samples, 0.95)
+        timeout = int((job.get("run") or {}).get("timeout_seconds") or 120)
+        status, recommended, ratio = _margin(len(samples), p95, timeout)
         rows[job_id] = {
             "samples": len(samples),
-            "observed_p95_seconds": _percentile(samples, 0.95),
+            "observed_p95_seconds": p95,
             "observed_p99_seconds": _percentile(samples, 0.99),
-            "job_timeout_seconds": int(
-                (job.get("run") or {}).get("timeout_seconds") or 120
-            ),
+            "job_timeout_seconds": timeout,
+            "margin_ratio": ratio,
+            "margin_status": status,
+            "recommended_timeout_seconds": recommended,
             "dependency_worst_case_seconds": dependency_timeout_budget(
                 jobs,
                 job_id,
             ),
         }
+    warnings, advisories = _margin_lists(rows)
     return {
         "schema": "a_stock_cron_budget_report_v1",
         "status": "ok",
+        "margin_policy": {
+            "margin_factor": MARGIN_FACTOR,
+            "min_samples": MIN_MARGIN_SAMPLES,
+            "adjustment": "raise_only",
+            "sample_bias": "ok_runs_only",
+        },
+        "warnings": warnings,
+        "advisories": advisories,
         "jobs": rows,
     }
 
@@ -161,6 +243,15 @@ def main() -> int:
     parser.add_argument("--runs", default=ledger_path())
     parser.add_argument("--push-report", action="store_true")
     parser.add_argument("--push-telemetry", default=push_telemetry_path())
+    parser.add_argument(
+        "--fail-on-warn",
+        action="store_true",
+        help=(
+            "exit 1 when a job's timeout is within "
+            f"{MARGIN_FACTOR}x of its observed p95 (>= {MIN_MARGIN_SAMPLES} "
+            "samples). Advisories never fail: too few samples is not a verdict."
+        ),
+    )
     args = parser.parse_args()
     if args.push_report:
         print(json.dumps(
@@ -174,8 +265,9 @@ def main() -> int:
     runs = read_json(args.runs, [])
     if not isinstance(runs, list):
         runs = []
-    print(json.dumps(build_budget_report(manifest, runs), ensure_ascii=False, indent=2))
-    return 0
+    report = build_budget_report(manifest, runs)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 1 if args.fail_on_warn and report["warnings"] else 0
 
 
 if __name__ == "__main__":
