@@ -265,6 +265,94 @@ def _read_events_unlocked(ledger_file: str) -> list[dict[str, Any]]:
     return events
 
 
+# 进程内追加索引（issue #167）。改动前每次 append_events 都要全量读 14MB 账本
+# 三次（自身去重/算 sequence、备份对账读主账本、读备份账本），生产实测单次
+# 0.39~0.47s，500 只候选逐个 activate 就是四分钟。这里按账本路径缓存
+# (文件指纹, event_id 集合, tail_close 事实, last_sequence)。
+#
+# 并发正确性：append_events 全程持有 file_lock(path)，但两次 append 之间别的
+# 进程可能追加或整体重写账本。因此每次进入都先 os.stat 比对指纹
+# (size, inode, device, mtime_ns) —— size 覆盖追加，inode 覆盖 os.replace 重写
+# （归档/迁移脚本走这条路），三者任一不符就丢弃缓存全量重读。不用纯 mtime：
+# 文件系统时间戳精度不足以分辨同秒内的写入。
+#
+# tail_close 幂等冲突检测需要「已存在事件的事实」，但只有 tail_close.* 事件
+# 需要，生产账本里是 0 条，所以缓存只留这一类的事实指纹；万一命中一个不在
+# 事实表里的既有 event_id（跨类型哈希碰撞），回退到全量读，语义与改动前一致。
+_APPEND_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def reset_append_cache() -> None:
+    """Drop the in-process append index; the next append re-reads the ledger."""
+    _APPEND_CACHE.clear()
+
+
+def _fingerprint(path: str) -> tuple[int, int, int, int] | None:
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return (stat.st_size, stat.st_ino, stat.st_dev, stat.st_mtime_ns)
+
+
+def _event_fact(event: Mapping[str, Any]) -> str:
+    return json.dumps(
+        {key: event.get(key) for key in ("event_type", "links", "payload")},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _is_tail_close(event: Mapping[str, Any]) -> bool:
+    return str(event.get("event_type") or "").startswith("tail_close.")
+
+
+def _build_index(events: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "fingerprint": None,
+        "event_ids": {event.get("event_id") for event in events},
+        "tail_close_facts": {
+            event.get("event_id"): _event_fact(event)
+            for event in events
+            if _is_tail_close(event)
+        },
+        "last_sequence": max(
+            [
+                int(event.get("sequence") or index)
+                for index, event in enumerate(events, start=1)
+            ],
+            default=0,
+        ),
+    }
+
+
+def _append_index(path: str) -> tuple[dict[str, Any], list[dict[str, Any]] | None]:
+    """Return the append index plus the events it had to read (None when cached)."""
+    key = os.path.abspath(path)
+    cached = _APPEND_CACHE.get(key)
+    if cached is not None and cached["fingerprint"] == _fingerprint(path):
+        return cached, None
+    _APPEND_CACHE.pop(key, None)
+    events = _read_events_unlocked(path)
+    return _build_index(events), events
+
+
+def _remember_index(path: str, index: dict[str, Any]) -> None:
+    index["fingerprint"] = _fingerprint(path)
+    _APPEND_CACHE[os.path.abspath(path)] = index
+
+
+def _write_events_unlocked(path: str, events: list[dict[str, Any]]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        for event in events:
+            handle.write(json.dumps(event, ensure_ascii=False, default=str))
+            handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def _ledger_backup_path(ledger_file: str) -> str | None:
     root = os.path.abspath(os.path.expanduser(hermes_home()))
     path = os.path.abspath(os.path.expanduser(ledger_file))
@@ -278,31 +366,65 @@ def _ledger_backup_path(ledger_file: str) -> str | None:
     return os.path.join(backup_home(), os.path.relpath(path, root))
 
 
-def _sync_ledger_backup_unlocked(ledger_file: str) -> None:
+def _write_mirror_unlocked(backup: str, missing: list[dict[str, Any]]) -> None:
+    os.makedirs(os.path.dirname(backup), mode=0o700, exist_ok=True)
+    _write_events_unlocked(backup, missing)
+    os.chmod(backup, 0o600)
+
+
+def _mirror_appended_unlocked(backup: str, appended: list[dict[str, Any]]) -> bool:
+    """Mirror only this batch; False when the mirror drifted and needs a full pass."""
+    key = os.path.abspath(backup)
+    index = _APPEND_CACHE.get(key)
+    if index is None or index["fingerprint"] != _fingerprint(backup):
+        _APPEND_CACHE.pop(key, None)
+        return False
+    missing = [
+        event for event in appended
+        if event.get("event_id") not in index["event_ids"]
+    ]
+    if missing:
+        _write_mirror_unlocked(backup, missing)
+        index["event_ids"].update(event.get("event_id") for event in missing)
+    _remember_index(backup, index)
+    return True
+
+
+def _reconcile_mirror_unlocked(
+    ledger_file: str,
+    backup: str,
+    known_events: list[dict[str, Any]] | None = None,
+) -> None:
+    events = (
+        known_events
+        if known_events is not None
+        else _read_events_unlocked(ledger_file)
+    )
+    mirrored = _read_events_unlocked(backup)
+    index = _build_index(mirrored)
+    missing = [
+        event for event in events
+        if event.get("event_id") not in index["event_ids"]
+    ]
+    if missing:
+        _write_mirror_unlocked(backup, missing)
+        index["event_ids"].update(event.get("event_id") for event in missing)
+    _remember_index(backup, index)
+
+
+def _sync_ledger_backup_unlocked(
+    ledger_file: str,
+    appended: list[dict[str, Any]] | None = None,
+    known_events: list[dict[str, Any]] | None = None,
+) -> None:
     backup = _ledger_backup_path(ledger_file)
     if backup is None:
         return
-    events = _read_events_unlocked(ledger_file)
     try:
         with file_lock(backup):
-            mirrored_ids = {
-                event.get("event_id")
-                for event in _read_events_unlocked(backup)
-            }
-            missing = [
-                event for event in events
-                if event.get("event_id") not in mirrored_ids
-            ]
-            if not missing:
+            if appended is not None and _mirror_appended_unlocked(backup, appended):
                 return
-            os.makedirs(os.path.dirname(backup), mode=0o700, exist_ok=True)
-            with open(backup, "a", encoding="utf-8") as handle:
-                for event in missing:
-                    handle.write(json.dumps(event, ensure_ascii=False, default=str))
-                    handle.write("\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.chmod(backup, 0o600)
+            _reconcile_mirror_unlocked(ledger_file, backup, known_events)
     except (OSError, TimeoutError):
         return
 
@@ -349,6 +471,64 @@ def sync_backup(ledger_file: Optional[str] = None) -> str | None:
     return _ledger_backup_path(path)
 
 
+def _existing_tail_close_fact(
+    event_id: str,
+    index: Mapping[str, Any],
+    path: str,
+) -> str | None:
+    fact = index["tail_close_facts"].get(event_id)
+    if fact is not None:
+        return fact
+    # 索引只缓存 tail_close.* 的事实；既有事件属于别的类型时回退到全量读，
+    # 保持与改动前逐字节一致的冲突判定。
+    for existing in _read_events_unlocked(path):
+        if existing.get("event_id") == event_id:
+            return _event_fact(existing)
+    return None
+
+
+def _select_appendable(
+    normalized: list[dict[str, Any]],
+    index: dict[str, Any],
+    path: str,
+) -> list[dict[str, Any]]:
+    """Assign sequences to genuinely new events; index stays untouched on failure."""
+    known_ids = index["event_ids"]
+    last_sequence = int(index["last_sequence"])
+    appended: list[dict[str, Any]] = []
+    pending_ids: set[str] = set()
+    for event in normalized:
+        event_id = event["event_id"]
+        if event_id in known_ids or event_id in pending_ids:
+            if _is_tail_close(event):
+                existing_fact = _existing_tail_close_fact(event_id, index, path)
+                if existing_fact is not None and existing_fact != _event_fact(event):
+                    raise ValueError(
+                        f"tail-close idempotency conflict for {event_id}"
+                    )
+            continue
+        last_sequence += 1
+        event["sequence"] = last_sequence
+        appended.append(event)
+        pending_ids.add(event_id)
+    return appended
+
+
+def _commit_append_index(
+    path: str,
+    index: dict[str, Any],
+    appended: list[dict[str, Any]],
+) -> None:
+    index["event_ids"].update(event["event_id"] for event in appended)
+    index["tail_close_facts"].update({
+        event["event_id"]: _event_fact(event)
+        for event in appended
+        if _is_tail_close(event)
+    })
+    index["last_sequence"] = int(appended[-1]["sequence"])
+    _remember_index(path, index)
+
+
 def append_events(
     events: Iterable[Mapping[str, Any]],
     ledger_file: Optional[str] = None,
@@ -361,63 +541,22 @@ def append_events(
     with file_lock(path):
         if not os.path.exists(path):
             _restore_ledger_unlocked(path)
-        existing_events = _read_events_unlocked(path)
-        existing_by_id = {
-            event.get("event_id"): event
-            for event in existing_events
-        }
-        existing_ids = set(existing_by_id)
-        last_sequence = max(
-            [
-                int(event.get("sequence") or index)
-                for index, event in enumerate(existing_events, start=1)
-            ],
-            default=0,
-        )
-        appended = []
-        for event in normalized:
-            if event["event_id"] in existing_ids:
-                existing = existing_by_id[event["event_id"]]
-                if str(event["event_type"]).startswith("tail_close."):
-                    existing_fact = {
-                        key: existing.get(key)
-                        for key in ("event_type", "links", "payload")
-                    }
-                    incoming_fact = {
-                        key: event.get(key)
-                        for key in ("event_type", "links", "payload")
-                    }
-                    if json.dumps(
-                        existing_fact,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        default=str,
-                    ) != json.dumps(
-                        incoming_fact,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        default=str,
-                    ):
-                        raise ValueError(
-                            "tail-close idempotency conflict for "
-                            f"{event['event_id']}"
-                        )
-                continue
-            last_sequence += 1
-            event["sequence"] = last_sequence
-            appended.append(event)
-            existing_ids.add(event["event_id"])
-            existing_by_id[event["event_id"]] = event
+        index, existing_events = _append_index(path)
+        appended = _select_appendable(normalized, index, path)
         if not appended:
+            _remember_index(path, index)
             return []
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "a", encoding="utf-8") as handle:
-            for event in appended:
-                handle.write(json.dumps(event, ensure_ascii=False, default=str))
-                handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        _sync_ledger_backup_unlocked(path)
+        try:
+            _write_events_unlocked(path, appended)
+        except OSError:
+            _APPEND_CACHE.pop(os.path.abspath(path), None)
+            raise
+        _commit_append_index(path, index, appended)
+        _sync_ledger_backup_unlocked(
+            path,
+            appended,
+            None if existing_events is None else existing_events + appended,
+        )
         return appended
 
 
