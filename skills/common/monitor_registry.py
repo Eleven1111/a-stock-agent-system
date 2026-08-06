@@ -196,9 +196,7 @@ def _recover_registry_projection(events: Iterable[Mapping[str, Any]]) -> dict[st
 
 
 def _registry_projection_matches_ledger(events: Iterable[Mapping[str, Any]]) -> bool:
-    expected: list[dict[str, Any]] = []
-    for event in events:
-        expected = event_projection.project_monitor_records(expected, event)
+    expected = event_projection.fold_monitor_records([], events)
     actual = read_json(REGISTRY_FILE, [])
     actual_records = actual if isinstance(actual, list) else []
     # Build lookup of actual records by id for subset check

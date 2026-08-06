@@ -136,13 +136,10 @@ def reconcile_projections(
     }
 
 
-def project_monitor_records(
-    records: Iterable[Mapping[str, Any]], event: Mapping[str, Any]
-) -> list[dict[str, Any]]:
-    """Idempotently fold one canonical monitor event into registry records."""
-    event_type = str(event.get("event_type") or "")
-    if not event_type.startswith("monitor."):
-        return [dict(record) for record in records]
+def _monitor_entry(event: Mapping[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """Split one canonical monitor event into (monitor_id, entry); None if not ours."""
+    if not str(event.get("event_type") or "").startswith("monitor."):
+        return None
     payload = dict(event.get("payload") or {})
     entry = dict(payload.get("entry") or payload)
     monitor_id = str(
@@ -153,7 +150,18 @@ def project_monitor_records(
     if not monitor_id:
         raise ValueError("monitor projection requires monitor_id")
     entry["id"] = monitor_id
+    return monitor_id, entry
+
+
+def project_monitor_records(
+    records: Iterable[Mapping[str, Any]], event: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    """Idempotently fold one canonical monitor event into registry records."""
     items = [dict(record) for record in records]
+    parsed = _monitor_entry(event)
+    if parsed is None:
+        return items
+    monitor_id, entry = parsed
     index = next(
         (offset for offset, record in enumerate(items) if record.get("id") == monitor_id),
         None,
@@ -163,6 +171,35 @@ def project_monitor_records(
     else:
         items[index] = {**items[index], **entry}
     return items
+
+
+def fold_monitor_records(
+    records: Iterable[Mapping[str, Any]], events: Iterable[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Fold many monitor events at once, equivalent to repeated project_monitor_records.
+
+    Folding event-by-event copies the whole record list per event, so rebuilding
+    the expected projection cost O(events x records): 12078 events over 2029
+    records measured 4.8s, and the registry integrity check paid it on every
+    process. That was the direct cause of the 2026-08-05/06 auction-chain
+    timeouts (issue #167). Keeping an id index makes it O(events).
+
+    Insertion order and the merge-don't-replace semantics must stay identical to
+    the incremental fold: the fail-closed check compares this projection against
+    the registry field by field, so any divergence turns into a false mismatch.
+    """
+    indexed: dict[str, dict[str, Any]] = {}
+    for record in records:
+        item = dict(record)
+        indexed[str(item.get("id") or "")] = item
+    for event in events:
+        parsed = _monitor_entry(event)
+        if parsed is None:
+            continue
+        monitor_id, entry = parsed
+        existing = indexed.get(monitor_id)
+        indexed[monitor_id] = {**existing, **entry} if existing else entry
+    return list(indexed.values())
 
 
 def latest_portfolio_snapshot(
