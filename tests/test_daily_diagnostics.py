@@ -158,6 +158,72 @@ class TestOpenclawLedger:
         assert dd.section_openclaw(data)  # 仍能产出一段说明而非崩溃
 
 
+class TestArchiveRetention:
+    def _seed(self, tmp_path, names):
+        out = tmp_path / "diagnostics"
+        out.mkdir()
+        for name in names:
+            (out / name).write_text("x", encoding="utf-8")
+        return out
+
+    def test_only_reports_past_the_window_are_removed(self, tmp_path):
+        # 保留窗口含边界：today - 30 天 = 2026-07-07，该日当天保留，更早的删。
+        out = self._seed(tmp_path, [
+            "2026-05-01.md",   # 远超窗口
+            "2026-07-06.md",   # 越界一天
+            "2026-07-07.md",   # 恰好在边界上，保留
+            "2026-08-05.md",
+        ])
+
+        removed = dd.prune_reports(str(out), 30, "2026-08-06")
+
+        assert sorted(removed) == ["2026-05-01.md", "2026-07-06.md"]
+        assert (out / "2026-07-07.md").exists()
+        assert (out / "2026-08-05.md").exists()
+
+    def test_hand_saved_files_are_never_touched(self, tmp_path):
+        """只认 YYYY-MM-DD.md，手工另存的事故存档不能被定时任务删掉。"""
+        out = self._seed(tmp_path, [
+            "2026-05-01.md",
+            "2026-05-01-incident.md",
+            "notes.md",
+            "2026-05-01.md.bak",
+        ])
+
+        removed = dd.prune_reports(str(out), 30, "2026-08-06")
+
+        assert removed == ["2026-05-01.md"]
+        for keeper in ("2026-05-01-incident.md", "notes.md", "2026-05-01.md.bak"):
+            assert (out / keeper).exists()
+
+    def test_retention_zero_disables_pruning(self, tmp_path):
+        out = self._seed(tmp_path, ["2020-01-01.md"])
+
+        assert dd.prune_reports(str(out), 0, "2026-08-06") == []
+        assert (out / "2020-01-01.md").exists()
+
+    def test_missing_directory_is_not_an_error(self, tmp_path):
+        assert dd.prune_reports(str(tmp_path / "nope"), 30, "2026-08-06") == []
+
+    def test_archive_writes_dated_file_and_summarises_on_stdout(self, tmp_path, capsys):
+        out = tmp_path / "diagnostics"
+        rc = dd.main([
+            "--date", "2026-08-06",
+            "--state-home", str(tmp_path / "state"),
+            "--openclaw-db", str(tmp_path / "no.sqlite"),
+            "--openclaw-log-dir", str(tmp_path / "nolog"),
+            "--archive", "--out-dir", str(out),
+        ])
+
+        assert rc == 0
+        assert (out / "2026-08-06.md").exists()
+        printed = capsys.readouterr().out
+        # 调度器拿到的是一行摘要，不是整份报告——artifact 有 max_output_chars 上限。
+        assert printed.count("\n") == 1
+        assert "诊断报告 2026-08-06" in printed
+        assert "# A股系统每日运行诊断" not in printed
+
+
 class TestReport:
     def test_report_is_self_contained_and_starts_with_the_fingerprint(self, tmp_path):
         report = dd.build_report(

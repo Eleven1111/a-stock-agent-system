@@ -502,6 +502,45 @@ def build_report(day: str, state_home: str, openclaw_db: str, log_dir: str) -> s
     return "\n".join(out) + "\n"
 
 
+_REPORT_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
+
+
+def prune_reports(out_dir: str, retention_days: int, today: str) -> list[str]:
+    """删掉超出保留窗口的历史报告，返回被删的文件名。
+
+    只认 ``YYYY-MM-DD.md`` 这一种命名，且只按文件名里的日期判断——不看 mtime。
+    手工另存的报告（如 `2026-08-06-incident.md`）因此不会被误删；重跑历史某天
+    也不会因为 mtime 是今天就躲过清理。
+    """
+    removed: list[str] = []
+    if retention_days <= 0 or not os.path.isdir(out_dir):
+        return removed
+    try:
+        cutoff = dt.date.fromisoformat(today) - dt.timedelta(days=retention_days)
+    except ValueError:
+        return removed
+    for name in sorted(os.listdir(out_dir)):
+        matched = _REPORT_RE.match(name)
+        if not matched:
+            continue
+        try:
+            stamp = dt.date.fromisoformat(matched.group(1))
+        except ValueError:
+            continue
+        if stamp < cutoff:
+            try:
+                os.remove(os.path.join(out_dir, name))
+                removed.append(name)
+            except OSError:
+                continue
+    return removed
+
+
+def count_alerts(report: str) -> int:
+    matched = re.search(r"\*\*异常 (\d+) 个\*\*", report)
+    return int(matched.group(1)) if matched else 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="每日运行诊断包（跨 OpenClaw / Hermes）")
     parser.add_argument("--date", default=dt.date.today().isoformat(), help="默认今天")
@@ -514,15 +553,43 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=os.path.expanduser("~/.openclaw/state/openclaw.sqlite"),
     )
     parser.add_argument("--openclaw-log-dir", default="/tmp/openclaw")
-    parser.add_argument("--out", help="写入文件；不给则打到 stdout")
+    parser.add_argument("--out", help="写入指定文件；不给则打到 stdout")
+    parser.add_argument(
+        "--archive",
+        action="store_true",
+        help="写入 <state_home>/diagnostics/<日期>.md 并按保留窗口清理旧报告；"
+             "stdout 只留一行摘要（cron 用这个模式）",
+    )
+    parser.add_argument("--out-dir", help="配合 --archive；默认 <state_home>/diagnostics")
+    parser.add_argument("--retention-days", type=int, default=30)
     args = parser.parse_args(argv)
 
+    state_home = os.path.expanduser(args.state_home)
     report = build_report(
         args.date,
-        os.path.expanduser(args.state_home),
+        state_home,
         os.path.expanduser(args.openclaw_db),
         os.path.expanduser(args.openclaw_log_dir),
     )
+
+    if args.archive:
+        # 定时归档：报告本体落盘，回给调度器的只有一行摘要。
+        # 事故当天再去翻证据往往已经没了（OpenClaw 主日志在 /tmp，重启即清空），
+        # 所以每天先存一份，是这个模式存在的全部理由。
+        out_dir = os.path.expanduser(args.out_dir or os.path.join(state_home, "diagnostics"))
+        os.makedirs(out_dir, exist_ok=True)
+        target = os.path.join(out_dir, f"{args.date}.md")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write(report)
+        removed = prune_reports(out_dir, args.retention_days, args.date)
+        size_kb = os.path.getsize(target) / 1024
+        alerts = count_alerts(report)
+        summary = f"诊断报告 {args.date}：异常 {alerts} 项，{size_kb:.1f} KB → {target}"
+        if removed:
+            summary += f"；清理过期报告 {len(removed)} 份"
+        print(summary)
+        return 0
+
     if args.out:
         target = os.path.expanduser(args.out)
         os.makedirs(os.path.dirname(target) or ".", exist_ok=True)

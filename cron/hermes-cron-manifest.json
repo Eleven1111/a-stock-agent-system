@@ -778,6 +778,46 @@
       "external_note": "09:35 与 10:35 各查一次竞价链 5 个作业当日 artifact；全绿静默，missing 与 failed 分开报。只读，不得有 context_from —— 链路挂掉时它必须照跑"
     },
     {
+      "id": "daily-diagnostics",
+      "name": "每日运行诊断包归档",
+      "schedule": "10 23 * * *",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "calendar_day",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "daily-diagnostics",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "text",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 300,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/diagnostics/",
+        "$A_STOCK_STATE_HOME/cron/output/daily-diagnostics/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "scripts/daily_diagnostics.py",
+          "--archive"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
+      },
+      "external_note": "23:10 归档当日诊断报告到 $A_STOCK_STATE_HOME/diagnostics/<日期>.md，滚动保留 30 天。calendar_day：非交易日也要跑，调度器整体停摆恰恰只能从「非交易日也没有报告」看出来。只读聚合，不得有 context_from —— 出事时它必须照跑"
+    },
+    {
       "id": "open-confirmation",
       "name": "开盘确认+上车判定",
       "schedule": "35 9 * * 1-5",
