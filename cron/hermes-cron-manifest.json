@@ -1770,8 +1770,9 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 180,
-        "timeout_tier": "standard"
+        "timeout_seconds": 420,
+        "timeout_tier": "long",
+        "timeout_rationale": "固定宏观查询 + 动态订阅逐条走 SerpAPI，耗时随订阅数线性增长；生产台账 p95 126s（2026-08，16 个 ok 样本），原 180s 仅 1.4x 余量，是全 manifest 最薄的一档。420s 取 3x 余量下限 380s 之上的惯用档位值，留出订阅规模增长空间"
       },
       "external_note": "需 Hermes Agent + SerpAPI；固定宏观查询 + 当前股票/板块/主题动态订阅，无触发静默",
       "adaptive_backoff": true
@@ -2255,8 +2256,8 @@
           "scripts/realtime_catalyst_trigger.py"
         ],
         "cwd": ".",
-        "timeout_seconds": 60,
-        "timeout_tier": "short"
+        "timeout_seconds": 90,
+        "timeout_tier": "standard"
       },
       "external_note": "盘中每15分钟扫描T1/T2催化并匹配候选池；T1催化15分钟响应"
     },
