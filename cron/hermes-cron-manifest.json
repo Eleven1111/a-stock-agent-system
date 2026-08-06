@@ -4,6 +4,12 @@
   "timezone": "Asia/Shanghai",
   "default_trading_day_policy": "required",
   "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+  "timeout_tier_bands": {
+    "_note": "run.timeout_tier 必须与 run.timeout_seconds 所在档位一致，long 档必须写 run.timeout_rationale。跨档调超时因此一定出现在 diff 里；校验在 scripts/validate_cron_manifest.py，实测余量守卫在 scripts/cron_budget_report.py --fail-on-warn。",
+    "short": [10, 60],
+    "standard": [61, 300],
+    "long": [301, 2400]
+  },
   "jobs": [
     {
       "id": "provider-health",
@@ -38,7 +44,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 90
+        "timeout_seconds": 90,
+        "timeout_tier": "standard"
       },
       "external_note": "按数据集探测腾讯、东财push2his、涨停池、同花顺行业和全A行情，不按AkShare库名整体判定"
     },
@@ -80,7 +87,8 @@
           "global-preopen"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "需 Hermes Agent cron 运行时；依赖 yfinance (Yahoo Finance)"
     },
@@ -125,7 +133,8 @@
           "--cache"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "需 Hermes Agent cron 运行时；默认仅归档，避免晚间例行输出污染主线"
     },
@@ -165,7 +174,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "08:42 多源采集东方财富/雪球社会关注度；单源仅展示，失败不阻断交易主链路"
     },
@@ -205,7 +215,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 300
+        "timeout_seconds": 300,
+        "timeout_tier": "standard"
       },
       "external_note": "08:15 仅刷新全市场行情缓存，不生成候选池 artifact"
     },
@@ -262,6 +273,8 @@
         ],
         "cwd": ".",
         "timeout_seconds": 600,
+        "timeout_tier": "long",
+        "timeout_rationale": "冷启动或池过期时要重跑全市场候选发现；复用命中时秒级返回，600s 是给冷跑留的预算（2026-08-05 竞价事故中该作业确实跑满 600s）",
         "env": {
           "A_STOCK_SKIP_INPUT_SNAPSHOT": "1"
         }
@@ -302,7 +315,8 @@
           "preopen"
         ],
         "cwd": ".",
-        "timeout_seconds": 15
+        "timeout_seconds": 15,
+        "timeout_tier": "short"
       },
       "external_note": "08:50 只读候选池快照，分别推送打板/趋势TOP10与全市场竞价扫描覆盖"
     },
@@ -342,7 +356,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "11:37 更新社会关注升温与拥挤背离，只归档并回流共享上下文"
     },
@@ -382,7 +397,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "15:04 生成收盘社会关注快照，作为候选发现可选弱证据"
     },
@@ -420,7 +436,8 @@
           "--cache-only"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "15:02 缓存当日涨停梯队和板块热度；仅归档，供候选发现和次日开盘温度闸门读取"
     },
@@ -458,7 +475,8 @@
           "--ensure-fresh"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "08:40 盘前校验上一交易日涨停梯队是否在册（candidate-preopen 08:45 之前）；收盘 hot-money-context 缺档时回填，防止 update_signal_context 把更旧梯队错滚成 prev 导致溢价基准用错日期；已在册时静默 no-op 不投递"
     },
@@ -515,6 +533,8 @@
         ],
         "cwd": ".",
         "timeout_seconds": 2400,
+        "timeout_tier": "long",
+        "timeout_rationale": "15:07 全市场扫描生成约 500 只双策略观察池；生产台账 p95 943s（2026-08，3 个 ok 样本）",
         "env": {
           "A_STOCK_SKIP_INPUT_SNAPSHOT": "1"
         }
@@ -563,7 +583,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
       },
       "external_note": "09:15-09:23 对深度观察池每分钟采集腾讯五档快照；仅写入 artifact 和竞价状态"
     },
@@ -611,7 +632,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "09:24 对全部合格股票做一次轻量竞价扫描；池外结果仅进入研究情报，不进入执行排名"
     },
@@ -666,7 +688,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 180
+        "timeout_seconds": 180,
+        "timeout_tier": "standard"
       },
       "external_note": "09:26 收口竞价因子，输出条件买入/关注计划和公告质检，并把重点标的加入动态监控；accepted_statuses 放行失败的竞价快照，由 finalize 自己判空走 fail-closed 降级报告，避免依赖门把全链变成静默"
     },
@@ -711,7 +734,8 @@
           "auction"
         ],
         "cwd": ".",
-        "timeout_seconds": 15
+        "timeout_seconds": 15,
+        "timeout_tier": "short"
       },
       "external_note": "09:27 推送全市场竞价涨跌TOP5、打板高分票及其是否进入执行短名单"
     },
@@ -748,7 +772,8 @@
           "scripts/cron_failure_watch.py"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
       },
       "external_note": "09:35 与 10:35 各查一次竞价链 5 个作业当日 artifact；全绿静默，missing 与 failed 分开报。只读，不得有 context_from —— 链路挂掉时它必须照跑"
     },
@@ -798,7 +823,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 180
+        "timeout_seconds": 180,
+        "timeout_tier": "standard"
       },
       "external_note": "09:35 输出买入区间/追价线/止损/目标/T+1约束和公告质检；不自动下单"
     },
@@ -846,7 +872,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 45
+        "timeout_seconds": 45,
+        "timeout_tier": "short"
       },
       "external_note": "09:35正式推荐通过后，以Chanlun看多结构作二次硬门控；仅模拟成交，不连接券商"
     },
@@ -894,7 +921,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
       },
       "external_note": "每15分钟检查模拟持仓止损、止盈、回撤和时间纪律；T+1锁定或不可成交时保留待卖状态"
     },
@@ -943,7 +971,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
       },
       "external_note": "记录模拟账户现金、持仓市值和当日净值；行情缺失时不虚构估值"
     },
@@ -981,7 +1010,8 @@
           "open"
         ],
         "cwd": ".",
-        "timeout_seconds": 15
+        "timeout_seconds": 15,
+        "timeout_tier": "short"
       },
       "external_note": "09:36 推送门禁后信号及被过滤高分票的明确原因；研究情报不绕过执行门禁"
     },
@@ -1029,7 +1059,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
       },
       "external_note": "复用09:35前五候选并单次抓取腾讯行情，只记录主线龙头承接研究状态；不下单、不建议当日卖出"
     },
@@ -1077,7 +1108,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
       },
       "external_note": "复用09:35前五候选并单次抓取腾讯行情，只记录午后主线回流研究状态；不下单、不建议当日卖出"
     },
@@ -1125,7 +1157,8 @@
           "skills/stock-triage/scripts/intraday_monitor.py"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "只监控当前持仓和动态订阅；清仓/取消后自动退订；脚本内置交易时段守卫"
     },
@@ -1163,7 +1196,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "18:00 汇总当日新闻 L1 扫描与队列状态；只读已落盘数据"
     },
@@ -1215,7 +1249,8 @@
           "capital-flow"
         ],
         "cwd": ".",
-        "timeout_seconds": 300
+        "timeout_seconds": 300,
+        "timeout_tier": "standard"
       },
       "external_note": "需 Hermes Agent + NO_PROXY 环境（东财 API）"
     },
@@ -1258,7 +1293,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 45
+        "timeout_seconds": 45,
+        "timeout_tier": "short"
       },
       "external_note": "例行联动监控默认只归档，避免低优先级输出污染主线"
     },
@@ -1304,7 +1340,8 @@
           "20"
         ],
         "cwd": ".",
-        "timeout_seconds": 180
+        "timeout_seconds": 180,
+        "timeout_tier": "standard"
       },
       "external_note": "复核动态观察池前20只；结果进入收盘 Triage context_from"
     },
@@ -1345,7 +1382,8 @@
           "--check"
         ],
         "cwd": ".",
-        "timeout_seconds": 45
+        "timeout_seconds": 45,
+        "timeout_tier": "short"
       },
       "external_note": "持仓/风控检查；不自动交易"
     },
@@ -1393,7 +1431,8 @@
           "closing-triage"
         ],
         "cwd": ".",
-        "timeout_seconds": 20
+        "timeout_seconds": 20,
+        "timeout_tier": "short"
       },
       "external_note": "只读取上游 artifact 摘要，不读取主线对话上下文"
     },
@@ -1441,7 +1480,9 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 420
+        "timeout_seconds": 420,
+        "timeout_tier": "long",
+        "timeout_rationale": "逐只刷新持仓与候选前 5 的解禁、两融、股东户数、龙虎榜、大宗交易与研报一致预期共 6 类源，请求数随持仓规模线性增长"
       },
       "external_note": "刷新全部持仓和候选池前5名的解禁、两融、股东户数、龙虎榜、大宗交易与研报一致预期；仅归档，供Policy和Serenity读取"
     },
@@ -1491,7 +1532,8 @@
           "5"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
       },
       "external_note": "按持仓、有效建议、主动监控和候选池优先级把到期的Serenity刷新目标作为serenity_refresh任务入队research bus（一套队列/租约/预算）；研究执行由Hermes/OpenClaw在研究窗口内通过expert_runner领取。旧的独立队列claim/complete路径（serenity_refresh_queue.py）已弃用，仅用于排空历史积压"
     },
@@ -1542,7 +1584,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 90
+        "timeout_seconds": 90,
+        "timeout_tier": "standard"
       },
       "external_note": "读取 candidate-discovery-input 快照(全A行情+连板梯队+资金流)计算主题广度/资金/RS/持续性，跑生命周期状态机；主题进入 mainline 时入队一次 theme_review；纯确定性代码，零模型调用"
     },
@@ -1590,7 +1633,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       }
     },
     {
@@ -1636,7 +1680,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "watching 超时淘汰(stale_watch)、confirmed 超时回退(confirm_stall)；纯确定性代码，零模型调用"
     },
@@ -1676,7 +1721,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 180
+        "timeout_seconds": 180,
+        "timeout_tier": "standard"
       },
       "external_note": "自然日每15分钟采集官方、国资监管与国资运营主体公开信息；仅写入研究队列，不触发交易或直接推送",
       "adaptive_backoff": true
@@ -1724,7 +1770,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 180
+        "timeout_seconds": 180,
+        "timeout_tier": "standard"
       },
       "external_note": "需 Hermes Agent + SerpAPI；固定宏观查询 + 当前股票/板块/主题动态订阅，无触发静默",
       "adaptive_backoff": true
@@ -1767,7 +1814,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 180
+        "timeout_seconds": 180,
+        "timeout_tier": "standard"
       },
       "external_note": "周末/非交易日独立运行，不依赖交易日前置任务；无触发静默，输出仅作研究与风险提示",
       "adaptive_backoff": true
@@ -1809,7 +1857,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "08:00-22:00 每10分钟轮询国务院/部委/交易所/新华社等一手官方源；只在出现未见过的政策信号时推送",
       "adaptive_backoff": true
@@ -1850,7 +1899,8 @@
           "200"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "OpenClaw/Hermes 冷启动友好：单次 SerpAPI 查询 + 200字内确定性摘要，不让模型做多步网页抓取"
     },
@@ -1890,7 +1940,8 @@
           "200"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "OpenClaw/Hermes 冷启动友好：单次 SerpAPI 查询 + 200字内确定性摘要，不让模型做多步网页抓取"
     },
@@ -1932,7 +1983,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 240
+        "timeout_seconds": 240,
+        "timeout_tier": "standard"
       },
       "external_note": "09:25-11:30/13:00-14:55 内部守卫；5分钟轻量抓取动态股票/主题，超过SLA只归档不产生方向信号",
       "adaptive_backoff": true
@@ -1971,7 +2023,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 90
+        "timeout_seconds": 90,
+        "timeout_tier": "standard"
       },
       "external_note": "需 Hermes Agent + NO_PROXY（东财数据中心）；周报默认归档"
     },
@@ -2009,7 +2062,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 180
+        "timeout_seconds": 180,
+        "timeout_tier": "standard"
       },
       "external_note": "需 Hermes Agent + NO_PROXY；无事件静默"
     },
@@ -2055,7 +2109,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "每个交易日收盘后推进 provisional T+1 至 final T+3；Hermes/OpenClaw 共用"
     },
@@ -2094,7 +2149,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
       },
       "external_note": "从Signal Ledger生成Hermes/OpenClaw共用的当前建议、持仓、监控、待结算状态"
     },
@@ -2146,7 +2202,8 @@
           "--gate"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "周报默认归档，避免数据型输出污染主线"
     },
@@ -2198,7 +2255,8 @@
           "scripts/realtime_catalyst_trigger.py"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "盘中每15分钟扫描T1/T2催化并匹配候选池；T1催化15分钟响应"
     },
@@ -2236,7 +2294,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 120
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
       },
       "external_note": "17:20 按中央保留策略清理过期输入快照、输出快照和 cron artifact；近期引用、每数据集最低副本和全局删除上限受保护"
     },
@@ -2277,7 +2336,9 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 1800
+        "timeout_seconds": 1800,
+        "timeout_tier": "long",
+        "timeout_rationale": "全市场行业映射重建；2026-08-05 实测一次性回补 847s（补口 2165 只、0 失败），稳态因缓存合并远低于此"
       },
       "external_note": "08:30 刷新全市场行业映射缓存（新浪板块主源 + 申万逐只补口）；仅写本地缓存，供候选发现阶段读取。2026-08-05 实测一次性回补 847s（补口 2165 只、0 失败），稳态因缓存合并远低于此；预算 1800s 是给缓存过期后整轮重建留的余量"
     },
@@ -2316,7 +2377,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "研究态关闭；14:35 只验证已封存 PIT 输入并缓存静态候选，不产生最终信号。成员历史与实时双时间源未就绪前不得启用"
     },
@@ -2362,7 +2424,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 20
+        "timeout_seconds": 20,
+        "timeout_tier": "short"
       },
       "external_note": "研究态关闭；14:49:59 截止、14:50:20 SLA，零 live 权重、零 broker、零自动订单；不得依赖 15:00/15:07 数据"
     },
@@ -2401,7 +2464,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
       },
       "external_note": "独立 sibling，当前 Not Ready 且关闭；不能继承 14:50 的 OOS、shadow、容量或晋级证据"
     },
@@ -2446,7 +2510,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "15:31 后只对账 15:05 已冻结信号；15:30 结果不得反向改写信号，独立 sibling 仍为 Not Ready 且关闭"
     },
@@ -2492,7 +2557,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "仅用 14:50 信号后可见成交数据重放 full/partial/unfilled；余量不进入收盘集合竞价或 15:05 sibling"
     },
@@ -2531,7 +2597,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 60
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
       },
       "external_note": "检查候选池是否健康（存在、有候选、新鲜），异常时告警"
     },
@@ -2572,7 +2639,9 @@
           "--emit-brief"
         ],
         "cwd": ".",
-        "timeout_seconds": 1800
+        "timeout_seconds": 1800,
+        "timeout_tier": "long",
+        "timeout_rationale": "全市场公告抓取 + 三桶召回：单轮约 50 次接口请求，受 http_client 2.5s/源 节流，radar.py 记录实测耗时 2~4 分钟"
       },
       "external_note": "21:30 抓当日全市场公告，三桶召回（分歧/漏网/极值）；分流用，不产出排序名单"
     },
@@ -2613,7 +2682,9 @@
           "--emit-brief"
         ],
         "cwd": ".",
-        "timeout_seconds": 1800
+        "timeout_seconds": 1800,
+        "timeout_tier": "long",
+        "timeout_rationale": "全市场公告抓取 + 三桶召回：单轮约 50 次接口请求，受 http_client 2.5s/源 节流，radar.py 记录实测耗时 2~4 分钟"
       },
       "external_note": "07:40 补抓凌晨增量，产物赶在 08:30 候选池引导之前；与晚间跑按日期覆盖同一 artifact"
     },
@@ -2654,7 +2725,9 @@
           "--emit-brief"
         ],
         "cwd": ".",
-        "timeout_seconds": 1800
+        "timeout_seconds": 1800,
+        "timeout_tier": "long",
+        "timeout_rationale": "全市场公告抓取 + 三桶召回：单轮约 50 次接口请求，受 http_client 2.5s/源 节流，radar.py 记录实测耗时 2~4 分钟；2026-08-01（周六）实测仍有 1440 条公告"
       },
       "external_note": "周六 09:00；实测 2026-08-01（周六）仍有 1440 条公告，周末不可跳过"
     }

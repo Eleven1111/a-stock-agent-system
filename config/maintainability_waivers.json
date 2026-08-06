@@ -8,6 +8,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing sys.path bootstrap in cron_budget_report.py, unrelated to the p95 timeout-margin guard added to this file",
+      "violation_id": "03d7ba486f46af09a10b"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "06d8ccfe4f39ffb9d4ea"
     },
@@ -315,6 +320,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "8aef716f23e30ba1fa1b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing sys.path bootstrap in cron_budget_report.py, unrelated to the p95 timeout-margin guard added to this file",
+      "violation_id": "8c263ab419a7ed98a0c0"
     },
     {
       "expires_on": "2026-10-31",

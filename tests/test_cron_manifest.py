@@ -3,7 +3,11 @@
 import json
 import os
 import tempfile
-from scripts.validate_cron_manifest import validate
+from scripts.validate_cron_manifest import (
+    TIMEOUT_RATIONALE_TIERS,
+    TIMEOUT_TIERS,
+    validate,
+)
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -40,8 +44,19 @@ VALID_JOB = {
         "argv": ["python", "skills/stock-triage/scripts/context_digest.py", "--json"],
         "cwd": ".",
         "timeout_seconds": 10,
+        "timeout_tier": "short",
     },
 }
+
+
+def _validate_job(job):
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as handle:
+        json.dump({"jobs": [job]}, handle)
+        path = handle.name
+    try:
+        return validate(path)
+    finally:
+        os.unlink(path)
 
 
 def test_valid_manifest():
@@ -194,6 +209,85 @@ def test_run_env_accepts_a_plain_business_flag():
         assert validate(path) is True
     finally:
         os.unlink(path)
+
+
+def test_every_job_declares_a_timeout_tier():
+    """分级约定的目的是让「调大超时」跨档时必须显式改档位，而不是手滑。"""
+    with open(MANIFEST_PATH, encoding="utf-8") as f:
+        manifest = json.load(f)
+
+    for job in manifest["jobs"]:
+        run = job["run"]
+        tier = run.get("timeout_tier")
+        assert tier in TIMEOUT_TIERS, f"{job['id']} tier={tier}"
+        low, high = TIMEOUT_TIERS[tier]
+        assert low <= run["timeout_seconds"] <= high, job["id"]
+        if tier in TIMEOUT_RATIONALE_TIERS:
+            assert run.get("timeout_rationale", "").strip(), job["id"]
+
+
+def test_manifest_restates_the_tier_bands_without_drift():
+    """manifest 里的档位表是给改超时的人看的，漂移了就是骗人。"""
+    with open(MANIFEST_PATH, encoding="utf-8") as f:
+        declared = json.load(f)["timeout_tier_bands"]
+
+    assert {k: tuple(v) for k, v in declared.items()
+            if not k.startswith("_")} == TIMEOUT_TIERS
+
+    drifted = json.loads(json.dumps(VALID_JOB))
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump({"jobs": [drifted], "timeout_tier_bands": {"short": [10, 999]}}, f)
+        path = f.name
+    try:
+        assert validate(path) is False
+    finally:
+        os.unlink(path)
+
+
+def test_missing_timeout_tier_is_rejected():
+    job = json.loads(json.dumps(VALID_JOB))
+    del job["run"]["timeout_tier"]
+
+    assert _validate_job(job) is False
+
+
+def test_unknown_timeout_tier_is_rejected():
+    job = json.loads(json.dumps(VALID_JOB))
+    job["run"]["timeout_tier"] = "instant"
+
+    assert _validate_job(job) is False
+
+
+def test_timeout_outside_the_declared_tier_band_is_rejected():
+    """把 short 作业的超时从 10s 调到 600s，必须撞上档位边界。"""
+    job = json.loads(json.dumps(VALID_JOB))
+    job["run"]["timeout_seconds"] = 600
+
+    assert _validate_job(job) is False
+
+    job["run"]["timeout_tier"] = "long"
+    job["run"]["timeout_rationale"] = "全市场抓取，实测冷跑数分钟"
+    assert _validate_job(job) is True
+
+
+def test_long_tier_requires_a_written_rationale():
+    job = json.loads(json.dumps(VALID_JOB))
+    job["run"]["timeout_seconds"] = 1800
+    job["run"]["timeout_tier"] = "long"
+
+    assert _validate_job(job) is False
+
+    job["run"]["timeout_rationale"] = "   "
+    assert _validate_job(job) is False
+
+
+def test_timeout_above_the_top_tier_ceiling_is_rejected():
+    job = json.loads(json.dumps(VALID_JOB))
+    job["run"]["timeout_seconds"] = 7200
+    job["run"]["timeout_tier"] = "long"
+    job["run"]["timeout_rationale"] = "很久"
+
+    assert _validate_job(job) is False
 
 
 def test_missing_field():

@@ -47,6 +47,53 @@ FORBIDDEN_TOP_LEVEL_SCRIPTS = {
 }
 PLACEHOLDER_RE = re.compile(r'\{(\w+)\}')
 
+#: 超时分级约定。档位边界取自 2026-08 manifest 里 60 个作业的实际分布，
+#: 那里有三个自然簇：≤60s（27 个）、90–300s（26 个）、420–2400s（7 个）。
+#:
+#: 档位与 timeout 值一一对应，本身不携带额外信息 —— 它是一个**校验和**，
+#: 不是语义分类。价值在于：把超时调过一个数量级边界时，必须同时改档位，
+#: diff 里因此一定看得见（issue #159 里"调大超时"被当成方案用了三次，
+#: 每次都只改了一个数字）。语义分类（触网/纯计算/推送）刻意没做：它无法
+#: 机械校验，标错比不标更糟。真正靠数据说话的那一半在
+#: ``cron_budget_report.py`` 的 p95 余量守卫里。
+TIMEOUT_TIERS = {
+    "short": (10, 60),
+    "standard": (61, 300),
+    "long": (301, 2400),
+}
+#: 分钟级预算必须写明为什么 —— 唯一能拦住"再调大一点"的东西是一句要
+#: 过 review 的理由。
+TIMEOUT_RATIONALE_TIERS = {"long"}
+#: hermes_job_runner.run_job 在 run.timeout_seconds 缺省时用的值。
+DEFAULT_TIMEOUT_SECONDS = 120
+
+
+def _timeout_tier_errors(run):
+    """Errors for one job's declared timeout tier."""
+    tier = run.get("timeout_tier")
+    if tier is None:
+        return [
+            "run.timeout_tier is required; declare one of "
+            + ", ".join(sorted(TIMEOUT_TIERS))
+        ]
+    if tier not in TIMEOUT_TIERS:
+        return [f"invalid run.timeout_tier: {tier}"]
+    errors = []
+    timeout = run.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
+    low, high = TIMEOUT_TIERS[tier]
+    if isinstance(timeout, int) and not isinstance(timeout, bool):
+        if not low <= timeout <= high:
+            errors.append(
+                f"run.timeout_seconds {timeout} is outside tier "
+                f"{tier} band [{low}, {high}]"
+            )
+    rationale = run.get("timeout_rationale")
+    if tier in TIMEOUT_RATIONALE_TIERS and not str(rationale or "").strip():
+        errors.append(
+            f"run.timeout_tier {tier} requires a non-empty run.timeout_rationale"
+        )
+    return errors
+
 
 def _is_dag_entry(argv):
     """argv form of `python scripts/run_agent_dag.py <job> [--emit-target]`."""
@@ -110,6 +157,20 @@ def validate(filepath):
         errors.append(
             f"invalid default_trading_day_policy: {default_day_policy}"
         )
+
+    # 档位表在 manifest 里复述一份是给编辑超时的人看的；两处一旦漂移，
+    # 读 manifest 的人会照着一个不生效的区间改。所以复述必须逐字相等。
+    declared_bands = data.get("timeout_tier_bands")
+    if declared_bands is not None:
+        restated = {
+            name: tuple(band)
+            for name, band in declared_bands.items()
+            if not name.startswith("_")
+        }
+        if restated != TIMEOUT_TIERS:
+            errors.append(
+                f"timeout_tier_bands must restate the validator bands: {TIMEOUT_TIERS}"
+            )
 
     ids = set()
     dependency_graph = {}
@@ -276,6 +337,10 @@ def validate(filepath):
             timeout = run.get("timeout_seconds")
             if timeout is not None and (not isinstance(timeout, int) or timeout <= 0):
                 errors.append(f"job[{i}] ({jid}) run.timeout_seconds must be positive int")
+            errors.extend(
+                f"job[{i}] ({jid}) {message}"
+                for message in _timeout_tier_errors(run)
+            )
             # run.env carries per-job business flags with the manifest. It must
             # not reach the keys that decide state home, run identity or PATH —
             # the runner ignores those at runtime, this fails the same input
