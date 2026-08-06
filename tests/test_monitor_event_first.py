@@ -114,6 +114,9 @@ def test_monitor_reconciliation_fails_closed_after_projection_is_tampered(
     records = registry.read_json(registry.REGISTRY_FILE, [])
     records[0]["status"] = "active-but-tampered"
     registry.mutate_json(registry.REGISTRY_FILE, lambda _old: records, [])
+    # 篡改绕过了本模块的事务（等价于另一个进程改了状态文件），而账本重放校验
+    # 的定位是进程启动时的完整性守卫；重置缓存即模拟下一个进程首次访问。
+    registry.reset_verification_cache()
 
     try:
         registry.load_registry()
