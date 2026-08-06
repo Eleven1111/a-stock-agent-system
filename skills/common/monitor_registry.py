@@ -161,8 +161,33 @@ def _project_monitor_event(event: Mapping[str, Any]) -> None:
     mutate_json(REGISTRY_FILE, _mutate, default=[])
 
 
-def _recover_registry_projection() -> dict[str, Any]:
-    events = signal_ledger.read_events(LEDGER_FILE)
+# 账本重放校验是「进程启动时的完整性守卫」，不是「每次 mutation 的守卫」：
+# 进程内对注册表与账本的每一次写入都走本模块的 _activate_locked /
+# _cancel_locked —— 它们在同一把 file_lock 事务里先追加规范事件再投影，
+# 不变式由构造保证。因此首次校验成功之后，同进程后续调用可以跳过重放。
+#
+# 边界（改动前后一致，不是本次引入的）：本缓存不防护「另一个进程并发改写
+# 注册表文件或账本」。此前的实现虽然每次都重读账本，但同样没有跨进程事务，
+# 所以跨进程并发下的保证与改动前完全相同。
+#
+# 缓存键取 (注册表, 账本, checkpoint) 三元组：任何把本模块指向另一份数据集
+# 的调用方（测试用 monkeypatch 换 tmp_path 是典型场景）都会自动重新校验。
+# 校验失败时不置位（下次仍要重查）；事务中途失败时主动失效（半提交的事务
+# 可能让投影落后于账本，必须靠下次重放恢复）。
+_VERIFIED_DATASET: tuple[str, str, str] | None = None
+
+
+def _dataset_key() -> tuple[str, str, str]:
+    return (REGISTRY_FILE, LEDGER_FILE, _checkpoint_file())
+
+
+def reset_verification_cache() -> None:
+    """Force the next registry access to replay and verify the ledger again."""
+    global _VERIFIED_DATASET
+    _VERIFIED_DATASET = None
+
+
+def _recover_registry_projection(events: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return event_projection.replay_events(
         events,
         projectors=[_project_monitor_event],
@@ -170,9 +195,9 @@ def _recover_registry_projection() -> dict[str, Any]:
     )
 
 
-def _registry_projection_matches_ledger() -> bool:
+def _registry_projection_matches_ledger(events: Iterable[Mapping[str, Any]]) -> bool:
     expected: list[dict[str, Any]] = []
-    for event in signal_ledger.read_events(LEDGER_FILE):
+    for event in events:
         expected = event_projection.project_monitor_records(expected, event)
     actual = read_json(REGISTRY_FILE, [])
     actual_records = actual if isinstance(actual, list) else []
@@ -197,7 +222,12 @@ def _registry_projection_matches_ledger() -> bool:
 
 
 def _recover_and_reconcile_registry() -> None:
+    global _VERIFIED_DATASET
+    dataset = _dataset_key()
+    if _VERIFIED_DATASET == dataset:
+        return
     events = signal_ledger.read_events(LEDGER_FILE)
+    migrated = False
     if not any(str(event.get("event_type") or "").startswith("monitor.") for event in events):
         legacy = read_json(REGISTRY_FILE, [])
         for entry in legacy if isinstance(legacy, list) else []:
@@ -210,9 +240,30 @@ def _recover_and_reconcile_registry() -> None:
                 idempotency_key=f"monitor.migrated:{entry['id']}",
                 ledger_file=LEDGER_FILE,
             )
-    recovery = _recover_registry_projection()
-    if recovery.get("status") != "ok" or not _registry_projection_matches_ledger():
+            migrated = True
+    if migrated:
+        # 迁移刚刚追加了事件，必须重读一次账本，否则重放与校验会漏掉它们。
+        events = signal_ledger.read_events(LEDGER_FILE)
+    recovery = _recover_registry_projection(events)
+    if recovery.get("status") != "ok" or not _registry_projection_matches_ledger(events):
         raise RuntimeError("monitor registry projection mismatch")
+    _VERIFIED_DATASET = dataset
+
+
+def _commit_projection(mutator: Any, outcome: dict[str, Any]) -> None:
+    """Apply one registry mutation, invalidating the verification cache on failure."""
+    committed = False
+    try:
+        mutate_json(REGISTRY_FILE, mutator, [])
+        event_projection.advance_checkpoint(
+            _checkpoint_file(), outcome.get("canonical_event")
+        )
+        committed = True
+    finally:
+        if not committed:
+            # 半提交的事务可能让投影落后于账本，进程内不变式不再成立。
+            reset_verification_cache()
+    outcome.pop("canonical_event", None)
 
 
 def load_registry() -> list[dict[str, Any]]:
@@ -287,11 +338,7 @@ def _activate_locked(
         )
         return items
 
-    mutate_json(REGISTRY_FILE, _mut, [])
-    event_projection.advance_checkpoint(
-        _checkpoint_file(), outcome.get("canonical_event")
-    )
-    outcome.pop("canonical_event", None)
+    _commit_projection(_mut, outcome)
     return outcome
 
 
@@ -378,11 +425,7 @@ def _cancel_locked(
         )
         return items
 
-    mutate_json(REGISTRY_FILE, _mut, [])
-    event_projection.advance_checkpoint(
-        _checkpoint_file(), outcome.get("canonical_event")
-    )
-    outcome.pop("canonical_event", None)
+    _commit_projection(_mut, outcome)
     return outcome
 
 

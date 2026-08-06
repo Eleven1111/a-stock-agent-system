@@ -1,7 +1,10 @@
 from datetime import date
 
+import pytest
+
 import monitor_ledger
 import monitor_registry as registry
+import signal_ledger
 
 
 def _wire(tmp_path, monkeypatch):
@@ -9,6 +12,20 @@ def _wire(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
     monkeypatch.setattr(registry, "MIRROR_LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
     monkeypatch.setattr(registry, "CHECKPOINT_FILE", str(tmp_path / "monitor_checkpoint.json"))
+    registry.reset_verification_cache()
+
+
+def _count_ledger_reads(monkeypatch):
+    """Count full ledger replays; monitor_registry calls signal_ledger.read_events."""
+    counter = {"reads": 0}
+    real_read_events = signal_ledger.read_events
+
+    def counting_read_events(ledger_file=None):
+        counter["reads"] += 1
+        return real_read_events(ledger_file)
+
+    monkeypatch.setattr(signal_ledger, "read_events", counting_read_events)
+    return counter
 
 
 def test_manual_cancel_is_not_reactivated_by_automation(tmp_path, monkeypatch):
@@ -230,3 +247,106 @@ def test_gc_expired_marks_automatic_entries_inactive(tmp_path, monkeypatch):
     assert registry.active_stock_map(asof="2026-06-18") == {"600002": "持仓标的"}
     events = monitor_ledger.read_events(registry.MIRROR_LEDGER_FILE)
     assert events[-1]["event_type"] == "monitor.deactivated"
+
+
+def test_first_load_replays_and_verifies_ledger_with_a_single_read(tmp_path, monkeypatch):
+    """第一层：一次完整校验只允许读一遍账本（此前是 3 遍）。"""
+    _wire(tmp_path, monkeypatch)
+    registry.activate("stock", "600001", "示例", source="manual", force=True)
+    registry.reset_verification_cache()
+
+    counter = _count_ledger_reads(monkeypatch)
+    assert registry.load_registry()[0]["status"] == "active"
+
+    assert counter["reads"] == 1
+
+
+def test_second_load_in_same_process_skips_ledger_replay(tmp_path, monkeypatch):
+    """第二层：同进程内首次校验之后不再重放账本。"""
+    _wire(tmp_path, monkeypatch)
+    registry.activate("stock", "600001", "示例", source="manual", force=True)
+    registry.reset_verification_cache()
+
+    counter = _count_ledger_reads(monkeypatch)
+    registry.load_registry()
+    reads_after_first = counter["reads"]
+    registry.load_registry()
+    registry.load_registry()
+
+    assert reads_after_first == 1
+    assert counter["reads"] == reads_after_first
+
+
+def test_reconcile_automatic_replays_ledger_once_for_the_whole_batch(tmp_path, monkeypatch):
+    """issue #167 的放大链：N 只候选不应产生 N 次账本重放。"""
+    _wire(tmp_path, monkeypatch)
+    registry.activate("stock", "600001", "存量标的", source="manual", force=True)
+    registry.reset_verification_cache()
+
+    counter = _count_ledger_reads(monkeypatch)
+    result = registry.reconcile_automatic(
+        "stock",
+        [{"code": f"60010{i}", "name": f"候选{i}"} for i in range(8)],
+        source="candidate_discovery",
+        source_group="daily_observation",
+        trading_date="2026-06-18",
+        batch_id="batch-new",
+    )
+
+    assert len(result["activated"]) == 8
+    assert counter["reads"] == 1
+
+
+def test_tampered_projection_still_fails_closed_in_a_fresh_process(tmp_path, monkeypatch):
+    """fail-closed 语义未被缓存破坏：新进程（重置后）仍必须抛错。"""
+    _wire(tmp_path, monkeypatch)
+    registry.activate("stock", "600001", "示例", source="manual", force=True)
+    records = registry.read_json(registry.REGISTRY_FILE, [])
+    records[0]["status"] = "active-but-tampered"
+    registry.mutate_json(registry.REGISTRY_FILE, lambda _old: records, [])
+    # 篡改绕过了本模块的事务，等价于「另一个进程改过状态」——重置模拟进程重启。
+    registry.reset_verification_cache()
+
+    with pytest.raises(RuntimeError, match="projection"):
+        registry.load_registry()
+
+
+def test_failed_verification_is_not_cached_as_verified(tmp_path, monkeypatch):
+    """校验失败不得置位标志：下一次调用仍要重放并再次抛错。"""
+    _wire(tmp_path, monkeypatch)
+    registry.activate("stock", "600001", "示例", source="manual", force=True)
+    records = registry.read_json(registry.REGISTRY_FILE, [])
+    records[0]["status"] = "active-but-tampered"
+    registry.mutate_json(registry.REGISTRY_FILE, lambda _old: records, [])
+    registry.reset_verification_cache()
+
+    with pytest.raises(RuntimeError, match="projection"):
+        registry.load_registry()
+
+    counter = _count_ledger_reads(monkeypatch)
+    with pytest.raises(RuntimeError, match="projection"):
+        registry.load_registry()
+    assert counter["reads"] >= 1
+
+
+def test_failed_mutation_invalidates_the_verification_cache(tmp_path, monkeypatch):
+    """事务中途失败会让投影落后于账本，缓存必须失效以便下次重放恢复。"""
+    _wire(tmp_path, monkeypatch)
+    registry.activate("stock", "600001", "示例", source="manual", force=True)
+    real_mutate = registry.mutate_json
+
+    def crash_after_event(path, mutator, default=None):
+        current = registry.read_json(path, default)
+        mutator(current)
+        raise OSError("projection crash")
+
+    monkeypatch.setattr(registry, "mutate_json", crash_after_event)
+    with pytest.raises(OSError):
+        registry.cancel("stock", "600001", reason="用户取消", manual=True)
+
+    monkeypatch.setattr(registry, "mutate_json", real_mutate)
+    counter = _count_ledger_reads(monkeypatch)
+    recovered = registry.load_registry()
+
+    assert counter["reads"] == 1
+    assert recovered[0]["status"] == "cancelled"

@@ -34,6 +34,22 @@ os.environ["A_STOCK_STATE_HOME"] = _TEST_STATE_HOME
 os.environ.pop("A_STOCK_BACKUP_HOME", None)
 
 
+@pytest.fixture(autouse=True)
+def _reset_monitor_registry_verification_cache():
+    """monitor_registry 的账本校验结果缓存在模块级（进程内只校验一次）。
+
+    测试进程是长生命周期的，若不在每个用例前重置，前一个用例留下的「已校验」
+    标志会让后一个用例跳过重放校验 —— 构造「投影被篡改 → 期望抛错」的
+    fail-closed 用例会静默变绿（假绿）。因此这里把每个用例都还原成
+    「新进程首次访问」的状态。
+    """
+    import monitor_registry
+
+    monitor_registry.reset_verification_cache()
+    yield
+    monitor_registry.reset_verification_cache()
+
+
 @pytest.fixture
 def verified_gate_factory(tmp_path):
     """Create a gate result backed by a real, verifiable research artifact."""
