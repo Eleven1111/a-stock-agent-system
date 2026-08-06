@@ -1,3 +1,5 @@
+import pytest
+
 import json
 
 import event_projection
@@ -76,3 +78,54 @@ def test_reconciliation_blocks_cash_position_trade_or_monitor_mismatch():
         assert result["status"] == "projection_mismatch"
         assert field in result["mismatches"]
         assert result["allow_new_risk"] is False
+
+
+def _monitor_event(monitor_id, status, sequence):
+    return {
+        "event_id": f"evt-{sequence}",
+        "sequence": sequence,
+        "event_type": "monitor.activated" if status == "active" else "monitor.deactivated",
+        "links": {"monitor_id": monitor_id},
+        "payload": {"entry": {"id": monitor_id, "status": status, "key": monitor_id}},
+    }
+
+
+def test_fold_monitor_records_matches_the_incremental_fold():
+    """批量折叠必须与逐条 project_monitor_records 逐字段等价。
+
+    校验路径原本对每条事件都深拷贝整个 records 列表（O(事件×记录)），
+    12078 条事件 × 2029 条记录实测 4.8s，是竞价链超时的直接来源（issue #167）。
+    批量折叠改用 id 索引，但结果必须与旧实现完全一致，否则 fail-closed 校验
+    会开始误报或漏报。
+    """
+    events = []
+    for index in range(1, 61):
+        monitor_id = f"m{index % 7}"
+        status = "active" if index % 3 else "inactive"
+        events.append(_monitor_event(monitor_id, status, index))
+    events.append({"event_id": "evt-x", "sequence": 61, "event_type": "paper.daily_nav", "payload": {}})
+
+    incremental = []
+    for event in events:
+        incremental = event_projection.project_monitor_records(incremental, event)
+
+    assert event_projection.fold_monitor_records([], events) == incremental
+
+
+def test_fold_monitor_records_keeps_a_non_empty_starting_projection():
+    seed = [{"id": "m0", "status": "active", "key": "m0", "extra": "kept"}]
+    events = [_monitor_event("m1", "active", 1), _monitor_event("m0", "inactive", 2)]
+
+    folded = event_projection.fold_monitor_records(seed, events)
+
+    assert [item["id"] for item in folded] == ["m0", "m1"]
+    assert folded[0]["status"] == "inactive"
+    assert folded[0]["extra"] == "kept"       # 合并而非替换
+    assert seed[0]["status"] == "active"      # 入参不被就地修改
+
+
+def test_fold_monitor_records_still_rejects_an_event_without_monitor_id():
+    with pytest.raises(ValueError):
+        event_projection.fold_monitor_records(
+            [], [{"event_id": "e", "sequence": 1, "event_type": "monitor.activated", "payload": {}}]
+        )
