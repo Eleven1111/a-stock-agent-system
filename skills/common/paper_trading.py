@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, time
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from a_share_rules import next_trading_day, t1_constraint
@@ -28,6 +28,80 @@ GATE_ORDER = [
     "execution_checks",
 ]
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+# 空仓归因（issue #174）：0 成交 + status=ok 时，运维面无法区分「上游门禁按设计
+# 拒绝」与「数据面缺了」。这两类的处置完全相反——前者不需要人看，后者必须查。
+# 未登记的 reason 一律归入需要人看，绝不静默当正常（新增拒绝原因时会自然暴露）。
+DESIGNED_GATE_REASONS = frozenset({
+    "recommendation_not_positive",
+    "recommendation_score_below_threshold",
+    "recommendation_quality_not_passed",
+    "open_confirmation_not_positive",
+    "chanlun_bullish_filter_not_met",
+    "chanlun_bearish_veto",
+})
+GATE_PASSED_REASON = "recommendation_then_chanlun_passed"
+MARKET_OR_ACCOUNT_REASONS = frozenset({
+    "not_tradeable",
+    "limit_queue_unobservable",
+    "maximum_chase_price_exceeded",
+    "duplicate_open_position",
+    "max_positions_reached",
+    "insufficient_cash_for_round_lot",
+})
+
+
+def classify_zero_fill(
+    evaluations: Iterable[Mapping[str, Any]],
+    *,
+    filled: int = 0,
+    reused: int = 0,
+) -> dict[str, Any]:
+    """把「今天为什么没成交」归到一类，并给出要不要人来看。
+
+    - ``upstream_gate``：全部拒绝都来自设计内门禁，属正常 fail-closed；
+    - ``market_or_account``：涨停买不进/仓位已满/现金不足一手等正常状态；
+    - ``data_anomaly``：行情或执行面证据缺失，**只要出现一条就整批需要人看**；
+    - ``no_candidates``：上游根本没给候选，同样需要人看；
+    - ``None``：本批有成交或有幂等复用，不适用。
+
+    只统计**被拒**的评估：门禁放行后成交或 reused 的记录带的是通过结论
+    （``recommendation_then_chanlun_passed``），把它当拒绝原因会让每次幂等重跑
+    都误报成数据异常。
+    """
+    reasons = [
+        str((item or {}).get("reason") or "").strip()
+        for item in evaluations
+        if str((item or {}).get("reason") or "").strip() != GATE_PASSED_REASON
+    ]
+    reasons = [reason for reason in reasons if reason]
+    breakdown: dict[str, int] = {}
+    for reason in reasons:
+        breakdown[reason] = breakdown.get(reason, 0) + 1
+    anomaly = sorted({
+        reason
+        for reason in reasons
+        if reason not in DESIGNED_GATE_REASONS
+        and reason not in MARKET_OR_ACCOUNT_REASONS
+    })
+
+    if filled > 0 or reused > 0:
+        zero_fill_class: str | None = None
+    elif not reasons:
+        zero_fill_class = "no_candidates"
+    elif anomaly:
+        zero_fill_class = "data_anomaly"
+    elif any(reason in MARKET_OR_ACCOUNT_REASONS for reason in reasons):
+        zero_fill_class = "market_or_account"
+    else:
+        zero_fill_class = "upstream_gate"
+
+    return {
+        "zero_fill_class": zero_fill_class,
+        "actionable": zero_fill_class in {"data_anomaly", "no_candidates"},
+        "breakdown": dict(sorted(breakdown.items())),
+        "anomaly_reasons": anomaly,
+    }
 
 
 def _code(value: Any) -> str:

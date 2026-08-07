@@ -89,7 +89,15 @@ def _process_open_candidate(
 ) -> tuple[dict[str, Any], str, dict[str, Any]]:
     code = _code(candidate.get("code"))
     gate = paper_trading.evaluate_entry_gate(candidate, config)
-    evaluation = {"code": code, "allowed": gate["allowed"], "reason": gate["reason"]}
+    # reason 始终是本次的**最终**结论：门禁放行后若在下游被拒（缺行情、仓位算不出、
+    # 纪律熔断…），要把真实原因覆盖上去，否则运行报告会显示 allowed=True 却
+    # filled=0，自相矛盾且看不出该不该查（issue #174）。gate_reason 保留门禁结论。
+    evaluation = {
+        "code": code,
+        "allowed": gate["allowed"],
+        "reason": gate["reason"],
+        "gate_reason": gate["reason"],
+    }
     store.append_paper_event(
         "paper.candidate_evaluated",
         payload={
@@ -121,6 +129,7 @@ def _process_open_candidate(
             reason="paper_discipline_blocked", config=config,
             discipline_state=dict(discipline),
         )
+        evaluation["reason"] = "paper_discipline_blocked"
         return dict(account), "rejected", evaluation
     outcome = paper_trading.simulate_buy(
         account, candidate, quotes.get(code) or {}, asof=asof,
@@ -131,6 +140,7 @@ def _process_open_candidate(
             candidate, gate, asof=asof, observed_at=observed_at,
             reason=str(outcome["reason"]), config=config,
         )
+        evaluation["reason"] = str(outcome["reason"])
         return dict(account), "rejected", evaluation
     updated = dict(outcome["account"])
     store.append_paper_event(
@@ -189,15 +199,34 @@ def run_open(
         filled += result == "filled"
         rejected += result == "rejected"
         reused += result == "reused"
+    # 0 成交时必须说清是「上游门禁按设计拒绝」还是「数据面缺了」——两者处置相反，
+    # 而此前输出只有 filled=0/rejected=N，运维面上分不开（issue #174）。
+    zero_fill = paper_trading.classify_zero_fill(
+        evaluations,
+        filled=filled,
+        reused=reused,
+    )
+    # summarize_output 只保留 schema/status/message + 标量与列表计数，
+    # zero_fill_class 是字符串会被丢掉；借 message 把它送到 cron 产物 summary 上，
+    # 否则这次归因在运维面上看不见。
+    message = (
+        None if zero_fill["zero_fill_class"] is None
+        else f"零成交归因: {zero_fill['zero_fill_class']}"
+        + ("（需人工核查）" if zero_fill["actionable"] else "（设计内，无需处理）")
+    )
     return {
         "schema": "paper_trading_open_run_v1",
         "status": "ok",
+        "message": message,
         "asof": asof,
         "observed_at": observed_at,
         "evaluated": len(evaluations),
         "filled": filled,
         "rejected": rejected,
         "reused": reused,
+        "zero_fill_class": zero_fill["zero_fill_class"],
+        "zero_fill_actionable": zero_fill["actionable"],
+        "zero_fill": zero_fill,
         "evaluations": evaluations,
         "cash": account["cash"],
         "position_count": len(account.get("positions") or []),

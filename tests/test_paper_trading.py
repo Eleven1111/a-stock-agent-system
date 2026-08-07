@@ -314,3 +314,70 @@ def test_daily_nav_marks_positions_without_fabricating_missing_quotes():
     assert result["status"] == "blocked"
     assert result["missing_quotes"] == ["600001"]
     assert result["nav"] is None
+
+
+def test_zero_fill_reason_separates_designed_gates_from_data_anomaly():
+    """空仓必须能分辨「上游门禁按设计拒绝」和「数据面缺了」。
+
+    #174：虚拟盘自 2026-07-13 建账起 0 成交，三个作业全 status=ok，输出里只有
+    filled=0 / rejected=5，看不出是 fail-closed 正常还是采集异常——排查耗时
+    主要就耗在这里。
+    """
+    gated = paper_trading.classify_zero_fill([
+        {"reason": "recommendation_not_positive"},
+        {"reason": "chanlun_bullish_filter_not_met"},
+    ])
+    assert gated["zero_fill_class"] == "upstream_gate"
+    assert gated["actionable"] is False
+    assert gated["breakdown"] == {
+        "chanlun_bullish_filter_not_met": 1,
+        "recommendation_not_positive": 1,
+    }
+
+
+def test_data_anomaly_outranks_designed_gates_in_the_same_batch():
+    """一条数据面异常就足以让整批需要人看 —— 不能被多数正常拒绝淹没。"""
+    mixed = paper_trading.classify_zero_fill([
+        {"reason": "recommendation_not_positive"},
+        {"reason": "recommendation_not_positive"},
+        {"reason": "quote_unavailable"},
+    ])
+    assert mixed["zero_fill_class"] == "data_anomaly"
+    assert mixed["actionable"] is True
+    assert mixed["anomaly_reasons"] == ["quote_unavailable"]
+
+
+def test_market_and_account_states_are_not_flagged_as_anomaly():
+    """涨停买不进、仓位已满、现金不够一手都是正常状态，不该叫人来查。"""
+    result = paper_trading.classify_zero_fill([
+        {"reason": "limit_queue_unobservable"},
+        {"reason": "max_positions_reached"},
+        {"reason": "insufficient_cash_for_round_lot"},
+    ])
+    assert result["zero_fill_class"] == "market_or_account"
+    assert result["actionable"] is False
+
+
+def test_empty_candidate_surface_is_its_own_class():
+    result = paper_trading.classify_zero_fill([])
+
+    assert result["zero_fill_class"] == "no_candidates"
+    assert result["actionable"] is True
+
+
+def test_unknown_reason_fails_towards_review_not_silence():
+    """新增的 reason 没登记时按需要人看处理，绝不静默归入正常。"""
+    result = paper_trading.classify_zero_fill([{"reason": "some_new_reason_v2"}])
+
+    assert result["zero_fill_class"] == "data_anomaly"
+    assert result["actionable"] is True
+    assert result["anomaly_reasons"] == ["some_new_reason_v2"]
+
+
+def test_filled_batch_reports_no_zero_fill_class():
+    result = paper_trading.classify_zero_fill(
+        [{"reason": "recommendation_not_positive"}], filled=1,
+    )
+
+    assert result["zero_fill_class"] is None
+    assert result["actionable"] is False
