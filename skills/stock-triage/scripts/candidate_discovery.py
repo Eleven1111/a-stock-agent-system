@@ -40,7 +40,7 @@ import stage_intelligence  # noqa: E402
 import monitor_registry  # noqa: E402
 from config_registry import config_path  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
-from a_share_rules import add_trading_days  # noqa: E402
+from a_share_rules import add_trading_days, next_trading_day  # noqa: E402
 from market_adapters import (  # noqa: E402
     fetch_a_share_spot,
     fetch_a_share_daily_kline,
@@ -648,6 +648,28 @@ def _persist_pool(asof: str, result: Dict[str, Any]) -> None:
     atomic_write_json(latest_pool_file(), result)
 
 
+def _trading_horizon(source_asof: str, asof: str, limit: int) -> int | None:
+    """(source_asof, asof] 之间的交易日数；超出 limit 或日期非法返回 None。
+
+    必须按交易日历数，不能数 lifecycle 文件——作业缺跑时文件会出现空档，
+    按文件计数会把 3 个交易日前的队列当成 t1，结算出来的 t1/t3 收益全部错位。
+    """
+    try:
+        cursor = date.fromisoformat(source_asof)
+        for step in range(1, limit + 1):
+            cursor = next_trading_day(cursor)
+            current = cursor.isoformat()
+            if current == asof:
+                return step
+            if current > asof:
+                return None
+    except (ValueError, RuntimeError):
+        # 日期非法，或日历未覆盖该年份（CalendarCoverageError 继承 RuntimeError）：
+        # 宁可不结算，也不落一个口径错误的 horizon 标签。
+        return None
+    return None
+
+
 def observe_recent_candidates(
     asof: str,
     quote_map: Mapping[str, Mapping[str, Any]],
@@ -659,10 +681,9 @@ def observe_recent_candidates(
         for path in glob.glob(pattern)
         if os.path.splitext(os.path.basename(path))[0] < asof
     )
-    timeline = prior_dates + [asof]
-    for source_asof in prior_dates[-horizon:]:
-        trading_horizon = len([day for day in timeline if source_asof < day <= asof])
-        if trading_horizon <= horizon:
+    for source_asof in prior_dates:
+        trading_horizon = _trading_horizon(source_asof, asof, horizon)
+        if trading_horizon is not None:
             candidate_lifecycle.observe_day(
                 source_asof,
                 asof,

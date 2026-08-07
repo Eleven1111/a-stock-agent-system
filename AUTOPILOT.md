@@ -4,6 +4,11 @@
 
 ## com.a-stock-cc.scheduler（launchd 用户代理）
 
+> **状态：2026-08-07 19:11 已停止并 disable**（用户要求）。生产在部署机一侧，本机这个实例
+> 只产出候选/研究流水，`portfolio.json` 为空账户。停止方式见下方"停止"，已额外执行
+> `launchctl disable` 防止下次登录自动加载；plist 与 `~/.a-stock-agent-cc` 数据均未删除。
+> 重启需要先 `launchctl enable gui/$(id -u)/com.a-stock-cc.scheduler` 再 load。
+
 | 项 | 值 |
 |---|---|
 | 名称 | `com.a-stock-cc.scheduler` |
@@ -22,13 +27,17 @@
 
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist
+launchctl disable gui/$(id -u)/com.a-stock-cc.scheduler
 ```
 
-**确认已停：** `launchctl list | grep a-stock` 无输出即已停止。
+**确认已停：** `launchctl list | grep a-stock` 无输出；再等两个心跳（>120 秒）复查
+`~/.a-stock-agent-cc/cron/output/job_runs.json` 时间戳不再前进。注意 plist 带
+`AbandonProcessGroup=true`，已 detach 的子任务会跑完，不会随 unload 被杀。
 
 **重新启动：**
 
 ```bash
+launchctl enable gui/$(id -u)/com.a-stock-cc.scheduler
 launchctl load ~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist
 ```
 

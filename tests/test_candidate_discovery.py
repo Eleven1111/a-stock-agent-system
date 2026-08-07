@@ -902,3 +902,59 @@ def test_json_report_surfaces_industry_health_and_warnings():
     })
     assert report["warnings"] == ["industry_map_cache_missing:x"]
     assert report["industry_map_health"]["cache_status"] == "missing"
+
+
+def _write_lifecycle_days(tmp_path, days):
+    """在 state home 下造出若干天的 lifecycle 队列文件（内容不重要，只看文件名日期）。"""
+    directory = tmp_path / "skills" / "stock-triage" / "data" / "candidate_lifecycle"
+    directory.mkdir(parents=True, exist_ok=True)
+    for day in days:
+        (directory / f"{day}.json").write_text(
+            '{"asof": "%s", "records": []}' % day, encoding="utf-8"
+        )
+    return directory
+
+
+def test_observe_horizon_counts_trading_days_not_lifecycle_files(tmp_path, monkeypatch):
+    """作业缺跑导致 lifecycle 文件出现空档时，horizon 必须仍按交易日历计算。
+
+    07-15 / 07-16 两天没跑，文件只剩 07-13、07-14、07-17。按文件计数会把
+    07-14→07-17 的 3 个交易日算成 1、把 07-13→07-17 的 4 个交易日算成 2，
+    于是 t3 标签实际是 t1/t2 的收益，结算口径整体被污染。
+    """
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    _write_lifecycle_days(tmp_path, ["2026-07-13", "2026-07-14", "2026-07-17"])
+    observed = []
+    monkeypatch.setattr(
+        discovery.candidate_lifecycle,
+        "observe_day",
+        lambda source, asof, horizon, quotes: observed.append((source, horizon)),
+    )
+
+    discovery.observe_recent_candidates("2026-07-17", {}, horizon=3)
+
+    assert ("2026-07-14", 3) in observed
+    # 07-13 距 07-17 是 4 个交易日，超出 horizon，不该被观测
+    assert all(source != "2026-07-13" for source, _ in observed)
+
+
+def test_observe_skips_source_dates_beyond_horizon_even_without_gaps(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    _write_lifecycle_days(
+        tmp_path,
+        ["2026-07-10", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16"],
+    )
+    observed = []
+    monkeypatch.setattr(
+        discovery.candidate_lifecycle,
+        "observe_day",
+        lambda source, asof, horizon, quotes: observed.append((source, horizon)),
+    )
+
+    discovery.observe_recent_candidates("2026-07-16", {}, horizon=3)
+
+    assert sorted(observed) == [
+        ("2026-07-13", 3),
+        ("2026-07-14", 2),
+        ("2026-07-15", 1),
+    ]
