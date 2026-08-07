@@ -958,3 +958,53 @@ def test_observe_skips_source_dates_beyond_horizon_even_without_gaps(tmp_path, m
         ("2026-07-14", 2),
         ("2026-07-15", 1),
     ]
+
+
+def test_lifecycle_cohort_survives_a_crash_in_monitor_registry_reconcile(tmp_path, monkeypatch):
+    """候选池与 lifecycle 队列必须挨着落盘。
+
+    此前 initialize_day 排在 monitor_registry 全量对账/GC 之后，作业超时被杀
+    （2026-07-21/23/27/29、08-05 每天 2~8 次 rc=124）就留下「有池无队列」：
+    池里 199~500 只候选、队列文件根本不存在，当天结算样本整日丢失。
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    listed_date = (date.today() - timedelta(days=500)).isoformat()
+    universe = [
+        {"code": f"600{i:03d}", "name": f"股票{i}", "listed_date": listed_date}
+        for i in range(6)
+    ]
+    quote_map = {
+        item["code"]: {
+            **item,
+            "price": 10 + i,
+            "prev_close": 9.5 + i,
+            "change_pct": 5 + i / 10,
+            "amount": 5e8,
+            "volume": 2_000_000,
+            "turnover": 6.0,
+        }
+        for i, item in enumerate(universe)
+    }
+
+    def _boom(*args, **kwargs):
+        raise TimeoutError("registry reconcile killed mid-run")
+
+    monkeypatch.setattr(discovery.monitor_registry, "reconcile_automatic", _boom)
+
+    with pytest.raises(TimeoutError):
+        discovery.run_discovery(
+            "2026-07-21",
+            universe_fetcher=lambda: universe,
+            quote_fetcher=lambda _u: quote_map,
+            kline_fetcher=lambda items: {
+                discovery.candidate_pipeline.naked_code(item["code"]): _bars(10.0)
+                for item in items
+            },
+            industry_provider=lambda _asof: {},
+            nl_screening_recall_provider=lambda: {},
+            settle_previous=False,
+        )
+
+    cohort = read_json(discovery.candidate_lifecycle.lifecycle_file("2026-07-21"), {})
+    assert cohort.get("records"), "reconcile 崩溃时 lifecycle 队列必须已经落盘"
+    assert cohort["metadata"]["scanned_count"] == len(universe)

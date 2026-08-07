@@ -26,6 +26,17 @@ def load_day(asof: str) -> Dict[str, Any]:
     )
 
 
+def cohort_initialized(asof: str) -> bool:
+    """该交易日的队列是否真的被 initialize_day 建过。
+
+    load_day 在文件缺失时返回空骨架，而 transition/observe_day 走 mutate_json
+    会把这个骨架落盘 —— 于是「从未初始化」的日期凭空长出 metadata={} /
+    records=[] 的文件，和「跑了但没候选」（metadata 有值）几乎无法区分，下游
+    还会把它当合法队列。没建过就不结算、不落盘。
+    """
+    return os.path.exists(lifecycle_file(asof))
+
+
 def initialize_day(
     asof: str,
     candidates: Sequence[Mapping[str, Any]],
@@ -93,6 +104,8 @@ def transition(
     event_asof: str | None = None,
     details_by_code: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Dict[str, Any]:
+    if not cohort_initialized(source_asof):
+        return {}
     selected = {_code(code) for code in selected_codes}
     reason_map = {_code(code): list(reasons) for code, reasons in (rejection_reasons or {}).items()}
     detail_map = {_code(code): dict(value) for code, value in (details_by_code or {}).items()}
@@ -139,6 +152,8 @@ def observe_day(
     quotes_by_code: Mapping[str, Mapping[str, Any]],
 ) -> Dict[str, Any]:
     """Incrementally settle one historical cohort from the current full-market snapshot."""
+    if not cohort_initialized(source_asof):
+        return {}
     normalized_quotes = {_code(code): dict(value) for code, value in quotes_by_code.items()}
     now = datetime.now().isoformat(timespec="seconds")
 
