@@ -41,6 +41,7 @@ GUARDRAIL_REASON_CODES: dict[str, str] = {
     "chanlun_live_bearish_signal": "announcement_risk",
     "serenity_hard_risk": "announcement_risk",
     "serenity_stale_reduced": "announcement_risk",
+    "serenity_evidence_missing": "announcement_risk",
     # 可成交性
     "not_tradeable": "tradeability",
     "required_fields_missing": "tradeability",
@@ -242,6 +243,21 @@ def evaluate_decision(
             decision = "avoid"
             multiplier = 0.0
             reasons.append("serenity_hard_risk")
+        elif (
+            # 深研记录缺失时 _serenity_evidence 返回 available=False + hard_risks=[]，
+            # 上面的硬风险分支与下面的 stale 分支都不触发 —— 「没有证据」会与
+            # 「检查通过」完全等价，serenity_hard_risk 在无缓存标的上是哑弹。
+            # 只作用于 trend lane：打板吃 T+1 情绪溢价，结构上不可能有全市场深研
+            # 覆盖，与 stale 规则的车道口径保持一致。
+            strategy_lane == "trend"
+            and research_evidence is not None
+            and "serenity" in research_evidence
+            and not serenity.get("available")
+            and decision in POSITIVE_ACTIONS
+        ):
+            decision = "watch"
+            multiplier = 0.0
+            reasons.append("serenity_evidence_missing")
         elif (
             strategy_lane == "trend"
             and serenity.get("available")

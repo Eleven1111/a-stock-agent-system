@@ -521,3 +521,63 @@ def test_guardrail_unknown_reason_falls_back_to_other_code():
     assert guardrail is not None
     codes = {r["code"] for r in guardrail["reasons"]}
     assert "other" in codes
+
+
+def test_missing_serenity_evidence_is_not_treated_as_passing():
+    """证据缺失不得与「检查通过」等价。
+
+    _serenity_evidence 在没有深研记录时返回 available=False、hard_risks=[]，
+    于是 hard_risks 分支与 stale 分支都不触发，正向动作原样放行——
+    serenity_hard_risk 这道一票否决在没有深研缓存的标的上是个哑弹。
+    对照组是紧邻的 market_intelligence：它有显式的 not available → watch 分支。
+    """
+    evidence = {"serenity": {"available": False, "stale": None, "hard_risks": []}}
+
+    trend = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        research_evidence=evidence,
+        strategy_lane="trend",
+    )
+
+    assert trend["decision"] == "watch"
+    assert trend["position_multiplier"] == 0.0
+    assert "serenity_evidence_missing" in trend["reasons"]
+
+
+def test_missing_serenity_evidence_does_not_gate_daban_lane():
+    """打板吃的是 T+1 情绪溢价，结构上不可能有全市场深研覆盖；
+    stale 规则本来就只作用于 trend lane，缺失规则同样不得扩到 daban。"""
+    daban = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        research_evidence={"serenity": {"available": False, "hard_risks": []}},
+        strategy_lane="daban",
+    )
+
+    assert daban["decision"] == "buy"
+    assert daban["position_multiplier"] == 1.0
+    assert "serenity_evidence_missing" not in daban["reasons"]
+
+
+def test_callers_without_serenity_key_are_unaffected():
+    """未接线 serenity 的调用方不应被这条 fail-closed 规则误伤（与
+    market_intelligence 的 'key 在才判定' 语义保持一致）。"""
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        research_evidence={"chanlun": {}},
+        strategy_lane="trend",
+    )
+
+    assert result["decision"] == "buy"
+    assert "serenity_evidence_missing" not in result["reasons"]
+
+
+def test_missing_serenity_reason_is_grouped_not_other():
+    assert decision_policy._guardrail_reason_code(
+        "serenity_evidence_missing"
+    ) != "other"
