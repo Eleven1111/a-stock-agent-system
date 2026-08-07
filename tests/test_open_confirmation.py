@@ -722,9 +722,12 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
                 "live_bullish_signals": [],
                 "live_bearish_signals": [],
             },
+            # 本用例验的是信号落盘与生命周期，不是 serenity 门禁。深研证据必须
+            # 显式给「有且不过期」，否则会被 serenity_evidence_missing 降级为
+            # watch，signal.opened 归零 —— 缺证据不再等于通过。
             "serenity": {
-                "available": False,
-                "stale": None,
+                "available": True,
+                "stale": False,
                 "hard_risks": [],
             },
             "market_intelligence": {
