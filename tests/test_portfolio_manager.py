@@ -138,7 +138,29 @@ def test_add_position_blocks_projected_sector_exposure_above_limit(tmp_path, mon
     assert len(pm.load_portfolio()["positions"]) == 1
 
 
-def test_add_position_blocks_when_existing_holding_sector_is_unknown(tmp_path, monkeypatch):
+def test_add_position_blocks_when_unknown_holding_could_breach_sector_limit(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, initial={
+        "cash": 50000,
+        "positions": [{
+            "code": "600001", "name": "旧仓", "cost": 10.0, "shares": 5000,
+            "current_price": 10.0,
+            "lots": [{"shares": 5000, "cost": 10.0, "acquired_on": "2026-07-01"}],
+        }],
+        "total_cost": 50000,
+        "cash_reconciled": True,
+    })
+
+    result = pm.add_position(
+        "600002", "新票", 10.0, 500,
+        **_classification(sector="半导体", industry="设备"),
+    )
+
+    assert result["code"] == "EXISTING_SECTOR_UNKNOWN"
+    assert "existing_position_sector_unknown" in result["blocking_reasons"]
+    assert len(pm.load_portfolio()["positions"]) == 1
+
+
+def test_add_position_allows_when_unknown_holding_cannot_breach_sector_limit(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch, initial={
         "cash": 80000,
         "positions": [{
@@ -155,9 +177,8 @@ def test_add_position_blocks_when_existing_holding_sector_is_unknown(tmp_path, m
         **_classification(sector="半导体", industry="设备"),
     )
 
-    assert result["code"] == "EXISTING_SECTOR_UNKNOWN"
-    assert "existing_position_sector_unknown" in result["blocking_reasons"]
-    assert len(pm.load_portfolio()["positions"]) == 1
+    assert result.get("ok") is True
+    assert len(pm.load_portfolio()["positions"]) == 2
 
 
 def test_add_position_rejects_conflicting_reclassification(tmp_path, monkeypatch):
@@ -179,6 +200,123 @@ def test_add_position_rejects_conflicting_reclassification(tmp_path, monkeypatch
 
     assert result["code"] == "SECTOR_CLASSIFICATION_CONFLICT"
     assert pm.load_portfolio()["positions"][0]["shares"] == 1000
+
+
+def _legacy_unclassified(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, initial={
+        "cash": 50000,
+        "positions": [{
+            "code": "603616", "name": "韩建河山", "cost": 10.0, "shares": 5000,
+            "current_price": 10.0,
+            "lots": [{"shares": 5000, "cost": 10.0, "acquired_on": "2026-07-07"}],
+        }],
+        "total_cost": 50000,
+        "cash_reconciled": True,
+    })
+
+
+def test_reclassify_backfills_legacy_position_without_touching_cash(tmp_path, monkeypatch):
+    _legacy_unclassified(tmp_path, monkeypatch)
+
+    result = pm.reclassify_position(
+        "603616",
+        sector="建筑材料",
+        industry="混凝土制品",
+        classification_source="eastmoney_industry",
+        classification_asof="2026-07-01",
+    )
+
+    assert result["ok"] is True
+    portfolio = pm.load_portfolio()
+    position = portfolio["positions"][0]
+    assert position["sector"] == "建筑材料"
+    assert position["industry"] == "混凝土制品"
+    assert position["classification_source"] == "eastmoney_industry"
+    assert position["classification_asof"] == "2026-07-01"
+    assert portfolio["cash"] == 50000
+    assert position["shares"] == 5000
+
+
+def test_reclassify_unblocks_unrelated_candidate(tmp_path, monkeypatch):
+    _legacy_unclassified(tmp_path, monkeypatch)
+
+    blocked = pm.add_position(
+        "600601", "方正科技", 10.0, 500,
+        **_classification(sector="电子", industry="元件"),
+    )
+    assert blocked["code"] == "EXISTING_SECTOR_UNKNOWN"
+
+    pm.reclassify_position(
+        "603616",
+        sector="建筑材料",
+        industry="混凝土制品",
+        classification_source="eastmoney_industry",
+        classification_asof="2026-07-01",
+    )
+    allowed = pm.add_position(
+        "600601", "方正科技", 10.0, 500,
+        **_classification(sector="电子", industry="元件"),
+    )
+
+    assert allowed.get("ok") is True
+
+
+def test_reclassify_refuses_to_overwrite_existing_classification(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, initial={
+        "cash": 90000,
+        "positions": [{
+            "code": "600011", "name": "华能", "cost": 10.0, "shares": 1000,
+            **_classification(),
+            "lots": [{"shares": 1000, "cost": 10.0, "acquired_on": "2026-07-01"}],
+        }],
+        "total_cost": 10000,
+        "cash_reconciled": True,
+    })
+
+    result = pm.reclassify_position(
+        "600011",
+        sector="煤炭",
+        industry="动力煤",
+        classification_source="eastmoney_industry",
+        classification_asof="2026-07-01",
+    )
+
+    assert result["code"] == "SECTOR_CLASSIFICATION_CONFLICT"
+    assert pm.load_portfolio()["positions"][0]["sector"] == "公用事业"
+
+
+def test_reclassify_rejects_classification_dated_after_acquisition(tmp_path, monkeypatch):
+    _legacy_unclassified(tmp_path, monkeypatch)
+
+    result = pm.reclassify_position(
+        "603616",
+        sector="建筑材料",
+        classification_source="eastmoney_industry",
+        classification_asof=date.today().isoformat(),
+    )
+
+    assert result["code"] == "CLASSIFICATION_DATE_INVALID"
+    assert pm.load_portfolio()["positions"][0].get("sector") is None
+
+
+def test_reclassify_requires_provenance_and_existing_position(tmp_path, monkeypatch):
+    _legacy_unclassified(tmp_path, monkeypatch)
+
+    assert pm.reclassify_position(
+        "603616", sector="建筑材料",
+    )["code"] == "CLASSIFICATION_PROVENANCE_REQUIRED"
+    assert pm.reclassify_position(
+        "603616",
+        classification_source="eastmoney_industry",
+        classification_asof="2026-07-01",
+    )["code"] == "UNKNOWN_SECTOR"
+    assert pm.reclassify_position(
+        "000001",
+        sector="银行",
+        classification_source="eastmoney_industry",
+        classification_asof="2026-07-01",
+    )["code"] == "POSITION_NOT_FOUND"
+    assert pm.load_portfolio()["positions"][0].get("sector") is None
 
 
 def test_missing_portfolio_initializes_fail_closed_without_fake_capital(tmp_path, monkeypatch):

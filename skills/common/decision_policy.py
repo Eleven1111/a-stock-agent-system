@@ -48,6 +48,8 @@ GUARDRAIL_REASON_CODES: dict[str, str] = {
     "single_position_limit": "concentration",
     "sector_exposure_limit": "concentration",
     "portfolio_value_unavailable": "concentration",
+    "unknown_sector": "concentration",
+    "existing_position_sector_unknown": "concentration",
     # 情绪/温度/拥挤度门禁
     "market_risk_off": "temperature_gate",
     "market_context_unknown": "temperature_gate",

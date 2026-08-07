@@ -985,6 +985,119 @@ def add_position(
     return {"ok": True, "code": code, "name": name, **outcome}
 
 
+def _earliest_acquisition(position: Mapping[str, Any]) -> str:
+    """最早建仓日；分类基准日必须不晚于它才算「当时可核验」。"""
+    dates = [
+        str(lot.get("acquired_on"))
+        for lot in (position.get("lots") or [])
+        if lot.get("acquired_on")
+    ]
+    dates.extend(
+        str(value) for value in (position.get("buy_date"),) if value
+    )
+    return min(dates) if dates else "1970-01-01"
+
+
+def _apply_reclassification(
+    position: Dict | None,
+    *,
+    code: str,
+    sector: str,
+    industry: str,
+    source: str,
+    asof: str,
+) -> Dict:
+    """校验并写入分类；返回 outcome（成功带 ok，失败带 error/code）。"""
+    if position is None:
+        return {
+            "error": f"未持有 {code}，无法补分类",
+            "code": "POSITION_NOT_FOUND",
+        }
+    classification = _resolve_position_classification(
+        position,
+        sector=sector,
+        industry=industry,
+        source=source,
+        asof=asof,
+        acquired_on=_earliest_acquisition(position),
+    )
+    if classification.get("error"):
+        return {
+            "error": classification["error"],
+            "code": classification["code"],
+            "blocking_reasons": classification["reasons"],
+        }
+    resolved = {
+        "sector": classification["sector"],
+        "industry": classification["industry"],
+        "classification_source": classification["source"],
+        "classification_asof": classification["asof"],
+    }
+    position.update(resolved)
+    return {"ok": True, "name": position.get("name"), **resolved}
+
+
+@_event_transaction
+def reclassify_position(
+    code: str,
+    *,
+    sector: str | None = None,
+    industry: str | None = None,
+    classification_source: str | None = None,
+    classification_asof: str | None = None,
+) -> Dict:
+    """给缺分类的历史持仓补齐 sector/industry，不改股数、现金与事件账本。
+
+    2026-07 之前手工导入的持仓没有分类字段，集中度检查无法核验板块重叠
+    （issue #172）。这里只补空缺：已落盘的分类一律不覆盖，改分类必须清仓重开。
+    补齐后既有板块暴露可能已经超限，那是既存风险被看见而非本次动作产生的，
+    因此不在这里阻断，由后续开仓检查照常拦截。
+    """
+    normalized_code = str(code or "").strip()
+    if not normalized_code:
+        return {"error": "缺少股票代码", "code": "CODE_REQUIRED"}
+    outcome: Dict = {}
+
+    def _mut(pf):
+        pf = _normalize(pf)
+        outcome.update(_apply_reclassification(
+            next(
+                (item for item in pf["positions"] if item["code"] == normalized_code),
+                None,
+            ),
+            code=normalized_code,
+            sector=str(sector or "").strip(),
+            industry=str(industry or "").strip(),
+            source=str(classification_source or "").strip(),
+            asof=str(classification_asof or "").strip(),
+        ))
+        return pf
+
+    mutate_json(PORTFOLIO_FILE, _mut, default=_default_portfolio())
+    if not outcome.get("ok"):
+        return {
+            key: value
+            for key, value in outcome.items()
+            if key in {"error", "code", "blocking_reasons"}
+        }
+    monitor_registry.activate(
+        "stock",
+        normalized_code,
+        str(outcome.get("name") or normalized_code),
+        source="portfolio_reclassify",
+        force=True,
+        metadata={
+            "position_linked": True,
+            "sector": outcome.get("sector"),
+            "industry": outcome.get("industry"),
+            "classification_source": outcome.get("classification_source"),
+            "classification_asof": outcome.get("classification_asof"),
+            **_latest_stock_links(normalized_code),
+        },
+    )
+    return {"code": normalized_code, **outcome}
+
+
 @_event_transaction
 def close_position(
     code: str,
@@ -1555,6 +1668,11 @@ if __name__ == "__main__":
     p.add_argument("--industry", help="细分行业分类（可选）")
     p.add_argument("--classification-source", help="分类来源，如 candidate_snapshot")
     p.add_argument("--classification-asof", help="分类基准日 YYYY-MM-DD")
+    p.add_argument(
+        "--reclassify",
+        metavar="CODE",
+        help="给缺分类的历史持仓补齐行业（需同时给 --sector/--industry 与来源、日期）",
+    )
     p.add_argument("--close", nargs=2, metavar=("CODE", "PRICE"), help="清仓")
     p.add_argument("--deposit", type=float, metavar="AMOUNT", help="存入资金")
     p.add_argument("--withdraw", type=float, metavar="AMOUNT", help="取出资金")
@@ -1585,6 +1703,26 @@ if __name__ == "__main__":
         result = withdraw(args.withdraw)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         sys.exit(0 if result.get("ok") else 1)
+
+    elif args.reclassify:
+        result = reclassify_position(
+            args.reclassify,
+            sector=args.sector,
+            industry=args.industry,
+            classification_source=args.classification_source,
+            classification_asof=args.classification_asof,
+        )
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        elif result.get("error"):
+            print(f"❌ {result['error']}")
+            sys.exit(1)
+        else:
+            print(f"✅ 已补分类: {result.get('name', '')}({result['code']}) "
+                  f"{result.get('sector', '')}/{result.get('industry', '')} "
+                  f"| 来源: {result.get('classification_source', '')} "
+                  f"@ {result.get('classification_asof', '')}")
+        sys.exit(1 if result.get("error") else 0)
 
     elif args.add:
         code, name, cost = args.add
