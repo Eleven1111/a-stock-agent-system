@@ -13,6 +13,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing long evaluate_decision in decision_policy.py; the issue #172 change only added two reason codes to the guardrail mapping table",
+      "violation_id": "042bb6dbd72e68cab84b"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "06d8ccfe4f39ffb9d4ea"
     },
@@ -273,6 +278,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing sys.path bootstrap in portfolio_manager.py, unrelated to the issue #172 reclassify backfill",
+      "violation_id": "74ceadaeb2c58fbbdcf2"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "75d639b53e5b53ad0358"
     },
@@ -345,6 +355,11 @@
       "violation_id": "945681d3993cd661fa62",
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing long close_position in portfolio_manager.py, untouched by the issue #172 reclassify backfill",
+      "violation_id": "94e2f9ad425b9c91ffd1"
     },
     {
       "expires_on": "2026-10-31",
@@ -518,6 +533,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing long _apply_prices in portfolio_manager.py, untouched by the issue #172 reclassify backfill",
+      "violation_id": "c77a3593ffbe6db0fcaa"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in news monitoring files modified by Issue #110 remediation",
       "violation_id": "c87df31c35ad82c8a6f0"
     },
@@ -623,6 +643,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing long add_position in portfolio_manager.py, untouched by the issue #172 reclassify backfill",
+      "violation_id": "ec0b9c2bc761f473b794"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in eod_anomaly_scanner.py touched by source-schema resilience fix",
       "violation_id": "edd0b9f49168851c1581"
     },
@@ -635,6 +660,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "ee020c32a71e38d45ff7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing broad except in refresh_prices, untouched by the issue #172 reclassify backfill",
+      "violation_id": "f052567e5b5fdc07a15e"
     },
     {
       "expires_on": "2026-10-31",
