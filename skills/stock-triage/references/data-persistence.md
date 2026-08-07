@@ -27,6 +27,23 @@ All runtime paths are resolved through `skills/common/paths.py`.
 The Signal Ledger is append-only. Other files may be projections or mutable
 state but must not create conflicting event histories.
 
+## Signal Ledger Archiving
+
+`monitor.*` churn is ~99% of the ledger and grows 500–800 events/day, so every
+process that replays it degrades with calendar time (issue #167).
+`python skills/common/signal_ledger_archive.py` moves out only the `monitor.*` events
+that are both older than the retention window (default 7 days) and fully
+superseded by a later event for the same monitor, into
+`signal_ledger.archive/YYYY-MM.jsonl` next to the ledger.
+
+- Never archived: `recommendation.*`, `paper.*`, `signal.*`, `tail_close.*`.
+- The folded monitor projection is bit-identical before and after; the script
+  verifies this per run and aborts without touching a file if it is not.
+- `--dry-run` is the default. `--apply` snapshots the ledger and its backup
+  mirror to `*.pre-archive-<timestamp>` first and prints the rollback commands.
+- Stop the scheduler before `--apply`; a rollback loses events appended after
+  the snapshot.
+
 ## Writes
 
 - Use `mutate_json()` for read-modify-write transactions.

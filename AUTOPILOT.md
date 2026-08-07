@@ -10,7 +10,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（60 个作业，当前 45 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（61 个作业，当前 46 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -76,6 +76,35 @@ artifact 的 `status`，并把 `missing`（当日无 artifact，多半是 Mac �
 ```bash
 A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
   .venv/bin/python scripts/cron_failure_watch.py --json
+```
+
+### 每日运行诊断包归档（daily-diagnostics）
+
+| 项 | 值 |
+|---|---|
+| id | `daily-diagnostics`（`enabled: true`） |
+| 调度 | `10 23 * * *`，`trading_day_policy: calendar_day`（**非交易日也跑**） |
+| 执行 | `python scripts/daily_diagnostics.py --archive`（纯只读聚合） |
+| 产出 | `$A_STOCK_STATE_HOME/diagnostics/<日期>.md`，**滚动保留 30 天** |
+| 推送 | `deliver: local`；回给调度器的只有一行摘要（报告本体在磁盘上） |
+| 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
+
+存在理由：系统跑在两个互相看不见的 Agent 里（OpenClaw 网关 + Hermes 调度器），
+排障证据散落五处。**事故当天再去翻往往已经没了** —— OpenClaw 主日志默认在
+`/tmp/openclaw/`，macOS 重启即清空。每天先存一份，出事时直接把这个文件发出去。
+
+**非交易日也跑是刻意的**：调度器整体停摆这种故障，恰恰只能从「非交易日也没有
+报告」看出来；只在交易日跑的话，周末停摆到周一才会暴露。
+
+报告已按规则脱敏（`sk-`/`ghp_`/`xox*`/Bearer/`*key|token|secret|chat_id=`/长十六进制），
+但**传出前请自行再扫一眼**。清理只认 `YYYY-MM-DD.md` 命名，手工另存的事故存档
+（如 `2026-08-06-incident.md`）不会被删。
+
+手动跑：
+
+```bash
+python scripts/daily_diagnostics.py --out ~/Desktop/diag.md          # 临时看一份
+python scripts/daily_diagnostics.py --date 2026-08-06 --archive      # 补归档某一天
 ```
 
 ### 待启用：公告召回雷达（announcement-radar）
