@@ -47,6 +47,19 @@ def _top(
     return [_compact(item) for item in ordered[: max(0, int(limit))]]
 
 
+def _decision_row(item: Mapping[str, Any]) -> dict[str, Any]:
+    """决策建议行：决策 + 策略闸门原因，供简报渲染买卖建议。"""
+    policy = dict(item.get("policy_decision") or {})
+    return {
+        "code": item.get("code"),
+        "name": item.get("name"),
+        "decision": item.get("decision") or policy.get("decision"),
+        "reasons": list(policy.get("reasons") or []),
+        "quality_status": (item.get("quality_report") or {}).get("status"),
+        "requested_action": policy.get("requested_action"),
+    }
+
+
 def preopen_digest(result: Mapping[str, Any], *, limit: int = 10) -> dict[str, Any]:
     candidates = list(result.get("candidates") or [])
     return {
@@ -98,6 +111,7 @@ def auction_digest(result: Mapping[str, Any], *, limit: int = 5) -> dict[str, An
         "market_gainers": [mover(row) for row in gainers],
         "market_decliners": [mover(row) for row in decliners],
         "high_daban_candidates": _top(high_daban, "daban_score", limit=10),
+        "decisions": [_decision_row(row) for row in decisions[:10]],
     }
 
 
