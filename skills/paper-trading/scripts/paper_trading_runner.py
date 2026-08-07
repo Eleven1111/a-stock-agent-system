@@ -21,6 +21,7 @@ from market_adapters import fetch_tencent_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
 import paper_trading  # noqa: E402
 import paper_trading_store as store  # noqa: E402
+import signal_ledger  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 
 
@@ -303,6 +304,20 @@ def run_monitor(
     }
 
 
+def _day_rejections(asof: str) -> list[dict[str, Any]]:
+    """当日被拒记录（从规范账本取，不依赖 cron 产物文件）。"""
+    rejections = []
+    for event in signal_ledger.read_events(store.LEDGER_FILE):
+        payload = event.get("payload") or {}
+        if (
+            event.get("event_type") == "paper.order.rejected"
+            and isinstance(payload, Mapping)
+            and str(payload.get("asof") or "")[:10] == asof
+        ):
+            rejections.append({"reason": payload.get("reason")})
+    return rejections
+
+
 def run_close(
     quotes: Mapping[str, Mapping[str, Any]],
     *,
@@ -321,7 +336,32 @@ def run_close(
         config=config,
     )
     atomic_write_json(NAV_FILE, nav)
-    return {"schema": "paper_trading_close_run_v1", **nav, "research_only": True}
+    # 空账户要说清为什么空。收盘报告是唯一每天推送的那一份，不带原因就是
+    # 每天一条「还是 100000」的噪音，而这正是 issue #174 的起点。
+    zero_fill = (
+        paper_trading.classify_zero_fill(_day_rejections(asof))
+        if not (nav.get("positions") or [])
+        else {"zero_fill_class": None, "actionable": False, "breakdown": {}, "anomaly_reasons": []}
+    )
+    # 收盘报告是唯一会被推送的一份，必须每条都带模拟盘标签：它会和 portfolio-check
+    # 的真实账户并排出现，光靠 JSON 里的 research_only 字段挡不住误读。
+    label = "[模拟盘·研究专用]"
+    if zero_fill["zero_fill_class"] is None:
+        message = f"{label} 净值 {nav.get('nav')}，持仓 {len(nav.get('positions') or [])} 只"
+    else:
+        message = (
+            f"{label} 空仓归因: {zero_fill['zero_fill_class']}"
+            + ("（需人工核查）" if zero_fill["actionable"] else "（设计内，无需处理）")
+        )
+    return {
+        "schema": "paper_trading_close_run_v1",
+        "message": message,
+        **nav,
+        "zero_fill_class": zero_fill["zero_fill_class"],
+        "zero_fill_actionable": zero_fill["actionable"],
+        "zero_fill": zero_fill,
+        "research_only": True,
+    }
 
 
 def _fetch_for_codes(codes: Sequence[str]) -> dict[str, dict[str, Any]]:
