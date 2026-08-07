@@ -14,6 +14,7 @@ from runtime_context import (
     evaluate_dependencies,
     make_batch_id,
     output_has_signal,
+    summarize_output,
     resolve_trading_date,
 )
 
@@ -688,3 +689,61 @@ def test_runner_blocks_without_starting_worker_when_required_dependency_missing(
     assert artifact["dependency_gate"]["passed"] is False
     assert artifact["trading_date"] == "2026-06-12"
     assert artifact["batch_id"] == make_batch_id("2026-06-12")
+
+
+def test_summary_keeps_counters_from_payloads_outside_the_whitelist():
+    """白名单之外的键名会让 summary 塌成只剩 schema —— 运维面上"绿的、有信号"，
+    实际入队 0 条。serenity-refresh-plan 的 summary 长期只有 {"schema": ...}，
+    这条队列静默积压 7 天没被发现就是这么来的。
+    """
+    parsed = {
+        "schema": "serenity_bus_plan_v1",
+        "asof": "2026-08-07",
+        "scanned": 5,
+        "enqueued": 0,
+        "results": [{"enqueued": False}, {"enqueued": False}],
+    }
+
+    summary = summarize_output(parsed, json.dumps(parsed))
+
+    assert summary["schema"] == "serenity_bus_plan_v1"
+    assert summary["scanned"] == 5
+    assert summary["enqueued"] == 0
+    assert summary["results_count"] == 2
+
+
+def test_summary_still_reports_whitelisted_counts_and_drops_bulk_payload():
+    parsed = {
+        "schema": "open_confirmation_v1",
+        "status": "ok",
+        "signals": [{"code": "600001"}],
+        "confirmations": [],
+        "candidates": [{"code": "600002"}, {"code": "600003"}],
+        "raw_rows": [{"blob": "x" * 5000}],
+        "note": "y" * 5000,
+    }
+
+    summary = summarize_output(parsed, json.dumps(parsed))
+
+    assert summary["signals_count"] == 1
+    assert summary["confirmations_count"] == 0
+    assert summary["candidates_count"] == 2
+    # 大块载荷只留计数，不整体搬进 artifact（token 预算）
+    assert summary["raw_rows_count"] == 1
+    assert "raw_rows" not in summary
+    assert "note" not in summary
+
+
+def test_summary_is_bounded_for_pathological_payloads():
+    parsed = {"schema": "x_v1", **{f"metric_{i}": i for i in range(200)}}
+
+    summary = summarize_output(parsed, json.dumps(parsed))
+
+    assert summary["schema"] == "x_v1"
+    assert len(summary) <= 32
+
+
+def test_empty_result_lists_outside_the_whitelist_are_not_reported_as_signal():
+    parsed = {"schema": "serenity_bus_plan_v1", "scanned": 0, "results": []}
+
+    assert output_has_signal(parsed, json.dumps(parsed)) is False

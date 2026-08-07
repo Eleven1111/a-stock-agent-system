@@ -130,28 +130,58 @@ def output_has_signal(parsed: Any, stdout: str) -> bool:
     }
     if status in operational_statuses:
         return True
-    for key in ("alerts", "signals", "events", "factors", "candidates"):
-        value = parsed.get(key)
-        if isinstance(value, list) and not value:
-            return False
+    # 键名不在白名单里的作业同样要能报告"什么都没做"，否则 has_signal 恒真。
+    lists = [value for value in parsed.values() if isinstance(value, list)]
+    if lists and not any(lists):
+        return False
     if status in {"no_signal", "no_events", "empty"}:
         return False
     return True
 
 
+SUMMARY_LIST_KEYS = (
+    "alerts",
+    "signals",
+    "events",
+    "factors",
+    "candidates",
+    "confirmations",
+)
+SUMMARY_BASE_KEYS = {"schema", "status", "message", "summary"}
+SUMMARY_MAX_KEYS = 32
+
+
 def summarize_output(parsed: Any, stdout: str) -> Dict[str, Any]:
-    if isinstance(parsed, dict):
-        summary = {
-            "schema": parsed.get("schema"),
-            "status": parsed.get("status"),
-            "message": parsed.get("message") or parsed.get("summary"),
-        }
-        for key in ("alerts", "signals", "events", "factors", "candidates", "confirmations"):
-            value = parsed.get(key)
-            if isinstance(value, list):
-                summary[f"{key}_count"] = len(value)
-        return {k: v for k, v in summary.items() if v is not None}
-    return {"text_preview": _json_preview(stdout, 300)}
+    """Reduce a job payload to schema/status plus bounded counters.
+
+    列表只留计数、标量原样带上：既能回答"这次到底做了几件事"，又不会把大块
+    载荷搬进 artifact（token 预算）。白名单之外的键名也必须计数——否则
+    summary 会塌成只剩 schema，运维面上看到 "ok + has_signal" 却完全无从判断
+    作业是干了活还是空转（serenity-refresh-plan 的队列静默积压就是这么漏掉的）。
+    """
+    if not isinstance(parsed, dict):
+        return {"text_preview": _json_preview(stdout, 300)}
+    summary = {
+        "schema": parsed.get("schema"),
+        "status": parsed.get("status"),
+        "message": parsed.get("message") or parsed.get("summary"),
+    }
+    summary = {key: value for key, value in summary.items() if value is not None}
+    # 白名单先落位，避免病态载荷把既有口径挤出 SUMMARY_MAX_KEYS。
+    for key in SUMMARY_LIST_KEYS:
+        value = parsed.get(key)
+        if isinstance(value, list):
+            summary[f"{key}_count"] = len(value)
+    for key, value in parsed.items():
+        if len(summary) >= SUMMARY_MAX_KEYS:
+            break
+        if key in SUMMARY_BASE_KEYS or key in SUMMARY_LIST_KEYS:
+            continue
+        if isinstance(value, list):
+            summary.setdefault(f"{key}_count", len(value))
+        elif isinstance(value, (bool, int, float)):
+            summary.setdefault(key, value)
+    return summary
 
 
 def load_latest_artifact(
