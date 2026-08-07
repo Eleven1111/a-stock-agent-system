@@ -1192,6 +1192,37 @@ def run_discovery(
 
     _persist_pool(asof, result)
     atomic_write_json(hot_money_selection_file(), selection_state)
+    # 候选池与它的 lifecycle 队列是同一个事实的两半，必须挨着落盘。此前
+    # initialize_day 排在 monitor_registry 的全量对账/GC 之后，作业一旦超时被杀
+    # （2026-07-21/23/27/29、08-05 每天 2~8 次 rc=124）就留下「有池无队列」：
+    # 池里 199~500 只候选，队列文件根本不存在，当天的结算样本整日丢失。
+    selected_codes = {item["code"] for item in result["candidates"]}
+    selected_item_by_code = {item["code"]: item for item in result["candidates"]}
+    lifecycle_candidates = []
+    for item in evaluated:
+        record = dict(item)
+        if item["code"] in selected_codes:
+            selected_item = selected_item_by_code[item["code"]]
+            record.update({
+                "selected_by": dict(selected_item.get("selected_by") or {}),
+                "strategy_id": selected_item.get("strategy_id"),
+                "selection_context": dict(selected_item.get("selection_context") or {}),
+            })
+        else:
+            record["selected_by"] = {"daban": False, "trend": False}
+            record["rejection_reasons"] = [f"双策略综合排名未进入前{watch_limit}"]
+        lifecycle_candidates.append(record)
+    candidate_lifecycle.initialize_day(
+        asof,
+        lifecycle_candidates,
+        metadata={
+            "scanned_count": result["scanned_count"],
+            "eligible_count": result["eligible_count"],
+            "watch_count": result["candidate_count"],
+            "enriched_count": result["enriched_count"],
+            "base_rejection_counts": _reason_counts(base_rejected),
+        },
+    )
     monitor_registry.reconcile_automatic(
         "stock",
         [
@@ -1227,37 +1258,6 @@ def run_discovery(
         expires_at=add_trading_days(asof, 1),
     )
     monitor_registry.gc_expired(asof=asof)
-
-    selected_codes = {item["code"] for item in result["candidates"]}
-    selected_item_by_code = {
-        item["code"]: item
-        for item in result["candidates"]
-    }
-    lifecycle_candidates = []
-    for item in evaluated:
-        record = dict(item)
-        if item["code"] in selected_codes:
-            selected_item = selected_item_by_code[item["code"]]
-            record.update({
-                "selected_by": dict(selected_item.get("selected_by") or {}),
-                "strategy_id": selected_item.get("strategy_id"),
-                "selection_context": dict(selected_item.get("selection_context") or {}),
-            })
-        else:
-            record["selected_by"] = {"daban": False, "trend": False}
-            record["rejection_reasons"] = [f"双策略综合排名未进入前{watch_limit}"]
-        lifecycle_candidates.append(record)
-    candidate_lifecycle.initialize_day(
-        asof,
-        lifecycle_candidates,
-        metadata={
-            "scanned_count": result["scanned_count"],
-            "eligible_count": result["eligible_count"],
-            "watch_count": result["candidate_count"],
-            "enriched_count": result["enriched_count"],
-            "base_rejection_counts": _reason_counts(base_rejected),
-        },
-    )
     _advance_fsm_to_watching(asof, selected_codes)
     return result
 

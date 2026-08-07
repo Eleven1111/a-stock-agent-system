@@ -1,5 +1,7 @@
 """Candidate lifecycle persistence tests."""
 
+import os
+
 import candidate_lifecycle as lifecycle
 
 
@@ -122,3 +124,50 @@ def test_observe_day_uses_full_market_snapshots_for_t1_and_t3(tmp_path, monkeypa
     assert outcome["t1_close_ret"] == 5.0
     assert outcome["t3_close_ret"] == 10.0
     assert outcome["max_gain"] == 12.0
+
+
+def test_observe_day_does_not_fabricate_a_cohort_that_was_never_initialized(tmp_path, monkeypatch):
+    """load_day 的空骨架经 mutate_json 会被落盘：从未初始化的日期凭空长出一个
+    metadata={} / records=[] 的文件，与「跑了但没候选」在文件系统上几乎无法
+    区分，下游还会把它当合法队列结算。没初始化过就不该被结算。
+    """
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 无条件设了会话级临时
+    # 目录；只设 HERMES_HOME 的话本用例会读到别的用例写进会话目录的同名文件。
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    missing = lifecycle.lifecycle_file("2026-07-21")
+
+    result = lifecycle.observe_day(
+        "2026-07-21", "2026-07-29", 3, {"600001": {"price": 10.0}},
+    )
+
+    assert result == {}
+    assert not os.path.exists(missing)
+
+
+def test_transition_does_not_fabricate_a_cohort_that_was_never_initialized(tmp_path, monkeypatch):
+    # A_STOCK_STATE_HOME 优先级高于 HERMES_HOME，conftest 无条件设了会话级临时
+    # 目录；只设 HERMES_HOME 的话本用例会读到别的用例写进会话目录的同名文件。
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    missing = lifecycle.lifecycle_file("2026-07-21")
+
+    result = lifecycle.transition(
+        "2026-07-21", "auction_shortlist", ["600001"], event_asof="2026-07-22",
+    )
+
+    assert result == {}
+    assert not os.path.exists(missing)
+
+
+def test_initialized_cohort_is_still_observable(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    lifecycle.initialize_day(
+        "2026-07-21",
+        [{"code": "600001", "price": 10.0}],
+        metadata={"scanned_count": 5201},
+    )
+
+    result = lifecycle.observe_day(
+        "2026-07-21", "2026-07-22", 1, {"600001": {"price": 11.0, "open": 10.5}},
+    )
+
+    assert result["records"][0]["outcome"]["t1_close_ret"] == 10.0
