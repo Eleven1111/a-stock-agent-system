@@ -36,18 +36,23 @@ os.environ.pop("A_STOCK_BACKUP_HOME", None)
 
 @pytest.fixture(autouse=True)
 def _reset_monitor_registry_verification_cache():
-    """monitor_registry 的账本校验结果缓存在模块级（进程内只校验一次）。
+    """monitor_registry 的账本校验结果与 signal_ledger 的追加索引都缓存在模块级
+    （进程内只校验/只全量读一次）。
 
     测试进程是长生命周期的，若不在每个用例前重置，前一个用例留下的「已校验」
     标志会让后一个用例跳过重放校验 —— 构造「投影被篡改 → 期望抛错」的
-    fail-closed 用例会静默变绿（假绿）。因此这里把每个用例都还原成
-    「新进程首次访问」的状态。
+    fail-closed 用例会静默变绿（假绿）。signal_ledger 的追加索引同理：不同用例
+    常把 tmp_path 复用到同一路径，残留索引会让去重/sequence 断言失真。因此这里
+    把每个用例都还原成「新进程首次访问」的状态。
     """
     import monitor_registry
+    import signal_ledger
 
     monitor_registry.reset_verification_cache()
+    signal_ledger.reset_append_cache()
     yield
     monitor_registry.reset_verification_cache()
+    signal_ledger.reset_append_cache()
 
 
 @pytest.fixture
