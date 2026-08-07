@@ -1,7 +1,7 @@
 # Supported direct dependency set for Python 3.10 and 3.13 CI.
 # This is intentionally not a platform-specific transitive lock file.
 yfinance==1.5.2
-akshare==1.18.80
+akshare==1.18.81
 adata==2.9.5
 pandas==2.3.3
 numpy==2.2.6
