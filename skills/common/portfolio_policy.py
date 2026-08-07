@@ -35,6 +35,74 @@ def portfolio_value(portfolio: Mapping[str, Any]) -> float:
     return round(cash + sum(_position_value(position) for position in positions), 2)
 
 
+def _position_sector(position: Mapping[str, Any]) -> str:
+    return str(position.get("sector") or position.get("industry") or "").strip()
+
+
+def _concentration_reasons(
+    *,
+    normalized_sector: str,
+    unknown_sector_codes: list[str],
+    stock_pct: float,
+    sector_pct: float | None,
+    worst_case_sector_pct: float | None,
+    max_single_position_pct: float,
+    max_sector_exposure_pct: float,
+) -> list[str]:
+    """Holdings without a sector only make the sector limit unverifiable.
+
+    Such holdings could all belong to the candidate's sector, so the check is
+    the worst case under full overlap. Blocking every candidate instead would
+    reject names that cannot breach the limit even if the overlap were total.
+    """
+    reasons: list[str] = []
+    if not normalized_sector:
+        reasons.append("unknown_sector")
+    if unknown_sector_codes and (
+        worst_case_sector_pct is None
+        or worst_case_sector_pct > float(max_sector_exposure_pct)
+    ):
+        reasons.append("existing_position_sector_unknown")
+    if stock_pct > float(max_single_position_pct):
+        reasons.append("single_position_limit")
+    if sector_pct is not None and sector_pct > float(max_sector_exposure_pct):
+        reasons.append("sector_exposure_limit")
+    return reasons
+
+
+def _projected_exposures(
+    values: list[tuple[Mapping[str, Any], float]],
+    *,
+    total_assets: float,
+    normalized_code: str,
+    normalized_sector: str,
+    proposed_pct: float,
+) -> tuple[float, float | None, float]:
+    """Return single-name, sector and unverifiable exposure after the proposal."""
+    current_stock = sum(
+        value
+        for position, value in values
+        if str(position.get("code") or "").zfill(6) == normalized_code
+    )
+    current_sector = sum(
+        value
+        for position, value in values
+        if normalized_sector and _position_sector(position) == normalized_sector
+    )
+    unknown_sector_value = sum(
+        value for position, value in values if not _position_sector(position)
+    )
+    return (
+        current_stock / total_assets * 100 + proposed_pct,
+        (
+            current_sector / total_assets * 100 + proposed_pct
+            if normalized_sector
+            else None
+        ),
+        unknown_sector_value / total_assets * 100,
+    )
+
+
 def evaluate_new_position(
     portfolio: Mapping[str, Any],
     *,
@@ -63,36 +131,27 @@ def evaluate_new_position(
     unknown_sector_codes = sorted({
         str(position.get("code") or "").zfill(6)
         for position in positions
-        if not str(position.get("sector") or position.get("industry") or "").strip()
+        if not _position_sector(position)
     })
-    current_stock = sum(
-        value
-        for position, value in values
-        if str(position.get("code") or "").zfill(6) == normalized_code
+    stock_pct, sector_pct, unknown_sector_pct = _projected_exposures(
+        values,
+        total_assets=total_assets,
+        normalized_code=normalized_code,
+        normalized_sector=normalized_sector,
+        proposed_pct=max(0.0, float(proposed_position_pct or 0)),
     )
-    current_sector = sum(
-        value
-        for position, value in values
-        if normalized_sector
-        and str(position.get("sector") or position.get("industry") or "").strip()
-        == normalized_sector
+    worst_case_sector_pct = (
+        sector_pct + unknown_sector_pct if sector_pct is not None else None
     )
-    proposed_pct = max(0.0, float(proposed_position_pct or 0))
-    stock_pct = current_stock / total_assets * 100 + proposed_pct
-    sector_pct = (
-        current_sector / total_assets * 100 + proposed_pct
-        if normalized_sector
-        else None
+    reasons = _concentration_reasons(
+        normalized_sector=normalized_sector,
+        unknown_sector_codes=unknown_sector_codes,
+        stock_pct=stock_pct,
+        sector_pct=sector_pct,
+        worst_case_sector_pct=worst_case_sector_pct,
+        max_single_position_pct=max_single_position_pct,
+        max_sector_exposure_pct=max_sector_exposure_pct,
     )
-    reasons: list[str] = []
-    if not normalized_sector:
-        reasons.append("unknown_sector")
-    if unknown_sector_codes:
-        reasons.append("existing_position_sector_unknown")
-    if stock_pct > float(max_single_position_pct):
-        reasons.append("single_position_limit")
-    if sector_pct is not None and sector_pct > float(max_sector_exposure_pct):
-        reasons.append("sector_exposure_limit")
     result = {
         "schema": "portfolio_policy_v1",
         "allowed": not reasons,
@@ -102,7 +161,13 @@ def evaluate_new_position(
         "projected_sector_exposure_pct": (
             round(sector_pct, 2) if sector_pct is not None else None
         ),
+        "worst_case_sector_exposure_pct": (
+            round(worst_case_sector_pct, 2)
+            if worst_case_sector_pct is not None
+            else None
+        ),
         "unknown_sector_codes": unknown_sector_codes,
+        "unknown_sector_exposure_pct": round(unknown_sector_pct, 2),
         "limits": {
             "max_single_position_pct": float(max_single_position_pct),
             "max_sector_exposure_pct": float(max_sector_exposure_pct),

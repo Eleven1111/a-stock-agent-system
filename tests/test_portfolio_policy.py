@@ -92,10 +92,10 @@ def test_unknown_candidate_sector_fails_closed():
     assert result["projected_sector_exposure_pct"] is None
 
 
-def test_existing_unknown_sector_makes_concentration_unverifiable():
+def test_existing_unknown_sector_blocks_when_worst_case_breaches_sector_limit():
     portfolio = {
-        "cash": 80000,
-        "positions": [{"code": "600001", "shares": 2000, "current_price": 10.0}],
+        "cash": 50000,
+        "positions": [{"code": "600001", "shares": 5000, "current_price": 10.0}],
     }
 
     result = portfolio_policy.evaluate_new_position(
@@ -110,6 +110,81 @@ def test_existing_unknown_sector_makes_concentration_unverifiable():
     assert result["allowed"] is False
     assert "existing_position_sector_unknown" in result["reasons"]
     assert result["unknown_sector_codes"] == ["600001"]
+    assert result["unknown_sector_exposure_pct"] == 50.0
+    assert result["worst_case_sector_exposure_pct"] == 55.0
+
+
+def test_existing_unknown_sector_allows_candidate_that_cannot_breach_limit():
+    portfolio = {
+        "cash": 80000,
+        "positions": [{"code": "600001", "shares": 2000, "current_price": 10.0}],
+    }
+
+    result = portfolio_policy.evaluate_new_position(
+        portfolio,
+        code="600002",
+        sector="半导体",
+        proposed_position_pct=5.0,
+        max_single_position_pct=25.0,
+        max_sector_exposure_pct=40.0,
+    )
+
+    assert result["allowed"] is True
+    assert result["reasons"] == []
+    # The data gap stays visible even though it cannot breach the sector limit.
+    assert result["unknown_sector_codes"] == ["600001"]
+    assert result["unknown_sector_exposure_pct"] == 20.0
+    assert result["worst_case_sector_exposure_pct"] == 25.0
+
+
+def test_existing_unknown_sector_still_blocks_when_candidate_sector_missing():
+    portfolio = {
+        "cash": 80000,
+        "positions": [{"code": "600001", "shares": 2000, "current_price": 10.0}],
+    }
+
+    result = portfolio_policy.evaluate_new_position(
+        portfolio,
+        code="600002",
+        sector="",
+        proposed_position_pct=5.0,
+        max_single_position_pct=25.0,
+        max_sector_exposure_pct=40.0,
+    )
+
+    assert result["allowed"] is False
+    assert result["reasons"] == ["unknown_sector", "existing_position_sector_unknown"]
+    assert result["worst_case_sector_exposure_pct"] is None
+
+
+def test_known_sector_overlap_is_added_to_unknown_worst_case():
+    portfolio = {
+        "cash": 40000,
+        "positions": [
+            {
+                "code": "600001",
+                "sector": "半导体",
+                "shares": 3000,
+                "current_price": 10.0,
+            },
+            {"code": "600003", "shares": 3000, "current_price": 10.0},
+        ],
+    }
+
+    result = portfolio_policy.evaluate_new_position(
+        portfolio,
+        code="600002",
+        sector="半导体",
+        proposed_position_pct=5.0,
+        max_single_position_pct=25.0,
+        max_sector_exposure_pct=40.0,
+    )
+
+    assert result["allowed"] is False
+    assert "existing_position_sector_unknown" in result["reasons"]
+    assert "sector_exposure_limit" not in result["reasons"]
+    assert result["projected_sector_exposure_pct"] == 35.0
+    assert result["worst_case_sector_exposure_pct"] == 65.0
 
 
 def test_existing_industry_field_is_counted_toward_sector_limit():

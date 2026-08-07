@@ -124,6 +124,12 @@ python skills/stock-triage/scripts/four_dim_scorer.py <code> <name>
 PYTHONPATH=skills/common \
 python skills/stock-triage/scripts/portfolio_manager.py --check --json
 
+# 给缺行业分类的历史持仓补分类（不改股数与现金；分类须带权威来源且基准日不晚于建仓日）
+PYTHONPATH=skills/common \
+python skills/stock-triage/scripts/portfolio_manager.py --reclassify <code> \
+  --sector <行业> --industry <细分行业> \
+  --classification-source <来源> --classification-asof <YYYY-MM-DD>
+
 PYTHONPATH=skills/common \
 python skills/stock-triage/scripts/monitor_manager.py list --json
 
