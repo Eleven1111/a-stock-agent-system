@@ -176,3 +176,119 @@ def test_monitor_persists_pending_t1_state(monkeypatch):
     event_type, snapshot = recorded[0]
     assert event_type == "paper.exit.pending_t1"
     assert snapshot["positions"][0]["pending_exit"]["reason"] == "hard_stop"
+
+
+def _wire(monkeypatch, account=None):
+    account = account or paper_trading.default_account(_config())
+    monkeypatch.setattr(runner.store, "load_account", lambda config: account)
+    monkeypatch.setattr(runner.store, "event_exists", lambda *args: False)
+    monkeypatch.setattr(
+        runner.store, "append_paper_event",
+        lambda *a, **k: {"status": "appended"},
+    )
+    return account
+
+
+def test_run_open_reports_the_real_rejection_reason_not_the_gate_verdict(monkeypatch):
+    """门禁通过、后续因缺行情被拒时，运行报告必须写真实原因。
+
+    此前 evaluation 固定携带门禁结论 recommendation_then_chanlun_passed，真实
+    拒绝原因（quote_unavailable 等）只进账本、从不进运行报告 —— 于是报告显示
+    「allowed=True」却 filled=0，看起来自相矛盾。
+    """
+    _wire(monkeypatch)
+
+    result = runner.run_open(
+        _surface(), {},  # 完全没有行情 → quote_unavailable
+        asof="2026-07-13", observed_at="2026-07-13T09:36:10+08:00",
+        config=_config(),
+        risk={"max_single_position_pct": 25, "max_sector_exposure_pct": 40},
+    )
+
+    reasons = {item["code"]: item["reason"] for item in result["evaluations"]}
+    assert reasons["600001"] == "quote_unavailable"
+    assert reasons["600002"] == "recommendation_not_positive"
+
+
+def test_run_open_flags_missing_quotes_as_actionable_zero_fill(monkeypatch):
+    _wire(monkeypatch)
+
+    result = runner.run_open(
+        _surface(), {},
+        asof="2026-07-13", observed_at="2026-07-13T09:36:10+08:00",
+        config=_config(),
+        risk={"max_single_position_pct": 25, "max_sector_exposure_pct": 40},
+    )
+
+    assert result["filled"] == 0
+    assert result["zero_fill_class"] == "data_anomaly"
+    assert result["zero_fill_actionable"] is True
+    assert result["zero_fill"]["anomaly_reasons"] == ["quote_unavailable"]
+
+
+def test_run_open_zero_fill_from_designed_gates_is_not_actionable(monkeypatch):
+    """全部候选都是 watch —— 这正是 #174 观察到的形态，属正常 fail-closed。"""
+    _wire(monkeypatch)
+    surface = {**_surface(), "signals": [
+        _candidate("600001", decision="watch"),
+        _candidate("600002", decision="watch"),
+    ]}
+
+    result = runner.run_open(
+        surface, {},
+        asof="2026-07-13", observed_at="2026-07-13T09:36:10+08:00",
+        config=_config(),
+        risk={"max_single_position_pct": 25, "max_sector_exposure_pct": 40},
+    )
+
+    assert result["filled"] == 0
+    assert result["zero_fill_class"] == "upstream_gate"
+    assert result["zero_fill_actionable"] is False
+    assert result["zero_fill"]["breakdown"] == {"recommendation_not_positive": 2}
+
+
+def test_reused_fills_are_not_reported_as_a_data_anomaly(monkeypatch):
+    """重跑幂等：当天已成交的候选走 reused 分支，filled 计数为 0 —— 这不是空仓，
+    更不是数据异常。若把 reused 的门禁结论当作拒绝原因，重跑就会天天误报。
+    """
+    _wire(monkeypatch)
+    monkeypatch.setattr(
+        runner.store, "event_exists",
+        lambda event_type, key=None: event_type == "paper.trade.filled",
+    )
+    quotes = {"sh600001": {"price": 10, "prev_close": 9.8, "open": 9.9, "high": 10.1,
+                           "low": 9.8, "volume": 100_000,
+                           "fetched_at": "2026-07-13T09:36:00+08:00"}}
+
+    result = runner.run_open(
+        _surface(), quotes,
+        asof="2026-07-13", observed_at="2026-07-13T09:36:10+08:00",
+        config=_config(),
+        risk={"max_single_position_pct": 25, "max_sector_exposure_pct": 40},
+    )
+
+    assert result["reused"] == 1
+    assert result["filled"] == 0
+    assert result["zero_fill_class"] is None
+    assert result["zero_fill_actionable"] is False
+
+
+def test_zero_fill_class_reaches_the_cron_artifact_summary(monkeypatch):
+    """summarize_output 只保留 schema/status/message + 标量与列表计数，
+    zero_fill_class 是字符串会被丢掉 —— 必须借 message 送到运维面上，
+    否则这次归因在 cron 产物里看不见，等于没做。"""
+    import runtime_context
+
+    _wire(monkeypatch)
+    surface = {**_surface(), "signals": [_candidate("600001", decision="watch")]}
+
+    result = runner.run_open(
+        surface, {},
+        asof="2026-07-13", observed_at="2026-07-13T09:36:10+08:00",
+        config=_config(),
+        risk={"max_single_position_pct": 25, "max_sector_exposure_pct": 40},
+    )
+    summary = runtime_context.summarize_output(result, "")
+
+    assert "upstream_gate" in summary["message"]
+    assert summary["zero_fill_actionable"] is False
