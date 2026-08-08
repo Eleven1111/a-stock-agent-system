@@ -343,6 +343,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "research_gate.py CLI 入口的既有 sys.path bootstrap，与横截面方向检验无关",
+      "violation_id": "926a09ce04ed5f5f6f3c"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing broad except in extract_pdf_text (best-effort PDF text); file modified only to reuse the shared cninfo_client transport",
       "violation_id": "92c312f3a611ab9c422b"
     },
@@ -500,6 +505,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "bdac4d8a1a7f30394b96"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "研究闸门里两处 sys.path 插入合并为单一 _ensure_common_on_path；总量未增（仍为 121），仅因宿主符号改变导致 violation id 变化",
+      "violation_id": "c0db5a0c6def99dedbc9"
     },
     {
       "expires_on": "2026-10-31",

@@ -130,3 +130,69 @@ def test_oos_result_requires_minimum_sample_when_declared():
 
     assert result["decision"] == "blocked"
     assert any("样本" in reason for reason in result["blocking_reasons"])
+
+
+def _cross_sectional(direction, cohorts=5, n=120):
+    """构造 cohorts 个互不重叠窗口的横截面证据。"""
+    out = []
+    for k in range(cohorts):
+        src = f"2026-{7 + (k * 8) // 30:02d}-{1 + (k * 8) % 30:02d}"
+        dst = f"2026-{7 + (k * 8 + 6) // 30:02d}-{1 + (k * 8 + 6) % 30:02d}"
+        pairs = [
+            [float(n - i), 0.001 * (n - i) if direction == "aligned" else 0.001 * i]
+            for i in range(n)
+        ]
+        out.append({"src": src, "dst": dst, "pairs": pairs})
+    return out
+
+
+def test_cross_sectional_strategy_without_direction_evidence_is_blocked():
+    """声明为横截面打分的策略，必须提交方向证据，否则阻断。
+
+    trend_score 正是从这个盲区漏过去的：事件级 T+1/T+3 判定回答不了
+    「高分是否真的比低分好」。
+    """
+    payload = research_gate.example_payload()
+    payload.update({"strategy_kind": "cross_sectional_score"})
+
+    checks = {item["id"]: item for item in research_gate.phase_checklist(payload)}
+
+    assert checks["cross_sectional_direction"]["passed"] is False
+    assert "缺少横截面方向证据" in checks["cross_sectional_direction"]["reason"]
+
+
+def test_inverted_cross_sectional_direction_blocks_the_gate():
+    payload = research_gate.example_payload()
+    payload.update({
+        "strategy_kind": "cross_sectional_score",
+        "cross_sectional_cohorts": _cross_sectional("inverted"),
+    })
+
+    checks = {item["id"]: item for item in research_gate.phase_checklist(payload)}
+    result = research_gate.evaluate_gate(payload)
+
+    assert checks["cross_sectional_direction"]["passed"] is False
+    assert "direction_inverted" in checks["cross_sectional_direction"]["reason"]
+    assert result["decision"] == "blocked"
+
+
+def test_confirmed_cross_sectional_direction_passes_the_check():
+    payload = research_gate.example_payload()
+    payload.update({
+        "strategy_kind": "cross_sectional_score",
+        "cross_sectional_cohorts": _cross_sectional("aligned"),
+    })
+
+    checks = {item["id"]: item for item in research_gate.phase_checklist(payload)}
+
+    assert checks["cross_sectional_direction"]["passed"] is True
+    assert "direction_confirmed" in checks["cross_sectional_direction"]["reason"]
+
+
+def test_event_strategies_are_not_affected_by_the_new_check():
+    """事件级策略（缠论买卖点等）没有横截面打分，不该被这条检查误伤。"""
+    payload = research_gate.example_payload()
+
+    ids = {item["id"] for item in research_gate.phase_checklist(payload)}
+
+    assert "cross_sectional_direction" not in ids
