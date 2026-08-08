@@ -196,3 +196,46 @@ def test_event_strategies_are_not_affected_by_the_new_check():
     ids = {item["id"] for item in research_gate.phase_checklist(payload)}
 
     assert "cross_sectional_direction" not in ids
+
+
+def test_score_strategy_with_missing_kind_is_blocked():
+    payload = research_gate.example_payload()
+    payload.update({"strategy_id": "trend_pullback"})
+    payload.pop("strategy_kind")
+
+    result = research_gate.evaluate_gate(payload)
+
+    assert result["decision"] == "blocked"
+    assert result["strategy_kind"] == "cross_sectional_score"
+    assert next(item for item in result["phase_checklist"] if item["id"] == "strategy_kind")["passed"] is False
+    assert any(item["id"] == "cross_sectional_direction" for item in result["phase_checklist"])
+
+
+def test_event_kind_with_score_evidence_is_blocked(tmp_path):
+    evidence = tmp_path / "score-evidence.json"
+    evidence.write_text('{"result": {"score": 91.0}}', encoding="utf-8")
+    payload = research_gate.example_payload()
+    payload.update({
+        "strategy_id": "custom_event",
+        "strategy_kind": "event_signal",
+        "evidence_artifact": str(evidence),
+    })
+
+    result = research_gate.evaluate_gate(payload)
+
+    assert result["decision"] == "blocked"
+    assert any("冲突" in reason for reason in result["blocking_reasons"])
+
+
+def test_explicit_event_signal_strategy_remains_allowed():
+    payload = research_gate.example_payload()
+    payload.update({
+        "strategy_id": "daban:first_board_reseal",
+        "strategy_kind": "event_signal",
+    })
+
+    result = research_gate.evaluate_gate(payload)
+
+    assert result["decision"] == "ready_for_oos"
+    assert result["allowed_in_live_agent"] is False
+    assert result["strategy_kind"] == "event_signal"

@@ -16,6 +16,7 @@ is_allowed_in_live 才返回 True。淘汰走门控(set_gating)，改规则走 r
 """
 
 import hashlib
+import json
 import math
 import os
 import sys
@@ -49,6 +50,13 @@ _NEXT_PROMOTION_STATE = {
     "eligible_for_manual_pilot": "manual_pilot",
     "manual_pilot": "live",
 }
+_VALID_STRATEGY_KINDS = {"event_signal", "cross_sectional_score"}
+_KNOWN_SCORE_IDS = {
+    "trend_pullback", "trend_score", "daban_score", "auction_score",
+    "auction_daban_score", "auction_trend_score", "open_score",
+    "open_daban_score", "open_trend_score", "leader_score",
+    "mainline_score", "tail_close_score",
+}
 
 
 def _default_file() -> str:
@@ -58,6 +66,92 @@ def _default_file() -> str:
 
 def _now() -> str:
     return datetime.now().isoformat()
+
+
+def _json_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _artifact_contains_score(value: Any) -> bool:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized = str(key).strip().lower()
+            if normalized in {"score", "scores"} or normalized.endswith("_score"):
+                return True
+            if _artifact_contains_score(child):
+                return True
+    elif isinstance(value, list):
+        return any(_artifact_contains_score(item) for item in value)
+    return False
+
+
+def _registry_strategy_kind(strategy_id: str, gate_output: Dict[str, Any]) -> tuple[Optional[str], str]:
+    """Review the kind recorded by research_gate before admitting a result.
+
+    Older callers did not emit strategy_kind; keep those event-only records
+    readable, while never allowing score-bearing evidence to use that fallback.
+    """
+    explicit = gate_output.get("strategy_kind")
+    explicit_kind = str(explicit).strip() if isinstance(explicit, str) else ""
+    artifact = None
+    artifact_path = (gate_output.get("evidence") or {}).get("artifact")
+    if artifact_path:
+        try:
+            with open(os.path.abspath(os.path.expanduser(str(artifact_path))), encoding="utf-8") as handle:
+                artifact = json.load(handle)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            artifact = None
+    score_id = str(strategy_id or "").strip().lower() in _KNOWN_SCORE_IDS
+    tokens = {
+        token for token in str(strategy_id or "").lower().replace(":", "_").replace("-", "_").split("_")
+        if token
+    }
+    score_detected = score_id or bool(tokens & {"score", "scores", "rank", "ranking", "factor"})
+    score_detected = score_detected or _artifact_contains_score(artifact)
+    if score_detected:
+        if explicit_kind and explicit_kind != "cross_sectional_score":
+            return None, "strategy_kind 与打分型证据冲突"
+        return "cross_sectional_score", "score strategy reviewed"
+    if explicit_kind in _VALID_STRATEGY_KINDS:
+        return explicit_kind, "strategy_kind reviewed"
+    if explicit_kind:
+        return None, "未知 strategy_kind"
+    # Compatibility for pre-P0 records is intentionally event-only. New
+    # research_gate output always carries an explicit or inferred kind.
+    return "event_signal", "legacy event_signal compatibility"
+
+
+def _direction_binding(gate_output: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    binding = gate_output.get("direction_verdict")
+    if isinstance(binding, dict):
+        return binding
+    for item in gate_output.get("phase_checklist") or []:
+        if isinstance(item, dict) and item.get("id") == "cross_sectional_direction":
+            candidate = item.get("direction_verdict")
+            if isinstance(candidate, dict):
+                return candidate
+    return None
+
+
+def _direction_binding_valid(
+    gate_output: Dict[str, Any], evidence_sha256: Any
+) -> tuple[bool, str]:
+    binding = _direction_binding(gate_output)
+    if not isinstance(binding, dict):
+        return False, "cross_sectional direction verdict binding is required"
+    evidence_hash = str(evidence_sha256 or "")
+    result = binding.get("result")
+    if not evidence_hash or binding.get("evidence_sha256") != evidence_hash or not isinstance(result, dict):
+        return False, "direction verdict is not bound to evidence hash"
+    expected = _json_sha256({"evidence_sha256": evidence_hash, "result": result})
+    if binding.get("verdict_sha256") != expected:
+        return False, "direction verdict hash mismatch"
+    if binding.get("verdict") != result.get("verdict") or binding.get("passed") is not result.get("passed"):
+        return False, "direction verdict fields mismatch"
+    return True, "direction verdict bound"
 
 
 def _file_signature(path: str) -> tuple[int, int] | None:
@@ -134,16 +228,27 @@ def register_gate_result(strategy_id: str, gate_output: Dict[str, Any],
     """登记 research_gate 输出（gate_decision / allowed_in_live_agent / gate_asof）。"""
     rf = registry_file or _default_file()
     evidence = gate_output.get("evidence") or {}
+    strategy_kind, kind_reason = _registry_strategy_kind(strategy_id, gate_output)
+    direction_binding = _direction_binding(gate_output)
     requested_allowed = (
         gate_output.get("decision") == "passed_for_reference"
         and gate_output.get("allowed_in_live_agent") is True
     )
+    if strategy_kind is None:
+        requested_allowed = False
     evidence_verified, evidence_reason = _evidence_valid(
         strategy_id,
         evidence.get("artifact"),
         evidence.get("sha256"),
         gate_output.get("stats") if requested_allowed else None,
     ) if requested_allowed else (False, "gate did not allow live use")
+    if requested_allowed and strategy_kind == "cross_sectional_score":
+        direction_valid, direction_reason = _direction_binding_valid(
+            gate_output, evidence.get("sha256")
+        )
+        if not direction_valid:
+            evidence_verified = False
+            evidence_reason = direction_reason
     allowed = requested_allowed and evidence_verified
 
     def _mut(data: Any) -> Dict[str, Any]:
@@ -156,6 +261,11 @@ def register_gate_result(strategy_id: str, gate_output: Dict[str, Any],
             "allowed_in_live_agent": allowed,
             "gate_asof": gate_output.get("asof") or date.today().isoformat(),
             "gate_stats": gate_output.get("stats"),
+            "strategy_kind": strategy_kind,
+            "strategy_kind_reason": kind_reason,
+            "direction_verdict_sha256": (
+                direction_binding or {}
+            ).get("verdict_sha256"),
             "evidence_verified": evidence_verified,
             "evidence_reason": evidence_reason,
             "evidence_artifact": evidence.get("artifact"),

@@ -28,7 +28,7 @@ market_regimes:
 evidence_requirements:
   - turnover                 # 换手率 (%)
   - volume_ratio_5d          # 量比（近5日均量倍数）
-  - auction_sector_delta     # 相对板块领头分差（竞价短名单产出，龙头应为 0 附近或领先）
+  - auction_sector_delta     # 个股分数 - 板块第一名分数（竞价短名单产出，0 为领头，负数为落后）
   - auction_sector_rank      # 板块内竞价排名
   - sector_source            # 板块归属来源（用于板块级证据可信度）
   - hot_money_notes          # 游资/涨停梯队与板块赚钱效应线索
@@ -36,9 +36,9 @@ evidence_requirements:
 # 自然语言判断标准：供 agent 解释推荐时引用。
 interpretation: >-
   龙头假设成立需要四条同时可见：其一，板块内领涨地位——竞价板块排名靠前且相对板块
-  龙头分差不落后；其二，换手率显著放大（活跃筹码换手，超短口径通常在 5% 以上）；
-  其三，量比放大（量能确认，通常在 1.5 倍以上）；其四，相对板块产生超额（领先板块
-  内其他个体约 2 个百分点以上）并有板块级催化线索（板块赚钱效应或梯队联动）。四条
+  龙头分差不超过 2 分；其二，换手率显著放大（活跃筹码换手，超短口径通常在 5% 以上）；
+  其三，量比放大（量能确认，通常在 1.5 倍以上）；其四，竞价分数贴近板块第一名并有
+  板块级催化线索（板块赚钱效应或梯队联动）。四条
   越齐，"当前主线领涨核心"的解释越强；缺项越多，越应回退为普通跟随而非龙头。
 
 # 建议性加减分 —— 仅供解释，不进实盘评分（score_hints 永不写回排序）。
@@ -49,9 +49,9 @@ score_hints:
   - when: volume_ratio_ge_1_5
     delta: 2
     reason: 量比≥1.5，量能放大确认资金进场
-  - when: sector_excess_ge_2
+  - when: sector_lag_lte_2
     delta: 3
-    reason: 相对板块超额≥2个百分点，领涨地位明确
+    reason: 竞价分数落后板块第一名不超过2分，领涨地位明确
   - when: sector_catalyst_present
     delta: 2
     reason: 存在板块级催化/赚钱效应线索，龙头联动逻辑成立

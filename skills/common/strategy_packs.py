@@ -67,16 +67,24 @@ class PackError(RuntimeError):
 _TURNOVER_LOW = 3.0
 _TURNOVER_HIGH = 8.0
 _VOLUME_RATIO_HOT = 1.5
+_MA_COIL_THRESHOLD = 0.02
 
 
 def _num(candidate: Mapping[str, Any], key: str) -> float | None:
     value = candidate.get(key)
+    if isinstance(value, Mapping):
+        value = value.get("value")
     if value in (None, "", "-"):
         return None
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _feature_mapping(candidate: Mapping[str, Any], key: str) -> Mapping[str, Any] | None:
+    value = candidate.get(key)
+    return value if isinstance(value, Mapping) else None
 
 
 def _c_turnover_ge_5(c: Mapping[str, Any]) -> tuple[bool, str | None]:
@@ -107,11 +115,12 @@ def _c_volume_ratio_ge_1_5(c: Mapping[str, Any]) -> tuple[bool, str | None]:
     return (v >= _VOLUME_RATIO_HOT, None if v >= _VOLUME_RATIO_HOT else f"量比{v:g}未达{_VOLUME_RATIO_HOT:g}")
 
 
-def _c_sector_excess_ge_2(c: Mapping[str, Any]) -> tuple[bool, str | None]:
+def _c_sector_lag_lte_2(c: Mapping[str, Any]) -> tuple[bool, str | None]:
     v = _num(c, "auction_sector_delta")
     if v is None:
         return False, "缺少相对板块分差(auction_sector_delta)证据"
-    return (v >= 2.0, None if v >= 2.0 else f"相对板块超额{v:+g}不足2个百分点")
+    ok = v >= -2.0
+    return (ok, None if ok else f"相对板块领头分差{v:+g}，落后超过2分")
 
 
 def _c_sector_rank_top(c: Mapping[str, Any]) -> tuple[bool, str | None]:
@@ -130,26 +139,59 @@ def _c_sector_catalyst_present(c: Mapping[str, Any]) -> tuple[bool, str | None]:
 
 
 def _c_turnover_trend_converging(c: Mapping[str, Any]) -> tuple[bool, str | None]:
+    spike = _feature_mapping(c, "volume_spike_ratio")
+    if spike is not None:
+        if spike.get("available") is False:
+            return False, "volume_spike_ratio 不可用，无法判断量能收缩"
+        label = str(spike.get("label") or "").lower()
+        ok = label in {"shrink", "shrinking", "contracting", "converging"}
+        return (ok, None if ok else f"量能趋势标签为{label or '-'}，非收缩")
+
     trend = c.get("turnover_trend")
     if trend in (None, ""):
-        return False, "缺少换手率趋势(turnover_trend)证据"
+        return False, "缺少量能收缩(volume_spike_ratio)证据"
     ok = str(trend).lower() in {"converging", "收敛", "shrinking", "缩量"}
     return (ok, None if ok else f"换手率趋势为{trend}，非收敛")
 
 
 def _c_ma_converged(c: Mapping[str, Any]) -> tuple[bool, str | None]:
+    ma_coil = _feature_mapping(c, "ma_coil_ratio")
+    if ma_coil is not None:
+        if ma_coil.get("available") is False:
+            return False, "ma_coil_ratio 不可用，无法判断均线粘合"
+        if "coiled" in ma_coil:
+            ok = bool(ma_coil.get("coiled"))
+            v = _num(c, "ma_coil_ratio")
+            detail = f"{v:g}" if v is not None else "未给出"
+            return (ok, None if ok else f"均线粘合度{detail}未达粘合")
+        v = _num(c, "ma_coil_ratio")
+        if v is None:
+            return False, "缺少均线粘合度(ma_coil_ratio)数值证据"
+        return (
+            v <= _MA_COIL_THRESHOLD,
+            None if v <= _MA_COIL_THRESHOLD else f"均线粘合度{v:g}未达粘合(≤{_MA_COIL_THRESHOLD:g})",
+        )
+
     v = _num(c, "ma_convergence")
     if v is None:
-        return False, "缺少均线粘合度(ma_convergence)证据"
+        return False, "缺少均线粘合度(ma_coil_ratio)证据"
     # ma_convergence is a small dispersion ratio; smaller = tighter cluster.
     return (v <= 0.03, None if v <= 0.03 else f"均线离散度{v:g}未达粘合(≤0.03)")
 
 
 def _c_blowoff_volume_stall(c: Mapping[str, Any]) -> tuple[bool, str | None]:
-    vr = _num(c, "volume_ratio_5d")
     chg = _num(c, "change_pct")
+    spike = _feature_mapping(c, "volume_spike_ratio")
+    if spike is not None:
+        if spike.get("available") is False or chg is None:
+            return False, "缺少量能爆发或涨跌幅证据，无法判断爆量滞涨"
+        label = str(spike.get("label") or "").lower()
+        ok = label in {"distribution_suspect", "heavy_volume"} and chg <= 2.0
+        return (ok, None if ok else f"量能标签{label or '-'}/涨幅{chg:+g}%不构成爆量滞涨")
+
+    vr = _num(c, "volume_ratio_5d")
     if vr is None or chg is None:
-        return False, "缺少量比或涨跌幅证据，无法判断爆量滞涨"
+        return False, "缺少量能或涨跌幅证据，无法判断爆量滞涨"
     ok = vr >= 2.0 and chg <= 2.0
     return (ok, None if ok else f"量比{vr:g}/涨幅{chg:+g}%不构成爆量滞涨")
 
@@ -159,7 +201,7 @@ _CONDITIONS: dict[str, Callable[[Mapping[str, Any]], tuple[bool, str | None]]] =
     "turnover_low_band": _c_turnover_low_band,
     "turnover_high_band": _c_turnover_high_band,
     "volume_ratio_ge_1_5": _c_volume_ratio_ge_1_5,
-    "sector_excess_ge_2": _c_sector_excess_ge_2,
+    "sector_lag_lte_2": _c_sector_lag_lte_2,
     "sector_rank_top": _c_sector_rank_top,
     "sector_catalyst_present": _c_sector_catalyst_present,
     "turnover_trend_converging": _c_turnover_trend_converging,

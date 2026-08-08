@@ -23,6 +23,8 @@
 import os
 import sys
 from datetime import datetime
+from math import sqrt
+from statistics import mean, pstdev
 from typing import Any, Dict, List, Mapping, Optional
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -48,6 +50,162 @@ TIER_RULES = {
 # 重心移向 trend(1+2 定位决策)。此权重在情绪温度倍率之上再乘——温度是择时，此处是战略再平衡。
 # 默认 0.5(温和减半)；HERMES_DABAN_STRATEGIC_WEIGHT 可覆盖(0~1)。trend/中线策略不受影响。
 DABAN_STRATEGIC_WEIGHT_DEFAULT = 0.5
+
+TIER_ORDER = ("冰点", "修复", "发酵", "加速", "极热")
+
+
+def _number(value: Any) -> Optional[float]:
+    """Coerce a market statistic without turning missing data into zero."""
+    if isinstance(value, bool) or value in (None, "", "-"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def three_day_slope(values: Any) -> Optional[float]:
+    """Return the per-day slope of the latest three observations.
+
+    The function intentionally accepts a short history and returns ``None``
+    when it cannot establish a three-day trend.  This keeps a missing market
+    breadth series from being silently interpreted as a flat series.
+    """
+    if not isinstance(values, (list, tuple)):
+        return None
+    points = [_number(value) for value in values[-3:]]
+    if len(points) < 3 or any(value is None for value in points):
+        return None
+    first, middle, last = (float(value) for value in points)
+    # Least-squares slope for x = 0,1,2; equivalent to (last-first)/2,
+    # while being explicit about the meaning of "3 日斜率".
+    return round((last - first) / 2.0, 4)
+
+
+def smooth_three_day(values: Any) -> Optional[float]:
+    """Three-observation moving average, or ``None`` when unavailable."""
+    if not isinstance(values, (list, tuple)):
+        return None
+    points = [_number(value) for value in values[-3:]]
+    if len(points) < 3 or any(value is None for value in points):
+        return None
+    return round(mean(float(value) for value in points), 4)
+
+
+def _history_series(history: Any, keys: tuple[str, ...]) -> list[Optional[float]]:
+    if not isinstance(history, (list, tuple)):
+        return []
+    values: list[Optional[float]] = []
+    for row in history:
+        if not isinstance(row, Mapping):
+            continue
+        value = None
+        for key in keys:
+            value = _number(row.get(key))
+            if value is not None:
+                break
+        values.append(value)
+    return values
+
+
+def premium_statistics(values: Any) -> Dict[str, Any]:
+    """Point estimate and 95% CI for executable next-day net premium."""
+    if not isinstance(values, (list, tuple)):
+        return {"value": None, "confidence_interval": None, "sample_size": 0}
+    samples = [float(value) for value in (_number(item) for item in values)
+               if value is not None]
+    if not samples:
+        return {"value": None, "confidence_interval": None, "sample_size": 0}
+    estimate = mean(samples)
+    margin = 1.96 * pstdev(samples) / sqrt(len(samples)) if len(samples) > 1 else None
+    interval = (
+        [round(estimate - margin, 4), round(estimate + margin, 4)]
+        if margin is not None else None
+    )
+    return {
+        "value": round(estimate, 4),
+        "confidence_interval": interval,
+        "sample_size": len(samples),
+    }
+
+
+def _premium_history_by_tier(history: Any) -> Dict[str, List[Any]]:
+    """Normalize either tier->samples or row-oriented premium history."""
+    if isinstance(history, Mapping):
+        return {str(key): list(value) if isinstance(value, (list, tuple)) else []
+                for key, value in history.items()}
+    grouped: Dict[str, List[Any]] = {}
+    if isinstance(history, (list, tuple)):
+        for row in history:
+            if not isinstance(row, Mapping):
+                continue
+            tier = str(row.get("tier") or row.get("state") or "")
+            value = (row.get("next_day_net_premium")
+                     if row.get("next_day_net_premium") is not None
+                     else row.get("next_day_premium", row.get("premium")))
+            if tier and value is not None:
+                grouped.setdefault(tier, []).append(value)
+    return grouped
+
+
+def _temperature_metrics(
+    market_history: Any = None,
+    *,
+    limitup_total: Optional[int] = None,
+    broken_rate: Optional[float] = None,
+    previous_ladder_premium: Optional[float] = None,
+    limitdown_total: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Build the P1 breadth/feedback overlay from a bounded history."""
+    history = list(market_history or []) if isinstance(market_history, (list, tuple)) else []
+    series = {
+        "limitup_total": _history_series(history, ("limitup_total", "limitups", "涨停数")),
+        "broken_rate": _history_series(history, ("broken_rate", "炸板率", "break_rate")),
+        "previous_ladder_premium": _history_series(
+            history, ("previous_ladder_premium", "yesterday_limitup_premium", "昨日涨停溢价")
+        ),
+        "limitdown_total": _history_series(history, ("limitdown_total", "limitdowns", "跌停数")),
+    }
+    current = {
+        "limitup_total": limitup_total,
+        "broken_rate": broken_rate,
+        "previous_ladder_premium": previous_ladder_premium,
+        "limitdown_total": limitdown_total,
+    }
+    for key, value in current.items():
+        number = _number(value)
+        if number is not None:
+            series[key].append(number)
+    result: Dict[str, Any] = {}
+    for key, values in series.items():
+        result[f"{key}_3d_slope"] = three_day_slope(values)
+        result[f"{key}_3d_smooth"] = smooth_three_day(values)
+        result[key] = values[-1] if values else None
+    # Expose the Chinese report vocabulary as stable aliases for consumers.
+    result["limitup_slope_3d"] = result["limitup_total_3d_slope"]
+    result["broken_rate_slope_3d"] = result["broken_rate_3d_slope"]
+    result["yesterday_limitup_premium"] = result["previous_ladder_premium"]
+    result["yesterday_limitup_premium_3d_slope"] = result[
+        "previous_ladder_premium_3d_slope"
+    ]
+    result["limitdown_count"] = result["limitdown_total"]
+    result["limitdown_slope_3d"] = result["limitdown_total_3d_slope"]
+    return result
+
+
+def _ice_substate(metrics: Mapping[str, Any]) -> str:
+    """Separate a falling ice point from a confirmed, tradable repair."""
+    up = _number(metrics.get("limitup_total_3d_slope"))
+    broken = _number(metrics.get("broken_rate_3d_slope"))
+    premium = _number(metrics.get("previous_ladder_premium"))
+    down = _number(metrics.get("limitdown_total_3d_slope"))
+    # With no breadth/feedback history there is no honest way to call the
+    # point either a selloff or a confirmed repair.  Keep the legacy coarse
+    # tier in that case; callers with an explicit history always fail closed.
+    if up is None or broken is None or premium is None or down is None:
+        return ""
+    repaired = up > 0 and broken <= 0 and premium >= 0 and down <= 0
+    return "冰点修复" if repaired else "冰点杀跌"
 
 
 def daban_strategic_weight() -> float:
@@ -90,8 +248,9 @@ def promotion_rate(ladder: Optional[Mapping[str, Any]],
     return round(promoted / len(prev_codes), 4)
 
 
-def classify_tier(height: int, promo: Optional[float]) -> Dict[str, Any]:
-    """五档判定（纯函数）。晋级率缺失时按高度板单变量保守降一档。"""
+def classify_tier(height: int, promo: Optional[float],
+                  previous_tier: Optional[str] = None) -> Dict[str, Any]:
+    """五档判定（纯函数），支持单档滞回避免边界来回跳转。"""
     notes: List[str] = []
     if promo is None:
         notes.append("晋级率缺失（无昨日梯队快照），按高度板保守判定")
@@ -114,7 +273,23 @@ def classify_tier(height: int, promo: Optional[float]) -> Dict[str, Any]:
             tier = "修复"
         else:
             tier = "冰点"
-    return {"tier": tier, "notes": notes}
+    raw_tier = tier
+    if previous_tier in TIER_ORDER and tier in TIER_ORDER:
+        previous_index = TIER_ORDER.index(previous_tier)
+        current_index = TIER_ORDER.index(tier)
+        # A one-step change at a boundary needs confirmation from both
+        # dimensions; otherwise keep the previous state for one observation.
+        if abs(current_index - previous_index) == 1:
+            strong_up = promo is not None and promo >= {
+                "修复": 0.30, "发酵": 0.45, "加速": 0.60, "极热": 0.80,
+            }.get(tier, 1.0)
+            strong_down = promo is not None and promo < {
+                "冰点": 0.10, "修复": 0.15, "发酵": 0.30, "加速": 0.45,
+            }.get(tier, 0.0)
+            if not (strong_up or strong_down or height >= 8):
+                notes.append(f"状态滞回：{previous_tier}→{tier}证据不足，保持{previous_tier}")
+                tier = previous_tier
+    return {"tier": tier, "raw_tier": raw_tier, "notes": notes}
 
 
 def detect_retreat(prev_ladder: Optional[Mapping[str, Any]],
@@ -176,6 +351,17 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
                         limitup_total: Optional[int] = None,
                         morning_quotes: Optional[Mapping[str, Mapping[str, Any]]] = None,
                         retreat_ladder: Optional[Mapping[str, Any]] = None,
+                        market_history: Optional[List[Mapping[str, Any]]] = None,
+                        limitup_history: Optional[List[Any]] = None,
+                        broken_rate: Optional[float] = None,
+                        limitdown_total: Optional[int] = None,
+                        previous_ladder_premium: Optional[float] = None,
+                        next_day_premium_history: Any = None,
+                        previous_tier: Optional[str] = None,
+                        history: Optional[List[Mapping[str, Any]]] = None,
+                        broken_rate_history: Optional[List[Any]] = None,
+                        limitdown_history: Optional[List[Any]] = None,
+                        yesterday_premium_history: Optional[List[Any]] = None,
                         ) -> Dict[str, Any]:
     """完整温度计（纯函数）。数据缺失时阻断新风险。
 
@@ -193,10 +379,64 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
 
     height = ladder_height(ladder)
     promo = promotion_rate(ladder, prev_ladder)
-    cls = classify_tier(height, promo)
+    market_history = market_history or history
+    if market_history is None and any(value is not None for value in (
+        limitup_history, broken_rate_history, limitdown_history,
+        yesterday_premium_history,
+    )):
+        series = (
+            list(limitup_history or []), list(broken_rate_history or []),
+            list(yesterday_premium_history or []), list(limitdown_history or []),
+        )
+        market_history = [
+            {
+                key: values[index] for key, values in zip(
+                    ("limitup_total", "broken_rate", "previous_ladder_premium", "limitdown_total"),
+                    series
+                ) if index < len(values)
+            }
+            for index in range(max((len(values) for values in series), default=0))
+        ]
+    metrics = _temperature_metrics(
+        market_history,
+        limitup_total=limitup_total,
+        broken_rate=broken_rate,
+        limitdown_total=limitdown_total,
+        previous_ladder_premium=previous_ladder_premium,
+    )
+    cls = classify_tier(height, promo, previous_tier=previous_tier)
     tier = cls["tier"]
     notes = cls["notes"]
     rules = dict(TIER_RULES[tier])
+
+    ice_substate = _ice_substate(metrics) if tier == "冰点" else None
+    ice_substate = ice_substate or None
+    if ice_substate == "冰点杀跌":
+        rules.update(allow_new_daban=False, position_multiplier=0.0, top_n_limit=0)
+        rules["advice"] = "冰点杀跌，停止新增仓位｜只出不进"
+    elif ice_substate == "冰点修复":
+        rules.update(allow_new_daban=True, position_multiplier=0.2, top_n_limit=1)
+        rules["advice"] = "冰点修复已确认，仅允许小仓试错"
+
+    premium_samples_by_tier = _premium_history_by_tier(next_day_premium_history)
+    premium_by_state = {
+        state: premium_statistics(premium_samples_by_tier.get(state))
+        for state in TIER_ORDER
+    }
+    premium_input = premium_samples_by_tier.get(tier)
+    if not premium_samples_by_tier and isinstance(next_day_premium_history, (list, tuple)):
+        premium_input = next_day_premium_history
+    premium_stats = premium_statistics(premium_input)
+    metrics.update({
+        "ice_substate": ice_substate,
+        "next_day_net_premium": premium_stats["value"],
+        "next_day_net_premium_ci": premium_stats["confidence_interval"],
+        "next_day_executable_net_premium": premium_stats["value"],
+        "next_day_executable_net_premium_ci": premium_stats["confidence_interval"],
+        "next_day_net_premium_confidence_interval": premium_stats["confidence_interval"],
+        "net_premium_confidence_interval": premium_stats["confidence_interval"],
+        "premium_sample_size": premium_stats["sample_size"],
+    })
 
     observation_missing = morning_quotes is not None and not morning_quotes
     retreat = detect_retreat(retreat_ladder or prev_ladder, morning_quotes)
@@ -226,6 +466,21 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
         "height": height,
         "promotion_rate": promo,
         "limitup_total": limitup_total,
+        "ice_substate": ice_substate,
+        "market_metrics": metrics,
+        "limitup_slope_3d": metrics.get("limitup_slope_3d"),
+        "broken_rate_slope_3d": metrics.get("broken_rate_slope_3d"),
+        "yesterday_limitup_premium": metrics.get("yesterday_limitup_premium"),
+        "limitdown_slope_3d": metrics.get("limitdown_slope_3d"),
+        "limitup_3d_smooth": metrics.get("limitup_total_3d_smooth"),
+        "broken_rate_3d_smooth": metrics.get("broken_rate_3d_smooth"),
+        "next_day_net_premium": premium_stats["value"],
+        "next_day_net_premium_ci": premium_stats["confidence_interval"],
+        "next_day_executable_net_premium": premium_stats["value"],
+        "next_day_executable_net_premium_ci": premium_stats["confidence_interval"],
+        "next_day_net_premium_confidence_interval": premium_stats["confidence_interval"],
+        "net_premium_confidence_interval": premium_stats["confidence_interval"],
+        "premium_by_state": premium_by_state,
         "retreat_signal": retreat,
         "retreat_check": retreat_check,
         "notes": notes,
@@ -244,6 +499,15 @@ def _unavailable_temperature(
         "context_status": status,
         "height": 0,
         "promotion_rate": None,
+        "ice_substate": None,
+        "market_metrics": {},
+        "next_day_net_premium": None,
+        "next_day_net_premium_ci": None,
+        "next_day_net_premium_confidence_interval": None,
+        "net_premium_confidence_interval": None,
+        "next_day_executable_net_premium": None,
+        "next_day_executable_net_premium_ci": None,
+        "premium_by_state": {},
         "limitup_total": limitup_total,
         "allow_new_daban": False,
         "position_multiplier": 0.0,
@@ -319,9 +583,38 @@ def temperature_from_context(
     result = compute_temperature(
         ladder=context.get("lianban_ladder"),
         prev_ladder=context.get("prev_lianban_ladder"),
-        limitup_total=context.get("limitup_total"),
+        limitup_total=(context.get("limitup_total")
+                       if context.get("limitup_total") is not None
+                       else (context.get("market_sentiment") or {}).get("limitup_total")),
         morning_quotes=morning_quotes,
         retreat_ladder=context.get("lianban_ladder") if morning_quotes else None,
+        market_history=(context.get("market_history")
+                        or context.get("sentiment_history")
+                        or context.get("market_sentiment_history")
+                        or (context.get("market_sentiment") or {}).get("history")),
+        limitup_history=context.get("limitup_history"),
+        broken_rate_history=context.get("broken_rate_history"),
+        limitdown_history=context.get("limitdown_history"),
+        yesterday_premium_history=(context.get("yesterday_premium_history")
+                                   or context.get("limitup_premium_history")),
+        broken_rate=(context.get("broken_rate")
+                     if context.get("broken_rate") is not None
+                     else context.get("炸板率")
+                     if context.get("炸板率") is not None
+                     else (context.get("market_sentiment") or {}).get("broken_rate")),
+        limitdown_total=(context.get("limitdown_total")
+                         if context.get("limitdown_total") is not None
+                         else context.get("limitdown_count")
+                         if context.get("limitdown_count") is not None
+                         else (context.get("market_sentiment") or {}).get("limitdown_total")),
+        previous_ladder_premium=(context.get("previous_ladder_premium")
+                                 if context.get("previous_ladder_premium") is not None
+                                 else context.get("yesterday_limitup_premium")
+                                 if context.get("yesterday_limitup_premium") is not None
+                                 else (context.get("market_sentiment") or {}).get("previous_ladder_premium")),
+        next_day_premium_history=(context.get("next_day_premium_history")
+                                  or context.get("premium_history")),
+        previous_tier=context.get("previous_tier") or context.get("temperature_tier"),
     )
     degraded = result.get("context_status") == "degraded"
     result.update({

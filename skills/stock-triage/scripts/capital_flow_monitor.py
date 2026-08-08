@@ -125,6 +125,103 @@ def _market(code: str) -> str:
 # 连能跑完的那部分也拿不到。故限定扫描规模：持仓优先、其次监控标的。
 MAX_STOCK_TARGETS = 20
 
+_OBSERVABLE_PROXY_NAMES = (
+    "up_down_volume_ratio",
+    "vwap_hold_ratio",
+    "obv_slope",
+    "mfi",
+    "consecutive_large_order_net",
+    "lhb_institution_net_buy",
+    "industry_fund_flow",
+)
+
+
+def _proxy_observation(value: Any = None, *, source: str = "unavailable",
+                       asof: Any = None, asof_lag_days: Any = None) -> Dict[str, Any]:
+    """Represent an observable proxy with explicit provenance."""
+    if value is not None and (source == "unavailable" or asof is None):
+        value = None
+    result = {"value": value, "source": source, "asof": asof}
+    if asof_lag_days is not None:
+        result["asof_lag_days"] = asof_lag_days
+    return result
+
+
+def _flow_proxy(flow: Dict[str, Any], name: str,
+                aliases: tuple[str, ...] = (), *, default_source: str = "unavailable",
+                default_asof: Any = None) -> Dict[str, Any]:
+    flow = flow if isinstance(flow, dict) else {}
+    raw = next((flow[key] for key in (name,) + aliases if key in flow), None)
+    if isinstance(raw, dict):
+        value = raw.get("value")
+        source = raw.get("source") or flow.get("provider") or default_source
+        asof = raw.get("asof") or flow.get("date") or default_asof
+        lag = raw.get("asof_lag_days")
+    else:
+        value = raw
+        source = flow.get("provider") or default_source
+        asof = flow.get("date") or flow.get("asof") or default_asof
+        lag = flow.get(f"{name}_asof_lag_days")
+    if value is None:
+        return _proxy_observation()
+    return _proxy_observation(value, source=source, asof=asof,
+                              asof_lag_days=lag)
+
+
+def _flow_proxies(
+    quote: Optional[Dict[str, Any]],
+    exact_flow: Optional[Dict[str, Any]] = None,
+    *,
+    fallback_asof: Any = None,
+) -> Dict[str, Any]:
+    """Build proxy fields without treating a missing source as neutral evidence."""
+    quote = quote if isinstance(quote, dict) else {}
+    exact_flow = exact_flow if isinstance(exact_flow, dict) else {}
+    quote_source = quote.get("provider") or ("tencent" if quote else "unavailable")
+    quote_asof = quote.get("asof") or quote.get("date") if quote else None
+    if quote and quote_asof is None:
+        # The capture timestamp is an observation time, not a claim that the
+        # quote is a trading-date snapshot.
+        quote_asof = fallback_asof
+    observations = {
+        name: _proxy_observation() for name in _OBSERVABLE_PROXY_NAMES
+    }
+    explicit_quote = {
+        "up_down_volume_ratio": ("up_down_volume_ratio", "up_down_volume_ratio_proxy"),
+        "vwap_hold_ratio": ("vwap_hold_ratio", "vwap_hold_ratio_proxy"),
+        "obv_slope": ("obv_slope",),
+        "mfi": ("mfi",),
+    }
+    for name, aliases in explicit_quote.items():
+        observations[name] = _flow_proxy(
+            quote, name, aliases, default_source=quote_source, default_asof=quote_asof,
+        )
+    observations["consecutive_large_order_net"] = _flow_proxy(
+        exact_flow, "consecutive_large_order_net",
+        ("large_order_net", "large_order_net_yi"),
+    )
+    lhb = _flow_proxy(
+        exact_flow, "lhb_institution_net_buy",
+        ("institution_lhb_net_buy", "institution_lhb_net_wan"),
+    )
+    if lhb["value"] is not None and "asof_lag_days" not in lhb:
+        # 龙虎榜席位数据 is normally published no earlier than T+1; retain
+        # an explicit lag whenever an upstream source exposes the value.
+        lhb["asof_lag_days"] = exact_flow.get("lhb_asof_lag_days", 1)
+    observations["lhb_institution_net_buy"] = lhb
+    observations["industry_fund_flow"] = _flow_proxy(
+        exact_flow, "industry_fund_flow",
+        ("sector_fund_flow", "industry_net_flow"),
+    )
+    return {
+        **{name: obs.get("value") for name, obs in observations.items()},
+        "observable_proxies": observations,
+        "proxy_provenance": {
+            name: {key: value for key, value in obs.items() if key != "value"}
+            for name, obs in observations.items()
+        },
+    }
+
 
 def load_runtime_stocks(max_stocks: int = MAX_STOCK_TARGETS) -> list[tuple[str, str, str]]:
     """加载个股扫描标的：持仓优先、其次监控，按 max_stocks 截断。
@@ -543,6 +640,8 @@ def collect_flow_data(
                 "provider": "tencent",
                 "metric_type": "volume_price_proxy",
                 "available": bool(qt_data),
+                "source": qt_data.get("provider") or ("tencent" if qt_data else "unavailable"),
+                "asof": qt_data.get("asof") or qt_data.get("date"),
             },
         }
 
@@ -560,6 +659,13 @@ def collect_flow_data(
                 stock_flow["signal"] = "主力流入"
             elif main is not None and main < -1:
                 stock_flow["signal"] = "主力流出"
+        else:
+            exact_flow = {}
+        stock_flow.update(_flow_proxies(
+            qt_data,
+            exact_flow,
+            fallback_asof=result["timestamp"],
+        ))
         if ff_observation.get("status") != "ok":
             degraded = True
         result["source_health"]["stock_main_flow"].append({
@@ -586,7 +692,14 @@ def collect_flow_data(
             if exact_sector_flow
             else observation_error("market_adapters", DataSourceError("market_adapters", "sector fund flow unavailable"))
         )
-        sector = {"code": bk_code, "name": bk_name, "main_flow_status": "unavailable"}
+        sector = {
+            "code": bk_code,
+            "name": bk_name,
+            "main_flow_status": "unavailable",
+            "observable_proxies": {
+                name: _proxy_observation() for name in _OBSERVABLE_PROXY_NAMES
+            },
+        }
         if bk_observation.get("status") == "ok":
             exact_flow = dict(bk_observation["data"])
             sector["main_net_yi"] = exact_flow.get("main_net_yi")
@@ -603,6 +716,17 @@ def collect_flow_data(
                     "level": "🟡",
                     "msg": f"{bk_name}板块主力净流出{abs(sector['main_net_yi']):.0f}亿，注意风险"
                 })
+        else:
+            exact_flow = {}
+        sector_flow = dict(exact_flow)
+        if "industry_fund_flow" not in sector_flow and "main_net_yi" in sector_flow:
+            sector_flow["industry_fund_flow"] = sector_flow.get("main_net_yi")
+        sector_proxies = _flow_proxies(
+            {}, sector_flow, fallback_asof=result["timestamp"]
+        )
+        # Industry fund flow is the only sector-level proxy available here;
+        # do not copy it into a stock's actor-specific fields.
+        sector.update(sector_proxies)
         if bk_observation.get("status") != "ok":
             degraded = True
         result["source_health"]["sector_main_flow"].append({
@@ -662,14 +786,30 @@ def format_report(data: Dict) -> str:
         sig_str = f" [{sig}]" if sig else ""
         amount = f"{s.get('amount_yi', 0):.0f}亿" if s.get("amount_yi") else ""
         change = f"{s.get('change_pct', 0):+.2f}%" if s.get('change_pct') is not None else ""
-        main = f"主力{s.get('main_net_yi', 0):+.1f}亿" if 'main_net_yi' in s else ""
+        main_value = s.get("main_net_yi")
+        main = f"主力{main_value:+.1f}亿" if main_value is not None else ""
         lines.append(f"- {s['name']}: {s.get('price','N/A')} {change} {amount} {main}{sig_str}")
+        proxies = s.get("observable_proxies") or {}
+        proxy_text = "; ".join(
+            f"{name}={obs.get('value')} (source={obs.get('source')}, asof={obs.get('asof')})"
+            + (f", lag={obs['asof_lag_days']}d" if obs.get("asof_lag_days") is not None else "")
+            for name, obs in proxies.items()
+            if obs.get("value") is not None
+        )
+        lines.append(f"  观测代理：{proxy_text or '数据不可用（source=unavailable, asof=None）'}")
 
     # 板块
     lines.append("\n## 🏭 板块资金")
     for s in data.get("sectors", []):
-        main_str = f"主力{s['main_net_yi']:+.1f}亿" if 'main_net_yi' in s else "无数据"
+        main_value = s.get("main_net_yi")
+        main_str = f"主力{main_value:+.1f}亿" if main_value is not None else "无数据"
         lines.append(f"- {s['name']}: {main_str}")
+        industry = (s.get("observable_proxies") or {}).get("industry_fund_flow") or {}
+        lines.append(
+            "  行业资金流代理：{} (source={}, asof={})".format(
+                industry.get("value"), industry.get("source"), industry.get("asof")
+            )
+        )
 
     # 板块动量与轮动
     momentum = data.get("sector_momentum") or {}

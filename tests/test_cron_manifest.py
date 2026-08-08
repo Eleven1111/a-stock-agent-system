@@ -493,6 +493,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "social-attention-preopen",
         "social-attention-midday",
         "social-attention-close",
+        "hot-money-context-backfill",
         "candidate-preopen",
         "candidate-discovery",
             "auction-snapshot",
@@ -532,6 +533,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert _run_command(jobs["candidate-preopen"]).endswith(
         "candidate_discovery.py --bootstrap-if-missing --no-settle --json"
     )
+    assert jobs["hot-money-context-backfill"]["schedule"] == "20 8 * * 1-5"
     assert _run_command(jobs["hot-money-context"]).endswith("--cache-only")
     assert jobs["social-attention-preopen"]["schedule"] == "42 8 * * 1-5"
     assert jobs["social-attention-midday"]["schedule"] == "37 11 * * 1-5"
@@ -585,15 +587,27 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
             "social_attention.json" in path
             for path in jobs[job_id]["allowed_state_writes"]
         )
-    assert jobs["candidate-preopen"]["context_from"] == ["social-attention-preopen"]
+    assert jobs["candidate-preopen"]["context_from"] == [
+        "hot-money-context-backfill",
+        "social-attention-preopen",
+    ]
     assert jobs["candidate-preopen"]["dependency_policy"].get("optional_jobs") == [
         "social-attention-preopen"
     ]
+    assert jobs["candidate-preopen"]["dependency_policy"]["trading_date"] == (
+        "same_trading_date"
+    )
+    assert jobs["candidate-preopen"]["dependency_policy"]["max_age_minutes"] == 90
     assert jobs["auction-snapshot"]["context_from"] == ["candidate-preopen"]
     assert jobs["auction-snapshot"]["dependency_policy"].get("optional_jobs") == []
     from scripts.run_agent_dag import execution_order
 
-    assert execution_order(jobs, ["auction-snapshot"])[-2:] == [
+    assert execution_order(jobs, ["candidate-preopen"]) == [
+        "hot-money-context-backfill",
+        "candidate-preopen",
+    ]
+    assert execution_order(jobs, ["auction-snapshot"])[-3:] == [
+        "hot-money-context-backfill",
         "candidate-preopen",
         "auction-snapshot",
     ]

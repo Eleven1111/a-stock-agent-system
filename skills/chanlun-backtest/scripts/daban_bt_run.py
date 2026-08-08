@@ -135,6 +135,7 @@ def analyze(event_table: Dict[str, Any], split_date: str,
     research_state = {
         "asof": event_table.get("end"),
         "strategy_id": STRATEGY_ID,
+        "strategy_kind": "event_signal",
         "phase": "pre_oos",
         "rules_locked": True,
         "has_costs": True,

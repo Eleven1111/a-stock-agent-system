@@ -370,8 +370,14 @@ def analyze_rotation(days=5):
     lines.append("\n━━━ 🧭 轮动方向 ━━━")
     if persistent:
         hot_direction = max(persistent.items(), key=lambda x: x[1]['latest_count'])[0]
-        lines.append("  主力方向: {}（持续{}天热度）".format(hot_direction,
+        lines.append("  持续热点方向（按涨停家数代理）: {}（持续{}天热度）".format(hot_direction,
             persistent[hot_direction]['appearances']))
+        latest_asof = sorted_dates[-1] if sorted_dates else None
+        lines.append(
+            "  可观测代理：industry_fund_flow=数据不可用；"
+            "source=akshare_limitup_pool，asof={}；"
+            "涨停家数仅描述热度，不推断机构行为".format(latest_asof)
+        )
     if emerging:
         lines.append("  新方向: " + "、".join(sorted(emerging.keys())))
     if fading:

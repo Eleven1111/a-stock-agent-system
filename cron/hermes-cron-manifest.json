@@ -241,6 +241,7 @@
       "deliver": "local",
       "max_output_chars": 2500,
       "context_from": [
+        "hot-money-context-backfill",
         "social-attention-preopen"
       ],
       "dependency_policy": {
@@ -444,7 +445,7 @@
     {
       "id": "hot-money-context-backfill",
       "name": "盘前涨停梯队自愈回填",
-      "schedule": "40 8 * * 1-5",
+      "schedule": "20 8 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command_argv": [
         "python",
@@ -478,7 +479,7 @@
         "timeout_seconds": 120,
         "timeout_tier": "standard"
       },
-      "external_note": "08:40 盘前校验上一交易日涨停梯队是否在册（candidate-preopen 08:45 之前）；收盘 hot-money-context 缺档时回填，防止 update_signal_context 把更旧梯队错滚成 prev 导致溢价基准用错日期；已在册时静默 no-op 不投递"
+      "external_note": "08:20 盘前校验上一交易日涨停梯队是否在册（candidate-preopen 08:30 前）；收盘 hot-money-context 缺档时回填，防止 update_signal_context 把更旧梯队错滚成 prev 导致溢价基准用错日期；已在册时静默 no-op 不投递"
     },
     {
       "id": "candidate-discovery",
@@ -867,6 +868,51 @@
         "timeout_tier": "standard"
       },
       "external_note": "09:35 输出买入区间/追价线/止损/目标/T+1约束和公告质检；不自动下单"
+    },
+    {
+      "id": "discovery-recall-report",
+      "name": "池外强票召回损失报告",
+      "schedule": "36 9 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "discovery-recall-report",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 2500,
+      "context_from": [
+        "open-confirmation"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 15
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/discovery_recall_report_latest.json",
+        "$A_STOCK_STATE_HOME/cron/output/discovery-recall-report/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "scripts/discovery_recall_report.py",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 30,
+        "timeout_tier": "short"
+      },
+      "external_note": "09:36 汇总09:24全市场强票在D0预筛、竞价池、可成交和开盘确认各阶段的召回与流失；仅用于优化预筛阈值，不扩大竞价池"
     },
     {
       "id": "paper-trading-open",

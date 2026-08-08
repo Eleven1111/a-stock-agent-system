@@ -43,7 +43,8 @@ def test_t1_scenario_a_strong_seal():
 def test_t1_scenario_b_resealed():
     out = api.t1_scenario({"open_board_count": 2, "sealed_at_close": True})
     assert out["scenario"] == "B"
-    assert "1/3" in out["auction_plan"]
+    assert "补仓" not in out["auction_plan"]
+    assert out["allowed_actions"] == ["reduce", "exit", "observe"]
 
 
 def test_t1_scenario_c_failed_seal():

@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -26,6 +27,37 @@ ENGINE = {
 
 REQUIRED_CONTROLS = {"random_entry", "simple_breakout", "buy_hold"}
 REQUIRED_TESTS = {"t_test", "bootstrap", "permutation"}
+
+# These IDs are ranking outputs even when their callers omit strategy_kind.
+KNOWN_SCORE_STRATEGY_IDS = {
+    "trend_pullback",
+    "trend_score",
+    "daban_score",
+    "auction_score",
+    "auction_daban_score",
+    "auction_trend_score",
+    "open_score",
+    "open_daban_score",
+    "open_trend_score",
+    "leader_score",
+    "mainline_score",
+    "tail_close_score",
+}
+KNOWN_EVENT_STRATEGY_IDS = {
+    "chanlun_first_buy",
+    "chanlun_second_buy",
+    "chanlun_third_buy",
+    "chanlun_first_sell",
+    "chanlun_second_sell",
+    "chanlun_top_divergence",
+    "daban:first_board_reseal",
+    "daban:second_board_weak_to_strong",
+    "first_board_reseal",
+    "second_board_weak_to_strong",
+    "首板回封",
+    "二板弱转强",
+}
+VALID_STRATEGY_KINDS = {"event_signal", "cross_sectional_score"}
 
 
 def _ensure_common_on_path() -> None:
@@ -134,6 +166,121 @@ def _set(value: Any) -> Set[str]:
     return set()
 
 
+def _json_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _load_json_object(path: Any) -> Optional[Dict[str, Any]]:
+    if not path:
+        return None
+    try:
+        with open(os.path.abspath(os.path.expanduser(str(path))), encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _contains_score_field(value: Any) -> bool:
+    """Detect score-bearing evidence without treating ordinary text as a score."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized = str(key).strip().lower()
+            if normalized in {"score", "scores"} or normalized.endswith("_score"):
+                return True
+            if _contains_score_field(child):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_score_field(item) for item in value)
+    return False
+
+
+def _looks_like_score_strategy(strategy_id: Any) -> bool:
+    normalized = str(strategy_id or "").strip().lower()
+    if not normalized:
+        return False
+    if normalized in KNOWN_SCORE_STRATEGY_IDS:
+        return True
+    # Custom ranking IDs must not be able to hide behind an omitted kind.
+    tokens = {token for token in normalized.replace(":", "_").replace("-", "_").split("_") if token}
+    return bool(tokens & {"score", "scores", "rank", "ranking", "factor"})
+
+
+def _is_known_event_strategy(strategy_id: Any) -> bool:
+    normalized = str(strategy_id or "").strip().lower()
+    return normalized in {item.lower() for item in KNOWN_EVENT_STRATEGY_IDS} or normalized.startswith("chanlun_")
+
+
+def _identify_strategy_kind(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve strategy kind fail-closed, with score evidence taking precedence."""
+    strategy_id = payload.get("strategy_id")
+    artifact = _load_json_object(payload.get("evidence_artifact"))
+    score_evidence = _contains_score_field(artifact)
+    submitted_cohorts = "cross_sectional_cohorts" in payload
+    score_id = _looks_like_score_strategy(strategy_id)
+    explicit = payload.get("strategy_kind")
+    explicit_kind = str(explicit).strip() if isinstance(explicit, str) else ""
+    score_detected = score_id or submitted_cohorts or score_evidence
+
+    if score_detected:
+        if explicit_kind and explicit_kind != "cross_sectional_score":
+            return {
+                "kind": "cross_sectional_score",
+                "declared": bool(explicit_kind),
+                "conflict": True,
+                "source": "score_evidence_conflict",
+                "reason": "strategy_kind 与打分型策略/证据冲突，必须声明 cross_sectional_score",
+            }
+        source = (
+            "known_score_id" if score_id else
+            "cross_sectional_cohorts" if submitted_cohorts else "score_evidence"
+        )
+        return {
+            "kind": "cross_sectional_score",
+            "declared": bool(explicit_kind),
+            "source": source,
+            "reason": (
+                "已识别为横截面打分策略，但必须显式声明 strategy_kind=cross_sectional_score"
+                if not explicit_kind else "已识别为横截面打分策略"
+            ),
+        }
+
+    if explicit_kind in VALID_STRATEGY_KINDS:
+        return {
+            "kind": explicit_kind,
+            "declared": True,
+            "source": "explicit",
+            "reason": f"显式声明 strategy_kind={explicit_kind}",
+        }
+    if explicit_kind:
+        return {
+            "kind": None,
+            "declared": True,
+            "source": "unknown_explicit_kind",
+            "reason": f"未知 strategy_kind={explicit_kind}",
+        }
+    if _is_known_event_strategy(strategy_id):
+        return {
+            "kind": "event_signal",
+            "declared": False,
+            "source": "known_event_id",
+            "reason": "已识别为事件型策略",
+        }
+    return {
+        "kind": None,
+        "declared": False,
+        "source": "missing_kind",
+        "reason": "缺少可判定的 strategy_kind，不能按 event_signal 静默放行",
+    }
+
+
+def _direction_verdict_sha256(evidence_sha256: str, result: Dict[str, Any]) -> str:
+    return _json_sha256({"evidence_sha256": evidence_sha256, "result": result})
+
+
 def phase_checklist(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     controls = _set(payload.get("controls"))
     tests = _set(payload.get("stat_tests") or payload.get("tests"))
@@ -198,6 +345,17 @@ def phase_checklist(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             "passed": evidence["passed"],
             "reason": evidence["reason"],
         })
+    kind = _identify_strategy_kind(payload)
+    checks.append({
+        "id": "strategy_kind",
+        "passed": (
+            kind["kind"] in VALID_STRATEGY_KINDS
+            and (kind["kind"] != "cross_sectional_score" or kind["declared"])
+            and not kind.get("conflict", False)
+        ),
+        "reason": kind["reason"],
+        "detail": kind,
+    })
     direction = _cross_sectional_check(payload)
     if direction is not None:
         checks.append(direction)
@@ -208,10 +366,11 @@ def _cross_sectional_check(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """横截面打分必须证明「高分优于低分」。
 
     事件级 T+1/T+3 判定回答不了排序方向——trend_score 正是从这个盲区漏过去的
-    （2026-08-08 实测中窗口 rank IC -0.34、8/8 队列全负）。只对显式声明为
+    （2026-08-08 实测中窗口 rank IC -0.34、8/8 队列全负）。对识别为
     ``cross_sectional_score`` 的策略生效，事件级策略（缠论买卖点等）不受影响。
     """
-    if str(payload.get("strategy_kind") or "event_signal") != "cross_sectional_score":
+    kind = _identify_strategy_kind(payload)
+    if kind["kind"] != "cross_sectional_score":
         return None
     cohorts = payload.get("cross_sectional_cohorts")
     if not isinstance(cohorts, list) or not cohorts:
@@ -224,6 +383,8 @@ def _cross_sectional_check(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     import cross_sectional_direction
 
     result = cross_sectional_direction.evaluate(cohorts)
+    evidence_sha256 = str(payload.get("evidence_sha256") or _json_sha256(cohorts))
+    verdict_sha256 = _direction_verdict_sha256(evidence_sha256, result)
     return {
         "id": "cross_sectional_direction",
         "passed": result["passed"],
@@ -233,11 +394,20 @@ def _cross_sectional_check(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             f"可用队列={result['usable_cohorts']} 独立队列={result['independent_cohorts']}"
         ),
         "detail": result,
+        "direction_verdict": {
+            "schema": "cross_sectional_direction_binding_v1",
+            "verdict": result["verdict"],
+            "passed": result["passed"],
+            "evidence_sha256": evidence_sha256,
+            "verdict_sha256": verdict_sha256,
+            "result": result,
+        },
     }
 
 
 def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
     checklist = phase_checklist(payload)
+    kind = _identify_strategy_kind(payload)
     blocking_reasons = [item["reason"] for item in checklist if not item["passed"]]
     phase = payload.get("phase", "pre_oos")
     oos_run_count = int(_num(payload.get("oos_run_count"), 0) or 0)
@@ -278,6 +448,10 @@ def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
         (item for item in checklist if item.get("id") == "evidence_artifact"),
         None,
     )
+    direction_check = next(
+        (item for item in checklist if item.get("id") == "cross_sectional_direction"),
+        None,
+    )
 
     return {
         "schema": "chanlun_research_gate_v1",
@@ -285,6 +459,8 @@ def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
         "asof": payload.get("asof") or date.today().isoformat(),
         "engine": ENGINE,
         "strategy_id": payload.get("strategy_id", "unknown"),
+        "strategy_kind": kind["kind"],
+        "strategy_kind_source": kind["source"],
         "phase": phase,
         "decision": decision,
         "allowed_in_live_agent": allowed_in_live_agent,
@@ -303,6 +479,7 @@ def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
             "sha256": payload.get("evidence_sha256"),
             "reason": (evidence_check or {}).get("reason"),
         },
+        "direction_verdict": (direction_check or {}).get("direction_verdict"),
         "warnings": [
             "本工具只做离线研究验证，不输出实时买卖指令",
             "OOS结果只能在规则锁定后运行一次；看结果后改规则会破坏样本外证据",
@@ -338,6 +515,7 @@ def example_payload() -> Dict[str, Any]:
     return {
         "asof": "2026-06-03",
         "strategy_id": "chanlun_third_buy_loose",
+        "strategy_kind": "event_signal",
         "phase": "pre_oos",
         "rules_locked": True,
         "has_costs": True,

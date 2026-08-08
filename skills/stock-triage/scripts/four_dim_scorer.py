@@ -121,6 +121,168 @@ def fetch_serper_news(query: str, num: int = 5) -> Optional[List[Dict]]:
         return None
 
 
+_OBSERVABLE_PROXY_NAMES = (
+    "up_down_volume_ratio",
+    "vwap_hold_ratio",
+    "obv_slope",
+    "mfi",
+    "consecutive_large_order_net",
+    "lhb_institution_net_buy",
+    "industry_fund_flow",
+)
+
+
+def _proxy_observation(value: Any = None, *, source: str = "unavailable",
+                       asof: Any = None, asof_lag_days: Any = None) -> Dict[str, Any]:
+    """Keep a proxy value inseparable from its provenance.
+
+    These are observations, not an inference about an actor's intent.  In
+    particular, missing source/as-of data remains unavailable instead of
+    being filled with the current time.
+    """
+    # A numeric value without both provenance dimensions is not an
+    # admissible observation; fail closed rather than implying freshness.
+    if value is not None and (source == "unavailable" or asof is None):
+        value = None
+    result = {"value": value, "source": source, "asof": asof}
+    if asof_lag_days is not None:
+        result["asof_lag_days"] = asof_lag_days
+    return result
+
+
+def _proxy_bundle(values: Optional[Dict[str, Any]] = None,
+                  observations: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+    values = values or {}
+    observations = observations or {
+        name: _proxy_observation() for name in _OBSERVABLE_PROXY_NAMES
+    }
+    # Direct numeric fields keep the existing score payload easy to consume;
+    # observable_proxies is the canonical value+provenance representation.
+    return {
+        **{name: values.get(name) for name in _OBSERVABLE_PROXY_NAMES},
+        "observable_proxies": observations,
+        "proxy_provenance": {
+            name: {key: value for key, value in obs.items() if key != "value"}
+            for name, obs in observations.items()
+        },
+    }
+
+
+def _bar_asof(bar: Dict[str, Any]) -> Any:
+    return (bar.get("asof") or bar.get("date") or bar.get("datetime")
+            or bar.get("time"))
+
+
+def _quote_proxy(quote: Optional[Dict[str, Any]], name: str,
+                 aliases: Tuple[str, ...] = ()) -> Dict[str, Any]:
+    """Read an explicitly supplied quote proxy without deriving intent."""
+    quote = quote if isinstance(quote, dict) else {}
+    keys = (name,) + aliases
+    raw = next((quote[key] for key in keys if key in quote), None)
+    if isinstance(raw, dict):
+        value = raw.get("value")
+        source = raw.get("source") or quote.get("provider") or "quote"
+        asof = raw.get("asof") or quote.get("asof") or quote.get("date")
+        lag = raw.get("asof_lag_days")
+    else:
+        value = raw
+        source = quote.get("provider") or "quote"
+        asof = quote.get("asof") or quote.get("date")
+        lag = None
+    if value is None:
+        return _proxy_observation()
+    return _proxy_observation(value, source=source, asof=asof,
+                              asof_lag_days=lag)
+
+
+def compute_observable_proxies(
+    klines: Optional[List[Dict[str, Any]]] = None,
+    quote: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Compute only reproducible price/volume proxies; never name an actor.
+
+    Daily bars cannot observe intraday time above VWAP, so the VWAP field is a
+    bar-level hold ratio (close >= typical-price VWAP proxy).  Actor-specific
+    fields are accepted only when an upstream adapter explicitly supplies
+    them, otherwise they remain unavailable.
+    """
+    bars = [bar for bar in (klines or []) if isinstance(bar, dict)]
+    dated = [bar for bar in bars if _bar_asof(bar)]
+    asof = _bar_asof(dated[-1]) if dated else None
+    source = ((dated[-1].get("source") or dated[-1].get("provider"))
+              if dated else None) or "tencent_kline"
+    observations: Dict[str, Dict[str, Any]] = {
+        name: _proxy_observation() for name in _OBSERVABLE_PROXY_NAMES
+    }
+    if len(bars) >= 2:
+        rows = []
+        for bar in bars:
+            try:
+                close = float(bar.get("close"))
+                volume = float(bar.get("volume"))
+                high = float(bar.get("high", close))
+                low = float(bar.get("low", close))
+            except (TypeError, ValueError):
+                continue
+            if close > 0 and volume >= 0:
+                rows.append((close, volume, high, low))
+        if len(rows) >= 2:
+            up_volume = sum(volume for (prev, _, _, _), (close, volume, _, _) in zip(rows, rows[1:])
+                            if close > prev)
+            down_volume = sum(volume for (prev, _, _, _), (close, volume, _, _) in zip(rows, rows[1:])
+                              if close < prev)
+            ratio = up_volume / down_volume if down_volume > 0 else None
+            observations["up_down_volume_ratio"] = _proxy_observation(
+                round(ratio, 6) if ratio is not None else None,
+                source=source, asof=asof)
+
+            hold_count = sum(
+                close >= (high + low + close) / 3.0
+                for close, _volume, high, low in rows
+            )
+            observations["vwap_hold_ratio"] = _proxy_observation(
+                round(hold_count / len(rows), 6), source=source, asof=asof)
+
+            obv = [0.0]
+            for (prev, _, _, _), (close, volume, _, _) in zip(rows, rows[1:]):
+                obv.append(obv[-1] + (volume if close > prev else -volume if close < prev else 0))
+            window = obv[-min(20, len(obv)):]
+            if len(window) >= 2:
+                x_mean = (len(window) - 1) / 2
+                y_mean = sum(window) / len(window)
+                denom = sum((i - x_mean) ** 2 for i in range(len(window)))
+                slope = sum((i - x_mean) * (value - y_mean)
+                            for i, value in enumerate(window)) / denom
+                observations["obv_slope"] = _proxy_observation(
+                    round(slope, 6), source=source, asof=asof)
+
+            period = min(14, len(rows) - 1)
+            positive = negative = 0.0
+            for previous, current in zip(rows[-period - 1:-1], rows[-period:]):
+                typical = (current[0] + current[2] + current[3]) / 3.0
+                money = typical * current[1]
+                if typical > (previous[0] + previous[2] + previous[3]) / 3.0:
+                    positive += money
+                elif typical < (previous[0] + previous[2] + previous[3]) / 3.0:
+                    negative += money
+            mfi = 100.0 if negative == 0 and positive else (
+                100.0 - 100.0 / (1.0 + positive / negative) if negative else None
+            )
+            observations["mfi"] = _proxy_observation(
+                round(mfi, 6) if mfi is not None else None,
+                source=source, asof=asof)
+
+    quote_fields = {
+        "consecutive_large_order_net": ("large_order_net", "large_order_net_yi"),
+        "lhb_institution_net_buy": ("institution_lhb_net_buy", "institution_lhb_net_wan"),
+        "industry_fund_flow": ("sector_fund_flow", "industry_net_flow"),
+    }
+    for name, aliases in quote_fields.items():
+        supplied = _quote_proxy(quote, name, aliases)
+        if supplied["value"] is not None:
+            observations[name] = supplied
+    values = {name: obs.get("value") for name, obs in observations.items()}
+    return _proxy_bundle(values, observations)
 # ========== 技术指标 → 统一走 common/indicators.py ==========
 # calc_ma/calc_ema/calc_macd/calc_rsi/calc_kdj 已在顶部从 indicators import，
 # 数值与历史实现逐位一致，消除与 chan_structure / tech_analysis 的重复定义。
@@ -187,6 +349,7 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
     rt = quote if quote is not None else fetch_tencent_realtime(code, market)
     if klines is None:
         klines = fetch_tencent_kline(code, market, 60)
+    proxies = compute_observable_proxies(klines, rt)
 
     if not klines:
         return {
@@ -202,6 +365,7 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
             "price": rt.get("price"),
             "change_pct": rt.get("change_pct"),
             "detail": "K线数据不足",
+            **proxies,
         }
 
     closes = [k.get("close") for k in klines if isinstance(k, dict)]
@@ -227,6 +391,7 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
             "price": rt.get("price"),
             "change_pct": rt.get("change_pct"),
             "detail": "K线close数据为空",
+            **proxies,
         }
 
     ma5 = calc_ma(closes, 5)
@@ -316,7 +481,7 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
             score += 0.5
             signals.append(f"放量({vol_ratio:.1f}x)")
 
-    # 筹码集中度（新增：主力控盘/建仓信号）
+    # 筹码集中度（仅作为可观测分布代理，不推断参与者行为）
     chip_conc = calc_chip_concentration(closes, volumes)
     if chip_conc is not None:
         if chip_conc < 8:
@@ -370,6 +535,7 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
         "change_pct": rt.get("change_pct"),
         "detail": "; ".join(signals) if signals else "无明确信号",
         "emotion_cycle": emotion_features,
+        **proxies,
     }
 
 
@@ -380,7 +546,7 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
 
     本系统核心玩法是抓赚钱效应板块做打板/高成长，情绪面是主战场：
     基础分仍由涨跌幅+换手率给出（向后兼容），其上叠加 signal_context 的
-    连板梯队在册/封板质量/板块涨停集群/主力与北向资金加成；上下文缺失时
+    连板梯队在册/封板质量/板块涨停集群/资金流与北向观测加成；上下文缺失时
     行为与历史完全一致。
     """
     market = "sz" if code.startswith(("0", "3")) else "sh"
@@ -1119,8 +1285,30 @@ def format_report(result: Dict[str, Any]) -> str:
         extra.append(f"量比={t['volume_ratio']:.1f}")
     if t.get('chip_concentration') is not None:
         extra.append(f"筹码集中度={t['chip_concentration']:.1f}%")
+    proxy_values = t.get("observable_proxies") or {}
+    proxy_labels = {
+        "up_down_volume_ratio": "涨跌量比",
+        "vwap_hold_ratio": "VWAP保持率",
+        "obv_slope": "OBV斜率",
+        "mfi": "MFI",
+    }
+    proxy_text = [
+        f"{label}={proxy_values[key]['value']}"
+        for key, label in proxy_labels.items()
+        if proxy_values.get(key, {}).get("value") is not None
+    ]
+    if proxy_text:
+        extra.extend(proxy_text)
     if extra:
         lines.append(f"**微结构：** {' | '.join(extra)}")
+    if proxy_values:
+        rendered_proxies = "; ".join(
+            f"{key}={obs.get('value')} (source={obs.get('source')}, asof={obs.get('asof')})"
+            for key, obs in proxy_values.items()
+            if obs.get("value") is not None
+        )
+        lines.append("**可观测资金代理（仅条件证据）：** " +
+                     (rendered_proxies or "数据不可用（source=unavailable, asof=None）"))
     lines.append(f"**PE：** {s['deep'].get('pe', 'N/A')}")
     lines.append("")
 
