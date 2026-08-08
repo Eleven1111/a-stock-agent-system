@@ -1255,7 +1255,7 @@
       "cwd": ".",
       "enabled": true,
       "external": true,
-      "expected_output": "text",
+      "expected_output": "json",
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
@@ -1283,6 +1283,7 @@
         "argv": [
           "python",
           "skills/stock-triage/scripts/capital_flow_monitor.py",
+          "--json",
           "--cache",
           "--delivery-job-id",
           "capital-flow"
@@ -1805,7 +1806,8 @@
       "run": {
         "argv": [
           "python",
-          "skills/news-to-sector/scripts/scheduled_monitor.py"
+          "skills/news-to-sector/scripts/scheduled_monitor.py",
+          "--json"
         ],
         "cwd": ".",
         "timeout_seconds": 420,
@@ -1849,7 +1851,8 @@
       "run": {
         "argv": [
           "python",
-          "skills/news-to-sector/scripts/scheduled_monitor.py"
+          "skills/news-to-sector/scripts/scheduled_monitor.py",
+          "--json"
         ],
         "cwd": ".",
         "timeout_seconds": 180,
@@ -1873,7 +1876,7 @@
       "cwd": ".",
       "enabled": true,
       "external": true,
-      "expected_output": "text",
+      "expected_output": "json",
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
@@ -1891,7 +1894,8 @@
       "run": {
         "argv": [
           "python",
-          "skills/policy-intent-decoder/scripts/watch_official_policy.py"
+          "skills/policy-intent-decoder/scripts/watch_official_policy.py",
+          "--json"
         ],
         "cwd": ".",
         "timeout_seconds": 120,
@@ -1996,7 +2000,7 @@
       "cwd": ".",
       "enabled": true,
       "external": true,
-      "expected_output": "text",
+      "expected_output": "json",
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
@@ -2016,7 +2020,8 @@
           "python",
           "skills/news-to-sector/scripts/scheduled_monitor.py",
           "--mode",
-          "intraday"
+          "intraday",
+          "--json"
         ],
         "cwd": ".",
         "timeout_seconds": 240,
@@ -2079,7 +2084,7 @@
       "cwd": ".",
       "enabled": true,
       "external": true,
-      "expected_output": "text",
+      "expected_output": "json",
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
@@ -2094,7 +2099,8 @@
       "run": {
         "argv": [
           "python",
-          "skills/stock-triage/scripts/event_calendar.py"
+          "skills/stock-triage/scripts/event_calendar.py",
+          "--json"
         ],
         "cwd": ".",
         "timeout_seconds": 180,
