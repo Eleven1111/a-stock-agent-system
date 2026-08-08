@@ -28,6 +28,13 @@ REQUIRED_CONTROLS = {"random_entry", "simple_breakout", "buy_hold"}
 REQUIRED_TESTS = {"t_test", "bootstrap", "permutation"}
 
 
+def _ensure_common_on_path() -> None:
+    """skills/common 入 sys.path，只此一处（避免每个调用点各插一次）。"""
+    common = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+    if common not in sys.path:
+        sys.path.insert(0, common)
+
+
 def _verify_evidence(payload: Dict[str, Any]) -> Dict[str, Any]:
     path = payload.get("evidence_artifact")
     if not path:
@@ -37,9 +44,7 @@ def _verify_evidence(payload: Dict[str, Any]) -> Dict[str, Any]:
             "artifact": None,
             "sha256": None,
         }
-    common = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
-    if common not in sys.path:
-        sys.path.insert(0, common)
+    _ensure_common_on_path()
     from research_artifact import verify_artifact
 
     verification = verify_artifact(
@@ -193,7 +198,42 @@ def phase_checklist(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
             "passed": evidence["passed"],
             "reason": evidence["reason"],
         })
+    direction = _cross_sectional_check(payload)
+    if direction is not None:
+        checks.append(direction)
     return checks
+
+
+def _cross_sectional_check(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """横截面打分必须证明「高分优于低分」。
+
+    事件级 T+1/T+3 判定回答不了排序方向——trend_score 正是从这个盲区漏过去的
+    （2026-08-08 实测中窗口 rank IC -0.34、8/8 队列全负）。只对显式声明为
+    ``cross_sectional_score`` 的策略生效，事件级策略（缠论买卖点等）不受影响。
+    """
+    if str(payload.get("strategy_kind") or "event_signal") != "cross_sectional_score":
+        return None
+    cohorts = payload.get("cross_sectional_cohorts")
+    if not isinstance(cohorts, list) or not cohorts:
+        return {
+            "id": "cross_sectional_direction",
+            "passed": False,
+            "reason": "缺少横截面方向证据：声明为打分类策略必须提交 cross_sectional_cohorts",
+        }
+    _ensure_common_on_path()
+    import cross_sectional_direction
+
+    result = cross_sectional_direction.evaluate(cohorts)
+    return {
+        "id": "cross_sectional_direction",
+        "passed": result["passed"],
+        "reason": (
+            f"{result['verdict']}: mean_ic={result['mean_ic']} "
+            f"同号占比={result['positive_ic_ratio']} "
+            f"可用队列={result['usable_cohorts']} 独立队列={result['independent_cohorts']}"
+        ),
+        "detail": result,
+    }
 
 
 def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
