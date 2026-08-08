@@ -134,7 +134,19 @@ def output_has_signal(parsed: Any, stdout: str) -> bool:
     lists = [value for value in parsed.values() if isinstance(value, list)]
     if lists and not any(lists):
         return False
-    if status in {"no_signal", "no_events", "empty"}:
+    # 无信号状态集合：除 no_signal/no_events/empty 外，带否定前缀的变体也要
+    # 覆盖（no_new_signal/no_change/no_update/nothing_new），否则 official-
+    # policy-watch 这类 "扫描正常但无新增" 的作业会被误判为 has_signal=True，
+    # 绕过 silent_when_no_signal 门并把原始 JSON 推到飞书。
+    if status in {
+        "no_signal",
+        "no_events",
+        "empty",
+        "no_new_signal",
+        "no_change",
+        "no_update",
+        "nothing_new",
+    }:
         return False
     return True
 

@@ -7,9 +7,10 @@ enters the LLM context window.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
-from typing import Any
+from typing import Any, Mapping
 
 CHAT_ID_ENV = "A_STOCK_FEISHU_CHAT_ID"
 LARK_CLI = "lark-cli"
@@ -40,6 +41,56 @@ def _with_disclosure(text: str) -> str:
         return text
     separator = "" if text.endswith("\n") else "\n"
     return f"{text}{separator}{DISCLOSURE}"
+
+
+def render_delivery_text(job_id: str, stdout: str, max_chars: int) -> str:
+    """Render job stdout as human-readable Feishu text.
+
+    Jobs that emit `--json` (e.g. official-policy-watch, event-calendar) put a
+    full JSON dump on stdout; pushing that raw would leak internal structure.
+    When stdout parses as a JSON object we render a compact digest (top-level
+    message string, signal/event lines, summary counters). Non-JSON output
+    (e.g. capital-flow's markdown report) passes through unchanged.
+    """
+    raw = str(stdout or "")
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return raw[:max_chars]
+    if not isinstance(parsed, Mapping):
+        return raw[:max_chars]
+
+    lines: list[str] = []
+    message = parsed.get("message")
+    if isinstance(message, str) and message.strip():
+        lines.append(message.strip())
+    for key in ("signals", "alerts", "events", "confirmations"):
+        items = parsed.get(key)
+        if not isinstance(items, list) or not items:
+            continue
+        for item in items[:10]:
+            if isinstance(item, Mapping):
+                rank = str(item.get("source_rank") or item.get("rank") or "")
+                title = str(item.get("title") or item.get("name") or "")
+                url = str(item.get("url") or "")
+                line = f"[{rank}] {title} {url}".strip()
+                lines.append(line if line else str(item)[:200])
+            else:
+                lines.append(str(item)[:200])
+        if len(items) > 10:
+            lines.append(f"... 共 {len(items)} 条")
+        break
+    summary = parsed.get("summary")
+    if isinstance(summary, Mapping):
+        counts = {
+            str(k).replace("_count", ""): v
+            for k, v in summary.items()
+            if str(k).endswith("_count") and v is not None
+        }
+        if counts:
+            lines.append(" | ".join(f"{k}={v}" for k, v in counts.items()))
+    text = "\n".join(line for line in lines if line).strip()
+    return (text or raw)[:max_chars]
 
 
 def push_text(job_id: str, text: str, *, timeout_seconds: int = 15) -> dict[str, Any]:
