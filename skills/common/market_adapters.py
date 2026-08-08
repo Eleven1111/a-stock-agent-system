@@ -521,6 +521,24 @@ def _normalize_bar_records(records: list[dict[str, Any]]) -> list[dict[str, Any]
     return bars
 
 
+def _tx_bar_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """腾讯 ``stock_zh_a_hist_tx`` 的行归一化。
+
+    该接口只返回 ``date/open/close/high/low/amount``，**没有 volume 列**，而那个
+    ``amount`` 是成交量（手）不是成交额：600011 于 2026-08-07 的 hist_tx amount
+    = 1,160,900，与当日实时行情 volume 完全相同，且实时 amount/volume = 695.22
+    ≈ 收盘 6.99 × 100。直接交给 ``_normalize_bar_records`` 会让 volume 恒为 0，
+    ``volume_ratio_5d`` 随之全库为 0 —— 它占 trend_score 8% / daban_score 10%
+    权重，等于这块权重长期空转。
+
+    该源不提供真实成交额，故 amount 置空而不是把成交量冒充成成交额。
+    """
+    return _normalize_bar_records([
+        {**row, "volume": row.get("amount"), "amount": None}
+        for row in records
+    ])
+
+
 def _normalize_flow_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
     for row in records:
@@ -716,7 +734,7 @@ def fetch_a_share_daily_kline(
             end_date=end.strftime("%Y%m%d"),
         )
         time.sleep(_AKSHARE_PACE_SECONDS)
-        return _normalize_bar_records(_frame_records(df))[-days:]
+        return _tx_bar_records(_frame_records(df))[-days:]
 
     def adata_daily() -> list[dict[str, Any]]:
         import adata
@@ -776,7 +794,7 @@ def _daily_series_attempts(
             end_date=end.strftime("%Y%m%d"),
         )
         time.sleep(_AKSHARE_PACE_SECONDS)
-        return _normalize_bar_records(_frame_records(frame))[-days:]
+        return _tx_bar_records(_frame_records(frame))[-days:]
 
     def adata_daily() -> list[dict[str, Any]]:
         import adata
