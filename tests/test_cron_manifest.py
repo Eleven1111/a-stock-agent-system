@@ -97,9 +97,14 @@ def test_paper_trading_jobs_are_research_only_and_dag_ordered():
     assert monitor_job["context_from"] == ["paper-trading-open"]
     assert close_job["context_from"] == ["paper-trading-monitor"]
     for job in (open_job, monitor_job, close_job):
-        assert job["deliver"] == "local"
         assert "paper_trading_runner.py" in _run_command(job)
         assert "signal_ledger.jsonl" in " ".join(job["allowed_state_writes"])
+    # research-only 由 runner 的 live_order_sent=False 保证，与推不推送无关。
+    # close 是唯一推送的一份（#174 待办 1，对齐 portfolio-check）；open 每天 1 次、
+    # monitor 每天 16 次，推了就是刷屏，保持不推。
+    assert open_job["deliver"] == "local"
+    assert monitor_job["deliver"] == "local"
+    assert close_job["deliver"] == "origin"
 
 
 def test_tail_close_jobs_are_disabled_research_only_and_dag_ordered():

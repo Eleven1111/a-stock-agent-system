@@ -984,7 +984,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 2500,
       "context_from": [
         "paper-trading-monitor"
