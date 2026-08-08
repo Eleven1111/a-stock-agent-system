@@ -292,3 +292,88 @@ def test_zero_fill_class_reaches_the_cron_artifact_summary(monkeypatch):
 
     assert "upstream_gate" in summary["message"]
     assert summary["zero_fill_actionable"] is False
+
+
+def test_close_report_explains_an_empty_account(monkeypatch):
+    """收盘报告要说清账户为什么是空的。
+
+    #174：close 输出 nav=100000 / positions=[] / return_pct=0，没有任何解释。
+    打开推送后若不带原因，等于每天推一条「还是 100000」的噪音。
+    """
+    _wire(monkeypatch)
+    monkeypatch.setattr(
+        runner, "_day_rejections",
+        lambda asof: [{"reason": "recommendation_not_positive"}] * 5,
+    )
+
+    result = runner.run_close(
+        {}, asof="2026-07-13", observed_at="2026-07-13T15:25:00+08:00", config=_config(),
+    )
+
+    assert result["positions"] == []
+    assert result["zero_fill_class"] == "upstream_gate"
+    assert result["zero_fill_actionable"] is False
+    assert "upstream_gate" in result["message"]
+
+
+def test_close_report_flags_a_data_anomaly_day(monkeypatch):
+    _wire(monkeypatch)
+    monkeypatch.setattr(
+        runner, "_day_rejections",
+        lambda asof: [{"reason": "quote_unavailable"}],
+    )
+
+    result = runner.run_close(
+        {}, asof="2026-07-13", observed_at="2026-07-13T15:25:00+08:00", config=_config(),
+    )
+
+    assert result["zero_fill_actionable"] is True
+    assert "需人工核查" in result["message"]
+
+
+def test_close_report_stays_quiet_about_zero_fill_when_holding_positions(monkeypatch):
+    account = paper_trading.default_account(_config())
+    account["positions"] = [{"code": "600001", "shares": 100, "cost": 10.0}]
+    _wire(monkeypatch, account)
+    monkeypatch.setattr(runner, "_day_rejections", lambda asof: [{"reason": "quote_unavailable"}])
+
+    result = runner.run_close(
+        {"sh600001": {"price": 11, "prev_close": 10, "open": 10.5, "high": 11, "low": 10,
+                      "volume": 1000, "fetched_at": "2026-07-13T15:25:00+08:00"}},
+        asof="2026-07-13", observed_at="2026-07-13T15:25:00+08:00", config=_config(),
+    )
+
+    assert result["zero_fill_class"] is None
+    # 有持仓时不报归因，但推送标签必须保留
+    assert result["message"].startswith("[模拟盘·研究专用]")
+
+
+def test_day_rejections_reads_the_ledger_for_real(monkeypatch):
+    """不 mock _day_rejections 本身 —— 上面三条用例都替换了它，函数体从未被执行，
+    曾因此漏掉 signal_ledger 未导入（NameError）。这条真跑函数体。
+    """
+    events = [
+        {"event_type": "paper.order.rejected",
+         "payload": {"asof": "2026-07-13", "reason": "quote_unavailable"}},
+        {"event_type": "paper.order.rejected",
+         "payload": {"asof": "2026-07-12", "reason": "recommendation_not_positive"}},
+        {"event_type": "paper.candidate_evaluated",
+         "payload": {"asof": "2026-07-13", "reason": "ignored"}},
+    ]
+    monkeypatch.setattr(runner.signal_ledger, "read_events", lambda path: events)
+
+    assert runner._day_rejections("2026-07-13") == [{"reason": "quote_unavailable"}]
+
+
+def test_every_pushed_close_report_carries_the_simulated_account_label(monkeypatch):
+    """收盘报告是唯一会被推送的一份，会和 portfolio-check 的真实账户并排出现。
+    每条都必须带模拟盘标签 —— JSON 里的 research_only 字段挡不住误读。"""
+    _wire(monkeypatch)
+    monkeypatch.setattr(runner, "_day_rejections", lambda asof: [])
+
+    result = runner.run_close(
+        {}, asof="2026-07-13", observed_at="2026-07-13T15:25:00+08:00", config=_config(),
+    )
+
+    assert result["message"].startswith("[模拟盘·研究专用]")
+    assert result["research_only"] is True
