@@ -80,6 +80,53 @@ def _degraded_lines(result: Mapping[str, Any], *, tail: str) -> list[str]:
     return lines
 
 
+DECISION_LABELS = {
+    "buy": "买入",
+    "add": "加仓",
+    "conditional_buy": "条件买入",
+    "watch": "观望",
+    "avoid": "回避",
+    "sell": "卖出",
+    "reduce": "减仓",
+    "hold_locked": "T+1锁定",
+}
+
+REASON_LABELS = {
+    "strategy_unverified": "策略未验证",
+    "strategy_not_allowed": "策略未启用",
+    "quality_rejected": "质检未通过",
+    "quality_not_passed": "质检未达标",
+    "market_risk_off": "市场避险",
+    "market_context_unknown": "市场环境未知",
+    "market_context_stale": "市场环境过期",
+    "existing_position_sector_unknown": "持仓板块未知",
+    "single_position_limit": "单一持仓超限",
+    "sector_exposure_limit": "板块暴露超限",
+    "not_tradeable": "不可成交",
+    "required_fields_missing": "关键字段缺失",
+    "day_loss_stop": "当日亏损熔断",
+    "week_trade_cap": "周交易次数上限",
+    "week_loss_freeze": "周亏损冻结",
+    "consecutive_losses_freeze": "连亏冻结",
+    "announcement_hard_risk": "公告硬风险",
+    "market_intelligence_hard_risk": "情报硬风险",
+    "chanlun_live_bearish_signal": "缠论看空",
+    "serenity_hard_risk": "serenity硬风险",
+    "crowding_climax_reduced": "拥挤高潮降仓",
+    "market_state_ebbing_reduced": "退潮降仓",
+    "reflexivity_leader_isolation": "龙头孤立",
+    "reflexivity_algorithmic_false_consensus": "算法伪共识",
+    "reflexivity_institution_distribution": "机构派发",
+}
+
+
+def _decision_label(item: Mapping[str, Any]) -> str:
+    decision = str(item.get("decision") or "").strip()
+    if not decision:
+        return "未评估"
+    return DECISION_LABELS.get(decision, decision)
+
+
 def _auction_lines(result: Mapping[str, Any], asof: str) -> list[str]:
     digest = stage_intelligence.auction_digest(result)
     lines = [
@@ -102,9 +149,20 @@ def _auction_lines(result: Mapping[str, Any], asof: str) -> list[str]:
     if digest["high_daban_candidates"]:
         lines.append("### 打板评分≥90")
         lines.extend(
-            f"- {_label(item)}：{_score(item, 'daban_score')}"
+            f"- {_label(item)}：{_score(item, 'daban_score')}｜"
+            f"{_decision_label(item)}"
             for item in digest["high_daban_candidates"]
         )
+    if digest["decisions"]:
+        lines.append("### 买卖决策建议")
+        for item in digest["decisions"]:
+            reasons = "；".join(
+                REASON_LABELS.get(r, r) for r in item.get("reasons") or []
+            )
+            tail = f"（{reasons}）" if reasons else ""
+            lines.append(
+                f"- {_label(item)}：{_decision_label(item)}{tail}"
+            )
     return lines
 
 
@@ -149,7 +207,7 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
         lines.extend([
             f"## 早盘情报简报 | {asof}",
             f"全市场{digest['scanned_count']}｜合格{digest['eligible_count']}｜"
-            f"深度池{digest['candidate_count']}｜09:24全市场竞价扫描{digest['auction_scan_count']}",
+            f"深度池{digest['candidate_count']}｜竞价扫描预备{digest['auction_scan_count']}",
         ])
         lines.extend(_sector_momentum_lines())
         lines.append("### 打板评分 TOP")

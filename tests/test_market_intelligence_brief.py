@@ -39,6 +39,61 @@ def test_auction_brief_marks_pool_outsider_as_research_only():
     assert "池外研究情报" in text
 
 
+def test_auction_brief_renders_buy_sell_decisions_with_reasons():
+    """打板评分之外必须给出买卖决策建议（决策 + 策略原因），不能只有分数。"""
+    text = brief.format_brief(
+        "auction",
+        {
+            "asof": "2026-08-07",
+            "factors": [
+                {"code": "sz002407", "name": "多氟多", "auction_gap_pct": 3.55},
+            ],
+            "shortlist": [
+                {"code": "sz002407", "name": "多氟多", "daban_score": 94.07},
+            ],
+            "preopen_decisions": [
+                {
+                    "code": "sz002407",
+                    "name": "多氟多",
+                    "decision": "avoid",
+                    "policy_decision": {
+                        "decision": "avoid",
+                        "requested_action": "conditional_buy",
+                        "reasons": ["strategy_unverified", "existing_position_sector_unknown"],
+                    },
+                    "quality_report": {"status": "passed"},
+                },
+            ],
+        },
+    )
+
+    assert "买卖决策建议" in text
+    assert "多氟多" in text
+    assert "回避" in text
+    assert "策略未验证" in text
+    assert "持仓板块未知" in text
+    # 打板评分行也必须带决策标签
+    assert "94.07｜回避" in text
+
+
+def test_auction_brief_marks_unassessed_high_score_as_unassessed():
+    """没有独立决策记录的高分票必须标"未评估"，不能误读成"评估过而观望"。"""
+    text = brief.format_brief(
+        "auction",
+        {
+            "asof": "2026-08-07",
+            "factors": [],
+            "shortlist": [
+                {"code": "sh600206", "name": "有研新材", "daban_score": 92.71},
+            ],
+            "preopen_decisions": [],
+        },
+    )
+
+    assert "92.71｜未评估" in text
+    assert "观望" not in text
+
+
 def test_auction_brief_warns_on_degraded_collection():
     """空榜单不能读成"今天很平静"——采集失败必须在简报里说出来。"""
     text = brief.format_brief(
