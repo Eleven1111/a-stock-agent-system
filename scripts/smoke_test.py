@@ -84,7 +84,7 @@ tests = [
         "chanlun_research_gate", 10, True
     ),
     (  # 9. 推荐审计档案（示例模式不写状态）
-        [PY, "skills/stock-triage/scripts/recommendation_audit.py", "--example", "--json"],
+        [PY, "skills/common/recommendation_audit.py", "--example", "--json"],
         "recommendation_audit", 10, True
     ),
     (  # 10. 执行纪律复盘（不刷新实时行情，允许无建议/无持仓）

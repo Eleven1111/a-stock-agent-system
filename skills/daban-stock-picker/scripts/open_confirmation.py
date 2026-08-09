@@ -11,13 +11,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 SCRIPT_DIR = os.path.dirname(__file__)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
-sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "stock-triage", "scripts"))
 
 from a_stock_http import DataSourceError  # noqa: E402
 from market_adapters import fetch_tencent_snapshot  # noqa: E402

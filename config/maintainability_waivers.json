@@ -1190,6 +1190,41 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
       "violation_id": "493a756e0f750979e6c8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "f31ead08c4c8af82c0ba"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "3b5e5218eea36f8d7659"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "d4c038f7814dde495e6c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "3b7eb3e6a25e7ab890f2"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "d98e846ce36c85f9effc"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "6741c777cdfa93684eb6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "fb823aaf4bd4a9fde0fa"
     }
   ]
 }
