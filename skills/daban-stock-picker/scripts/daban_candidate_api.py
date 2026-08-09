@@ -554,6 +554,100 @@ def _event_payload(
     }
 
 
+def _t1_exit_plan(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "priority": "先处理已有持仓，再考虑新开仓",
+        **t1_scenario(candidate),
+        "high_open_exit": "T+1高开6%-9%，09:30-09:45卖出1/2，余仓看封板/5日线",
+        "broken_board_exit": "首次放量断板且15分钟内不能回封，退出剩余仓位",
+    }
+
+
+def _identity_fields(
+    event: Dict[str, Any], *, strategy_id: str, score: float
+) -> Dict[str, Any]:
+    """Strategy identity and score aliases carried by every candidate payload."""
+    return {
+        "strategy_id": strategy_id,
+        "strategy_identity": strategy_id,
+        "primary_strategy_id": strategy_id,
+        "primary_score": score,
+        "primary_net_expectancy": event["evidence"]["primary_net_expectancy"],
+        "primary_confidence": event["evidence"]["primary_confidence"],
+        "strategy_live_score": score,
+        "strategy_state": event["evidence"]["strategy_state"],
+        "strategy_state_event": event["strategy_state_event"],
+    }
+
+
+def _blocked_reasons(
+    rejections: List[str], *, trade: Dict[str, Any], veto_no_count: int
+) -> List[str]:
+    reasons = list(rejections)
+    if trade.get("tradeable") is False:
+        reasons.append(trade.get("reason", "不可成交"))
+    if veto_no_count >= 2:
+        reasons.append(f"六问否决：{veto_no_count}项为否")
+    return reasons
+
+
+def _entry_plan(pattern: str, *, blocked: bool) -> Dict[str, Any]:
+    return {
+        "window": (
+            "09:35-10:30"
+            if pattern == "first_board_reseal"
+            else "首次上板不晚于09:45"
+            if pattern == "second_board_weak_to_strong"
+            else None
+        ),
+        "initial_position_pct": 0 if blocked else 20,
+        "max_single_ticket_pct": 50,
+        "max_total_exposure_pct": 60,
+        "buy_condition": "只做早盘强回封/二板弱转强；一字封死或停牌不买",
+    }
+
+
+def _record_payload(
+    candidate: Dict[str, Any],
+    event: Dict[str, Any],
+    quality: Dict[str, Any],
+    observable_proxies: Dict[str, Any],
+    *,
+    code: str,
+    name: str,
+    grade: str,
+    score: float,
+    price: Any,
+    strategy_id: str,
+) -> Dict[str, Any]:
+    """The ledger row for an executable candidate; callers gate on blocked/price."""
+    return {
+        "schema": EVENT_SCHEMA,
+        "event_type": "daban.candidate",
+        "code": code,
+        "name": name,
+        "grade": grade,
+        "score": round(score / 10.0, 1),
+        "price": price,
+        "signal_price": price,
+        "signal_date": candidate.get("signal_date") or candidate.get("date"),
+        "strategy_id": strategy_id,
+        "strategy_identity": strategy_id,
+        "primary_strategy_id": strategy_id,
+        "primary_score": score,
+        "primary_net_expectancy": event["evidence"]["primary_net_expectancy"],
+        "primary_confidence": event["evidence"]["primary_confidence"],
+        "strategy_live_score": score,
+        "strategy_state": event["strategy_state"],
+        "strategy_state_event": event["strategy_state_event"],
+        "evidence": event["evidence"],
+        **observable_proxies,
+        "seal_quality": quality,
+        "action": "buy",
+        "source": "daban_candidate_api",
+    }
+
+
 def evaluate_candidate(candidate: Dict[str, Any], market: Dict[str, Any], portfolio: Dict[str, Any]) -> Dict[str, Any]:
     code = str(candidate.get("code", "")).zfill(6)
     name = candidate.get("name", code)
@@ -575,12 +669,11 @@ def evaluate_candidate(candidate: Dict[str, Any], market: Dict[str, Any], portfo
     questions = _six_questions(candidate, market, sector_limitups)
     veto_no_count = sum(1 for q in questions if not q["passed"])
 
-    blocked_reasons = hard_rejections + market_rejections + pattern_rejections
-    if trade.get("tradeable") is False:
-        blocked_reasons.append(trade.get("reason", "不可成交"))
-    if veto_no_count >= 2:
-        blocked_reasons.append(f"六问否决：{veto_no_count}项为否")
-
+    blocked_reasons = _blocked_reasons(
+        hard_rejections + market_rejections + pattern_rejections,
+        trade=trade,
+        veto_no_count=veto_no_count,
+    )
     score, grade = _score_candidate(
         hard_rejections,
         pattern_rejections,
@@ -608,15 +701,7 @@ def evaluate_candidate(candidate: Dict[str, Any], market: Dict[str, Any], portfo
         "name": name,
         "sector": candidate.get("sector", "Unknown"),
         "pattern": pattern,
-        "strategy_id": strategy_id,
-        "strategy_identity": strategy_id,
-        "primary_strategy_id": strategy_id,
-        "primary_score": score,
-        "primary_net_expectancy": event["evidence"]["primary_net_expectancy"],
-        "primary_confidence": event["evidence"]["primary_confidence"],
-        "strategy_live_score": score,
-        "strategy_state": event["evidence"]["strategy_state"],
-        "strategy_state_event": event["strategy_state_event"],
+        **_identity_fields(event, strategy_id=strategy_id, score=score),
         "score": score,
         "grade": grade,
         "blocked": bool(blocked_reasons),
@@ -635,50 +720,13 @@ def evaluate_candidate(candidate: Dict[str, Any], market: Dict[str, Any], portfo
             "blocked": veto_no_count >= 2,
             "questions": questions,
         },
-        "entry_plan": {
-            "window": (
-                "09:35-10:30"
-                if pattern == "first_board_reseal"
-                else "首次上板不晚于09:45"
-                if pattern == "second_board_weak_to_strong"
-                else None
-            ),
-            "initial_position_pct": 20 if not blocked_reasons else 0,
-            "max_single_ticket_pct": 50,
-            "max_total_exposure_pct": 60,
-            "buy_condition": "只做早盘强回封/二板弱转强；一字封死或停牌不买",
-        },
-        "t1_exit_plan": {
-            "priority": "先处理已有持仓，再考虑新开仓",
-            **t1_scenario(candidate),
-            "high_open_exit": "T+1高开6%-9%，09:30-09:45卖出1/2，余仓看封板/5日线",
-            "broken_board_exit": "首次放量断板且15分钟内不能回封，退出剩余仓位",
-        },
-        "record_payload": {
-            "schema": EVENT_SCHEMA,
-            "event_type": "daban.candidate",
-            "code": code,
-            "name": name,
-            "grade": grade,
-            "score": round(score / 10.0, 1),
-            "price": price,
-            "signal_price": price,
-            "signal_date": candidate.get("signal_date") or candidate.get("date"),
-            "strategy_id": strategy_id,
-            "strategy_identity": strategy_id,
-            "primary_strategy_id": strategy_id,
-            "primary_score": score,
-            "primary_net_expectancy": event["evidence"]["primary_net_expectancy"],
-            "primary_confidence": event["evidence"]["primary_confidence"],
-            "strategy_live_score": score,
-            "strategy_state": event["strategy_state"],
-            "strategy_state_event": event["strategy_state_event"],
-            "evidence": event["evidence"],
-            **observable_proxies,
-            "seal_quality": quality,
-            "action": "buy",
-            "source": "daban_candidate_api",
-        } if not blocked_reasons and price is not None and not research_only else None,
+        "entry_plan": _entry_plan(pattern, blocked=bool(blocked_reasons)),
+        "t1_exit_plan": _t1_exit_plan(candidate),
+        "record_payload": _record_payload(
+            candidate, event, quality, observable_proxies,
+            code=code, name=name, grade=grade, score=score, price=price,
+            strategy_id=strategy_id,
+        ) if not blocked_reasons and price is not None and not research_only else None,
     }
 
 

@@ -25,7 +25,7 @@ import sys
 from datetime import datetime
 from math import sqrt
 from statistics import mean, pstdev
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
@@ -346,6 +346,113 @@ def detect_retreat(prev_ladder: Optional[Mapping[str, Any]],
     return None
 
 
+def _resolve_market_history(
+    market_history: Optional[List[Mapping[str, Any]]],
+    *,
+    limitup_history: Optional[List[Any]],
+    broken_rate_history: Optional[List[Any]],
+    limitdown_history: Optional[List[Any]],
+    yesterday_premium_history: Optional[List[Any]],
+) -> Optional[List[Mapping[str, Any]]]:
+    """Transpose the legacy parallel-series arguments into row form."""
+    if market_history is not None:
+        return market_history
+    if not any(value is not None for value in (
+        limitup_history, broken_rate_history, limitdown_history, yesterday_premium_history,
+    )):
+        return None
+    series = (
+        list(limitup_history or []), list(broken_rate_history or []),
+        list(yesterday_premium_history or []), list(limitdown_history or []),
+    )
+    return [
+        {
+            key: values[index] for key, values in zip(
+                ("limitup_total", "broken_rate", "previous_ladder_premium", "limitdown_total"),
+                series
+            ) if index < len(values)
+        }
+        for index in range(max((len(values) for values in series), default=0))
+    ]
+
+
+def _apply_ice_substate(rules: Dict[str, Any], metrics: Mapping[str, Any], tier: str) -> Optional[str]:
+    """Narrow the 冰点 tier budget in place; returns the resolved substate."""
+    ice_substate = (_ice_substate(metrics) if tier == "冰点" else None) or None
+    if ice_substate == "冰点杀跌":
+        rules.update(allow_new_daban=False, position_multiplier=0.0, top_n_limit=0)
+        rules["advice"] = "冰点杀跌，停止新增仓位｜只出不进"
+    elif ice_substate == "冰点修复":
+        rules.update(allow_new_daban=True, position_multiplier=0.2, top_n_limit=1)
+        rules["advice"] = "冰点修复已确认，仅允许小仓试错"
+    return ice_substate
+
+
+def _premium_surface(next_day_premium_history: Any, tier: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    premium_samples_by_tier = _premium_history_by_tier(next_day_premium_history)
+    premium_by_state = {
+        state: premium_statistics(premium_samples_by_tier.get(state))
+        for state in TIER_ORDER
+    }
+    premium_input = premium_samples_by_tier.get(tier)
+    if not premium_samples_by_tier and isinstance(next_day_premium_history, (list, tuple)):
+        premium_input = next_day_premium_history
+    return premium_statistics(premium_input), premium_by_state
+
+
+def _apply_retreat_block(
+    rules: Dict[str, Any],
+    notes: List[str],
+    *,
+    retreat: Any,
+    observation_missing: bool,
+) -> None:
+    """Zero the risk budget in place when retreat fires or evidence is absent."""
+    if not retreat and not observation_missing:
+        return
+    rules["allow_new_daban"] = False
+    rules["position_multiplier"] = 0.0
+    rules["top_n_limit"] = 0
+    if retreat:
+        rules["advice"] = f"退潮信号触发：{retreat}｜只出不进"
+        notes.append(retreat)
+    else:
+        rules["advice"] = "盘中观测缺失，无法确认退潮与否｜阻断新增风险"
+        notes.append("盘中观测缺失（竞价快照为空），退潮检查未执行，按无证据处理")
+
+
+def _premium_fields(premium_stats: Mapping[str, Any]) -> Dict[str, Any]:
+    """The premium value/CI aliases kept for older consumers of this payload."""
+    value = premium_stats["value"]
+    interval = premium_stats["confidence_interval"]
+    return {
+        "next_day_net_premium": value,
+        "next_day_net_premium_ci": interval,
+        "next_day_executable_net_premium": value,
+        "next_day_executable_net_premium_ci": interval,
+        "next_day_net_premium_confidence_interval": interval,
+        "net_premium_confidence_interval": interval,
+    }
+
+
+def _metric_echo_fields(metrics: Mapping[str, Any]) -> Dict[str, Any]:
+    """Top-level echoes of nested market metrics, kept for payload compatibility."""
+    return {
+        "limitup_slope_3d": metrics.get("limitup_slope_3d"),
+        "broken_rate_slope_3d": metrics.get("broken_rate_slope_3d"),
+        "yesterday_limitup_premium": metrics.get("yesterday_limitup_premium"),
+        "limitdown_slope_3d": metrics.get("limitdown_slope_3d"),
+        "limitup_3d_smooth": metrics.get("limitup_total_3d_smooth"),
+        "broken_rate_3d_smooth": metrics.get("broken_rate_3d_smooth"),
+    }
+
+
+def _retreat_check_state(morning_quotes: Optional[Mapping[str, Any]], *, observation_missing: bool) -> str:
+    if morning_quotes is None:
+        return "not_requested"
+    return "observation_missing" if observation_missing else "checked"
+
+
 def compute_temperature(ladder: Optional[Mapping[str, Any]],
                         prev_ladder: Optional[Mapping[str, Any]] = None,
                         limitup_total: Optional[int] = None,
@@ -379,24 +486,13 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
 
     height = ladder_height(ladder)
     promo = promotion_rate(ladder, prev_ladder)
-    market_history = market_history or history
-    if market_history is None and any(value is not None for value in (
-        limitup_history, broken_rate_history, limitdown_history,
-        yesterday_premium_history,
-    )):
-        series = (
-            list(limitup_history or []), list(broken_rate_history or []),
-            list(yesterday_premium_history or []), list(limitdown_history or []),
-        )
-        market_history = [
-            {
-                key: values[index] for key, values in zip(
-                    ("limitup_total", "broken_rate", "previous_ladder_premium", "limitdown_total"),
-                    series
-                ) if index < len(values)
-            }
-            for index in range(max((len(values) for values in series), default=0))
-        ]
+    market_history = _resolve_market_history(
+        market_history or history,
+        limitup_history=limitup_history,
+        broken_rate_history=broken_rate_history,
+        limitdown_history=limitdown_history,
+        yesterday_premium_history=yesterday_premium_history,
+    )
     metrics = _temperature_metrics(
         market_history,
         limitup_total=limitup_total,
@@ -409,56 +505,17 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
     notes = cls["notes"]
     rules = dict(TIER_RULES[tier])
 
-    ice_substate = _ice_substate(metrics) if tier == "冰点" else None
-    ice_substate = ice_substate or None
-    if ice_substate == "冰点杀跌":
-        rules.update(allow_new_daban=False, position_multiplier=0.0, top_n_limit=0)
-        rules["advice"] = "冰点杀跌，停止新增仓位｜只出不进"
-    elif ice_substate == "冰点修复":
-        rules.update(allow_new_daban=True, position_multiplier=0.2, top_n_limit=1)
-        rules["advice"] = "冰点修复已确认，仅允许小仓试错"
-
-    premium_samples_by_tier = _premium_history_by_tier(next_day_premium_history)
-    premium_by_state = {
-        state: premium_statistics(premium_samples_by_tier.get(state))
-        for state in TIER_ORDER
-    }
-    premium_input = premium_samples_by_tier.get(tier)
-    if not premium_samples_by_tier and isinstance(next_day_premium_history, (list, tuple)):
-        premium_input = next_day_premium_history
-    premium_stats = premium_statistics(premium_input)
+    ice_substate = _apply_ice_substate(rules, metrics, tier)
+    premium_stats, premium_by_state = _premium_surface(next_day_premium_history, tier)
     metrics.update({
         "ice_substate": ice_substate,
-        "next_day_net_premium": premium_stats["value"],
-        "next_day_net_premium_ci": premium_stats["confidence_interval"],
-        "next_day_executable_net_premium": premium_stats["value"],
-        "next_day_executable_net_premium_ci": premium_stats["confidence_interval"],
-        "next_day_net_premium_confidence_interval": premium_stats["confidence_interval"],
-        "net_premium_confidence_interval": premium_stats["confidence_interval"],
+        **_premium_fields(premium_stats),
         "premium_sample_size": premium_stats["sample_size"],
     })
 
     observation_missing = morning_quotes is not None and not morning_quotes
     retreat = detect_retreat(retreat_ladder or prev_ladder, morning_quotes)
-    if retreat:
-        rules["allow_new_daban"] = False
-        rules["position_multiplier"] = 0.0
-        rules["top_n_limit"] = 0
-        rules["advice"] = f"退潮信号触发：{retreat}｜只出不进"
-        notes.append(retreat)
-    elif observation_missing:
-        rules["allow_new_daban"] = False
-        rules["position_multiplier"] = 0.0
-        rules["top_n_limit"] = 0
-        rules["advice"] = "盘中观测缺失，无法确认退潮与否｜阻断新增风险"
-        notes.append("盘中观测缺失（竞价快照为空），退潮检查未执行，按无证据处理")
-
-    if morning_quotes is None:
-        retreat_check = "not_requested"
-    elif observation_missing:
-        retreat_check = "observation_missing"
-    else:
-        retreat_check = "checked"
+    _apply_retreat_block(rules, notes, retreat=retreat, observation_missing=observation_missing)
 
     return {
         "tier": tier,
@@ -468,21 +525,11 @@ def compute_temperature(ladder: Optional[Mapping[str, Any]],
         "limitup_total": limitup_total,
         "ice_substate": ice_substate,
         "market_metrics": metrics,
-        "limitup_slope_3d": metrics.get("limitup_slope_3d"),
-        "broken_rate_slope_3d": metrics.get("broken_rate_slope_3d"),
-        "yesterday_limitup_premium": metrics.get("yesterday_limitup_premium"),
-        "limitdown_slope_3d": metrics.get("limitdown_slope_3d"),
-        "limitup_3d_smooth": metrics.get("limitup_total_3d_smooth"),
-        "broken_rate_3d_smooth": metrics.get("broken_rate_3d_smooth"),
-        "next_day_net_premium": premium_stats["value"],
-        "next_day_net_premium_ci": premium_stats["confidence_interval"],
-        "next_day_executable_net_premium": premium_stats["value"],
-        "next_day_executable_net_premium_ci": premium_stats["confidence_interval"],
-        "next_day_net_premium_confidence_interval": premium_stats["confidence_interval"],
-        "net_premium_confidence_interval": premium_stats["confidence_interval"],
+        **_metric_echo_fields(metrics),
+        **_premium_fields(premium_stats),
         "premium_by_state": premium_by_state,
         "retreat_signal": retreat,
-        "retreat_check": retreat_check,
+        "retreat_check": _retreat_check_state(morning_quotes, observation_missing=observation_missing),
         "notes": notes,
         **rules,
     }

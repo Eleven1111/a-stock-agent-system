@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from math import isfinite
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 
 # Initial research registration only; values require grid validation before live use.
@@ -76,6 +76,89 @@ def _result(
     }
 
 
+def _stop_levels(
+    entry: Mapping[str, Any],
+    current: Mapping[str, Any],
+    rules: Mapping[str, Any],
+    *,
+    side: str,
+    entry_price: float,
+    current_price: float,
+    entry_atr: float,
+    current_atr: float,
+) -> Tuple[Dict[str, Optional[float]], float]:
+    """ATR stops plus the watermark anchoring the trail, and the price that tests them.
+
+    The unused side's watermark stays ``None`` so a short position never reports
+    a high watermark (and vice versa).
+    """
+    initial_multiple = _number(
+        _value(rules, "initial_atr_multiple", "initial_stop_atr_multiple"), 2.5
+    ) or 2.5
+    trailing_multiple = _number(
+        _value(rules, "trailing_atr_multiple", "trail_atr_multiple"), 3.0
+    ) or 3.0
+    prior_trailing = _number(_value(entry, "trailing_stop", "stop_price"))
+    if side == "short":
+        initial_stop = entry_price + initial_multiple * entry_atr
+        prior_low = _number(_value(entry, "low_watermark", "lowest_since_entry"))
+        observed_low = _number(_value(current, "low"), current_price) or current_price
+        watermark = min(prior_low, observed_low) if prior_low is not None else min(entry_price, observed_low)
+        candidate_trailing = watermark + trailing_multiple * current_atr
+        trailing_stop = min(prior_trailing, candidate_trailing) if prior_trailing is not None else candidate_trailing
+        trigger_price = _number(_value(current, "high"), current_price) or current_price
+        watermarks = {"high_watermark": None, "low_watermark": watermark}
+    else:
+        initial_stop = entry_price - initial_multiple * entry_atr
+        prior_high = _number(_value(entry, "high_watermark", "highest_since_entry"))
+        observed_high = _number(_value(current, "high"), current_price) or current_price
+        watermark = max(prior_high, observed_high) if prior_high is not None else max(entry_price, observed_high)
+        candidate_trailing = watermark - trailing_multiple * current_atr
+        trailing_stop = max(prior_trailing, candidate_trailing) if prior_trailing is not None else candidate_trailing
+        trigger_price = _number(_value(current, "low"), current_price) or current_price
+        watermarks = {"high_watermark": watermark, "low_watermark": None}
+    return {"initial_stop": initial_stop, "trailing_stop": trailing_stop, **watermarks}, trigger_price
+
+
+def _late_exit_reason(
+    entry: Mapping[str, Any],
+    current: Mapping[str, Any],
+    rules: Mapping[str, Any],
+    *,
+    side: str,
+    entry_price: float,
+    current_price: float,
+) -> Optional[str]:
+    """Time, breakout and industry-strength exits, checked in that order."""
+    holding_days = _number(_value(current, "holding_days", "days_held"), 0.0) or 0.0
+    return_pct = (
+        (current_price / entry_price - 1.0) * 100.0 if side == "long"
+        else (entry_price / current_price - 1.0) * 100.0
+    )
+    soft_days = _number(rules.get("time_stop_days"), 5.0) or 5.0
+    hard_days = _number(rules.get("hard_time_stop_days"), 10.0) or 10.0
+    min_return = _number(rules.get("time_stop_min_return_pct"), 0.0) or 0.0
+    if holding_days >= hard_days:
+        return "time_stop_10d"
+    if holding_days >= soft_days and return_pct <= min_return:
+        return "time_stop_5d_no_progress"
+
+    if bool(rules.get("breakout_stop_enabled", True)):
+        breakout = _number(_value(entry, "breakout_level", "breakout_price"))
+        if breakout is not None and ((side == "long" and current_price <= breakout)
+                                     or (side == "short" and current_price >= breakout)):
+            return "fell_back_below_breakout"
+
+    if bool(rules.get("industry_rs_stop_enabled", True)):
+        industry_rs = _number(_value(
+            current, "industry_relative_strength", "industry_residual_momentum", "industry_rs",
+        ))
+        if industry_rs is not None and ((side == "long" and industry_rs < 0)
+                                        or (side == "short" and industry_rs > 0)):
+            return "industry_relative_strength_negative"
+    return None
+
+
 def evaluate_hold(
     entry: Mapping[str, Any],
     current: Mapping[str, Any],
@@ -105,74 +188,31 @@ def evaluate_hold(
         return _result("hold", "missing_atr_data", initial_stop=None, trailing_stop=None,
                        high_watermark=None, low_watermark=None)
 
-    initial_multiple = _number(
-        _value(rules, "initial_atr_multiple", "initial_stop_atr_multiple"), 2.5
-    ) or 2.5
-    trailing_multiple = _number(
-        _value(rules, "trailing_atr_multiple", "trail_atr_multiple"), 3.0
-    ) or 3.0
-    if side == "short":
-        initial_stop = entry_price + initial_multiple * entry_atr
-        prior_low = _number(_value(entry, "low_watermark", "lowest_since_entry"))
-        observed_low = _number(_value(current, "low"), current_price) or current_price
-        low_watermark = min(prior_low, observed_low) if prior_low is not None else min(entry_price, observed_low)
-        candidate_trailing = low_watermark + trailing_multiple * current_atr
-        prior_trailing = _number(_value(entry, "trailing_stop", "stop_price"))
-        trailing_stop = min(prior_trailing, candidate_trailing) if prior_trailing is not None else candidate_trailing
-        trigger_price = _number(_value(current, "high"), current_price) or current_price
-        if trigger_price >= initial_stop:
-            return _result("exit", "initial_atr_stop", initial_stop=initial_stop,
-                           trailing_stop=trailing_stop, high_watermark=None, low_watermark=low_watermark)
-        if trigger_price >= trailing_stop:
-            return _result("exit", "atr_trailing_stop", initial_stop=initial_stop,
-                           trailing_stop=trailing_stop, high_watermark=None, low_watermark=low_watermark)
-    else:
-        initial_stop = entry_price - initial_multiple * entry_atr
-        prior_high = _number(_value(entry, "high_watermark", "highest_since_entry"))
-        observed_high = _number(_value(current, "high"), current_price) or current_price
-        high_watermark = max(prior_high, observed_high) if prior_high is not None else max(entry_price, observed_high)
-        candidate_trailing = high_watermark - trailing_multiple * current_atr
-        prior_trailing = _number(_value(entry, "trailing_stop", "stop_price"))
-        trailing_stop = max(prior_trailing, candidate_trailing) if prior_trailing is not None else candidate_trailing
-        trigger_price = _number(_value(current, "low"), current_price) or current_price
-        if trigger_price <= initial_stop:
-            return _result("exit", "initial_atr_stop", initial_stop=initial_stop,
-                           trailing_stop=trailing_stop, high_watermark=high_watermark, low_watermark=None)
-        if trigger_price <= trailing_stop:
-            return _result("exit", "atr_trailing_stop", initial_stop=initial_stop,
-                           trailing_stop=trailing_stop, high_watermark=high_watermark, low_watermark=None)
+    levels, trigger_price = _stop_levels(
+        entry, current, rules,
+        side=side, entry_price=entry_price,
+        current_price=current_price, entry_atr=entry_atr, current_atr=current_atr,
+    )
+    breached = (
+        trigger_price >= levels["initial_stop"] if side == "short"
+        else trigger_price <= levels["initial_stop"]
+    )
+    if breached:
+        return _result("exit", "initial_atr_stop", **levels)
+    trailed = (
+        trigger_price >= levels["trailing_stop"] if side == "short"
+        else trigger_price <= levels["trailing_stop"]
+    )
+    if trailed:
+        return _result("exit", "atr_trailing_stop", **levels)
 
-    holding_days = _number(_value(current, "holding_days", "days_held"), 0.0) or 0.0
-    return_pct = (current_price / entry_price - 1.0) * 100.0 if side == "long" else (entry_price / current_price - 1.0) * 100.0
-    soft_days = _number(rules.get("time_stop_days"), 5.0) or 5.0
-    hard_days = _number(rules.get("hard_time_stop_days"), 10.0) or 10.0
-    min_return = _number(rules.get("time_stop_min_return_pct"), 0.0) or 0.0
-    if holding_days >= hard_days:
-        return _result("exit", "time_stop_10d", initial_stop=initial_stop, trailing_stop=trailing_stop,
-                       high_watermark=high_watermark if side == "long" else None,
-                       low_watermark=low_watermark if side == "short" else None)
-    if holding_days >= soft_days and return_pct <= min_return:
-        return _result("exit", "time_stop_5d_no_progress", initial_stop=initial_stop, trailing_stop=trailing_stop,
-                       high_watermark=high_watermark if side == "long" else None,
-                       low_watermark=low_watermark if side == "short" else None)
-
-    if bool(rules.get("breakout_stop_enabled", True)):
-        breakout = _number(_value(entry, "breakout_level", "breakout_price"))
-        if breakout is not None and ((side == "long" and current_price <= breakout) or (side == "short" and current_price >= breakout)):
-            return _result("exit", "fell_back_below_breakout", initial_stop=initial_stop, trailing_stop=trailing_stop,
-                           high_watermark=high_watermark if side == "long" else None,
-                           low_watermark=low_watermark if side == "short" else None)
-
-    if bool(rules.get("industry_rs_stop_enabled", True)):
-        industry_rs = _number(_value(current, "industry_relative_strength", "industry_residual_momentum", "industry_rs"))
-        if industry_rs is not None and ((side == "long" and industry_rs < 0) or (side == "short" and industry_rs > 0)):
-            return _result("exit", "industry_relative_strength_negative", initial_stop=initial_stop,
-                           trailing_stop=trailing_stop, high_watermark=high_watermark if side == "long" else None,
-                           low_watermark=low_watermark if side == "short" else None)
-
-    return _result("hold", "hold", initial_stop=initial_stop, trailing_stop=trailing_stop,
-                   high_watermark=high_watermark if side == "long" else None,
-                   low_watermark=low_watermark if side == "short" else None)
+    reason = _late_exit_reason(
+        entry, current, rules,
+        side=side, entry_price=entry_price, current_price=current_price,
+    )
+    if reason:
+        return _result("exit", reason, **levels)
+    return _result("hold", "hold", **levels)
 
 
 __all__ = ["DEFAULT_RULES", "evaluate_hold"]

@@ -15,7 +15,7 @@ import json
 import os
 import sys
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 ENGINE = {
@@ -405,21 +405,21 @@ def _cross_sectional_check(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
-    checklist = phase_checklist(payload)
-    kind = _identify_strategy_kind(payload)
-    blocking_reasons = [item["reason"] for item in checklist if not item["passed"]]
-    phase = payload.get("phase", "pre_oos")
-    oos_run_count = int(_num(payload.get("oos_run_count"), 0) or 0)
-    changed_after_oos = _bool(payload.get("changed_after_oos"), False)
-    permutation_p = _num(payload.get("permutation_p") or payload.get("permutation_p_value"))
-    fdr_p = _num(payload.get("fdr_p") or payload.get("fdr_p_value"))
-    oos_alpha = _num(payload.get("oos_alpha"))
-    benchmark_alpha = _num(payload.get("benchmark_alpha"), 0.0)
-
+def _gate_decision(
+    blocking_reasons: List[str],
+    *,
+    phase: Any,
+    oos_run_count: int,
+    changed_after_oos: bool,
+    permutation_p: Optional[float],
+    fdr_p: Optional[float],
+    oos_alpha: Optional[float],
+    benchmark_alpha: Optional[float],
+) -> Tuple[str, bool, List[str]]:
+    """Resolve the gate verdict; ``blocking_reasons`` may be appended to in place."""
     decision = "blocked"
     allowed_in_live_agent = False
-    next_actions = []
+    next_actions: List[str] = []
 
     if blocking_reasons:
         next_actions.append("补齐失败检查项后再进入下一阶段")
@@ -441,8 +441,32 @@ def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
         next_actions.append("不要上线为已验证策略；可记录为失败假设或重新提出新规则")
 
     if blocking_reasons:
-        decision = "blocked"
-        allowed_in_live_agent = False
+        return "blocked", False, next_actions
+    return decision, allowed_in_live_agent, next_actions
+
+
+def evaluate_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
+    checklist = phase_checklist(payload)
+    kind = _identify_strategy_kind(payload)
+    blocking_reasons = [item["reason"] for item in checklist if not item["passed"]]
+    phase = payload.get("phase", "pre_oos")
+    oos_run_count = int(_num(payload.get("oos_run_count"), 0) or 0)
+    changed_after_oos = _bool(payload.get("changed_after_oos"), False)
+    permutation_p = _num(payload.get("permutation_p") or payload.get("permutation_p_value"))
+    fdr_p = _num(payload.get("fdr_p") or payload.get("fdr_p_value"))
+    oos_alpha = _num(payload.get("oos_alpha"))
+    benchmark_alpha = _num(payload.get("benchmark_alpha"), 0.0)
+
+    decision, allowed_in_live_agent, next_actions = _gate_decision(
+        blocking_reasons,
+        phase=phase,
+        oos_run_count=oos_run_count,
+        changed_after_oos=changed_after_oos,
+        permutation_p=permutation_p,
+        fdr_p=fdr_p,
+        oos_alpha=oos_alpha,
+        benchmark_alpha=benchmark_alpha,
+    )
 
     evidence_check = next(
         (item for item in checklist if item.get("id") == "evidence_artifact"),

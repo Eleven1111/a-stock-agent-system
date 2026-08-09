@@ -195,6 +195,74 @@ def _quote_proxy(quote: Optional[Dict[str, Any]], name: str,
                               asof_lag_days=lag)
 
 
+def _proxy_rows(bars: List[Dict[str, Any]]) -> List[tuple]:
+    """(close, volume, high, low) for bars whose numbers are usable."""
+    rows: List[tuple] = []
+    for bar in bars:
+        try:
+            close = float(bar.get("close"))
+            volume = float(bar.get("volume"))
+            high = float(bar.get("high", close))
+            low = float(bar.get("low", close))
+        except (TypeError, ValueError):
+            continue
+        if close > 0 and volume >= 0:
+            rows.append((close, volume, high, low))
+    return rows
+
+
+def _obv_slope(rows: List[tuple]) -> Optional[float]:
+    """Least-squares slope of on-balance volume over the trailing 20 bars."""
+    obv = [0.0]
+    for (prev, _, _, _), (close, volume, _, _) in zip(rows, rows[1:]):
+        obv.append(obv[-1] + (volume if close > prev else -volume if close < prev else 0))
+    window = obv[-min(20, len(obv)):]
+    if len(window) < 2:
+        return None
+    x_mean = (len(window) - 1) / 2
+    y_mean = sum(window) / len(window)
+    denom = sum((i - x_mean) ** 2 for i in range(len(window)))
+    return sum((i - x_mean) * (value - y_mean) for i, value in enumerate(window)) / denom
+
+
+def _money_flow_index(rows: List[tuple]) -> Optional[float]:
+    period = min(14, len(rows) - 1)
+    positive = negative = 0.0
+    for previous, current in zip(rows[-period - 1:-1], rows[-period:]):
+        typical = (current[0] + current[2] + current[3]) / 3.0
+        money = typical * current[1]
+        if typical > (previous[0] + previous[2] + previous[3]) / 3.0:
+            positive += money
+        elif typical < (previous[0] + previous[2] + previous[3]) / 3.0:
+            negative += money
+    return 100.0 if negative == 0 and positive else (
+        100.0 - 100.0 / (1.0 + positive / negative) if negative else None
+    )
+
+
+def _bar_proxy_values(rows: List[tuple]) -> Dict[str, Optional[float]]:
+    """Bar-level proxies; a key absent here stays an unavailable observation."""
+    up_volume = sum(volume for (prev, _, _, _), (close, volume, _, _) in zip(rows, rows[1:])
+                    if close > prev)
+    down_volume = sum(volume for (prev, _, _, _), (close, volume, _, _) in zip(rows, rows[1:])
+                      if close < prev)
+    ratio = up_volume / down_volume if down_volume > 0 else None
+    hold_count = sum(
+        close >= (high + low + close) / 3.0
+        for close, _volume, high, low in rows
+    )
+    values: Dict[str, Optional[float]] = {
+        "up_down_volume_ratio": round(ratio, 6) if ratio is not None else None,
+        "vwap_hold_ratio": round(hold_count / len(rows), 6),
+    }
+    slope = _obv_slope(rows)
+    if slope is not None:
+        values["obv_slope"] = round(slope, 6)
+    mfi = _money_flow_index(rows)
+    values["mfi"] = round(mfi, 6) if mfi is not None else None
+    return values
+
+
 def compute_observable_proxies(
     klines: Optional[List[Dict[str, Any]]] = None,
     quote: Optional[Dict[str, Any]] = None,
@@ -214,63 +282,10 @@ def compute_observable_proxies(
     observations: Dict[str, Dict[str, Any]] = {
         name: _proxy_observation() for name in _OBSERVABLE_PROXY_NAMES
     }
-    if len(bars) >= 2:
-        rows = []
-        for bar in bars:
-            try:
-                close = float(bar.get("close"))
-                volume = float(bar.get("volume"))
-                high = float(bar.get("high", close))
-                low = float(bar.get("low", close))
-            except (TypeError, ValueError):
-                continue
-            if close > 0 and volume >= 0:
-                rows.append((close, volume, high, low))
-        if len(rows) >= 2:
-            up_volume = sum(volume for (prev, _, _, _), (close, volume, _, _) in zip(rows, rows[1:])
-                            if close > prev)
-            down_volume = sum(volume for (prev, _, _, _), (close, volume, _, _) in zip(rows, rows[1:])
-                              if close < prev)
-            ratio = up_volume / down_volume if down_volume > 0 else None
-            observations["up_down_volume_ratio"] = _proxy_observation(
-                round(ratio, 6) if ratio is not None else None,
-                source=source, asof=asof)
-
-            hold_count = sum(
-                close >= (high + low + close) / 3.0
-                for close, _volume, high, low in rows
-            )
-            observations["vwap_hold_ratio"] = _proxy_observation(
-                round(hold_count / len(rows), 6), source=source, asof=asof)
-
-            obv = [0.0]
-            for (prev, _, _, _), (close, volume, _, _) in zip(rows, rows[1:]):
-                obv.append(obv[-1] + (volume if close > prev else -volume if close < prev else 0))
-            window = obv[-min(20, len(obv)):]
-            if len(window) >= 2:
-                x_mean = (len(window) - 1) / 2
-                y_mean = sum(window) / len(window)
-                denom = sum((i - x_mean) ** 2 for i in range(len(window)))
-                slope = sum((i - x_mean) * (value - y_mean)
-                            for i, value in enumerate(window)) / denom
-                observations["obv_slope"] = _proxy_observation(
-                    round(slope, 6), source=source, asof=asof)
-
-            period = min(14, len(rows) - 1)
-            positive = negative = 0.0
-            for previous, current in zip(rows[-period - 1:-1], rows[-period:]):
-                typical = (current[0] + current[2] + current[3]) / 3.0
-                money = typical * current[1]
-                if typical > (previous[0] + previous[2] + previous[3]) / 3.0:
-                    positive += money
-                elif typical < (previous[0] + previous[2] + previous[3]) / 3.0:
-                    negative += money
-            mfi = 100.0 if negative == 0 and positive else (
-                100.0 - 100.0 / (1.0 + positive / negative) if negative else None
-            )
-            observations["mfi"] = _proxy_observation(
-                round(mfi, 6) if mfi is not None else None,
-                source=source, asof=asof)
+    rows = _proxy_rows(bars) if len(bars) >= 2 else []
+    if len(rows) >= 2:
+        for name, value in _bar_proxy_values(rows).items():
+            observations[name] = _proxy_observation(value, source=source, asof=asof)
 
     quote_fields = {
         "consecutive_large_order_net": ("large_order_net", "large_order_net_yi"),

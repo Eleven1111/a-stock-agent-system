@@ -467,6 +467,35 @@ def _percentiles(items: Sequence[Mapping[str, Any]], key: str) -> Dict[str, floa
     return result
 
 
+def _confidence_band(score: float) -> str:
+    return "high" if score >= 80.0 else "medium" if score >= 55.0 else "low"
+
+
+def _strategy_identity(
+    item: Mapping[str, Any], *, daban_live: float, trend_live: float
+) -> str:
+    """An explicit single-lane selection wins; otherwise the higher live score does."""
+    selected_by = (
+        item.get("open_selected_by")
+        or item.get("auction_selected_by")
+        or item.get("selected_by")
+    )
+    if isinstance(selected_by, Mapping):
+        daban_selected = bool(selected_by.get("daban"))
+        trend_selected = bool(selected_by.get("trend"))
+    else:
+        daban_selected = trend_selected = False
+    if trend_selected and not daban_selected:
+        return TREND_STRATEGY_ID
+    if daban_selected and not trend_selected:
+        return DABAN_STRATEGY_ID
+    return (
+        DABAN_STRATEGY_ID
+        if daban_live >= trend_live and daban_live > 0.0
+        else TREND_STRATEGY_ID
+    )
+
+
 def strategy_state(
     item: Mapping[str, Any],
     daban_score: Any,
@@ -479,26 +508,7 @@ def strategy_state(
     weight = resolve_trend_live_weight(trend_live_weight)
     if weight <= 0.0:
         trend_live = 0.0
-    selected_by = (
-        item.get("open_selected_by")
-        or item.get("auction_selected_by")
-        or item.get("selected_by")
-    )
-    if isinstance(selected_by, Mapping):
-        daban_selected = bool(selected_by.get("daban"))
-        trend_selected = bool(selected_by.get("trend"))
-    else:
-        daban_selected = trend_selected = False
-    if trend_selected and not daban_selected:
-        identity = TREND_STRATEGY_ID
-    elif daban_selected and not trend_selected:
-        identity = DABAN_STRATEGY_ID
-    else:
-        identity = (
-            DABAN_STRATEGY_ID
-            if daban_live >= trend_live and daban_live > 0.0
-            else TREND_STRATEGY_ID
-        )
+    identity = _strategy_identity(item, daban_live=daban_live, trend_live=trend_live)
     exit_protocol = (
         "daban:t1_event_exit_v1"
         if identity == DABAN_STRATEGY_ID
@@ -515,21 +525,11 @@ def strategy_state(
     confidence = (
         "research_only"
         if identity == TREND_STRATEGY_ID and weight <= 0.0
-        else "high" if confidence_score >= 80.0
-        else "medium" if confidence_score >= 55.0
-        else "low"
+        else _confidence_band(confidence_score)
     )
-    daban_net_expectancy = _num(
-        item.get("daban_net_expectancy"), daban_live / 100.0
-    )
-    trend_net_expectancy = _num(
-        item.get("trend_net_expectancy"), trend_live / 100.0
-    )
-    daban_confidence = (
-        "high" if daban_live >= 80.0
-        else "medium" if daban_live >= 55.0
-        else "low"
-    )
+    daban_net_expectancy = _num(item.get("daban_net_expectancy"), daban_live / 100.0)
+    trend_net_expectancy = _num(item.get("trend_net_expectancy"), trend_live / 100.0)
+    daban_confidence = _confidence_band(daban_live)
     return {
         "primary_strategy_id": identity,
         "strategy_identity": identity,

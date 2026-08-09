@@ -209,6 +209,42 @@ def _data_quality_notes(snapshots: List[Dict[str, Any]], volume: float) -> List[
     return notes
 
 
+def _board_status(gap_pct: float, *, at_limit: bool, at_limit_down: bool, ask_vol: float) -> str:
+    if at_limit_down:
+        return "limit_down"         # 竞价跌停，买入无意义
+    if at_limit and ask_vol == 0:
+        return "yizi_seal"          # 竞价一字封死
+    if at_limit:
+        return "limit_up_with_ask"  # 竞价上板但有卖盘（T字/可撬）
+    return "high_open" if gap_pct > 0 else "flat_or_low_open"
+
+
+def _auction_reference_ratios(
+    last: Dict[str, Any], *, price: float, volume: float, raw_volume: Any
+) -> Dict[str, Any]:
+    """竞价量额对昨日/涨停日的比值；缺基准就留 None，不拿 0 冒充。"""
+    if raw_volume is None:
+        return {
+            "auction_volume_prev_day_ratio": None,
+            "auction_amount_prev_day_ratio": None,
+            "auction_volume_limitup_day_ratio": None,
+        }
+    return {
+        "auction_volume_prev_day_ratio": (
+            round(volume / float(last["prev_day_volume"]), 4)
+            if last.get("prev_day_volume") else None
+        ),
+        "auction_amount_prev_day_ratio": (
+            round((price * volume * 100) / float(last["prev_day_amount"]), 4)
+            if last.get("prev_day_amount") else None
+        ),
+        "auction_volume_limitup_day_ratio": (
+            round(volume / float(last["limitup_day_volume"]), 4)
+            if last.get("limitup_day_volume") else None
+        ),
+    }
+
+
 def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: str = "") -> Dict[str, Any]:
     """从一只票的竞价快照序列算出真竞价因子（纯函数，不触网）。
 
@@ -243,16 +279,9 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     limit_up_gap_pct = round((limit_up - prev_close) / prev_close * 100, 2)
     faded_from_limit_up = not at_limit and max_gap_pct >= limit_up_gap_pct - 1e-6
 
-    if at_limit_down:
-        board_status = "limit_down"         # 竞价跌停，买入无意义
-    elif at_limit and ask_vol == 0:
-        board_status = "yizi_seal"          # 竞价一字封死
-    elif at_limit:
-        board_status = "limit_up_with_ask"  # 竞价上板但有卖盘（T字/可撬）
-    elif gap_pct > 0:
-        board_status = "high_open"
-    else:
-        board_status = "flat_or_low_open"
+    board_status = _board_status(
+        gap_pct, at_limit=at_limit, at_limit_down=at_limit_down, ask_vol=ask_vol,
+    )
 
     quality_notes = _data_quality_notes(snapshots, volume)
     quality = _quality_for_snapshots(snapshots)
@@ -277,18 +306,7 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
         "auction_amount": round(price * volume * 100, 0) if raw_volume is not None else None,
         "prev_day_amount": last.get("prev_day_amount"),
         "limitup_day_volume": last.get("limitup_day_volume"),
-        "auction_volume_prev_day_ratio": (
-            round(volume / float(last["prev_day_volume"]), 4)
-            if raw_volume is not None and last.get("prev_day_volume") else None
-        ),
-        "auction_amount_prev_day_ratio": (
-            round((price * volume * 100) / float(last["prev_day_amount"]), 4)
-            if raw_volume is not None and last.get("prev_day_amount") else None
-        ),
-        "auction_volume_limitup_day_ratio": (
-            round(volume / float(last["limitup_day_volume"]), 4)
-            if raw_volume is not None and last.get("limitup_day_volume") else None
-        ),
+        **_auction_reference_ratios(last, price=price, volume=volume, raw_volume=raw_volume),
         # Tencent's free snapshot does not expose these L2 fields. Preserve
         # their schema and fail closed instead of manufacturing a signal.
         "unmatched_volume_after_0920": last.get("unmatched_volume_after_0920"),
@@ -397,6 +415,35 @@ def _recall_rate(covered: int, total: int) -> Optional[float]:
     return round(covered / total, 4) if total else None
 
 
+def _stage_payload(
+    target_codes: set, codes: set, *, available: bool = True
+) -> Dict[str, Any]:
+    """One funnel stage's coverage; an unavailable stage reports None, not zero."""
+    covered = len(target_codes & codes)
+    return {
+        "available": available,
+        "target_count": len(target_codes),
+        "covered_count": covered if available else None,
+        "lost_count": (len(target_codes) - covered) if available else None,
+        "recall": _recall_rate(covered, len(target_codes)) if available else None,
+        "covered_codes": sorted(target_codes & codes) if available else [],
+    }
+
+
+def _would_have_been_count(rows: List[Mapping[str, Any]], outside: List[str]) -> int:
+    """Rows the pool missed: an explicit upstream flag, else membership in ``outside``."""
+    return sum(
+        1
+        for item in rows
+        if item.get("would_have_been_candidate") is True
+        or (
+            "would_have_been_candidate" not in item
+            and item.get("code")
+            and candidate_pipeline.naked_code(item.get("code")) in outside
+        )
+    )
+
+
 def build_discovery_recall_report(
     quotes: Iterable[Mapping[str, Any]],
     *,
@@ -419,33 +466,23 @@ def build_discovery_recall_report(
     executable = _code_set(executable_codes or [])
     opened = _code_set(open_codes or []) if open_codes is not None else None
 
-    def stage_payload(codes: set[str], *, available: bool = True) -> Dict[str, Any]:
-        covered = len(target_codes & codes)
-        return {
-            "available": available,
-            "target_count": len(target_codes),
-            "covered_count": covered if available else None,
-            "lost_count": (len(target_codes) - covered) if available else None,
-            "recall": _recall_rate(covered, len(target_codes)) if available else None,
-            "covered_codes": sorted(target_codes & codes) if available else [],
-        }
-
-    d0 = stage_payload(prefilter)
-    auction_stage = stage_payload(auction)
-    executable_stage = stage_payload(executable, available=executable_codes is not None)
-    open_stage = stage_payload(opened or set(), available=opened is not None)
+    d0 = _stage_payload(target_codes, prefilter)
+    auction_stage = _stage_payload(target_codes, auction)
+    executable_stage = _stage_payload(
+        target_codes, executable, available=executable_codes is not None,
+    )
+    open_stage = _stage_payload(target_codes, opened or set(), available=opened is not None)
     outside = sorted(target_codes - prefilter)
-    loss_by_stage = {
-        "d0_prefilter_loss_count": d0["lost_count"],
-        "auction_pool_loss_count": auction_stage["lost_count"],
-        "executable_loss_count": executable_stage["lost_count"],
-        "open_confirmation_loss_count": open_stage["lost_count"],
-    }
     staged_loss = {
         "target_count": len(target_codes),
         "outside_pool_strong_count": len(outside),
         "outside_pool_strong_codes": outside[:200],
-        "loss_by_stage": loss_by_stage,
+        "loss_by_stage": {
+            "d0_prefilter_loss_count": d0["lost_count"],
+            "auction_pool_loss_count": auction_stage["lost_count"],
+            "executable_loss_count": executable_stage["lost_count"],
+            "open_confirmation_loss_count": open_stage["lost_count"],
+        },
         "d0_prefilter": d0,
         "auction": auction_stage,
         "open": open_stage,
@@ -476,16 +513,7 @@ def build_discovery_recall_report(
         },
         "outside_pool_strong_count": len(outside),
         "outside_pool_strong_codes": outside[:200],
-        "would_have_been_candidate_count": sum(
-            1
-            for item in rows
-            if item.get("would_have_been_candidate") is True
-            or (
-                "would_have_been_candidate" not in item
-                and item.get("code")
-                and candidate_pipeline.naked_code(item.get("code")) in outside
-            )
-        ),
+        "would_have_been_candidate_count": _would_have_been_count(rows, outside),
         "execution_gate_unchanged": True,
         "note": "召回统计仅用于优化D0预筛阈值，不扩大竞价池，不进入执行排名",
     }

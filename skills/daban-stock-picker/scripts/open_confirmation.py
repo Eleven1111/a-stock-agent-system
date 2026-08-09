@@ -126,6 +126,82 @@ def _intraday_rows(*objects: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return []
 
 
+def _intraday_series(
+    rows: Sequence[Mapping[str, Any]],
+) -> Tuple[list[float], list[float], list[float]]:
+    """Split minute rows into (prices, above-vwap flags, volumes)."""
+    prices: list[float] = []
+    vwaps: list[float] = []
+    volumes: list[float] = []
+    for row in rows:
+        price = _as_float(row.get("price", row.get("close", row.get("最新价"))))
+        vwap = _as_float(row.get("vwap", row.get("VWAP", row.get("均价"))))
+        if price is not None and price > 0:
+            prices.append(price)
+            if vwap is not None and vwap > 0:
+                vwaps.append(1.0 if price > vwap else 0.0)
+        volume = _as_float(row.get("volume", row.get("cum_volume", row.get("成交量"))))
+        if volume is not None:
+            volumes.append(volume)
+    return prices, vwaps, volumes
+
+
+def _drawdown_pct(prices: Sequence[float], period: int) -> Optional[float]:
+    sample = list(prices[:period])
+    if not sample or sample[-1] <= 0:
+        return None
+    peak = max(sample)
+    return max(0.0, (peak - sample[-1]) / peak * 100.0) if peak > 0 else None
+
+
+def _rounded(value: Optional[float]) -> Optional[float]:
+    return round(value, 4) if value is not None else None
+
+
+def _direct_volume_ratio(direct: Any) -> Tuple[Optional[float], Optional[float]]:
+    """Return (prior_volume, relative_volume) from provider-supplied fields."""
+    open_volume = _as_float(direct(("open_volume", "opening_volume", "开盘量")))
+    if open_volume is None:
+        # Tencent's 09:35 ``volume`` is the session opening accumulation.
+        open_volume = _as_float(direct(("volume", "成交量")))
+    prior_volume = _as_float(direct((
+        "previous_volume", "prev_volume", "yesterday_volume", "昨日量", "前日成交量",
+    )))
+    relative_volume = _as_float(direct((
+        "open_relative_volume", "opening_relative_volume", "open_volume_ratio",
+        "opening_volume_ratio", "relative_open_volume", "开盘相对量",
+    )))
+    if relative_volume is None and open_volume is not None and prior_volume and prior_volume > 0:
+        relative_volume = open_volume / prior_volume
+    return prior_volume, relative_volume
+
+
+def _direct_vwap_ratio(direct: Any) -> Optional[float]:
+    ratio = _as_float(direct((
+        "vwap_above_time_ratio", "vwap_above_ratio", "above_vwap_ratio",
+        "vwap_above_pct", "VWAP上方时间占比",
+    )))
+    if ratio is not None:
+        return ratio
+    above_minutes = _as_float(direct(("vwap_above_minutes", "above_vwap_minutes", "VWAP上方分钟")))
+    observed_minutes = _as_float(direct(("vwap_observation_minutes", "observed_minutes", "分时观测分钟")))
+    if above_minutes is not None and observed_minutes and observed_minutes > 0:
+        return above_minutes / observed_minutes
+    return None
+
+
+def _direct_drawdowns(direct: Any) -> Tuple[Optional[float], Optional[float]]:
+    dd15 = _as_float(direct((
+        "open_15m_drawdown_pct", "opening_15m_drawdown_pct", "drawdown_15m_pct",
+        "open15_drawdown_pct", "开盘15分钟回撤",
+    )))
+    dd30 = _as_float(direct((
+        "open_30m_drawdown_pct", "opening_30m_drawdown_pct", "drawdown_30m_pct",
+        "open30_drawdown_pct", "开盘30分钟回撤",
+    )))
+    return dd15, dd30
+
+
 def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> Dict[str, Any]:
     """Derive optional open-quality evidence from a factor/quote pair.
 
@@ -135,64 +211,18 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
     can preserve the provider's calculation.
     """
     def _direct(names): return _metric_value(quote, factor, names=names)
-    open_volume = _as_float(_direct(("open_volume", "opening_volume", "开盘量")))
-    if open_volume is None:
-        # Tencent's 09:35 ``volume`` is the session opening accumulation.
-        open_volume = _as_float(_direct(("volume", "成交量")))
-    prior_volume = _as_float(_direct((
-        "previous_volume", "prev_volume", "yesterday_volume", "昨日量", "前日成交量",
-    )))
-    relative_volume = _as_float(_direct((
-        "open_relative_volume", "opening_relative_volume", "open_volume_ratio",
-        "opening_volume_ratio", "relative_open_volume", "开盘相对量",
-    )))
-    if relative_volume is None and open_volume is not None and prior_volume and prior_volume > 0:
-        relative_volume = open_volume / prior_volume
-
+    prior_volume, relative_volume = _direct_volume_ratio(_direct)
     rows = _intraday_rows(quote, factor)
-    vwap_ratio = _as_float(_direct((
-        "vwap_above_time_ratio", "vwap_above_ratio", "above_vwap_ratio",
-        "vwap_above_pct", "VWAP上方时间占比",
-    )))
-    if vwap_ratio is None:
-        above_minutes = _as_float(_direct(("vwap_above_minutes", "above_vwap_minutes", "VWAP上方分钟")))
-        observed_minutes = _as_float(_direct(("vwap_observation_minutes", "observed_minutes", "分时观测分钟")))
-        if above_minutes is not None and observed_minutes and observed_minutes > 0:
-            vwap_ratio = above_minutes / observed_minutes
-    dd15 = _as_float(_direct((
-        "open_15m_drawdown_pct", "opening_15m_drawdown_pct", "drawdown_15m_pct",
-        "open15_drawdown_pct", "开盘15分钟回撤",
-    )))
-    dd30 = _as_float(_direct((
-        "open_30m_drawdown_pct", "opening_30m_drawdown_pct", "drawdown_30m_pct",
-        "open30_drawdown_pct", "开盘30分钟回撤",
-    )))
+    vwap_ratio = _direct_vwap_ratio(_direct)
+    dd15, dd30 = _direct_drawdowns(_direct)
     if rows:
-        prices: list[float] = []
-        vwaps: list[float] = []
-        volumes: list[float] = []
-        for row in rows:
-            price = _as_float(row.get("price", row.get("close", row.get("最新价"))))
-            vwap = _as_float(row.get("vwap", row.get("VWAP", row.get("均价"))))
-            if price is not None and price > 0:
-                prices.append(price)
-                if vwap is not None and vwap > 0:
-                    vwaps.append(1.0 if price > vwap else 0.0)
-            volume = _as_float(row.get("volume", row.get("cum_volume", row.get("成交量"))))
-            if volume is not None:
-                volumes.append(volume)
+        prices, vwaps, volumes = _intraday_series(rows)
         if vwap_ratio is None and vwaps:
             vwap_ratio = sum(vwaps) / len(vwaps)
-        def _drawdown(period: int) -> Optional[float]:
-            sample = prices[:period]
-            if not sample or sample[-1] <= 0:
-                return None
-            peak = max(sample)
-            return max(0.0, (peak - sample[-1]) / peak * 100.0) if peak > 0 else None
         if dd15 is None:
-            dd15 = _drawdown(15)
+            dd15 = _drawdown_pct(prices, 15)
         if dd30 is None:
-            dd30 = _drawdown(30)
+            dd30 = _drawdown_pct(prices, 30)
         if relative_volume is None and volumes and prior_volume and prior_volume > 0:
             # A cumulative first-window volume is the least surprising meaning
             # of "open volume" for minute fixtures.
@@ -214,28 +244,28 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
         "reseal_persistence", "reseal_duration_minutes", "reclose_persistence",
         "reclose_continuity", "回封持续性", "回封持续分钟",
     ))
+    limitups, breakouts = _rounded(sector_limitups), _rounded(sector_breakouts)
+    seal = seal_persistence if seal_persistence is not _MISSING else None
+    reseal = reseal_persistence if reseal_persistence is not _MISSING else None
     return {
-        "open_relative_volume": round(relative_volume, 4) if relative_volume is not None else None,
-        "opening_relative_volume": round(relative_volume, 4) if relative_volume is not None else None,
-        "vwap_above_time_ratio": round(vwap_ratio, 4) if vwap_ratio is not None else None,
-        "vwap_above_ratio": round(vwap_ratio, 4) if vwap_ratio is not None else None,
-        "open_15m_drawdown_pct": round(dd15, 4) if dd15 is not None else None,
-        "drawdown_15m_pct": round(dd15, 4) if dd15 is not None else None,
-        "open_30m_drawdown_pct": round(dd30, 4) if dd30 is not None else None,
-        "drawdown_30m_pct": round(dd30, 4) if dd30 is not None else None,
-        "sector_limitup_diffusion": round(sector_limitups, 4) if sector_limitups is not None else None,
-        "sector_limitup_count": round(sector_limitups, 4) if sector_limitups is not None else None,
-        "sector_breakout_diffusion": round(sector_breakouts, 4) if sector_breakouts is not None else None,
-        "sector_breakout_count": round(sector_breakouts, 4) if sector_breakouts is not None else None,
-        "sector_diffusion": {
-            "limitup_count": round(sector_limitups, 4) if sector_limitups is not None else None,
-            "breakout_count": round(sector_breakouts, 4) if sector_breakouts is not None else None,
-        },
-        "seal_persistence": seal_persistence if seal_persistence is not _MISSING else None,
-        "reseal_persistence": reseal_persistence if reseal_persistence is not _MISSING else None,
-        "seal_continuity": seal_persistence if seal_persistence is not _MISSING else None,
-        "reseal_continuity": reseal_persistence if reseal_persistence is not _MISSING else None,
-        "reclose_continuity": reseal_persistence if reseal_persistence is not _MISSING else None,
+        "open_relative_volume": _rounded(relative_volume),
+        "opening_relative_volume": _rounded(relative_volume),
+        "vwap_above_time_ratio": _rounded(vwap_ratio),
+        "vwap_above_ratio": _rounded(vwap_ratio),
+        "open_15m_drawdown_pct": _rounded(dd15),
+        "drawdown_15m_pct": _rounded(dd15),
+        "open_30m_drawdown_pct": _rounded(dd30),
+        "drawdown_30m_pct": _rounded(dd30),
+        "sector_limitup_diffusion": limitups,
+        "sector_limitup_count": limitups,
+        "sector_breakout_diffusion": breakouts,
+        "sector_breakout_count": breakouts,
+        "sector_diffusion": {"limitup_count": limitups, "breakout_count": breakouts},
+        "seal_persistence": seal,
+        "reseal_persistence": reseal,
+        "seal_continuity": seal,
+        "reseal_continuity": reseal,
+        "reclose_continuity": reseal,
     }
 
 
@@ -428,6 +458,52 @@ def _enrich_decision(
     return item
 
 
+def _carry_prior_chanlun(evidence: Dict[str, Any], result: Mapping[str, Any]) -> None:
+    """Keep the 09:25 chanlun read; the 09:35 rebuild must not silently drop it."""
+    prior_chanlun = ((result.get("research_evidence") or {}).get("chanlun") or {})
+    for key in (
+        "structure_summary",
+        "signals",
+        "live_bullish_signals",
+        "live_bearish_signals",
+        "display_only_signals",
+    ):
+        if key in prior_chanlun:
+            evidence["chanlun"][key] = prior_chanlun[key]
+
+
+def _portfolio_risk(
+    result: Mapping[str, Any],
+    portfolio: Mapping[str, Any] | None,
+    *,
+    asof: str | None,
+) -> Dict[str, Any]:
+    position_pct = float((result.get("execution_plan") or {}).get("position_pct") or 0)
+    if result.get("strict_execution") is True:
+        return evaluate_complete_admission(
+            portfolio or {},
+            result,
+            position_pct,
+            factor_evidence=result.get("portfolio_risk_evidence"),
+            decision_asof=str(asof or date.today().isoformat()),
+        )
+    return evaluate_candidate(portfolio or {}, result, position_pct)
+
+
+def _record_strategy_migration(result: Dict[str, Any], strategy_id: str) -> None:
+    """Leave a trace when 09:35 re-identifies the candidate into another strategy."""
+    prior_identity = result.get("strategy_identity") or result.get("open_strategy_identity")
+    if not prior_identity or prior_identity == strategy_id:
+        return
+    result["migration_from"] = prior_identity
+    result["strategy_state_event"] = {
+        "event": "strategy_migration",
+        "from": prior_identity,
+        "to": strategy_id,
+        "window": "09:35",
+    }
+
+
 def _apply_policy(
     item: Mapping[str, Any],
     asof: str | None = None,
@@ -452,30 +528,8 @@ def _apply_policy(
         result.get("quality_report") or {"status": "conditional"},
         evidence.get("market_intelligence"),
     )
-    prior_chanlun = ((result.get("research_evidence") or {}).get("chanlun") or {})
-    for key in (
-        "structure_summary",
-        "signals",
-        "live_bullish_signals",
-        "live_bearish_signals",
-        "display_only_signals",
-    ):
-        if key in prior_chanlun:
-            evidence["chanlun"][key] = prior_chanlun[key]
-    if result.get("strict_execution") is True:
-        portfolio_risk = evaluate_complete_admission(
-            portfolio or {},
-            result,
-            float((result.get("execution_plan") or {}).get("position_pct") or 0),
-            factor_evidence=result.get("portfolio_risk_evidence"),
-            decision_asof=str(asof or date.today().isoformat()),
-        )
-    else:
-        portfolio_risk = evaluate_candidate(
-            portfolio or {},
-            result,
-            float((result.get("execution_plan") or {}).get("position_pct") or 0),
-        )
+    _carry_prior_chanlun(evidence, result)
+    portfolio_risk = _portfolio_risk(result, portfolio, asof=asof)
     selection_market = (result.get("selection_context") or {}).get("market_timing") or {}
     policy = evaluate_decision(
         requested_action=str((result.get("execution_plan") or {}).get("decision") or "watch"),
@@ -489,15 +543,7 @@ def _apply_policy(
         discipline_state=discipline_state,
     )
     result["strategy_id"] = strategy_id
-    prior_identity = result.get("strategy_identity") or result.get("open_strategy_identity")
-    if prior_identity and prior_identity != strategy_id:
-        result["migration_from"] = prior_identity
-        result["strategy_state_event"] = {
-            "event": "strategy_migration",
-            "from": prior_identity,
-            "to": strategy_id,
-            "window": "09:35",
-        }
+    _record_strategy_migration(result, strategy_id)
     result["strategy_identity"] = strategy_id
     result["exit_protocol"] = (
         "daban:t1_event_exit_v1"
@@ -542,19 +588,15 @@ def _indicative_price_reliability(
     return deviation, abs(deviation) <= INDICATIVE_PRICE_MAX_DEVIATION_PCT
 
 
-def evaluate_open_confirmation(
-    factor: Dict[str, Any],
-    quote: Dict[str, Any],
-    asof: str | None = None,
-) -> Dict[str, Any]:
-    code = factor.get("code", "")
-    name = factor.get("name") or quote.get("name") or code
-    tradeability = assess_tradeability(quote, _naked_code(code), name)
-    change_pct = quote.get("change_pct")
-    price = quote.get("price")
-    indicative_deviation_pct, indicative_reliable = _indicative_price_reliability(factor, quote)
-    open_metrics = derive_open_metrics(factor, quote)
-
+def _open_action(
+    factor: Mapping[str, Any],
+    tradeability: Mapping[str, Any],
+    *,
+    change_pct: Any,
+    indicative_reliable: Optional[bool],
+    indicative_deviation_pct: Optional[float],
+) -> Tuple[str, List[str]]:
+    """Classify the 09:35 open into an action plus its human-readable reasons."""
     action = "skip"
     reasons: List[str] = []
     if indicative_reliable is False:
@@ -581,6 +623,29 @@ def evaluate_open_confirmation(
         reasons.append("竞价强但开盘未形成明确可执行信号")
     else:
         reasons.append("开盘确认不足")
+    return action, reasons
+
+
+def evaluate_open_confirmation(
+    factor: Dict[str, Any],
+    quote: Dict[str, Any],
+    asof: str | None = None,
+) -> Dict[str, Any]:
+    code = factor.get("code", "")
+    name = factor.get("name") or quote.get("name") or code
+    tradeability = assess_tradeability(quote, _naked_code(code), name)
+    change_pct = quote.get("change_pct")
+    price = quote.get("price")
+    indicative_deviation_pct, indicative_reliable = _indicative_price_reliability(factor, quote)
+    open_metrics = derive_open_metrics(factor, quote)
+
+    action, reasons = _open_action(
+        factor,
+        tradeability,
+        change_pct=change_pct,
+        indicative_reliable=indicative_reliable,
+        indicative_deviation_pct=indicative_deviation_pct,
+    )
 
     result = {
         "code": code,
@@ -690,90 +755,81 @@ def shortlist_degradation(shortlist_result: Mapping[str, Any]) -> Optional[str]:
     return f"竞价短名单降级（collection_status={collection}）：{detail}"
 
 
-def score_confirmations(
-    shortlist: Sequence[Mapping[str, Any]],
-    confirmations: Sequence[Mapping[str, Any]],
-) -> List[Dict[str, Any]]:
-    prior = {
-        candidate_pipeline.naked_code(item.get("code")): dict(item)
-        for item in shortlist
+def _score_confirmation(
+    item: Mapping[str, Any],
+    prior_entry: Mapping[str, Any],
+    quality: float,
+) -> Dict[str, Any]:
+    """Score one confirmed candidate on both lanes and resolve its strategy state."""
+    merged = {**prior_entry, **item}
+    change_pct = float(merged.get("change_pct") or 0.0)
+    open_quality = max(0.0, 1.0 - abs(change_pct - 5.5) / 6.0)
+    auction_score = float(merged.get("auction_score") or 0.0)
+    daban_auction = (
+        float(merged["auction_daban_score"])
+        if "auction_daban_score" in merged
+        else auction_score
+    )
+    trend_auction_raw = (
+        float(merged["auction_trend_score_raw"])
+        if "auction_trend_score_raw" in merged
+        else float(merged["auction_trend_score"])
+        if "auction_trend_score" in merged
+        else auction_score
+    )
+    metrics = derive_open_metrics(merged, merged)
+    merged.update(metrics)
+    # Daban and trend deliberately have separate models.  In particular,
+    # seal/reseal continuity is a Daban feature while VWAP persistence and
+    # drawdown are trend features; neither lane inherits the other's score.
+    merged["open_daban_score"] = _lane_score(
+        daban_auction, quality, open_quality, metrics, "daban"
+    )
+    merged["open_trend_score"] = _lane_score(
+        trend_auction_raw, quality, open_quality, metrics, "trend"
+    )
+    merged["open_action_models"] = {
+        "daban": {
+            "score": merged["open_daban_score"],
+            "auction_score": daban_auction,
+            "model": "seal_reseal_diffusion_v1",
+        },
+        "trend": {
+            "score": merged["open_trend_score"],
+            "auction_score": trend_auction_raw,
+            "model": "vwap_drawdown_participation_v1",
+        },
     }
-    action_quality = {"trend_watch": 1.0, "watch": 0.8}
-    eligible = []
-    for raw in confirmations:
-        item = dict(raw)
-        code = candidate_pipeline.naked_code(item.get("code"))
-        if item.get("action") not in action_quality:
-            continue
-        merged = {**prior.get(code, {}), **item}
-        change_pct = float(merged.get("change_pct") or 0.0)
-        open_quality = max(0.0, 1.0 - abs(change_pct - 5.5) / 6.0)
-        auction_score = float(merged.get("auction_score") or 0.0)
-        daban_auction = (
-            float(merged["auction_daban_score"])
-            if "auction_daban_score" in merged
-            else auction_score
-        )
-        trend_auction_raw = (
-            float(merged["auction_trend_score_raw"])
-            if "auction_trend_score_raw" in merged
-            else float(merged["auction_trend_score"])
-            if "auction_trend_score" in merged
-            else auction_score
-        )
-        metrics = derive_open_metrics(merged, merged)
-        merged.update(metrics)
-        # Daban and trend deliberately have separate models.  In particular,
-        # seal/reseal continuity is a Daban feature while VWAP persistence and
-        # drawdown are trend features; neither lane inherits the other's score.
-        merged["open_daban_score"] = _lane_score(
-            daban_auction, action_quality[item["action"]], open_quality, metrics, "daban"
-        )
-        merged["open_trend_score"] = _lane_score(
-            trend_auction_raw, action_quality[item["action"]], open_quality, metrics, "trend"
-        )
-        merged["open_action_models"] = {
-            "daban": {
-                "score": merged["open_daban_score"],
-                "auction_score": daban_auction,
-                "model": "seal_reseal_diffusion_v1",
-            },
-            "trend": {
-                "score": merged["open_trend_score"],
-                "auction_score": trend_auction_raw,
-                "model": "vwap_drawdown_participation_v1",
-            },
-        }
-        merged["open_trend_score_raw"] = merged["open_trend_score"]
-        live_trend_weight = candidate_pipeline.resolve_trend_live_weight(
-            merged.get("trend_live_weight")
-        )
-        merged["trend_live_weight"] = live_trend_weight
-        merged["open_trend_score"] = round(
-            merged["open_trend_score"] * live_trend_weight,
-            2,
-        )
-        merged["open_action_models"]["trend"]["raw_score"] = merged["open_trend_score_raw"]
-        merged["open_action_models"]["trend"]["score"] = merged["open_trend_score"]
-        state = candidate_pipeline.strategy_state(
-            merged,
-            merged["open_daban_score"],
-            merged["open_trend_score"],
-            live_trend_weight,
-        )
-        merged.update({
-            "open_strategy_identity": state["strategy_identity"],
-            "open_primary_strategy_id": state["primary_strategy_id"],
-            "open_exit_protocol": state["exit_protocol"],
-            "open_primary_net_expectancy": state["primary_net_expectancy"],
-            "open_primary_confidence": state["primary_confidence"],
-            "open_migration_from": state["migration_from"],
-            "open_strategy_state_event": state["strategy_state_event"],
-            "open_strategy_state": state["strategy_state"],
-            "open_score": state["strategy_live_score"],
-        })
-        eligible.append(merged)
+    merged["open_trend_score_raw"] = merged["open_trend_score"]
+    live_trend_weight = candidate_pipeline.resolve_trend_live_weight(
+        merged.get("trend_live_weight")
+    )
+    merged["trend_live_weight"] = live_trend_weight
+    merged["open_trend_score"] = round(merged["open_trend_score"] * live_trend_weight, 2)
+    merged["open_action_models"]["trend"]["raw_score"] = merged["open_trend_score_raw"]
+    merged["open_action_models"]["trend"]["score"] = merged["open_trend_score"]
+    state = candidate_pipeline.strategy_state(
+        merged,
+        merged["open_daban_score"],
+        merged["open_trend_score"],
+        live_trend_weight,
+    )
+    merged.update({
+        "open_strategy_identity": state["strategy_identity"],
+        "open_primary_strategy_id": state["primary_strategy_id"],
+        "open_exit_protocol": state["exit_protocol"],
+        "open_primary_net_expectancy": state["primary_net_expectancy"],
+        "open_primary_confidence": state["primary_confidence"],
+        "open_migration_from": state["migration_from"],
+        "open_strategy_state_event": state["strategy_state_event"],
+        "open_strategy_state": state["strategy_state"],
+        "open_score": state["strategy_live_score"],
+    })
+    return merged
 
+
+def _assign_sector_ranks(eligible: Sequence[Dict[str, Any]]) -> None:
+    """Rank each sector's members against their own leader, in place."""
     sector_groups: Dict[str, List[Dict[str, Any]]] = {}
     for item in eligible:
         sector = str(item.get("sector") or "").strip()
@@ -791,6 +847,27 @@ def score_confirmations(
                 float(item.get("open_daban_score") or 0.0) - leader_score,
                 2,
             )
+
+
+def score_confirmations(
+    shortlist: Sequence[Mapping[str, Any]],
+    confirmations: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    prior = {
+        candidate_pipeline.naked_code(item.get("code")): dict(item)
+        for item in shortlist
+    }
+    action_quality = {"trend_watch": 1.0, "watch": 0.8}
+    eligible = [
+        _score_confirmation(
+            dict(raw),
+            prior.get(candidate_pipeline.naked_code(raw.get("code")), {}),
+            action_quality[raw["action"]],
+        )
+        for raw in confirmations
+        if raw.get("action") in action_quality
+    ]
+    _assign_sector_ranks(eligible)
     return eligible
 
 

@@ -122,36 +122,42 @@ def _optional_number(*objects: Mapping[str, Any], names: Sequence[str]) -> float
     return None
 
 
-def _checkpoint_metrics(item: Mapping[str, Any], quote: Mapping[str, Any]) -> dict[str, Any]:
-    """Return optional evidence, preserving missing values as ``None``."""
-    def metric(names: Sequence[str]) -> float | None:
-        return _optional_number(quote, item, names=names)
-
-    relative_volume = metric((
+def _checkpoint_relative_volume(metric: Any) -> float | None:
+    supplied = metric((
         "open_relative_volume", "opening_relative_volume", "open_volume_ratio",
         "opening_volume_ratio", "relative_open_volume", "开盘相对量",
     ))
-    if relative_volume is None:
-        opening = metric(("open_volume", "opening_volume", "开盘量"))
-        if opening is None:
-            # At both checkpoint windows Tencent ``volume`` is cumulative D0
-            # volume, which is the opening-volume numerator for this feature.
-            opening = metric(("volume", "成交量"))
-        previous = metric(("previous_volume", "prev_volume", "yesterday_volume", "昨日量"))
-        if opening is not None and previous and previous > 0:
-            relative_volume = opening / previous
+    if supplied is not None:
+        return supplied
+    opening = metric(("open_volume", "opening_volume", "开盘量"))
+    if opening is None:
+        # At both checkpoint windows Tencent ``volume`` is cumulative D0
+        # volume, which is the opening-volume numerator for this feature.
+        opening = metric(("volume", "成交量"))
+    previous = metric(("previous_volume", "prev_volume", "yesterday_volume", "昨日量"))
+    if opening is not None and previous and previous > 0:
+        return opening / previous
+    return None
 
-    vwap_ratio = metric((
+
+def _checkpoint_vwap_ratio(metric: Any) -> float | None:
+    supplied = metric((
         "vwap_above_time_ratio", "vwap_above_ratio", "above_vwap_ratio",
         "vwap_above_pct", "VWAP上方时间占比",
     ))
-    if vwap_ratio is None:
-        above_minutes = metric(("vwap_above_minutes", "above_vwap_minutes", "VWAP上方分钟"))
-        observed_minutes = metric(("vwap_observation_minutes", "observed_minutes", "分时观测分钟"))
-        if above_minutes is not None and observed_minutes and observed_minutes > 0:
-            vwap_ratio = above_minutes / observed_minutes
-    dd15 = metric(("open_15m_drawdown_pct", "opening_15m_drawdown_pct", "drawdown_15m_pct", "开盘15分钟回撤"))
-    dd30 = metric(("open_30m_drawdown_pct", "opening_30m_drawdown_pct", "drawdown_30m_pct", "开盘30分钟回撤"))
+    if supplied is not None:
+        return supplied
+    above_minutes = metric(("vwap_above_minutes", "above_vwap_minutes", "VWAP上方分钟"))
+    observed_minutes = metric(("vwap_observation_minutes", "observed_minutes", "分时观测分钟"))
+    if above_minutes is not None and observed_minutes and observed_minutes > 0:
+        return above_minutes / observed_minutes
+    return None
+
+
+def _checkpoint_intraday(
+    quote: Mapping[str, Any], item: Mapping[str, Any]
+) -> tuple[list[float], list[float]]:
+    """Return (positive prices, above-vwap flags) from the first minute series found."""
     rows: list[Mapping[str, Any]] = []
     for obj in (quote, item):
         for key in ("intraday_bars", "minute_bars", "bars", "minutes", "分时"):
@@ -177,15 +183,33 @@ def _checkpoint_metrics(item: Mapping[str, Any], quote: Mapping[str, Any]) -> di
             vwap = 0.0
         if vwap > 0:
             above.append(1.0 if price > vwap else 0.0)
+    return prices, above
+
+
+def _checkpoint_drawdown(prices: list[float], period: int) -> float | None:
+    sample = prices[:period]
+    if not sample:
+        return None
+    return max(0.0, (max(sample) - sample[-1]) / max(sample) * 100.0)
+
+
+def _checkpoint_metrics(item: Mapping[str, Any], quote: Mapping[str, Any]) -> dict[str, Any]:
+    """Return optional evidence, preserving missing values as ``None``."""
+    def metric(names: Sequence[str]) -> float | None:
+        return _optional_number(quote, item, names=names)
+
+    relative_volume = _checkpoint_relative_volume(metric)
+    vwap_ratio = _checkpoint_vwap_ratio(metric)
+    dd15 = metric(("open_15m_drawdown_pct", "opening_15m_drawdown_pct", "drawdown_15m_pct", "开盘15分钟回撤"))
+    dd30 = metric(("open_30m_drawdown_pct", "opening_30m_drawdown_pct", "drawdown_30m_pct", "开盘30分钟回撤"))
+    prices, above = _checkpoint_intraday(quote, item)
     if vwap_ratio is None and above:
         vwap_ratio = sum(above) / len(above)
     if prices:
         if dd15 is None:
-            sample = prices[:15]
-            dd15 = max(0.0, (max(sample) - sample[-1]) / max(sample) * 100.0) if sample else None
+            dd15 = _checkpoint_drawdown(prices, 15)
         if dd30 is None:
-            sample = prices[:30]
-            dd30 = max(0.0, (max(sample) - sample[-1]) / max(sample) * 100.0) if sample else None
+            dd30 = _checkpoint_drawdown(prices, 30)
 
     values = {
         "open_relative_volume": relative_volume,
