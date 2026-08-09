@@ -492,7 +492,7 @@ def _deliver_feishu_direct(
     job_id = str(job.get("id") or artifact.get("job_id") or "")
     stdout = str(artifact.get("stdout") or "")
     max_chars = max(200, int(job.get("max_output_chars") or 4000))
-    text = stdout[:max_chars]
+    text = feishu_push.render_delivery_text(job_id, stdout, max_chars)
     trace_ctx = {
         "trace_id": execution_trace.resolve_trace_id(create=False),
         "job_id": job_id,
