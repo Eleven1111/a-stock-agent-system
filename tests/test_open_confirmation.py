@@ -918,3 +918,39 @@ def test_open_confirmation_keeps_indicative_price_reliable_when_close():
     assert result["auction_indicative_reliable"] is True
     assert result["auction_indicative_deviation_pct"] == 0.0
     assert result["action"] == "trend_watch"
+
+
+def test_derive_open_metrics_reads_direct_fields():
+    """Every branch of the helper must resolve; a bare ``direct`` name broke all of them."""
+    factor = {
+        "previous_volume": 1000,
+        "sector_limitup_count": 6,
+        "sector_breakout_count": 3,
+        "seal_persistence": 0.8,
+    }
+    quote = {
+        "volume": 2500,
+        "vwap_above_time_ratio": 0.75,
+        "open_15m_drawdown_pct": 1.2,
+        "open_30m_drawdown_pct": 2.4,
+    }
+
+    metrics = oc.derive_open_metrics(factor, quote)
+
+    assert metrics["open_relative_volume"] == 2.5
+    assert metrics["vwap_above_time_ratio"] == 0.75
+    assert metrics["open_15m_drawdown_pct"] == 1.2
+    assert metrics["open_30m_drawdown_pct"] == 2.4
+    assert metrics["sector_limitup_diffusion"] == 6.0
+    assert metrics["sector_breakout_diffusion"] == 3.0
+    assert metrics["seal_persistence"] == 0.8
+
+
+def test_derive_open_metrics_keeps_data_gaps_as_none():
+    metrics = oc.derive_open_metrics({}, {})
+
+    assert metrics["open_relative_volume"] is None
+    assert metrics["vwap_above_time_ratio"] is None
+    assert metrics["open_15m_drawdown_pct"] is None
+    assert metrics["sector_limitup_diffusion"] is None
+    assert metrics["seal_persistence"] is None

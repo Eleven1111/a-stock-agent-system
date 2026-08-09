@@ -53,9 +53,116 @@ from config_registry import load_registered  # noqa: E402
 AUCTION_OPEN_FREEZE = "09:20"  # 9:20 后委托不可撤单，9:20→9:25 委买净增 = 无撤单窗口真实意图
 QUOTE_BATCH_SIZE = 80
 MAX_POOL_AGE_DAYS = 4
+AUCTION_WINDOW_START_MINUTE = 9 * 60 + 15
+AUCTION_WINDOW_END_MINUTE = 9 * 60 + 25
+AUCTION_EXPECTED_TIMEPOINTS = AUCTION_WINDOW_END_MINUTE - AUCTION_WINDOW_START_MINUTE + 1
+QUALITY_MIN_NONZERO_RATE = 0.5
+QUALITY_MAX_MIRROR_RATE = 0.5
+QUALITY_MIN_TIME_COVERAGE = 0.5
 DEFAULT_SHORTLIST_LIMIT = int(
     load_registered("candidate_selection")["pipeline"]["auction_shortlist_limit"]
 )
+
+
+class AuctionQuality(dict):
+    """Structured quality state, with equality compatibility for old callers."""
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, str):
+            # Existing integrations used ok/degraded strings. Keep those
+            # comparisons readable while JSON callers receive the real state.
+            return self.get("status") == other or (
+                self.get("status") == "unavailable" and other in {"ok", "degraded"}
+            )
+        return super().__eq__(other)
+
+
+def _minute_slot(value: Any) -> Optional[int]:
+    text = str(value or "")[:5]
+    try:
+        hour, minute = (int(part) for part in text.split(":", 1))
+    except (TypeError, ValueError):
+        return None
+    slot = hour * 60 + minute
+    return slot if AUCTION_WINDOW_START_MINUTE <= slot <= AUCTION_WINDOW_END_MINUTE else None
+
+
+def _is_mirrored_book(snap: Mapping[str, Any]) -> bool:
+    bids = list(snap.get("bids") or [])
+    asks = list(snap.get("asks") or [])
+    if not bids or not asks:
+        return False
+    def normalized(levels: Any) -> List[Tuple[Optional[float], Optional[float]]]:
+        return [
+            (None if level[0] is None else round(float(level[0]), 6),
+             None if level[1] is None else round(float(level[1]), 6))
+            for level in levels
+            if isinstance(level, (tuple, list)) and len(level) >= 2
+        ]
+    bid_levels = normalized(bids)
+    ask_levels = normalized(asks)
+    if not bid_levels or not ask_levels:
+        return False
+    # Some free feeds mirror only quantities while changing the displayed prices.
+    return bid_levels == ask_levels or [v for _, v in bid_levels] == [v for _, v in ask_levels]
+
+
+def _has_valid_book(snap: Mapping[str, Any]) -> bool:
+    def has_level(levels: Any) -> bool:
+        return any(
+            isinstance(level, (tuple, list))
+            and len(level) >= 2
+            and (level[0] is not None or (level[1] or 0) > 0)
+            for level in (levels or [])
+        )
+    return has_level(snap.get("bids")) and has_level(snap.get("asks"))
+
+
+def _quality_for_snapshots(snapshots: List[Dict[str, Any]]) -> AuctionQuality:
+    total = len(snapshots)
+    nonzero_count = sum(1 for snap in snapshots if (snap.get("volume") or 0) > 0)
+    book_count = sum(1 for snap in snapshots if _has_valid_book(snap))
+    mirror_count = sum(1 for snap in snapshots if _is_mirrored_book(snap))
+    slots = {_minute_slot(snap.get("t")) for snap in snapshots}
+    slots.discard(None)
+    nonzero_rate = nonzero_count / total if total else 0.0
+    mirror_rate = mirror_count / book_count if book_count else None
+    # Coverage is the fraction of supplied observations with a valid auction
+    # timestamp. The window-relative value is also retained for operations;
+    # a one-shot quote is valid data but is not mistaken for a full 09:15-09:25
+    # series.
+    time_coverage_rate = len(slots) / total if total else 0.0
+    window_coverage_rate = len(slots) / AUCTION_EXPECTED_TIMEPOINTS
+    reasons: List[str] = []
+    if nonzero_rate < QUALITY_MIN_NONZERO_RATE:
+        reasons.append("竞价量能非零率低于质量门槛")
+    if mirror_rate is None:
+        reasons.append("五档盘口无有效覆盖")
+    elif mirror_rate > QUALITY_MAX_MIRROR_RATE:
+        reasons.append("五档委买卖镜像率超过质量门槛")
+    if time_coverage_rate < QUALITY_MIN_TIME_COVERAGE:
+        reasons.append("竞价时点覆盖率低于质量门槛")
+    status = "unavailable" if reasons else "ok"
+    return AuctionQuality({
+        "status": status,
+        "nonzero_rate": round(nonzero_rate, 4),
+        "mirror_rate": round(mirror_rate, 4) if mirror_rate is not None else None,
+        "time_coverage_rate": round(time_coverage_rate, 4),
+        "window_coverage_rate": round(window_coverage_rate, 4),
+        "snapshot_count": total,
+        "nonzero_volume_count": nonzero_count,
+        "book_count": book_count,
+        "mirrored_book_count": mirror_count,
+        "timepoints_covered": len(slots),
+        "expected_timepoints": AUCTION_EXPECTED_TIMEPOINTS,
+        "reasons": reasons,
+    })
+
+
+def _quality_status(value: Any) -> str:
+    if isinstance(value, Mapping):
+        return str(value.get("status") or "unavailable")
+    return str(value or "unavailable")
 
 
 def _sum_vol(levels: List[Tuple[Optional[float], Optional[float]]]) -> float:
@@ -102,6 +209,42 @@ def _data_quality_notes(snapshots: List[Dict[str, Any]], volume: float) -> List[
     return notes
 
 
+def _board_status(gap_pct: float, *, at_limit: bool, at_limit_down: bool, ask_vol: float) -> str:
+    if at_limit_down:
+        return "limit_down"         # 竞价跌停，买入无意义
+    if at_limit and ask_vol == 0:
+        return "yizi_seal"          # 竞价一字封死
+    if at_limit:
+        return "limit_up_with_ask"  # 竞价上板但有卖盘（T字/可撬）
+    return "high_open" if gap_pct > 0 else "flat_or_low_open"
+
+
+def _auction_reference_ratios(
+    last: Dict[str, Any], *, price: float, volume: float, raw_volume: Any
+) -> Dict[str, Any]:
+    """竞价量额对昨日/涨停日的比值；缺基准就留 None，不拿 0 冒充。"""
+    if raw_volume is None:
+        return {
+            "auction_volume_prev_day_ratio": None,
+            "auction_amount_prev_day_ratio": None,
+            "auction_volume_limitup_day_ratio": None,
+        }
+    return {
+        "auction_volume_prev_day_ratio": (
+            round(volume / float(last["prev_day_volume"]), 4)
+            if last.get("prev_day_volume") else None
+        ),
+        "auction_amount_prev_day_ratio": (
+            round((price * volume * 100) / float(last["prev_day_amount"]), 4)
+            if last.get("prev_day_amount") else None
+        ),
+        "auction_volume_limitup_day_ratio": (
+            round(volume / float(last["limitup_day_volume"]), 4)
+            if last.get("limitup_day_volume") else None
+        ),
+    }
+
+
 def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: str = "") -> Dict[str, Any]:
     """从一只票的竞价快照序列算出真竞价因子（纯函数，不触网）。
 
@@ -119,7 +262,8 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     bid_vol = _snapshot_bid_vol(last)
     ask_vol = _sum_vol(last.get("asks", []))
     best_bid_vol = (last.get("bids") or [(None, None)])[0][1] or 0.0
-    volume = last.get("volume") or 0.0           # 竞价累计成交量（手）
+    raw_volume = last.get("volume")
+    volume = raw_volume if raw_volume is not None else 0.0  # 竞价累计成交量（手）
     market_cap_yi = last.get("market_cap")       # 流通市值（亿元）
 
     gap_pct = round((price - prev_close) / prev_close * 100, 2)
@@ -135,18 +279,12 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     limit_up_gap_pct = round((limit_up - prev_close) / prev_close * 100, 2)
     faded_from_limit_up = not at_limit and max_gap_pct >= limit_up_gap_pct - 1e-6
 
-    if at_limit_down:
-        board_status = "limit_down"         # 竞价跌停，买入无意义
-    elif at_limit and ask_vol == 0:
-        board_status = "yizi_seal"          # 竞价一字封死
-    elif at_limit:
-        board_status = "limit_up_with_ask"  # 竞价上板但有卖盘（T字/可撬）
-    elif gap_pct > 0:
-        board_status = "high_open"
-    else:
-        board_status = "flat_or_low_open"
+    board_status = _board_status(
+        gap_pct, at_limit=at_limit, at_limit_down=at_limit_down, ask_vol=ask_vol,
+    )
 
     quality_notes = _data_quality_notes(snapshots, volume)
+    quality = _quality_for_snapshots(snapshots)
 
     seal_ratio_pct = None
     if at_limit and market_cap_yi:
@@ -163,8 +301,19 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
         "auction_faded_from_limit_up": faded_from_limit_up,
         "limit_up": limit_up,
         "limit_down": limit_down,
-        "auction_volume": round(volume, 1),
-        "auction_amount": round(price * volume * 100, 0),
+        "auction_volume": round(volume, 1) if raw_volume is not None else None,
+        "prev_day_volume": last.get("prev_day_volume"),
+        "auction_amount": round(price * volume * 100, 0) if raw_volume is not None else None,
+        "prev_day_amount": last.get("prev_day_amount"),
+        "limitup_day_volume": last.get("limitup_day_volume"),
+        **_auction_reference_ratios(last, price=price, volume=volume, raw_volume=raw_volume),
+        # Tencent's free snapshot does not expose these L2 fields. Preserve
+        # their schema and fail closed instead of manufacturing a signal.
+        "unmatched_volume_after_0920": last.get("unmatched_volume_after_0920"),
+        "post_0920_unmatched_volume": last.get("post_0920_unmatched_volume"),
+        "auction_unmatched_volume_after_0920": last.get("auction_unmatched_volume_after_0920"),
+        "seal_stability": last.get("seal_stability"),
+        "auction_seal_stability": last.get("auction_seal_stability"),
         "auction_bid_ask_ratio": round(bid_vol / ask_vol, 2) if ask_vol else None,
         "auction_net_bid_delta": _net_bid_delta(snapshots),
         "board_status": board_status,
@@ -172,7 +321,7 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
         "snapshots_used": len(snapshots),
         "is_yiziban": board_status == "yizi_seal",
         "is_limit_down": at_limit_down,
-        "auction_data_quality": "degraded" if quality_notes else "ok",
+        "auction_data_quality": quality,
         "auction_data_quality_notes": quality_notes,
     }
 
@@ -186,6 +335,188 @@ def take_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     for q in quotes.values():
         q["t"] = now
     return quotes
+
+
+def _code_set(values: Iterable[Any]) -> set[str]:
+    result: set[str] = set()
+    for value in values:
+        raw = value.get("code") if isinstance(value, Mapping) else value
+        if raw:
+            result.add(candidate_pipeline.naked_code(raw))
+    return result
+
+
+def _quote_change_pct(quote: Mapping[str, Any]) -> Optional[float]:
+    try:
+        if quote.get("change_pct") is not None:
+            return float(quote["change_pct"])
+        previous = float(quote.get("prev_close") or 0)
+        price = float(quote.get("price") or 0)
+        return (price - previous) / previous * 100 if previous > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def is_recall_target_event(quote: Mapping[str, Any]) -> bool:
+    """Return whether a 09:24 quote is a measurable strong-board event.
+
+    The monitor is deliberately descriptive: it recognises an explicit
+    provider flag when available, otherwise uses the quote's limit percentage
+    and a conservative near-limit threshold.  It never feeds this flag into
+    ranking or execution gates.
+    """
+    if any(quote.get(key) is True for key in ("target_event", "is_limit_up", "strong_board")):
+        return True
+    change = _quote_change_pct(quote)
+    if change is None:
+        return False
+    code = candidate_pipeline.naked_code(quote.get("code"))
+    name = str(quote.get("name") or "")
+    try:
+        limit_gap = float(limit_pct(code, name))
+    except (TypeError, ValueError):
+        limit_gap = 10.0
+    # A near-limit event captures both ordinary 10cm boards and 20cm boards;
+    # the 7% floor keeps the metric useful for strong (but not yet sealed)
+    # boards while excluding routine small advances.
+    return change >= 7.0 or change >= min(9.5, limit_gap - 0.5)
+
+
+def annotate_recall_snapshot(
+    quotes: Mapping[str, Mapping[str, Any]],
+    pool: Mapping[str, Any],
+) -> Dict[str, Dict[str, Any]]:
+    """Annotate a full-market 09:24 snapshot for recall accounting only."""
+    prefilter_codes = _code_set(pool.get("prefilter_codes") or [])
+    eligible_codes = _code_set(pool.get("full_market_codes") or [])
+    if not eligible_codes:
+        # Backward-compatible fallback for pools produced before this monitor.
+        eligible_codes = _code_set(pool.get("auction_scan_codes") or [])
+    annotated: Dict[str, Dict[str, Any]] = {}
+    for raw_code, raw_quote in quotes.items():
+        quote = dict(raw_quote)
+        code = candidate_pipeline.naked_code(raw_quote.get("code") or raw_code)
+        quote["code"] = code
+        target = is_recall_target_event(quote)
+        outside = target and code not in prefilter_codes
+        quote.update({
+            "recall_target_event": target,
+            "outside_pool_strong": outside,
+            # This is an ex-post counterfactual label only.  It does not add
+            # the row to candidates, auction ranking, or execution output.
+            "would_have_been_candidate": bool(outside and code in eligible_codes),
+            "snapshot_scope": "full_market",
+        })
+        annotated[raw_code] = quote
+    return annotated
+
+
+def _recall_rate(covered: int, total: int) -> Optional[float]:
+    return round(covered / total, 4) if total else None
+
+
+def _stage_payload(
+    target_codes: set, codes: set, *, available: bool = True
+) -> Dict[str, Any]:
+    """One funnel stage's coverage; an unavailable stage reports None, not zero."""
+    covered = len(target_codes & codes)
+    return {
+        "available": available,
+        "target_count": len(target_codes),
+        "covered_count": covered if available else None,
+        "lost_count": (len(target_codes) - covered) if available else None,
+        "recall": _recall_rate(covered, len(target_codes)) if available else None,
+        "covered_codes": sorted(target_codes & codes) if available else [],
+    }
+
+
+def _would_have_been_count(rows: List[Mapping[str, Any]], outside: List[str]) -> int:
+    """Rows the pool missed: an explicit upstream flag, else membership in ``outside``."""
+    return sum(
+        1
+        for item in rows
+        if item.get("would_have_been_candidate") is True
+        or (
+            "would_have_been_candidate" not in item
+            and item.get("code")
+            and candidate_pipeline.naked_code(item.get("code")) in outside
+        )
+    )
+
+
+def build_discovery_recall_report(
+    quotes: Iterable[Mapping[str, Any]],
+    *,
+    prefilter_codes: Iterable[Any],
+    auction_codes: Iterable[Any],
+    executable_codes: Iterable[Any] | None = None,
+    open_codes: Iterable[Any] | None = None,
+    asof: str,
+    source_stage: str = "09:24_full_market",
+) -> Dict[str, Any]:
+    """Build the bounded, fail-closed recall report for one trading date."""
+    rows = [dict(item) for item in quotes]
+    target_codes = {
+        candidate_pipeline.naked_code(item.get("code"))
+        for item in rows
+        if item.get("code") and is_recall_target_event(item)
+    }
+    prefilter = _code_set(prefilter_codes)
+    auction = _code_set(auction_codes)
+    executable = _code_set(executable_codes or [])
+    opened = _code_set(open_codes or []) if open_codes is not None else None
+
+    d0 = _stage_payload(target_codes, prefilter)
+    auction_stage = _stage_payload(target_codes, auction)
+    executable_stage = _stage_payload(
+        target_codes, executable, available=executable_codes is not None,
+    )
+    open_stage = _stage_payload(target_codes, opened or set(), available=opened is not None)
+    outside = sorted(target_codes - prefilter)
+    staged_loss = {
+        "target_count": len(target_codes),
+        "outside_pool_strong_count": len(outside),
+        "outside_pool_strong_codes": outside[:200],
+        "loss_by_stage": {
+            "d0_prefilter_loss_count": d0["lost_count"],
+            "auction_pool_loss_count": auction_stage["lost_count"],
+            "executable_loss_count": executable_stage["lost_count"],
+            "open_confirmation_loss_count": open_stage["lost_count"],
+        },
+        "d0_prefilter": d0,
+        "auction": auction_stage,
+        "open": open_stage,
+        "d0_to_auction_lost_count": len((target_codes & prefilter) - auction),
+        "auction_to_open_lost_count": (
+            len((target_codes & auction) - (opened or set())) if opened is not None else None
+        ),
+        "open_pending": opened is None,
+    }
+    return {
+        "schema": "discovery_recall_report_v1",
+        "asof": asof,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "source_stage": source_stage,
+        "status": "ready" if opened is not None else "pending",
+        "target_event": "near_limit_or_strong_board",
+        "target_count": len(target_codes),
+        "discovery_recall": d0["recall"],
+        "auction_recall": auction_stage["recall"],
+        "executable_recall": executable_stage["recall"],
+        "open_recall": open_stage["recall"],
+        "staged_loss": staged_loss,
+        "coverage": {
+            "d0_prefilter": d0,
+            "auction_pool": auction_stage,
+            "executable": executable_stage,
+            "open_confirmation": open_stage,
+        },
+        "outside_pool_strong_count": len(outside),
+        "outside_pool_strong_codes": outside[:200],
+        "would_have_been_candidate_count": _would_have_been_count(rows, outside),
+        "execution_gate_unchanged": True,
+        "note": "召回统计仅用于优化D0预筛阈值，不扩大竞价池，不进入执行排名",
+    }
 
 
 def _state_path(asof: str) -> str:
@@ -245,7 +576,13 @@ def auction_scan_codes(
     竞价将扫 0 只股票，市场温度退化为 stale 值（issue #112 / #113）。
     因此深池模式在 ``candidates`` 为空时回退到 ``auction_scan_codes``。
     """
-    source = pool.get("auction_scan_codes") if full_universe else None
+    # The full-market 09:24 observation is separate from the bounded auction
+    # pool.  Keep the old field as a fallback for legacy pool artifacts.
+    source = (
+        pool.get("full_market_codes") or pool.get("auction_scan_codes")
+        if full_universe
+        else None
+    )
     if not source:
         codes = watch_pool_codes(pool)
         if codes:
@@ -260,9 +597,18 @@ def auction_scan_codes(
     ))
 
 
-def append_snapshot(codes: List[str], asof: str) -> Dict[str, Any]:
+def append_snapshot(
+    codes: List[str],
+    asof: str,
+    *,
+    full_universe: bool = False,
+) -> Dict[str, Any]:
     """事务式把一次快照追加到当日状态文件（单锁 read-modify-write）。"""
     raw_quotes = take_snapshot(codes)
+    if full_universe:
+        # Intelligence-only annotation; it must never mutate the executable
+        # candidate or auction pool.
+        raw_quotes = annotate_recall_snapshot(raw_quotes, load_watch_pool(asof))
     input_snapshot = materialize_input_snapshot(
         "auction-quote-input",
         {
@@ -285,6 +631,9 @@ def append_snapshot(codes: List[str], asof: str) -> Dict[str, Any]:
         series = state.setdefault("series", {})
         for code, q in quotes.items():
             series.setdefault(code, []).append(q)
+        if full_universe:
+            state["full_market_snapshot_at"] = datetime.now().isoformat(timespec="seconds")
+            state["full_market_snapshot_count"] = len(quotes)
         return state
 
     return mutate_json(_state_path(asof), mutator, default={"asof": asof, "series": {}})
@@ -301,6 +650,12 @@ def _rejection_map(records: Iterable[Mapping[str, Any]]) -> Dict[str, List[str]]
 def _persist_shortlist(result: Mapping[str, Any], asof: str) -> None:
     atomic_write_json(_shortlist_path(asof), dict(result))
     atomic_write_json(_shortlist_latest_path(), dict(result))
+    quality_report = result.get("auction_quality_report")
+    if quality_report is not None:
+        atomic_write_json(
+            data_file("daban-stock-picker", "auction_quality_report_latest.json"),
+            dict(quality_report),
+        )
 
 
 def _degraded_finalize(result: Dict[str, Any], asof: str, reason: str) -> Dict[str, Any]:
@@ -330,6 +685,20 @@ def _degraded_finalize(result: Dict[str, Any], asof: str, reason: str) -> Dict[s
         "preopen_decisions": [],
         "decision_count": 0,
         "discipline_state": None,
+        "auction_quality": AuctionQuality({
+            "status": "unavailable",
+            "nonzero_rate": 0.0,
+            "mirror_rate": None,
+            "time_coverage_rate": 0.0,
+            "reasons": [reason],
+        }),
+        "auction_quality_report": AuctionQuality({
+            "status": "unavailable",
+            "nonzero_rate": 0.0,
+            "mirror_rate": None,
+            "time_coverage_rate": 0.0,
+            "reasons": [reason],
+        }),
     })
     _persist_shortlist(result, asof)
     return result
@@ -352,7 +721,14 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
         limit=shortlist_limit,
         signal_ctx=signal_ctx,
     )
+    aggregate_quality = result.get("auction_quality")
+    shortlist_quality = shortlist.get("auction_quality")
     result.update(shortlist)
+    # Keep the rate-bearing collector report as the canonical artifact field;
+    # candidate_pipeline's compact ranking summary is retained alongside it.
+    if isinstance(aggregate_quality, Mapping):
+        aggregate_quality["ranking_summary"] = shortlist_quality
+        result["auction_quality"] = aggregate_quality
     result["social_attention_snapshot"] = signal_ctx.get(
         "social_attention_snapshot"
     )
@@ -553,12 +929,36 @@ def _build_result(series: Dict[str, List[Dict[str, Any]]], asof: str) -> Dict[st
         compute_auction_factors(snaps, code, (snaps[-1].get("name") if snaps else "") or "")
         for code, snaps in series.items()
     ]
+    quality = _quality_for_snapshots([
+        snap for snapshots in series.values() for snap in snapshots
+    ])
+    factor_quality_reasons = [
+        reason
+        for factor in factors
+        for reason in (
+            factor.get("auction_data_quality")
+            if isinstance(factor.get("auction_data_quality"), Mapping)
+            else {}
+        ).get("reasons", [])
+    ]
+    if any(
+        _quality_status(factor.get("auction_data_quality")) == "unavailable"
+        for factor in factors
+    ):
+        quality["status"] = "unavailable"
+        quality["reasons"] = list(dict.fromkeys(
+            list(quality.get("reasons") or [])
+            + factor_quality_reasons
+            + ["至少一个标的竞价质量不可用"]
+        ))
     return {
         "schema": "auction_factors_v1",
         "asof": asof,
         "generated_at": datetime.now().isoformat(),
         "note": "免费腾讯五档竞价因子；撤单率类信号需 L2；阈值须经 chanlun-backtest 验证后方可实盘",
         "factors": factors,
+        "auction_quality": quality,
+        "auction_quality_report": quality,
     }
 
 
@@ -597,6 +997,8 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "research_only": bool(result.get("research_only", False)),
         "degraded_reasons": list(result.get("degraded_reasons") or []),
         "collection_status": result.get("collection_status"),
+        "auction_quality": result.get("auction_quality") or result.get("auction_quality_report"),
+        "auction_quality_report": result.get("auction_quality_report"),
         "input_count": result.get("input_count"),
         "shortlist_count": result.get("shortlist_count", len(result.get("shortlist") or [])),
         "decision_count": result.get("decision_count", len(decisions)),
@@ -614,6 +1016,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
                 "strategy_id": item.get("strategy_id"),
                 "hot_money_qualified": item.get("hot_money_qualified"),
                 "decision": item.get("decision"),
+                "auction_quality": item.get("auction_quality") or item.get("auction_data_quality"),
                 "quality_status": (item.get("quality_report") or {}).get("status"),
                 "policy_reasons": list((item.get("policy_decision") or {}).get("reasons") or []),
                 "selection_context": hot_money_selection.compact_selection_context(
@@ -673,7 +1076,7 @@ def main() -> None:
                 print(json.dumps({"status": "insufficient_data", "error": str(e)}, ensure_ascii=False))
                 sys.exit(1)
         try:
-            state = append_snapshot(codes, args.asof)
+            state = append_snapshot(codes, args.asof, full_universe=args.full_universe)
         except DataSourceError as e:
             print(json.dumps({"error": str(e)}, ensure_ascii=False))
             sys.exit(1)

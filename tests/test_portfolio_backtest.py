@@ -243,6 +243,28 @@ def test_artifact_digest_detects_result_tampering(tmp_path):
     assert "result_sha256_mismatch" in tampered["errors"]
 
 
+def _direction_cohorts() -> list[dict]:
+    """构造合法的横截面方向证据：5 个互不重叠队列，每队 ≥100 对，同号率 ≥70%。"""
+    # 每个窗口必须与前后窗口互不重叠（src >= 上一窗口 dst），否则
+    # count_independent 只会计为 1 个独立观测。
+    windows = [
+        ("2026-01-05", "2026-01-15"),
+        ("2026-01-20", "2026-01-30"),
+        ("2026-02-04", "2026-02-13"),
+        ("2026-02-18", "2026-02-27"),
+        ("2026-03-04", "2026-03-13"),
+    ]
+    cohorts = []
+    for index, (src, dst) in enumerate(windows):
+        pairs = []
+        for j in range(120):
+            score = float(j)
+            forward_return = 0.001 * j + (0.0002 if index % 2 == 0 else 0.0001)
+            pairs.append([score, forward_return])
+        cohorts.append({"src": src, "dst": dst, "pairs": pairs})
+    return cohorts
+
+
 def test_portfolio_gate_uses_verified_artifact(tmp_path):
     payload = _payload(top_n=2)
     input_path = tmp_path / "input.json"
@@ -260,6 +282,7 @@ def test_portfolio_gate_uses_verified_artifact(tmp_path):
         report,
         artifact_path=str(artifact_path),
         min_oos_samples=1,
+        cross_sectional_cohorts=_direction_cohorts(),
     )
 
     assert gate["decision"] in {"passed_for_reference", "failed"}

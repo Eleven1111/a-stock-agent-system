@@ -7,7 +7,7 @@ so selection cannot add network dependencies or bypass snapshot lineage.
 from __future__ import annotations
 
 from statistics import mean
-from typing import Any, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 from crowding_fragility import build_market_crowding_fragility, sector_crowding_fragility
 from market_temperature import classify_market_state, temperature_from_context
@@ -113,6 +113,209 @@ def _sector_flow_yi(sector: str, context: Mapping[str, Any]) -> float | None:
     return _num(value)
 
 
+def _entry_height(entry: Any) -> int:
+    return int(_num(entry.get("lianban")) if isinstance(entry, Mapping) else 0)
+
+
+def _height_counts(entries: Iterable[Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for entry in entries:
+        value = _entry_height(entry)
+        if value > 0:
+            counts[str(value)] = counts.get(str(value), 0) + 1
+    return counts
+
+
+def _promotion_by_height(
+    current: Mapping[str, Any], prior: Mapping[str, Any]
+) -> dict[str, float | None]:
+    """Share of each prior rung that advanced one board, keyed by prior height."""
+    previous_by_height: dict[int, list[str]] = {}
+    for code, entry in prior.items():
+        value = _entry_height(entry)
+        if value > 0:
+            previous_by_height.setdefault(value, []).append(str(code))
+    promotion: dict[str, float | None] = {}
+    for value, codes in previous_by_height.items():
+        if not codes:
+            promotion[str(value)] = None
+            continue
+        normalized = {_code(code): entry for code, entry in current.items()}
+        promoted = sum(_entry_height(normalized.get(_code(code))) > value for code in codes)
+        promotion[str(value)] = round(promoted / len(codes), 4)
+    return promotion
+
+
+def _historical_height_counts(history: Sequence[Mapping[str, Any]] | None) -> Mapping[str, Any]:
+    """Height counts from three sessions back; empty when the window is short."""
+    history_rows = list(history or [])[-3:]
+    if len(history_rows) < 3 or not isinstance(history_rows[0], Mapping):
+        return {}
+    old_counts = history_rows[0].get("height_counts") or {}
+    if old_counts:
+        return old_counts
+    snapshot = history_rows[0].get("ladder") or history_rows[0].get("lianban_ladder")
+    return _height_counts(snapshot.values()) if isinstance(snapshot, Mapping) else {}
+
+
+def _entry_break_value(entry: Mapping[str, Any], *, flags: Sequence[str]) -> float | None:
+    """Break rate for one ladder entry; boolean flags are a 0/1 fallback."""
+    value = entry.get("break_rate", entry.get("broken_rate"))
+    if value is None and "break_count" in flags and entry.get("break_count") is not None:
+        total = _num(entry.get("seal_count")) + _num(entry.get("break_count"))
+        value = _num(entry.get("break_count")) / total if total else None
+    for key in flags:
+        if key == "break_count":
+            continue
+        if value is None and entry.get(key) is not None:
+            value = 1.0 if entry.get(key) else 0.0
+    return None if value is None else _num(value)
+
+
+def _break_rates(
+    current: Mapping[str, Any], context: Mapping[str, Any] | None
+) -> tuple[float | None, float | None]:
+    """Return (whole-ladder break rate, 2-4 board break rate)."""
+    entries = [entry for entry in current.values() if isinstance(entry, Mapping)]
+    broken_values = [
+        value for value in (
+            _entry_break_value(entry, flags=("break_count", "is_broken", "broken", "炸板"))
+            for entry in entries
+        ) if value is not None
+    ]
+    mid_break_values = [
+        value for value in (
+            _entry_break_value(entry, flags=("is_broken", "broken"))
+            for entry in entries if 2 <= _entry_height(entry) <= 4
+        ) if value is not None
+    ]
+    mid_break = round(mean(mid_break_values), 4) if mid_break_values else None
+    if mid_break is None and isinstance(context, Mapping):
+        mid_break = _num(context.get("mid_board_break_rate"))
+    return (round(mean(broken_values), 4) if broken_values else None), mid_break
+
+
+def _leader_premium(
+    prior: Mapping[str, Any],
+    quotes: Sequence[Mapping[str, Any]],
+    context: Mapping[str, Any] | None,
+) -> float | None:
+    """Next-day premium of the prior session's tallest boards; supplied wins."""
+    supplied = dict(context or {})
+    for key in ("leader_next_day_premium", "next_day_leader_premium"):
+        if supplied.get(key) is not None:
+            return _num(supplied[key])
+    max_height = max((_entry_height(entry) for entry in prior.values()), default=0)
+    leader_codes = {str(code) for code, entry in prior.items() if _entry_height(entry) == max_height}
+    supplied_values = [
+        _num(prior[code].get("next_day_premium", prior[code].get("premium")))
+        for code in leader_codes
+        if isinstance(prior.get(code), Mapping)
+        and prior[code].get("next_day_premium", prior[code].get("premium")) is not None
+    ]
+    leader_premium = round(mean(supplied_values), 4) if supplied_values else None
+    values = [_num(row.get("change_pct")) for row in quotes
+              if _code(row.get("code")) in {_code(code) for code in leader_codes}
+              and row.get("change_pct") not in (None, "", "-")]
+    if leader_premium is None and values:
+        leader_premium = round(mean(values), 4)
+    return leader_premium
+
+
+def _ladder_features(
+    ladder: Mapping[str, Any] | None,
+    previous: Mapping[str, Any] | None,
+    *,
+    history: Sequence[Mapping[str, Any]] | None = None,
+    quotes: Sequence[Mapping[str, Any]] = (),
+    context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return bounded ladder microstructure used by P1 ranking gates."""
+    current = ladder if isinstance(ladder, Mapping) else {}
+    prior = previous if isinstance(previous, Mapping) else {}
+
+    counts = _height_counts(current.values())
+    levels = sorted(int(key) for key in counts)
+    missing = [level for level in range(1, (max(levels) if levels else 0) + 1)
+               if str(level) not in counts]
+    # A ladder gap is the number of absent rungs between one and the height
+    # board; the explicit list keeps the feature explainable to consumers.
+    ladder_gap = len(missing)
+
+    promotion = _promotion_by_height(current, prior)
+    old_counts = _historical_height_counts(history)
+    height_change = {
+        key: counts.get(key, 0) - int(_num(old_counts.get(key)) or 0)
+        for key in sorted(set(counts) | set(str(k) for k in old_counts))
+    }
+    ladder_break, mid_break = _break_rates(current, context)
+    leader_premium = _leader_premium(prior, quotes, context)
+
+    return {
+        "height_counts": counts,
+        "ladder_gap": ladder_gap,
+        "ladder_missing_heights": missing,
+        "height_change_3d": (
+            dict(context.get("height_change_3d"))
+            if isinstance(context, Mapping)
+            and isinstance(context.get("height_change_3d"), Mapping)
+            else height_change
+        ),
+        "promotion_rate_by_height": (
+            dict(context.get("promotion_rate_by_height"))
+            if isinstance(context, Mapping)
+            and isinstance(context.get("promotion_rate_by_height"), Mapping)
+            else promotion
+        ),
+        "mid_board_break_rate": mid_break,
+        "leader_next_day_premium": leader_premium,
+        "ladder_break_rate": ladder_break,
+    }
+
+
+def _breadth(observed: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """D0 advance/decline plus limit counts, using each board's own limit rule."""
+    advancers = sum(_num(row.get("change_pct")) > 0 for row in observed)
+    decliners = sum(_num(row.get("change_pct")) < 0 for row in observed)
+    limitups = 0
+    limitdowns = 0
+    for row in observed:
+        threshold = limit_pct(_code(row.get("code")), str(row.get("name") or ""))
+        change = _num(row.get("change_pct"))
+        if change >= threshold - 0.2:
+            limitups += 1
+        if change <= -threshold + 0.2:
+            limitdowns += 1
+    return {
+        "advancers": advancers,
+        "decliners": decliners,
+        "flat": len(observed) - advancers - decliners,
+        "limitup_count": limitups,
+        "limitdown_count": limitdowns,
+    }
+
+
+def _timing_reasons(
+    temperature: Mapping[str, Any],
+    *,
+    context_asof: str,
+    event_asof: str,
+    quote_count: int,
+    min_quote_count: int,
+) -> list[str]:
+    """Blocking reasons for the hot-money clock; empty means ready."""
+    reasons: list[str] = []
+    if not temperature.get("context_fresh"):
+        reasons.extend(str(note) for note in temperature.get("notes") or [])
+    if context_asof and context_asof != event_asof:
+        reasons.append(f"梯队日期与事件日不一致或已过期: {context_asof} != {event_asof}")
+    if quote_count < min_quote_count:
+        reasons.append(f"全市场有效行情不足: {quote_count} < {min_quote_count}")
+    if not temperature.get("allow_new_daban"):
+        reasons.append(f"市场温度{temperature.get('tier')}不允许新开打板仓")
+    return reasons
+
+
 def build_market_timing(
     quotes: Sequence[Mapping[str, Any]],
     signal_context: Mapping[str, Any] | None,
@@ -127,17 +330,7 @@ def build_market_timing(
         row for row in quotes
         if _num(row.get("price")) > 0 and row.get("change_pct") not in (None, "", "-")
     ]
-    advancers = sum(_num(row.get("change_pct")) > 0 for row in observed)
-    decliners = sum(_num(row.get("change_pct")) < 0 for row in observed)
-    limitups = 0
-    limitdowns = 0
-    for row in observed:
-        threshold = limit_pct(_code(row.get("code")), str(row.get("name") or ""))
-        change = _num(row.get("change_pct"))
-        if change >= threshold - 0.2:
-            limitups += 1
-        if change <= -threshold + 0.2:
-            limitdowns += 1
+    breadth = _breadth(observed)
 
     previous_codes = {
         _code(code)
@@ -150,18 +343,23 @@ def build_market_timing(
         if _code(row.get("code")) in previous_codes
     ]
     temperature = temperature_from_context(context, event_asof=event_asof, max_age_days=0)
-    reasons: list[str] = []
+    ladder_features = _ladder_features(
+        context.get("lianban_ladder"),
+        context.get("prev_lianban_ladder"),
+        history=(context.get("ladder_history")
+                 or context.get("lianban_ladder_history")
+                 or context.get("ladder_snapshots")),
+        quotes=observed,
+        context=context,
+    )
     context_asof = str(context.get("ladder_asof") or "")
-    if not temperature.get("context_fresh"):
-        reasons.extend(str(note) for note in temperature.get("notes") or [])
-    if context_asof and context_asof != event_asof:
-        reasons.append(f"梯队日期与事件日不一致或已过期: {context_asof} != {event_asof}")
-    if len(observed) < int(cfg["min_quote_count"]):
-        reasons.append(
-            f"全市场有效行情不足: {len(observed)} < {int(cfg['min_quote_count'])}"
-        )
-    if not temperature.get("allow_new_daban"):
-        reasons.append(f"市场温度{temperature.get('tier')}不允许新开打板仓")
+    reasons = _timing_reasons(
+        temperature,
+        context_asof=context_asof,
+        event_asof=event_asof,
+        quote_count=len(observed),
+        min_quote_count=int(cfg["min_quote_count"]),
+    )
 
     ready = not reasons
     result = {
@@ -170,16 +368,11 @@ def build_market_timing(
         "context_asof": context_asof or None,
         "daban_ready": ready,
         "quote_count": len(observed),
-        "breadth": {
-            "advancers": advancers,
-            "decliners": decliners,
-            "flat": len(observed) - advancers - decliners,
-            "limitup_count": limitups,
-            "limitdown_count": limitdowns,
-        },
+        "breadth": breadth,
         "previous_ladder_premium": (
             round(mean(premium_values), 4) if premium_values else None
         ),
+        **ladder_features,
         "temperature": temperature,
         "reasons": reasons,
     }
@@ -518,6 +711,17 @@ def selection_context_for(
             "daban_ready": market.get("daban_ready", False),
             "breadth": dict(market.get("breadth") or {}),
             "previous_ladder_premium": market.get("previous_ladder_premium"),
+            "height_counts": dict(market.get("height_counts") or {}),
+            "ladder_gap": market.get("ladder_gap"),
+            "height_change_3d": dict(market.get("height_change_3d") or {}),
+            "promotion_rate_by_height": dict(
+                market.get("promotion_rate_by_height") or {}
+            ),
+            "mid_board_break_rate": market.get("mid_board_break_rate"),
+            "leader_next_day_premium": market.get("leader_next_day_premium"),
+            "next_day_net_premium": temperature.get("next_day_net_premium"),
+            "next_day_net_premium_ci": temperature.get("next_day_net_premium_ci"),
+            "premium_by_state": dict(temperature.get("premium_by_state") or {}),
             "crowding_score": crowding.get("crowding_score"),
             "fragility_score": crowding.get("fragility_score"),
             "crowding_signals": crowding.get("signals") or [],

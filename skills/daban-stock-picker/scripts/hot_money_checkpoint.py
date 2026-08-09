@@ -93,6 +93,163 @@ def _number(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _optional_number(*objects: Mapping[str, Any], names: Sequence[str]) -> float | None:
+    """Read an optional checkpoint metric from current quote or open signal."""
+    nested: list[Mapping[str, Any]] = []
+    for obj in objects:
+        if not isinstance(obj, Mapping):
+            continue
+        nested.append(obj)
+        for key in ("intraday", "intraday_metrics", "open_metrics", "market_metrics"):
+            value = obj.get(key)
+            if isinstance(value, Mapping):
+                nested.append(value)
+        for key in ("selection_context", "market_timing", "breadth", "sector_evidence"):
+            value = obj.get(key)
+            if isinstance(value, Mapping):
+                nested.append(value)
+                for child_key in ("market_timing", "breadth", "sector", "metrics"):
+                    child = value.get(child_key)
+                    if isinstance(child, Mapping):
+                        nested.append(child)
+    for obj in nested:
+        for name in names:
+            if name in obj and obj[name] is not None:
+                try:
+                    return float(obj[name])
+                except (TypeError, ValueError):
+                    continue
+    return None
+
+
+def _checkpoint_relative_volume(metric: Any) -> float | None:
+    supplied = metric((
+        "open_relative_volume", "opening_relative_volume", "open_volume_ratio",
+        "opening_volume_ratio", "relative_open_volume", "开盘相对量",
+    ))
+    if supplied is not None:
+        return supplied
+    opening = metric(("open_volume", "opening_volume", "开盘量"))
+    if opening is None:
+        # At both checkpoint windows Tencent ``volume`` is cumulative D0
+        # volume, which is the opening-volume numerator for this feature.
+        opening = metric(("volume", "成交量"))
+    previous = metric(("previous_volume", "prev_volume", "yesterday_volume", "昨日量"))
+    if opening is not None and previous and previous > 0:
+        return opening / previous
+    return None
+
+
+def _checkpoint_vwap_ratio(metric: Any) -> float | None:
+    supplied = metric((
+        "vwap_above_time_ratio", "vwap_above_ratio", "above_vwap_ratio",
+        "vwap_above_pct", "VWAP上方时间占比",
+    ))
+    if supplied is not None:
+        return supplied
+    above_minutes = metric(("vwap_above_minutes", "above_vwap_minutes", "VWAP上方分钟"))
+    observed_minutes = metric(("vwap_observation_minutes", "observed_minutes", "分时观测分钟"))
+    if above_minutes is not None and observed_minutes and observed_minutes > 0:
+        return above_minutes / observed_minutes
+    return None
+
+
+def _checkpoint_intraday(
+    quote: Mapping[str, Any], item: Mapping[str, Any]
+) -> tuple[list[float], list[float]]:
+    """Return (positive prices, above-vwap flags) from the first minute series found."""
+    rows: list[Mapping[str, Any]] = []
+    for obj in (quote, item):
+        for key in ("intraday_bars", "minute_bars", "bars", "minutes", "分时"):
+            candidate = obj.get(key) if isinstance(obj, Mapping) else None
+            if isinstance(candidate, Sequence) and not isinstance(candidate, (str, bytes)):
+                rows = [row for row in candidate if isinstance(row, Mapping)]
+                break
+        if rows:
+            break
+    prices: list[float] = []
+    above: list[float] = []
+    for row in rows:
+        try:
+            price = float(row.get("price", row.get("close", row.get("最新价"))))
+        except (TypeError, ValueError):
+            continue
+        if price <= 0:
+            continue
+        prices.append(price)
+        try:
+            vwap = float(row.get("vwap", row.get("VWAP", row.get("均价"))))
+        except (TypeError, ValueError):
+            vwap = 0.0
+        if vwap > 0:
+            above.append(1.0 if price > vwap else 0.0)
+    return prices, above
+
+
+def _checkpoint_drawdown(prices: list[float], period: int) -> float | None:
+    sample = prices[:period]
+    if not sample:
+        return None
+    return max(0.0, (max(sample) - sample[-1]) / max(sample) * 100.0)
+
+
+def _checkpoint_metrics(item: Mapping[str, Any], quote: Mapping[str, Any]) -> dict[str, Any]:
+    """Return optional evidence, preserving missing values as ``None``."""
+    def metric(names: Sequence[str]) -> float | None:
+        return _optional_number(quote, item, names=names)
+
+    relative_volume = _checkpoint_relative_volume(metric)
+    vwap_ratio = _checkpoint_vwap_ratio(metric)
+    dd15 = metric(("open_15m_drawdown_pct", "opening_15m_drawdown_pct", "drawdown_15m_pct", "开盘15分钟回撤"))
+    dd30 = metric(("open_30m_drawdown_pct", "opening_30m_drawdown_pct", "drawdown_30m_pct", "开盘30分钟回撤"))
+    prices, above = _checkpoint_intraday(quote, item)
+    if vwap_ratio is None and above:
+        vwap_ratio = sum(above) / len(above)
+    if prices:
+        if dd15 is None:
+            dd15 = _checkpoint_drawdown(prices, 15)
+        if dd30 is None:
+            dd30 = _checkpoint_drawdown(prices, 30)
+
+    values = {
+        "open_relative_volume": relative_volume,
+        "opening_relative_volume": relative_volume,
+        "vwap_above_time_ratio": vwap_ratio,
+        "vwap_above_ratio": vwap_ratio,
+        "open_15m_drawdown_pct": dd15,
+        "drawdown_15m_pct": dd15,
+        "open_30m_drawdown_pct": dd30,
+        "drawdown_30m_pct": dd30,
+        "sector_limitup_diffusion": metric((
+            "sector_limitup_count", "sector_limitups", "sector_limitup_diffusion",
+            "sector_limitup_breadth", "板块涨停数", "板块涨停扩散",
+        )),
+        "sector_breakout_diffusion": metric((
+            "sector_breakout_count", "sector_breakouts", "sector_breakout_diffusion",
+            "sector_probe_count", "板块冲板数", "冲板扩散",
+        )),
+        "seal_persistence": metric((
+            "seal_persistence", "seal_duration_minutes", "limitup_persistence", "封板持续性", "封板持续分钟",
+        )),
+        "reseal_persistence": metric((
+            "reseal_persistence", "reseal_duration_minutes", "reclose_persistence", "reclose_continuity", "回封持续性", "回封持续分钟",
+        )),
+    }
+    values["sector_limitup_count"] = values["sector_limitup_diffusion"]
+    values["sector_breakout_count"] = values["sector_breakout_diffusion"]
+    values["sector_diffusion"] = {
+        "limitup_count": values["sector_limitup_diffusion"],
+        "breakout_count": values["sector_breakout_diffusion"],
+    }
+    values["seal_continuity"] = values["seal_persistence"]
+    values["reseal_continuity"] = values["reseal_persistence"]
+    values["reclose_continuity"] = values["reseal_persistence"]
+    return {
+        key: round(value, 4) if isinstance(value, (int, float)) else value
+        for key, value in values.items()
+    }
+
+
 def evaluate_checkpoint(
     candidates: Sequence[Mapping[str, Any]],
     quotes: Mapping[str, Mapping[str, Any]],
@@ -134,6 +291,7 @@ def evaluate_checkpoint(
             if price > 0 and open_price > 0
             else None
         )
+        checkpoint_metrics = _checkpoint_metrics(item, quote or {})
         research_state = "invalidated"
         if not reasons:
             if (
@@ -153,6 +311,10 @@ def evaluate_checkpoint(
             "price": price or None,
             "change_pct": change_pct if quote else None,
             "return_from_open_pct": open_return,
+            # Kept as top-level fields for simple backtest consumers and as a
+            # grouped copy for callers that treat evidence as a record.
+            **checkpoint_metrics,
+            "checkpoint_evidence": dict(checkpoint_metrics),
             "tradeability": tradeability,
             "research_state": research_state,
             "reasons": reasons,
@@ -194,6 +356,12 @@ def evaluate_checkpoint(
                 "research_state": item["research_state"],
                 "change_pct": item.get("change_pct"),
                 "return_from_open_pct": item.get("return_from_open_pct"),
+                "vwap_above_time_ratio": item.get("vwap_above_time_ratio"),
+                "open_15m_drawdown_pct": item.get("open_15m_drawdown_pct"),
+                "open_30m_drawdown_pct": item.get("open_30m_drawdown_pct"),
+                "sector_limitup_diffusion": item.get("sector_limitup_diffusion"),
+                "sector_breakout_diffusion": item.get("sector_breakout_diffusion"),
+                "reseal_persistence": item.get("reseal_persistence"),
             }
     return observations
 

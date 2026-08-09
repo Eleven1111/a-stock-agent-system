@@ -827,6 +827,7 @@ def evaluate_research_gate(
     *,
     artifact_path: str,
     min_oos_samples: int = 60,
+    cross_sectional_cohorts: list | None = None,
 ) -> dict[str, Any]:
     verification = verify_artifact(artifact_path)
     if not verification["valid"]:
@@ -841,6 +842,9 @@ def evaluate_research_gate(
     state = {
         "asof": datetime.now().date().isoformat(),
         "strategy_id": report.get("strategy_id"),
+        "strategy_kind": (
+            "cross_sectional_score" if cross_sectional_cohorts else "event_signal"
+        ),
         "phase": "oos_complete",
         "rules_locked": True,
         "has_costs": True,
@@ -856,6 +860,8 @@ def evaluate_research_gate(
         "evidence_artifact": os.path.abspath(os.path.expanduser(artifact_path)),
         "evidence_sha256": artifact["artifact_sha256"],
     }
+    if cross_sectional_cohorts:
+        state["cross_sectional_cohorts"] = cross_sectional_cohorts
     return research_gate.evaluate_gate(state)
 
 

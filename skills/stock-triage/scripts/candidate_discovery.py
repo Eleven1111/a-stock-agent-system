@@ -996,6 +996,20 @@ def run_discovery(
         eligible,
         limit=prefilter_limit,
     )
+    # Persist the exact D0 prefilter membership and the full eligible universe.
+    # The former is the denominator for discovery recall; the latter is used by
+    # the 09:24 intelligence-only scan.  Neither list changes the executable
+    # auction pool, which remains bounded by ``candidates`` below.
+    prefilter_codes = [
+        candidate_pipeline.naked_code(item.get("code"))
+        for item in enrichment_universe
+        if item.get("code")
+    ]
+    full_market_codes = [
+        candidate_pipeline.naked_code(item.get("code"))
+        for item in eligible
+        if item.get("code")
+    ]
     production_kline = kline_fetcher is fetch_candidate_klines
     kline_by_code = dict(
         fetch_candidate_klines(
@@ -1149,6 +1163,10 @@ def run_discovery(
         "universe_source": "SSE+SZSE listings / Tencent quotes",
         "quote_source": quote_source,
         "enriched_count": len(kline_by_code),
+        "prefilter_count": len(prefilter_codes),
+        "prefilter_codes": prefilter_codes,
+        "full_market_count": len(full_market_codes),
+        "full_market_codes": full_market_codes,
         "market_temperature": temperature,
         "hot_money_selection": selection_state,
         "industry_map_health": industry_health,

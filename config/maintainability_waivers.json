@@ -72,9 +72,9 @@
       "violation_id": "1a4ca28d2bf6f834c573"
     },
     {
-      "violation_id": "1bc7a234815725b2c818",
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
+      "violation_id": "1bc7a234815725b2c818"
     },
     {
       "expires_on": "2026-10-31",
@@ -132,9 +132,9 @@
       "violation_id": "32f37759c28fcdfd6eec"
     },
     {
-      "violation_id": "37eb11a6a14ff8e0202a",
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
+      "violation_id": "37eb11a6a14ff8e0202a"
     },
     {
       "expires_on": "2026-10-31",
@@ -357,9 +357,9 @@
       "violation_id": "944712e9fab0cf807f6b"
     },
     {
-      "violation_id": "945681d3993cd661fa62",
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
+      "violation_id": "945681d3993cd661fa62"
     },
     {
       "expires_on": "2026-10-31",
@@ -447,9 +447,9 @@
       "violation_id": "a6397a707953b0d5b948"
     },
     {
-      "violation_id": "aac7454d408a58aa7f5b",
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
+      "violation_id": "aac7454d408a58aa7f5b"
     },
     {
       "expires_on": "2026-10-31",
@@ -522,9 +522,9 @@
       "violation_id": "c1f79748e671c1604acc"
     },
     {
-      "violation_id": "c278ad8408021bf75f3f",
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
+      "violation_id": "c278ad8408021bf75f3f"
     },
     {
       "expires_on": "2026-10-31",
@@ -552,9 +552,9 @@
       "violation_id": "c87df31c35ad82c8a6f0"
     },
     {
-      "violation_id": "c8aef5dd2e90bf188c87",
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
+      "violation_id": "c8aef5dd2e90bf188c87"
     },
     {
       "expires_on": "2026-10-31",
@@ -567,14 +567,14 @@
       "violation_id": "cc665af84ba2d784cd92"
     },
     {
-      "violation_id": "cce0d92fcafac1dc1eda",
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
+      "violation_id": "cce0d92fcafac1dc1eda"
     },
     {
-      "violation_id": "d1d324ab8b1ca8daea09",
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix"
+      "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
+      "violation_id": "d1d324ab8b1ca8daea09"
     },
     {
       "expires_on": "2026-10-31",
@@ -582,9 +582,9 @@
       "violation_id": "d34ed81d0d5438e5e63a"
     },
     {
-      "violation_id": "d5031f4d3d87a874335f",
       "expires_on": "2026-10-31",
-      "reason": "candidate-warmup mirrors main()'s fail-closed contract: an unexpected error must produce a structured warmup failure and exit 75, not crash the cron job"
+      "reason": "candidate-warmup mirrors main()'s fail-closed contract: an unexpected error must produce a structured warmup failure and exit 75, not crash the cron job",
+      "violation_id": "d5031f4d3d87a874335f"
     },
     {
       "expires_on": "2026-10-31",
@@ -695,6 +695,131 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "fee0fda7fb28d94c38d1"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "d1ef5deec865e7f1371d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "aec76663423d51223b2c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "3194719b80df1d45fd8b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "0c2ec7ea34c332d9b183"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "4eb487ad6bb283afe412"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "ba3143b3e3c34d296c8e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "ac592c4d56d23899547d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "d357225b0edd6ea23221"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "db56b070f5d9be3e1c51"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "212310aebcf74b565964"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "cca233e629576868b8c2"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "1c27e4a5aaafb10a4f42"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "9798c9ff4046be38314f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "ad3d4e53f06e57becb1d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "b389a6fa135a482fdb70"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "66fb1cd6691f47b7c2ee"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "f30305b7aa2b49979151"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "89643a26e312df6a9393"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "9406458385eea9c0b16d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "16e6f84499a6ceef0ced"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "2d6a253ad86df0efa729"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "9d79a8d3f47002853b75"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "bf92a2e73363a34d122c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "7ddd8e03a4d8549b04dc"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "12bd9dd3f610b609194c"
     }
   ]
 }

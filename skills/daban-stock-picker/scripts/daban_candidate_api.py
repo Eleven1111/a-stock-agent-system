@@ -28,6 +28,12 @@ _MKT = _cfg.section("market_gate")
 _FBR = _cfg.section("first_board_reseal")
 _SBW = _cfg.section("second_board_weak_to_strong")
 
+PATTERN_STRATEGY_IDS = {
+    "first_board_reseal": "daban:first_board_reseal_v2",
+    "second_board_weak_to_strong": "daban:second_board_w2s_v2",
+}
+EVENT_SCHEMA = "daban_event_v2"
+
 
 ENGINE = {
     "name": "daban-stock-picker",
@@ -71,6 +77,161 @@ def parse_time_minutes(value: Any) -> Optional[int]:
         return int(hour) * 60 + int(minute)
     except ValueError:
         return None
+
+
+def _first_present(mapping: Dict[str, Any], *keys: str) -> Any:
+    """Return the first supplied value, retaining explicit False/zero values."""
+    for key in keys:
+        if key in mapping and mapping.get(key) not in (None, ""):
+            return mapping.get(key)
+    return None
+
+
+_OBSERVABLE_PROXY_NAMES = (
+    "up_down_volume_ratio",
+    "vwap_hold_ratio",
+    "obv_slope",
+    "mfi",
+    "consecutive_large_order_net",
+    "lhb_institution_net_buy",
+    "industry_fund_flow",
+)
+
+
+def _proxy_observation(value: Any = None, *, source: str = "unavailable",
+                       asof: Any = None, asof_lag_days: Any = None) -> Dict[str, Any]:
+    if value is not None and (source == "unavailable" or asof is None):
+        value = None
+    result = {"value": value, "source": source, "asof": asof}
+    if asof_lag_days is not None:
+        result["asof_lag_days"] = asof_lag_days
+    return result
+
+
+def _observable_proxies(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize candidate-supplied proxies; missing evidence stays missing."""
+    candidate = candidate if isinstance(candidate, dict) else {}
+    observations = {}
+    aliases = {
+        "consecutive_large_order_net": ("large_order_net", "large_order_net_yi"),
+        "lhb_institution_net_buy": ("institution_lhb_net_buy", "institution_lhb_net_wan"),
+        "industry_fund_flow": ("sector_fund_flow", "industry_net_flow"),
+    }
+    for name in _OBSERVABLE_PROXY_NAMES:
+        raw = next((candidate[key] for key in (name, *aliases.get(name, ())) if key in candidate), None)
+        if isinstance(raw, dict):
+            value = raw.get("value")
+            source = raw.get("source") or candidate.get("source") or "candidate_input"
+            asof = raw.get("asof") or candidate.get("asof") or candidate.get("date")
+            lag = raw.get("asof_lag_days")
+        else:
+            value = raw
+            source = candidate.get("source") or "candidate_input"
+            asof = candidate.get("asof") or candidate.get("date")
+            lag = candidate.get(f"{name}_asof_lag_days")
+        if value is None:
+            observations[name] = _proxy_observation()
+        else:
+            if name == "lhb_institution_net_buy" and lag is None:
+                lag = candidate.get("lhb_asof_lag_days", 1)
+            observations[name] = _proxy_observation(
+                value, source=source, asof=asof, asof_lag_days=lag,
+            )
+    return {
+        **{name: obs.get("value") for name, obs in observations.items()},
+        "observable_proxies": observations,
+        "proxy_provenance": {
+            name: {key: value for key, value in obs.items() if key != "value"}
+            for name, obs in observations.items()
+        },
+    }
+
+
+def _pattern(candidate: Dict[str, Any]) -> Optional[str]:
+    return candidate.get("pattern") or candidate.get("signal_type")
+
+
+def _first_seal(candidate: Dict[str, Any]) -> Any:
+    # ``first_seal`` is the shared candidate-pipeline evidence name.  The
+    # older API accepted ``first_limitup_time``; keep accepting it at input.
+    return _first_present(
+        candidate, "first_seal", "first_seal_time", "first_limitup_time"
+    )
+
+
+def _seal_quality(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize reseal evidence into the shared event vocabulary.
+
+    Missing observations remain ``None``.  In particular, a missing final
+    seal observation must not be silently treated as a surviving seal.
+    """
+    first_seal = _first_seal(candidate)
+    final_seal = _first_present(
+        candidate,
+        "final_seal",
+        "final_seal_time",
+        "last_seal",
+        "last_seal_time",
+        "final_limitup_time",
+    )
+    open_count = _first_present(candidate, "open_board_count", "open_count")
+    total_open = _first_present(
+        candidate,
+        "total_open_minutes",
+        "cumulative_open_minutes",
+        "cumulative_open_duration_minutes",
+        "open_board_minutes",
+    )
+    max_open = _first_present(
+        candidate,
+        "max_open_minutes",
+        "longest_open_minutes",
+        "max_open_duration_minutes",
+    )
+    reseal_volume = _first_present(
+        candidate, "reseal_volume", "reseal_trade_volume", "reseal_volume_amount"
+    )
+    final_survival = _first_present(
+        candidate,
+        "final_seal_survival",
+        "final_seal_order_survival",
+        "seal_survival",
+        "sealed_at_close",
+    )
+    explicit_tail = _first_present(candidate, "tail_seal_after_14_30")
+    if explicit_tail is not None:
+        tail_seal = _bool(explicit_tail)
+    else:
+        final_minutes = parse_time_minutes(final_seal)
+        tail_seal = final_minutes is not None and final_minutes > parse_time_minutes("14:30")
+
+    return {
+        # Names used by candidate_pipeline's ladder evidence.
+        "first_seal": first_seal,
+        "final_seal": final_seal,
+        "open_board_count": int(_num(open_count)) if _num(open_count) is not None else None,
+        "total_open_minutes": _num(total_open),
+        "max_open_minutes": _num(max_open),
+        "reseal_volume": _num(reseal_volume),
+        "final_seal_survival": final_survival,
+        "tail_seal_after_14_30": tail_seal,
+        # Explicit time/duration aliases make the event self-describing for
+        # consumers that do not use the ladder adapter.
+        "first_seal_time": first_seal,
+        "final_seal_time": final_seal,
+        "last_seal": final_seal,
+        "last_seal_time": final_seal,
+        "cumulative_open_minutes": _num(total_open),
+        "total_open_duration": _num(total_open),
+        "longest_open_minutes": _num(max_open),
+        "max_open_duration": _num(max_open),
+        "reseal_trade_volume": _num(reseal_volume),
+        "final_seal_order_survival": final_survival,
+    }
+
+
+def _strategy_id(pattern: Optional[str]) -> Optional[str]:
+    return PATTERN_STRATEGY_IDS.get(pattern)
 
 
 def _sector_count(candidate: Dict[str, Any], market: Dict[str, Any]) -> int:
@@ -155,8 +316,8 @@ def _market_rejections(market: Dict[str, Any], portfolio: Dict[str, Any]) -> Lis
 
 
 def _pattern_rejections(candidate: Dict[str, Any], sector_limitups: int) -> List[str]:
-    pattern = candidate.get("pattern") or candidate.get("signal_type")
-    first_time = parse_time_minutes(candidate.get("first_limitup_time"))
+    pattern = _pattern(candidate)
+    first_time = parse_time_minutes(_first_seal(candidate))
     rejections = []
 
     if pattern == "first_board_reseal":
@@ -199,8 +360,20 @@ def _pattern_rejections(candidate: Dict[str, Any], sector_limitups: int) -> List
 
 
 def _six_questions(candidate: Dict[str, Any], market: Dict[str, Any], sector_limitups: int) -> List[Dict[str, Any]]:
-    first_time = parse_time_minutes(candidate.get("first_limitup_time"))
-    pattern = candidate.get("pattern") or candidate.get("signal_type")
+    first_time = parse_time_minutes(_first_seal(candidate))
+    pattern = _pattern(candidate)
+    if pattern == "first_board_reseal":
+        timing_passed = (
+            first_time is not None
+            and parse_time_minutes("09:35") <= first_time <= parse_time_minutes("10:30")
+        )
+        timing_question = "它是不是09:35-10:30早盘强回封？"
+    elif pattern == "second_board_weak_to_strong":
+        timing_passed = first_time is not None and first_time <= parse_time_minutes("09:45")
+        timing_question = "二板弱转强首次上板是否不晚于09:45？"
+    else:
+        timing_passed = False
+        timing_question = "是否符合已注册的打板形态时间窗？"
     questions = [
         {
             "id": "sentiment_score",
@@ -230,13 +403,9 @@ def _six_questions(candidate: Dict[str, Any], market: Dict[str, Any], sector_lim
         },
         {
             "id": "morning_reseal",
-            "question": "它是不是09:35-10:30早盘强回封？",
-            "passed": (
-                pattern in {"first_board_reseal", "second_board_weak_to_strong"}
-                and first_time is not None
-                and parse_time_minutes("09:35") <= first_time <= parse_time_minutes("10:30")
-            ),
-            "reason": f"first_limitup_time={candidate.get('first_limitup_time', 'N/A')}",
+            "question": timing_question,
+            "passed": timing_passed,
+            "reason": f"first_seal={_first_seal(candidate) or 'N/A'}",
         },
         {
             "id": "mechanical_exit",
@@ -290,7 +459,7 @@ def t1_scenario(candidate: Dict[str, Any]) -> Dict[str, Any]:
     按当日封板质量分三档，预案在次日 9:15-9:25 竞价阶段执行（T+1 制度下
     竞价出局优于开盘后挨"核按钮"）：
     - A 高位强封（零炸板）：竞价≥+3% 持有、跌破5日线减半；竞价<0% 开盘3分钟减半
-    - B 烂板回封（有炸板尾市封回）：竞价≤-4% 看大单承接可轻仓补（限1/3）；平开/微红 冲高全清
+    - B 烂板回封（有炸板尾市封回）：竞价弱只观察承接，不默认补仓；平开/微红冲高全清
     - C 收盘未封回：无论竞价，开盘3分钟无条件全清
     """
     sealed_at_close = _bool(candidate.get("sealed_at_close"), True)
@@ -300,18 +469,182 @@ def t1_scenario(candidate: Dict[str, Any]) -> Dict[str, Any]:
             "scenario": "C",
             "seal_quality": "收盘前开板未封回，封板失败",
             "auction_plan": "无论竞价表现，开盘3分钟内无条件斩仓全清",
+            "allowed_actions": ["exit"],
         }
     if open_boards >= 1:
         return {
             "scenario": "B",
             "seal_quality": f"炸板{open_boards}次尾市封回，多空分歧大",
-            "auction_plan": "竞价≤-4%观察大单承接，有承接可轻仓补(限总仓1/3)；"
+            "auction_plan": "竞价≤-4%仅观察大单承接；"
                             "平开或微红即丧失向上动能，开盘冲高过程全清",
+            "allowed_actions": ["reduce", "exit", "observe"],
         }
     return {
         "scenario": "A",
         "seal_quality": "高位强封无炸板，筹码锁定良好",
         "auction_plan": "竞价≥+3%持有(跌破5日线减半)；竞价<0%严重弱于预期，开盘3分钟内减仓50%",
+        "allowed_actions": ["reduce", "exit", "observe"],
+    }
+
+
+def _event_payload(
+    candidate: Dict[str, Any],
+    *,
+    code: str,
+    name: str,
+    price: Any,
+    score: float,
+    grade: str,
+    quality: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build the stable event/evidence shape consumed by downstream ranking.
+
+    ``candidate_pipeline`` calls these fields strategy identity/state evidence;
+    keeping the same names here avoids a second, pattern-specific vocabulary.
+    """
+    pattern = _pattern(candidate)
+    strategy_id = _strategy_id(pattern)
+    confidence = (
+        "high" if score >= 80.0 else "medium" if score >= 55.0 else "low"
+    )
+    net_expectancy = _num(candidate.get("daban_net_expectancy"), score / 100.0)
+    observable_proxies = _observable_proxies(candidate)
+    evidence = {
+        "schema": "daban_evidence_v2",
+        "strategy_identity": strategy_id,
+        "primary_strategy_id": strategy_id,
+        "primary_score": score,
+        "primary_net_expectancy": round(net_expectancy, 6),
+        "primary_confidence": confidence,
+        "strategy_live_score": score,
+        "strategy_state": {
+            "primary_strategy_id": strategy_id,
+            "primary_score": score,
+            "daban_net_expectancy": net_expectancy,
+            "daban_confidence": confidence,
+        },
+        "seal_quality": quality,
+        **observable_proxies,
+    }
+    return {
+        "schema": EVENT_SCHEMA,
+        "event_type": "daban.candidate",
+        "code": code,
+        "name": name,
+        "pattern": pattern,
+        "strategy_id": strategy_id,
+        "strategy_identity": strategy_id,
+        "primary_strategy_id": strategy_id,
+        "primary_score": score,
+        "primary_net_expectancy": evidence["primary_net_expectancy"],
+        "primary_confidence": evidence["primary_confidence"],
+        "strategy_live_score": score,
+        "strategy_state": evidence["strategy_state"],
+        "strategy_state_event": {
+            "event": "strategy_identity_selected",
+            "from": None,
+            "to": strategy_id,
+        },
+        "signal_price": price,
+        "signal_date": candidate.get("signal_date") or candidate.get("date"),
+        "evidence_time": candidate.get("evidence_time") or candidate.get("asof"),
+        "evidence": evidence,
+        "seal_quality": quality,
+        **observable_proxies,
+    }
+
+
+def _t1_exit_plan(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "priority": "先处理已有持仓，再考虑新开仓",
+        **t1_scenario(candidate),
+        "high_open_exit": "T+1高开6%-9%，09:30-09:45卖出1/2，余仓看封板/5日线",
+        "broken_board_exit": "首次放量断板且15分钟内不能回封，退出剩余仓位",
+    }
+
+
+def _identity_fields(
+    event: Dict[str, Any], *, strategy_id: str, score: float
+) -> Dict[str, Any]:
+    """Strategy identity and score aliases carried by every candidate payload."""
+    return {
+        "strategy_id": strategy_id,
+        "strategy_identity": strategy_id,
+        "primary_strategy_id": strategy_id,
+        "primary_score": score,
+        "primary_net_expectancy": event["evidence"]["primary_net_expectancy"],
+        "primary_confidence": event["evidence"]["primary_confidence"],
+        "strategy_live_score": score,
+        "strategy_state": event["evidence"]["strategy_state"],
+        "strategy_state_event": event["strategy_state_event"],
+    }
+
+
+def _blocked_reasons(
+    rejections: List[str], *, trade: Dict[str, Any], veto_no_count: int
+) -> List[str]:
+    reasons = list(rejections)
+    if trade.get("tradeable") is False:
+        reasons.append(trade.get("reason", "不可成交"))
+    if veto_no_count >= 2:
+        reasons.append(f"六问否决：{veto_no_count}项为否")
+    return reasons
+
+
+def _entry_plan(pattern: str, *, blocked: bool) -> Dict[str, Any]:
+    return {
+        "window": (
+            "09:35-10:30"
+            if pattern == "first_board_reseal"
+            else "首次上板不晚于09:45"
+            if pattern == "second_board_weak_to_strong"
+            else None
+        ),
+        "initial_position_pct": 0 if blocked else 20,
+        "max_single_ticket_pct": 50,
+        "max_total_exposure_pct": 60,
+        "buy_condition": "只做早盘强回封/二板弱转强；一字封死或停牌不买",
+    }
+
+
+def _record_payload(
+    candidate: Dict[str, Any],
+    event: Dict[str, Any],
+    quality: Dict[str, Any],
+    observable_proxies: Dict[str, Any],
+    *,
+    code: str,
+    name: str,
+    grade: str,
+    score: float,
+    price: Any,
+    strategy_id: str,
+) -> Dict[str, Any]:
+    """The ledger row for an executable candidate; callers gate on blocked/price."""
+    return {
+        "schema": EVENT_SCHEMA,
+        "event_type": "daban.candidate",
+        "code": code,
+        "name": name,
+        "grade": grade,
+        "score": round(score / 10.0, 1),
+        "price": price,
+        "signal_price": price,
+        "signal_date": candidate.get("signal_date") or candidate.get("date"),
+        "strategy_id": strategy_id,
+        "strategy_identity": strategy_id,
+        "primary_strategy_id": strategy_id,
+        "primary_score": score,
+        "primary_net_expectancy": event["evidence"]["primary_net_expectancy"],
+        "primary_confidence": event["evidence"]["primary_confidence"],
+        "strategy_live_score": score,
+        "strategy_state": event["strategy_state"],
+        "strategy_state_event": event["strategy_state_event"],
+        "evidence": event["evidence"],
+        **observable_proxies,
+        "seal_quality": quality,
+        "action": "buy",
+        "source": "daban_candidate_api",
     }
 
 
@@ -329,15 +662,18 @@ def evaluate_candidate(candidate: Dict[str, Any], market: Dict[str, Any], portfo
     hard_rejections = _hard_pool_rejections({**candidate, "code": code})
     market_rejections = _market_rejections(market, portfolio)
     pattern_rejections = _pattern_rejections(candidate, sector_limitups)
+    pattern = _pattern(candidate)
+    quality = _seal_quality(candidate)
+    if quality["tail_seal_after_14_30"]:
+        pattern_rejections.append("尾盘14:30后封板，仅研究观察，不进入可执行推荐")
     questions = _six_questions(candidate, market, sector_limitups)
     veto_no_count = sum(1 for q in questions if not q["passed"])
 
-    blocked_reasons = hard_rejections + market_rejections + pattern_rejections
-    if trade.get("tradeable") is False:
-        blocked_reasons.append(trade.get("reason", "不可成交"))
-    if veto_no_count >= 2:
-        blocked_reasons.append(f"六问否决：{veto_no_count}项为否")
-
+    blocked_reasons = _blocked_reasons(
+        hard_rejections + market_rejections + pattern_rejections,
+        trade=trade,
+        veto_no_count=veto_no_count,
+    )
     score, grade = _score_candidate(
         hard_rejections,
         pattern_rejections,
@@ -347,43 +683,50 @@ def evaluate_candidate(candidate: Dict[str, Any], market: Dict[str, Any], portfo
         candidate,
     )
     price = quote.get("price") or candidate.get("entry_price")
+    strategy_id = _strategy_id(pattern)
+    event = _event_payload(
+        candidate,
+        code=code,
+        name=name,
+        price=price,
+        score=score,
+        grade=grade,
+        quality=quality,
+    )
+    observable_proxies = _observable_proxies(candidate)
+    research_only = bool(quality["tail_seal_after_14_30"])
 
     return {
         "code": code,
         "name": name,
         "sector": candidate.get("sector", "Unknown"),
-        "pattern": candidate.get("pattern") or candidate.get("signal_type"),
+        "pattern": pattern,
+        **_identity_fields(event, strategy_id=strategy_id, score=score),
         "score": score,
         "grade": grade,
         "blocked": bool(blocked_reasons),
+        "research_only": research_only,
+        "execution_status": "research_only" if research_only else (
+            "blocked" if blocked_reasons else "executable"
+        ),
+        "seal_quality": quality,
+        **quality,
+        "event": event,
         "block_reasons": blocked_reasons,
         "tradeability": trade,
+        **observable_proxies,
         "six_question_veto": {
             "no_count": veto_no_count,
             "blocked": veto_no_count >= 2,
             "questions": questions,
         },
-        "entry_plan": {
-            "window": "09:35-10:30",
-            "initial_position_pct": 20 if not blocked_reasons else 0,
-            "max_single_ticket_pct": 50,
-            "max_total_exposure_pct": 60,
-            "buy_condition": "只做早盘强回封/二板弱转强；一字封死或停牌不买",
-        },
-        "t1_exit_plan": {
-            "priority": "先处理已有持仓，再考虑新开仓",
-            **t1_scenario(candidate),
-            "high_open_exit": "T+1高开6%-9%，09:30-09:45卖出1/2，余仓看封板/5日线",
-            "broken_board_exit": "首次放量断板且15分钟内不能回封，退出剩余仓位",
-        },
-        "record_payload": {
-            "code": code,
-            "name": name,
-            "grade": grade,
-            "score": round(score / 10.0, 1),
-            "price": price,
-            "strategy_id": f"daban:{candidate.get('pattern') or candidate.get('signal_type')}",
-        } if not blocked_reasons and price is not None else None,
+        "entry_plan": _entry_plan(pattern, blocked=bool(blocked_reasons)),
+        "t1_exit_plan": _t1_exit_plan(candidate),
+        "record_payload": _record_payload(
+            candidate, event, quality, observable_proxies,
+            code=code, name=name, grade=grade, score=score, price=price,
+            strategy_id=strategy_id,
+        ) if not blocked_reasons and price is not None and not research_only else None,
     }
 
 

@@ -16,6 +16,56 @@ import strategy_packs
 from strategy_packs import PackError
 
 
+_CONDITION_CASES = {
+    "turnover_ge_5": (
+        {"turnover": 5.0},
+        {"turnover": 4.99},
+    ),
+    "turnover_low_band": (
+        {"turnover": 3.0},
+        {"turnover": 3.01},
+    ),
+    "turnover_high_band": (
+        {"turnover": 8.0},
+        {"turnover": 7.99},
+    ),
+    "volume_ratio_ge_1_5": (
+        {"volume_ratio_5d": 1.5},
+        {"volume_ratio_5d": 1.49},
+    ),
+    "sector_lag_lte_2": (
+        {"auction_sector_delta": -2.0},
+        {"auction_sector_delta": -2.01},
+    ),
+    "sector_rank_top": (
+        {"auction_sector_rank": 2},
+        {"auction_sector_rank": 3},
+    ),
+    "sector_catalyst_present": (
+        {"hot_money_notes": ["板块赚钱效应扩散"]},
+        {"hot_money_notes": ["个股盘口活跃"]},
+    ),
+    "turnover_trend_converging": (
+        {"volume_spike_ratio": {"available": True, "label": "shrink", "value": 0.5}},
+        {"volume_spike_ratio": {"available": True, "label": "normal", "value": 1.0}},
+    ),
+    "ma_converged": (
+        {"ma_coil_ratio": {"available": True, "coiled": True, "value": 0.01}},
+        {"ma_coil_ratio": {"available": True, "coiled": False, "value": 0.04}},
+    ),
+    "blowoff_volume_stall": (
+        {
+            "volume_spike_ratio": {"available": True, "label": "distribution_suspect", "value": 5.0},
+            "change_pct": 2.0,
+        },
+        {
+            "volume_spike_ratio": {"available": True, "label": "normal", "value": 1.0},
+            "change_pct": 2.0,
+        },
+    ),
+}
+
+
 # --------------------------------------------------------------------------- #
 # Built-in packs load and validate
 # --------------------------------------------------------------------------- #
@@ -30,6 +80,27 @@ def test_builtin_packs_load_and_validate():
         assert isinstance(pack["evidence_requirements"], list)
         assert isinstance(pack["interpretation"], str) and pack["interpretation"].strip()
         assert isinstance(pack["score_hints"], list)
+
+
+def test_strategy_pack_conditions_have_hit_and_miss_contracts():
+    """Every schema condition must be constructible as both hit and miss."""
+    assert set(strategy_packs._CONDITIONS) == set(_CONDITION_CASES)
+    packs = strategy_packs.load_packs()
+    referenced = {
+        hint["when"]
+        for pack in packs.values()
+        for hint in pack["score_hints"]
+    }
+    assert referenced <= set(_CONDITION_CASES)
+
+    for condition_id, predicate in strategy_packs._CONDITIONS.items():
+        hit_sample, miss_sample = _CONDITION_CASES[condition_id]
+        hit, hit_reason = predicate(hit_sample)
+        miss, miss_reason = predicate(miss_sample)
+        assert hit is True, condition_id
+        assert hit_reason is None, condition_id
+        assert miss is False, condition_id
+        assert miss_reason, condition_id
 
 
 def test_builtin_packs_do_not_hardcode_stocks_or_sectors():
@@ -153,7 +224,7 @@ def test_evaluate_hints_reports_hit_and_miss_detail():
         "code": "000001",
         "turnover": 6.5,
         "volume_ratio_5d": 1.8,
-        "auction_sector_delta": 2.5,
+        "auction_sector_delta": 0.0,
         "sector_source": "ladder",
     }
     hints = strategy_packs.evaluate_pack_hints(candidate)

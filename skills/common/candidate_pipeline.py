@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from math import log
 from statistics import pstdev
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
@@ -25,6 +26,29 @@ DEFAULT_THEME_WEIGHTING = {
         "emerging": 0.0,
     },
 }
+
+# Research-only until a separately registered, directionally validated trend
+# strategy is promoted.  The registry check below is an additional fail-closed
+# guard: changing this constant alone cannot give an unregistered score live
+# ranking power.
+TREND_STRATEGY_ID = "trend:trend_follow_v2"
+DABAN_STRATEGY_ID = "daban:event_score_v1"
+TREND_LIVE_WEIGHT = 0.0
+
+
+def resolve_trend_live_weight(override: Any = None) -> float:
+    """Return the live trend weight, requiring both config and registry gates."""
+    configured = TREND_LIVE_WEIGHT if override is None else _num(override)
+    configured = max(0.0, min(1.0, configured))
+    if configured <= 0.0:
+        return 0.0
+    try:
+        import strategy_registry
+
+        registered = _num(strategy_registry.live_weight(TREND_STRATEGY_ID))
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError):
+        registered = 0.0
+    return round(max(0.0, min(configured, registered)), 4)
 
 
 def _theme_weighting_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -180,17 +204,141 @@ def _returns(closes: Sequence[float], periods: int) -> float:
     return (closes[-1] / closes[-periods - 1] - 1.0) * 100
 
 
+_OBSERVABLE_PROXY_NAMES = (
+    "up_down_volume_ratio",
+    "vwap_hold_ratio",
+    "obv_slope",
+    "mfi",
+    "consecutive_large_order_net",
+    "lhb_institution_net_buy",
+    "industry_fund_flow",
+)
+
+
+def _proxy_observation(value: Any = None, *, source: str = "unavailable",
+                       asof: Any = None, asof_lag_days: Any = None) -> Dict[str, Any]:
+    if value is not None and (source == "unavailable" or asof is None):
+        value = None
+    result = {"value": value, "source": source, "asof": asof}
+    if asof_lag_days is not None:
+        result["asof_lag_days"] = asof_lag_days
+    return result
+
+
+def _candidate_proxy(item: Mapping[str, Any], name: str,
+                     aliases: Sequence[str] = ()) -> Dict[str, Any]:
+    raw = next((item[key] for key in (name, *aliases) if key in item), None)
+    if isinstance(raw, Mapping):
+        value = raw.get("value")
+        source = raw.get("source") or item.get("source") or "candidate_input"
+        asof = raw.get("asof") or item.get("asof") or item.get("date")
+        lag = raw.get("asof_lag_days")
+    else:
+        value = raw
+        source = item.get("source") or "candidate_input"
+        asof = item.get("asof") or item.get("date")
+        lag = item.get(f"{name}_asof_lag_days")
+    if value is None:
+        return _proxy_observation()
+    return _proxy_observation(value, source=source, asof=asof,
+                              asof_lag_days=lag)
+
+
+def compute_observable_proxies(
+    kline: Sequence[Mapping[str, Any]],
+    item: Mapping[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Expose price/volume evidence with provenance, without actor inference."""
+    item = item or {}
+    rows = []
+    for bar in kline or []:
+        try:
+            close = float(bar.get("close"))
+            volume = float(bar.get("volume"))
+            high = float(bar.get("high", close))
+            low = float(bar.get("low", close))
+        except (TypeError, ValueError):
+            continue
+        if close > 0 and volume >= 0:
+            rows.append((close, volume, high, low, bar))
+    asof = ((rows[-1][4].get("asof") or rows[-1][4].get("date")
+             or rows[-1][4].get("datetime") or rows[-1][4].get("time"))
+            if rows else None)
+    source = ((rows[-1][4].get("source") or rows[-1][4].get("provider"))
+              if rows else None) or "candidate_kline"
+    observations = {name: _proxy_observation() for name in _OBSERVABLE_PROXY_NAMES}
+    if len(rows) >= 2:
+        up = sum(cur[1] for prev, cur in zip(rows, rows[1:]) if cur[0] > prev[0])
+        down = sum(cur[1] for prev, cur in zip(rows, rows[1:]) if cur[0] < prev[0])
+        observations["up_down_volume_ratio"] = _proxy_observation(
+            round(up / down, 6) if down > 0 else None, source=source, asof=asof)
+        observations["vwap_hold_ratio"] = _proxy_observation(
+            round(sum(cur[0] >= (cur[2] + cur[3] + cur[0]) / 3 for cur in rows) / len(rows), 6),
+            source=source, asof=asof)
+        obv = [0.0]
+        for prev, cur in zip(rows, rows[1:]):
+            obv.append(obv[-1] + (cur[1] if cur[0] > prev[0] else -cur[1] if cur[0] < prev[0] else 0))
+        window = obv[-min(20, len(obv)):]
+        x_mean = (len(window) - 1) / 2
+        denominator = sum((i - x_mean) ** 2 for i in range(len(window)))
+        if denominator:
+            y_mean = sum(window) / len(window)
+            slope = sum((i - x_mean) * (value - y_mean) for i, value in enumerate(window)) / denominator
+            observations["obv_slope"] = _proxy_observation(
+                round(slope, 6), source=source, asof=asof)
+        period = min(14, len(rows) - 1)
+        positive = negative = 0.0
+        for prev, cur in zip(rows[-period - 1:-1], rows[-period:]):
+            prev_typical = (prev[0] + prev[2] + prev[3]) / 3
+            typical = (cur[0] + cur[2] + cur[3]) / 3
+            if typical > prev_typical:
+                positive += typical * cur[1]
+            elif typical < prev_typical:
+                negative += typical * cur[1]
+        mfi = 100.0 if positive and not negative else (
+            100.0 - 100.0 / (1.0 + positive / negative) if negative else None
+        )
+        observations["mfi"] = _proxy_observation(
+            round(mfi, 6) if mfi is not None else None, source=source, asof=asof)
+
+    observations["consecutive_large_order_net"] = _candidate_proxy(
+        item, "consecutive_large_order_net", ("large_order_net", "large_order_net_yi")
+    )
+    lhb = _candidate_proxy(
+        item, "lhb_institution_net_buy", ("institution_lhb_net_buy", "institution_lhb_net_wan")
+    )
+    if lhb["value"] is not None and "asof_lag_days" not in lhb:
+        lhb["asof_lag_days"] = item.get("lhb_asof_lag_days", 1)
+    observations["lhb_institution_net_buy"] = lhb
+    observations["industry_fund_flow"] = _candidate_proxy(
+        item, "industry_fund_flow", ("sector_fund_flow", "industry_net_flow")
+    )
+    return {
+        **{name: obs.get("value") for name, obs in observations.items()},
+        "observable_proxies": observations,
+        "proxy_provenance": {
+            name: {key: value for key, value in obs.items() if key != "value"}
+            for name, obs in observations.items()
+        },
+    }
+
+
 def compute_price_features(kline: Sequence[Mapping[str, Any]]) -> Dict[str, float]:
+    proxy_fields = compute_observable_proxies(kline)
     if len(kline) < 20:
         return {
             "momentum_5d": 0.0,
             "momentum_20d": 0.0,
             "momentum_60d": 0.0,
+            "momentum_5d_raw": 0.0,
+            "momentum_20d_raw": 0.0,
+            "momentum_60d_raw": 0.0,
             "volume_ratio_5d": 0.0,
             "above_ma20": 0.0,
             "above_ma60": 0.0,
             "breakout_20d": 0.0,
             "volatility_20d": 100.0,
+            **proxy_fields,
         }
     closes = [_num(bar.get("close")) for bar in kline if _num(bar.get("close")) > 0]
     volumes = [_num(bar.get("volume")) for bar in kline]
@@ -205,16 +353,95 @@ def compute_price_features(kline: Sequence[Mapping[str, Any]]) -> Dict[str, floa
         if closes[i - 1] > 0
     ]
     avg_volume = sum(volumes[-6:-1]) / max(1, len(volumes[-6:-1]))
+    momentum_5d = round(_returns(closes, 5), 4)
+    momentum_20d = round(_returns(closes, 20), 4)
+    momentum_60d = round(_returns(closes, min(60, len(closes) - 1)), 4)
     return {
-        "momentum_5d": round(_returns(closes, 5), 4),
-        "momentum_20d": round(_returns(closes, 20), 4),
-        "momentum_60d": round(_returns(closes, min(60, len(closes) - 1)), 4),
+        "momentum_5d": momentum_5d,
+        "momentum_20d": momentum_20d,
+        "momentum_60d": momentum_60d,
+        "momentum_5d_raw": momentum_5d,
+        "momentum_20d_raw": momentum_20d,
+        "momentum_60d_raw": momentum_60d,
         "volume_ratio_5d": round(volumes[-1] / avg_volume, 4) if avg_volume > 0 else 0.0,
         "above_ma20": 1.0 if closes[-1] > ma20 else 0.0,
         "above_ma60": 1.0 if closes[-1] > ma60 else 0.0,
         "breakout_20d": 1.0 if closes[-1] >= prior_high else 0.0,
         "volatility_20d": round(pstdev(daily_returns) * 100, 4) if daily_returns else 100.0,
+        **proxy_fields,
     }
+
+
+def _cross_sectional_rank(values: Mapping[str, float]) -> Dict[str, float]:
+    """Percentile ranks with deterministic ties, in the closed interval [0, 1]."""
+    ordered = sorted(values.items(), key=lambda pair: (pair[1], pair[0]))
+    if not ordered:
+        return {}
+    denominator = max(1, len(ordered) - 1)
+    return {code: index / denominator for index, (code, _value) in enumerate(ordered)}
+
+
+def _slope_residual(values: Mapping[str, float], control: Mapping[str, float]) -> Dict[str, float]:
+    """Residualize one cross-sectional factor against one control without numpy."""
+    if len(values) < 2:
+        return dict(values)
+    mean_value = sum(values.values()) / len(values)
+    mean_control = sum(control.get(code, 0.0) for code in values) / len(values)
+    variance = sum((control.get(code, 0.0) - mean_control) ** 2 for code in values)
+    covariance = sum(
+        (control.get(code, 0.0) - mean_control) * (value - mean_value)
+        for code, value in values.items()
+    )
+    beta = covariance / variance if variance > 1e-12 else 0.0
+    return {
+        code: value - beta * (control.get(code, 0.0) - mean_control)
+        for code, value in values.items()
+    }
+
+
+def _apply_momentum_neutralization(items: Sequence[Dict[str, Any]]) -> None:
+    """Add industry/size/volatility-neutral momentum evidence without reweighting."""
+    if not items:
+        return
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for item in items:
+        group = str(item.get("sector") or item.get("industry") or "__market__")
+        groups.setdefault(group, []).append(item)
+
+    adjusted: Dict[str, float] = {}
+    size: Dict[str, float] = {}
+    volatility: Dict[str, float] = {}
+    for item in items:
+        code = str(item["code"])
+        group = str(item.get("sector") or item.get("industry") or "__market__")
+        members = groups[group]
+        group_mean = sum(_num(row.get("momentum_20d_raw")) for row in members) / len(members)
+        adjusted[code] = _num(item.get("momentum_20d_raw")) - group_mean
+        scale = _num(
+            item.get("float_mktcap")
+            or item.get("market_cap")
+            or item.get("amount")
+        )
+        size[code] = log(max(scale, 1.0))
+        volatility[code] = _num(item.get("volatility_20d"), 100.0)
+
+    size_residual = _slope_residual(adjusted, size)
+    neutral_residual = _slope_residual(size_residual, volatility)
+    size_rank = _cross_sectional_rank(size_residual)
+    volatility_rank = _cross_sectional_rank(neutral_residual)
+    adjusted_rank = _cross_sectional_rank(adjusted)
+    for item in items:
+        code = str(item["code"])
+        item.update({
+            "momentum_20d_ind_adj": round(adjusted[code], 4),
+            "momentum_20d_resid": round(size_residual[code], 4),
+            "momentum_20d_ind_adj_rank": round(adjusted_rank[code], 4),
+            "momentum_20d_size_neutral_rank": round(size_rank[code], 4),
+            "momentum_20d_volatility_neutral_rank": round(volatility_rank[code], 4),
+            "momentum_20d_neutral_rank": round(volatility_rank[code], 4),
+            "size_neutral_rank": round(size_rank[code], 4),
+            "volatility_neutral_rank": round(volatility_rank[code], 4),
+        })
 
 
 def _percentiles(items: Sequence[Mapping[str, Any]], key: str) -> Dict[str, float]:
@@ -240,8 +467,135 @@ def _percentiles(items: Sequence[Mapping[str, Any]], key: str) -> Dict[str, floa
     return result
 
 
+def _confidence_band(score: float) -> str:
+    return "high" if score >= 80.0 else "medium" if score >= 55.0 else "low"
+
+
+def _strategy_identity(
+    item: Mapping[str, Any], *, daban_live: float, trend_live: float
+) -> str:
+    """An explicit single-lane selection wins; otherwise the higher live score does."""
+    selected_by = (
+        item.get("open_selected_by")
+        or item.get("auction_selected_by")
+        or item.get("selected_by")
+    )
+    if isinstance(selected_by, Mapping):
+        daban_selected = bool(selected_by.get("daban"))
+        trend_selected = bool(selected_by.get("trend"))
+    else:
+        daban_selected = trend_selected = False
+    if trend_selected and not daban_selected:
+        return TREND_STRATEGY_ID
+    if daban_selected and not trend_selected:
+        return DABAN_STRATEGY_ID
+    return (
+        DABAN_STRATEGY_ID
+        if daban_live >= trend_live and daban_live > 0.0
+        else TREND_STRATEGY_ID
+    )
+
+
+def strategy_state(
+    item: Mapping[str, Any],
+    daban_score: Any,
+    trend_score: Any,
+    trend_live_weight: Any = None,
+) -> Dict[str, Any]:
+    """Choose one strategy identity; score lanes never lend points to each other."""
+    daban_live = max(0.0, _num(daban_score))
+    trend_live = max(0.0, _num(trend_score))
+    weight = resolve_trend_live_weight(trend_live_weight)
+    if weight <= 0.0:
+        trend_live = 0.0
+    identity = _strategy_identity(item, daban_live=daban_live, trend_live=trend_live)
+    exit_protocol = (
+        "daban:t1_event_exit_v1"
+        if identity == DABAN_STRATEGY_ID
+        else "trend:state_atr_exit_v1"
+    )
+    previous = str(
+        item.get("strategy_identity")
+        or item.get("auction_strategy_identity")
+        or item.get("open_strategy_identity")
+        or ""
+    ) or None
+    migration_from = previous if previous and previous != identity else None
+    confidence_score = daban_live if identity == DABAN_STRATEGY_ID else trend_live
+    confidence = (
+        "research_only"
+        if identity == TREND_STRATEGY_ID and weight <= 0.0
+        else _confidence_band(confidence_score)
+    )
+    daban_net_expectancy = _num(item.get("daban_net_expectancy"), daban_live / 100.0)
+    trend_net_expectancy = _num(item.get("trend_net_expectancy"), trend_live / 100.0)
+    daban_confidence = _confidence_band(daban_live)
+    return {
+        "primary_strategy_id": identity,
+        "strategy_identity": identity,
+        "exit_protocol": exit_protocol,
+        "primary_net_expectancy": round(
+            _num(item.get("trend_net_expectancy"), trend_net_expectancy)
+            if identity == TREND_STRATEGY_ID
+            else _num(item.get("daban_net_expectancy"), daban_net_expectancy),
+            6,
+        ),
+        "primary_confidence": confidence,
+        "migration_from": migration_from,
+        "strategy_state_event": {
+            "event": "strategy_migration" if migration_from else "strategy_identity_selected",
+            "from": migration_from,
+            "to": identity,
+            "trend_live_weight": weight,
+        },
+        "strategy_state": {
+            "primary_strategy_id": identity,
+            "primary_score": round(confidence_score, 2),
+            "daban_net_expectancy": daban_net_expectancy,
+            "trend_net_expectancy": trend_net_expectancy,
+            "daban_confidence": daban_confidence,
+            "trend_confidence": confidence,
+            "trend_live_weight": weight,
+        },
+        "strategy_live_score": round(confidence_score, 2),
+    }
+
+
+def _positive_emotion_expectancy(signal_ctx: Mapping[str, Any] | None) -> bool:
+    """Require an explicit, positive next-day net-premium observation.
+
+    A missing temperature/premium is deliberately different from zero: the
+    ladder bonus is then neutral rather than a hidden prior.
+    """
+    if not signal_ctx:
+        return False
+    context = dict(signal_ctx)
+    temperature = context.get("temperature") or context.get("market_temperature") or {}
+    if not isinstance(temperature, Mapping):
+        temperature = {}
+    tier = str(temperature.get("tier") or context.get("temperature_tier") or "")
+    by_state = (
+        temperature.get("premium_by_state")
+        or context.get("premium_by_state")
+        or context.get("next_day_net_premium_by_state")
+        or {}
+    )
+    value = by_state.get(tier) if isinstance(by_state, Mapping) and tier else None
+    if isinstance(value, Mapping):
+        value = value.get("value", value.get("next_day_net_premium"))
+    if value is None:
+        value = temperature.get("next_day_net_premium")
+    if value is None:
+        value = temperature.get("next_day_executable_net_premium")
+    try:
+        return float(value) > 0.0
+    except (TypeError, ValueError):
+        return False
+
+
 def hot_money_bonus(code: str, item: Mapping[str, Any],
-                    signal_ctx: Mapping[str, Any] | None) -> Tuple[float, List[str]]:
+                    signal_ctx: Mapping[str, Any] | None,
+                    *, apply_lianban_gate: bool = False) -> Tuple[float, List[str]]:
     """游资龙头身份加分（0~20，叠加在量价 daban 基分上）。
 
     口径来自游资选股研究报告的龙头识别三条件：连板梯队在册（梯队龙头延续性）、
@@ -258,8 +612,16 @@ def hot_money_bonus(code: str, item: Mapping[str, Any],
         sector = ladder.get("sector")
         lianban = int(ladder.get("lianban") or 0)
         if lianban >= 2:
-            bonus += 8.0
-            notes.append(f"{lianban}连板梯队在册")
+            if not apply_lianban_gate or _positive_emotion_expectancy(signal_ctx):
+                # 二板验证、三板确认、高位板稀缺性分级；不得把所有连板
+                # 视为同一种证据。无净溢价证据时保持中性。
+                tier_bonus = (
+                    4.0 if lianban == 2 else 6.0 if lianban == 3 else 8.0
+                ) if apply_lianban_gate else 8.0
+                bonus += tier_bonus
+                notes.append(f"{lianban}连板梯队在册(+{tier_bonus:.0f})")
+            elif apply_lianban_gate:
+                notes.append(f"{lianban}连板无情绪正净溢价证据，不加分")
         elif lianban == 1:
             bonus += 5.0
             notes.append("首板在册")
@@ -295,14 +657,19 @@ def rank_candidates(
     signal_ctx: Mapping[str, Any] | None = None,
     theme_stages: Mapping[str, Mapping[str, Any]] | None = None,
     theme_weighting: Mapping[str, Any] | None = None,
+    trend_live_weight: Any = None,
 ) -> List[Dict[str, Any]]:
     """Produce separate cross-sectional ranks for limit-up and trend strategies."""
+    live_trend_weight = resolve_trend_live_weight(trend_live_weight)
     enriched: List[Dict[str, Any]] = []
     for raw in eligible:
         item = dict(raw)
         code = naked_code(item.get("code"))
         bars = list(kline_by_code.get(code, []))
         features = compute_price_features(bars)
+        # Preserve explicitly supplied upstream proxy evidence while keeping
+        # the price features pure and score-compatible.
+        features.update(compute_observable_proxies(bars, item))
         item.update(features)
         atr_values = calc_atr(
             [_num(bar.get("high")) for bar in bars],
@@ -345,7 +712,9 @@ def rank_candidates(
             + 0.10 * volume_p.get(code, 0.0)
             + 0.10 * _num(item.get("breakout_20d"))
         )
-        hm_bonus, hm_notes = hot_money_bonus(code, item, signal_ctx)
+        hm_bonus, hm_notes = hot_money_bonus(
+            code, item, signal_ctx, apply_lianban_gate=True
+        )
         social = candidate_attention_overlay(code, signal_ctx)
         social_delta = float(social["delta"])
         ladder = ((signal_ctx or {}).get("lianban_ladder") or {}).get(code) or {}
@@ -380,6 +749,15 @@ def rank_candidates(
             "daban_eligible": daban_eligible,
             "daban_score": round(max(0.0, min(100.0, daban_score)), 2),
             "trend_score": round(max(0.0, min(100.0, trend_score)), 2),
+            "trend_score_raw": round(max(0.0, min(100.0, trend_score)), 2),
+            "trend_live_score": round(
+                max(0.0, min(100.0, trend_score)) * live_trend_weight,
+                2,
+            ),
+            "trend_live_weight": live_trend_weight,
+            "trend_lane_status": (
+                "live_weighted" if live_trend_weight > 0.0 else "research_only"
+            ),
             "hot_money_bonus": round(hm_bonus, 1),
             "hot_money_notes": hm_notes,
             "social_attention_bonus": round(social_delta, 2),
@@ -393,14 +771,32 @@ def rank_candidates(
             "industry": item.get("industry"),
             "industry_source": item.get("industry_source"),
         })
+    _apply_momentum_neutralization(enriched)
+    for item in enriched:
+        item.update(strategy_state(
+            item,
+            item["daban_score"],
+            item["trend_live_score"],
+            live_trend_weight,
+        ))
 
     daban_order = sorted(enriched, key=lambda row: (-row["daban_score"], row["code"]))
+    # trend_rank is retained as an evidence/lifecycle rank.  Live selection
+    # uses trend_live_rank, which is deliberately zero-weight by default.
     trend_order = sorted(enriched, key=lambda row: (-row["trend_score"], row["code"]))
+    trend_live_order = sorted(
+        enriched,
+        key=lambda row: (-row["trend_live_score"], row["code"]),
+    )
     daban_rank = {item["code"]: index + 1 for index, item in enumerate(daban_order)}
     trend_rank = {item["code"]: index + 1 for index, item in enumerate(trend_order)}
+    trend_live_rank = {
+        item["code"]: index + 1 for index, item in enumerate(trend_live_order)
+    }
     for item in enriched:
         item["daban_rank"] = daban_rank[item["code"]]
         item["trend_rank"] = trend_rank[item["code"]]
+        item["trend_live_rank"] = trend_live_rank[item["code"]]
     return enriched
 
 
@@ -421,6 +817,12 @@ def build_watch_pool(
         min_listed_days=min_listed_days,
     )
     ranked = rank_candidates(eligible, kline_by_code, signal_ctx=signal_ctx)
+    # Recall-monitoring annotations are observational only.  They are carried
+    # through the candidate artifacts so a later full-market snapshot can
+    # compare pool coverage without changing either lane's ranking or gates.
+    for item in ranked:
+        item.setdefault("outside_pool_strong", False)
+        item.setdefault("would_have_been_candidate", False)
     ranked = apply_leader_identity(ranked, selection_state, signal_ctx)
     selectable = [item for item in ranked if item["feature_ready"]]
     # --- non-mainboard quality gate ---
@@ -471,7 +873,7 @@ def build_watch_pool(
             item for item in selectable
             if _delivery(item, "trend")["status"] == "deliverable_watch"
         ),
-        key=lambda row: (-row["trend_score"], row["code"]),
+        key=lambda row: (-row.get("trend_live_score", 0.0), row["code"]),
     )
     daban_quota = watch_limit // 2
     trend_quota = watch_limit - daban_quota
@@ -486,10 +888,14 @@ def build_watch_pool(
     if len(selected_codes) < watch_limit:
         fill_order = sorted(
             selectable,
-            key=lambda row: (-max(row["daban_score"], row["trend_score"]), row["code"]),
+            key=lambda row: (-row.get("strategy_live_score", 0.0), row["code"]),
         )
         for item in fill_order:
-            lane = "trend" if item["trend_score"] >= item["daban_score"] else "daban"
+            lane = (
+                "trend"
+                if item.get("strategy_identity") == TREND_STRATEGY_ID
+                else "daban"
+            )
             if _delivery(item, lane)["status"] != "deliverable_watch":
                 continue
             selected_codes.add(item["code"])
@@ -518,7 +924,7 @@ def build_watch_pool(
         candidates.append(selected)
     candidates.sort(
         key=lambda row: (
-            -max(row["daban_score"], row["trend_score"]),
+            -row.get("strategy_live_score", 0.0),
             min(row["daban_rank"], row["trend_rank"]),
             row["code"],
         )
@@ -564,9 +970,45 @@ AUCTION_FILL_MIN_SCORE = 55.0      # balanced_fill 兜底通道的入选下限
 
 def _auction_degraded(item: Mapping[str, Any]) -> bool:
     """竞价盘口是否不可当真信号（免费源零量能/镜像五档）。"""
-    if str(item.get("auction_data_quality") or "") == "degraded":
+    quality = item.get("auction_data_quality") or item.get("auction_quality")
+    if isinstance(quality, Mapping):
+        if str(quality.get("status") or "") in {"degraded", "unavailable"}:
+            return True
+    elif str(quality or "") in {"degraded", "unavailable"}:
         return True
     return _num(item.get("auction_amount")) <= 0
+
+
+def _auction_quality_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return a JSON-safe quality state for every auction-ranked row."""
+    quality = item.get("auction_data_quality") or item.get("auction_quality")
+    if isinstance(quality, Mapping):
+        return dict(quality)
+    if quality:
+        return {"status": str(quality)}
+    if _num(item.get("auction_amount")) <= 0:
+        return {
+            "status": "unavailable",
+            "reasons": ["竞价量能或质量状态缺失"],
+        }
+    return {"status": "unknown", "reasons": ["因子未提供竞价质量报告"]}
+
+
+def _without_unavailable_microstructure_claims(
+    item: Dict[str, Any],
+    quality: Mapping[str, Any],
+) -> None:
+    """Remove strong book/seal prose when the auction microstructure is unavailable."""
+    if quality.get("status") != "unavailable":
+        return
+    forbidden = ("强盘口", "盘口厚", "封单厚", "封单比", "委买", "委卖")
+    for key in ("hot_money_notes", "auction_weakness_notes"):
+        notes = item.get(key)
+        if isinstance(notes, list):
+            item[key] = [
+                note for note in notes
+                if not any(term in str(note) for term in forbidden)
+            ]
 
 
 def _auction_gap_quality(gap: float) -> float:
@@ -595,7 +1037,10 @@ def _auction_weakness(item: Mapping[str, Any]) -> Tuple[float, List[str]]:
         notes.append(f"竞价指示价自高点回落{decay:.2f}% -{decay_penalty:.1f}")
     if _num(item.get("auction_amount")) <= 0:
         notes.append("竞价量能为0，量能分位归零（免费源局限）")
-    if _auction_degraded(item):
+    quality = _auction_quality_payload(item)
+    if quality.get("status") == "unavailable":
+        notes.append("竞价微结构数据不可用，盘口信号不参与解释")
+    elif _auction_degraded(item):
         notes.append(f"竞价盘口数据降级，委比/委买净增按 {AUCTION_DEGRADED_BOOK_SCALE:g} 权重计")
     return round(penalty, 2), notes
 
@@ -629,6 +1074,8 @@ def rank_auction_shortlist(
     signal_ctx: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Combine prior strategy ranks with 09:25 auction microstructure."""
+    configured_trend_weight = pool.get("trend_live_weight")
+    live_trend_weight = resolve_trend_live_weight(configured_trend_weight)
     factor_by_code = _factor_map(factors)
     rows: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
@@ -644,7 +1091,10 @@ def rank_auction_shortlist(
                 "rejection_reasons": reasons,
             })
             continue
-        rows.append({**item, **factor, "code": market_code(code)})
+        row = {**item, **factor, "code": market_code(code)}
+        row["auction_quality"] = _auction_quality_payload(row)
+        _without_unavailable_microstructure_claims(row, row["auction_quality"])
+        rows.append(row)
 
     amount_p = _percentiles(rows, "auction_amount")
     bid_p = _percentiles(rows, "auction_bid_ask_ratio")
@@ -682,14 +1132,38 @@ def rank_auction_shortlist(
         item["auction_trend_score"] = round(max(
             0.0,
             min(100.0, item["auction_trend_score"] + current_social_delta),
-        ), 2)
+        ) * live_trend_weight, 2)
+        item["auction_trend_score_raw"] = round(
+            max(0.0, min(100.0, item["auction_trend_score"] / live_trend_weight))
+            if live_trend_weight > 0.0
+            else max(0.0, min(100.0, _auction_lane_score(prior_trend, shared_score, penalty)
+                              + current_social_delta)),
+            2,
+        )
+        item["trend_live_weight"] = live_trend_weight
+        item["trend_lane_status"] = (
+            "live_weighted" if live_trend_weight > 0.0 else "research_only"
+        )
         item["auction_social_attention_delta"] = round(current_social_delta, 2)
         item["social_attention"] = social["record"] or item.get("social_attention")
         item["social_attention_notes"] = social["notes"]
-        item["auction_score"] = max(
+        state = strategy_state(
+            item,
             item["auction_daban_score"],
             item["auction_trend_score"],
+            live_trend_weight,
         )
+        item.update({
+            "auction_strategy_identity": state["strategy_identity"],
+            "auction_primary_strategy_id": state["primary_strategy_id"],
+            "auction_exit_protocol": state["exit_protocol"],
+            "auction_primary_net_expectancy": state["primary_net_expectancy"],
+            "auction_primary_confidence": state["primary_confidence"],
+            "auction_migration_from": state["migration_from"],
+            "auction_strategy_state_event": state["strategy_state_event"],
+            "auction_strategy_state": state["strategy_state"],
+            "auction_score": state["strategy_live_score"],
+        })
 
     sector_groups: Dict[str, List[Dict[str, Any]]] = {}
     for item in rows:
@@ -857,4 +1331,19 @@ def rank_auction_shortlist(
         "shortlist_count": len(shortlist),
         "shortlist": shortlist,
         "rejected": rejected,
+        "auction_quality": {
+            "status": (
+                "unavailable"
+                if any(
+                    _auction_quality_payload(item).get("status") == "unavailable"
+                    for item in rows
+                )
+                else "ok"
+            ),
+            "unavailable_count": sum(
+                _auction_quality_payload(item).get("status") == "unavailable"
+                for item in rows
+            ),
+            "factor_count": len(rows),
+        },
     }

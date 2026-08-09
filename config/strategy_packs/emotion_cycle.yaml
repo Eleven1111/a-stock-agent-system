@@ -7,7 +7,7 @@
 name: emotion_cycle
 display_name: 情绪周期
 description: >-
-  从个股的换手率分档、换手率趋势、爆量特征与均线形态，映射到情绪周期位置（情绪底
+  从个股的换手率分档、量能收缩/爆量特征与均线形态，映射到情绪周期位置（情绪底
   蓄势 vs 情绪顶出货嫌疑），作为"该标的处于情绪周期哪一段"的研究假设。用于解释
   推荐的时机含义，不构成买卖指令。
 category: reversal
@@ -23,15 +23,15 @@ market_regimes:
 
 evidence_requirements:
   - turnover                 # 当日换手率 (%)，用于分档
-  - turnover_trend           # 换手率近日趋势（放大/收敛/持平），情绪方向
-  - volume_ratio_5d          # 量比，识别爆量出货嫌疑
+  - volume_spike_ratio       # 当日量能相对前20日均量，识别缩量蓄势/爆量出货嫌疑
   - change_pct               # 当日涨跌幅，配合爆量判断出货 vs 蓄势
-  - ma_convergence           # 均线粘合度（蓄势特征）
+  - ma_coil_ratio            # 均线粘合度（蓄势特征）
+  - atr_contraction_pct      # ATR 收缩/扩张分位，辅助识别蓄势 vs 过热
   - above_ma20               # 是否站上 20 日均线
 
 interpretation: >-
   情绪周期定位按多条件计数，越靠近某一端命中越多，解释越强。情绪底/蓄势侧：换手率
-  处于低分档且近日趋于收敛、均线粘合、价格贴近或刚站上中期均线——表示筹码沉淀、
+  处于低分档且量能收缩、均线粘合、价格贴近或刚站上中期均线——表示筹码沉淀、
   情绪冷却后的蓄势。情绪顶/出货嫌疑侧：换手率处于高分档、量比显著放大同时涨幅收敛
   或转弱（爆量滞涨/爆量下跌）——表示高位放量、承接减弱的出货特征。两侧计数用于说明
   时机含义：底侧支持"逢低观察/等确认"，顶侧支持"注意兑现风险/不追高"，均为解释性
@@ -44,7 +44,7 @@ score_hints:
     reason: 换手率处于低分档，筹码沉淀，情绪冷却蓄势
   - when: turnover_trend_converging
     delta: 2
-    reason: 换手率近日收敛，抛压释放趋缓
+    reason: 量能近日收缩，抛压释放趋缓
   - when: ma_converged
     delta: 2
     reason: 均线粘合，方向选择前的蓄势形态
