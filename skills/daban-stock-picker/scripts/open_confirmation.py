@@ -138,11 +138,11 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
     open_volume = _as_float(_direct(("open_volume", "opening_volume", "开盘量")))
     if open_volume is None:
         # Tencent's 09:35 ``volume`` is the session opening accumulation.
-        open_volume = _as_float(direct(("volume", "成交量")))
-    prior_volume = _as_float(direct((
+        open_volume = _as_float(_direct(("volume", "成交量")))
+    prior_volume = _as_float(_direct((
         "previous_volume", "prev_volume", "yesterday_volume", "昨日量", "前日成交量",
     )))
-    relative_volume = _as_float(direct((
+    relative_volume = _as_float(_direct((
         "open_relative_volume", "opening_relative_volume", "open_volume_ratio",
         "opening_volume_ratio", "relative_open_volume", "开盘相对量",
     )))
@@ -150,7 +150,7 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
         relative_volume = open_volume / prior_volume
 
     rows = _intraday_rows(quote, factor)
-    vwap_ratio = _as_float(direct((
+    vwap_ratio = _as_float(_direct((
         "vwap_above_time_ratio", "vwap_above_ratio", "above_vwap_ratio",
         "vwap_above_pct", "VWAP上方时间占比",
     )))
@@ -159,11 +159,11 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
         observed_minutes = _as_float(_direct(("vwap_observation_minutes", "observed_minutes", "分时观测分钟")))
         if above_minutes is not None and observed_minutes and observed_minutes > 0:
             vwap_ratio = above_minutes / observed_minutes
-    dd15 = _as_float(direct((
+    dd15 = _as_float(_direct((
         "open_15m_drawdown_pct", "opening_15m_drawdown_pct", "drawdown_15m_pct",
         "open15_drawdown_pct", "开盘15分钟回撤",
     )))
-    dd30 = _as_float(direct((
+    dd30 = _as_float(_direct((
         "open_30m_drawdown_pct", "opening_30m_drawdown_pct", "drawdown_30m_pct",
         "open30_drawdown_pct", "开盘30分钟回撤",
     )))
@@ -198,11 +198,11 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
             # of "open volume" for minute fixtures.
             relative_volume = volumes[min(len(volumes), 15) - 1] / prior_volume
 
-    sector_limitups = _as_float(direct((
+    sector_limitups = _as_float(_direct((
         "sector_limitup_count", "sector_limitups", "sector_limitup_diffusion",
         "sector_limitup_breadth", "板块涨停数", "板块涨停扩散",
     )))
-    sector_breakouts = _as_float(direct((
+    sector_breakouts = _as_float(_direct((
         "sector_breakout_count", "sector_breakouts", "sector_breakout_diffusion",
         "sector_probe_count", "sector_冲板数", "板块冲板数", "冲板扩散",
     )))
