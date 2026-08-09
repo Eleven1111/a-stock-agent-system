@@ -25,7 +25,7 @@ from datetime import datetime, date, timedelta
 from typing import Any, Dict, List, Mapping, Optional
 
 # 共享状态存储
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from state_store import file_lock, read_json, atomic_write_json, update_json_list, mutate_json
 from paths import data_file
 from a_share_rules import t1_constraint, is_trading_day

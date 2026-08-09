@@ -11,12 +11,11 @@ Usage:
 
 import argparse
 import json
-import os
 import sys
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from tradeability import assess_tradeability, limit_pct
 from daban_adjustments import entry_mode_multiplier
 import daban_config as _cfg

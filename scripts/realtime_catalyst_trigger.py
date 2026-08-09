@@ -20,11 +20,10 @@ Usage:
 
 import json
 import os
-import sys
 from datetime import datetime, time as dtime
 from typing import Any, Dict, List, Optional
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'skills', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from a_share_rules import add_trading_days  # noqa: E402
 from a_stock_http import load_hermes_env  # noqa: E402
 from catalyst_context import update_catalyst_context  # noqa: E402

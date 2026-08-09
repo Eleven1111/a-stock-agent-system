@@ -21,7 +21,7 @@ from typing import Any
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-sys.path.insert(0, COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 sys.path.insert(0, ROOT)
 
 from paths import hermes_home  # noqa: E402

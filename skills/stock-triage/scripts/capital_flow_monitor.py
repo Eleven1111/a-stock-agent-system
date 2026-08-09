@@ -16,7 +16,7 @@ import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from a_stock_http import load_hermes_env
 from data_provider import fetch_tencent_quote, fetch_tencent_quotes
 from eastmoney_intelligence import eastmoney_json

@@ -21,7 +21,7 @@ from datetime import date
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from portfolio_policy import portfolio_value  # noqa: E402
 import recommendation_audit  # noqa: E402
 import signal_ledger  # noqa: E402

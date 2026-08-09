@@ -27,8 +27,7 @@ import sys
 from typing import Any, Dict, List, Optional, Sequence
 
 _COMMON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common")
-if _COMMON not in sys.path:
-    sys.path.insert(0, _COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 INSTITUTION_MARKERS = ("机构专用",)
 NORTHBOUND_MARKERS = ("深股通专用", "沪股通专用")

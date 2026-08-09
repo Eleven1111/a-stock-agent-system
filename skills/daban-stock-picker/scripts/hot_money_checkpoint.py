@@ -11,13 +11,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from datetime import date, datetime
 from typing import Any, Mapping, Sequence
 
 
 SCRIPT_DIR = os.path.dirname(__file__)
-sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from a_share_rules import add_trading_days  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402

@@ -5,10 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from monitor_registry import activate, active_entries, cancel  # noqa: E402
 

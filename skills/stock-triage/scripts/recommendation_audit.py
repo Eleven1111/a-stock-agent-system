@@ -16,13 +16,11 @@ Usage:
 import argparse
 import json
 import math
-import os
-import sys
 import uuid
 from datetime import datetime, date
 from typing import Any, Dict, List, Optional
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from state_store import read_json, update_json_list, mutate_json
 from paths import data_file
 from a_share_rules import resolve_price_limit_rule, t1_constraint

@@ -19,7 +19,7 @@ import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from a_stock_http import fetch_tencent_kline, DataSourceError  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
 from paths import data_file  # noqa: E402

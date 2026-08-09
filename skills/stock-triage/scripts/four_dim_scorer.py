@@ -27,11 +27,9 @@ sys.path.insert(0, STOCK_ANALYST)
 
 # ========== 数据抓取（统一走 a_stock_http）==========
 
-import sys as _sys
 _COMMON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                            "common")
-if _COMMON_DIR not in _sys.path:
-    _sys.path.insert(0, _COMMON_DIR)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from a_stock_http import (
     fetch_tencent_quote as _http_quote,

@@ -25,7 +25,7 @@ import sys
 from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from a_stock_http import DataSourceError  # noqa: E402
 from market_adapters import fetch_tencent_snapshot  # noqa: E402
 from announcement_risk import scan_many  # noqa: E402

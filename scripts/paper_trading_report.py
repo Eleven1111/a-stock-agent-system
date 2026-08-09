@@ -7,13 +7,12 @@ import argparse
 from collections import Counter
 import json
 import os
-import site
 from typing import Any, Mapping, Sequence
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-site.addsitedir(COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from config_registry import load_registered  # noqa: E402
 import signal_ledger  # noqa: E402

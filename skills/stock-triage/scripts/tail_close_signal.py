@@ -6,12 +6,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import site
 from datetime import date
 from pathlib import Path
 from typing import Any, Mapping
 
-site.addsitedir(str(Path(__file__).resolve().parents[2] / "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from paths import data_file  # noqa: E402
 from decision_policy import evaluate_decision  # noqa: E402

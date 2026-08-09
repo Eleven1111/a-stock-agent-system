@@ -37,11 +37,10 @@ Usage:
 import importlib.util
 import json
 import os
-import sys
 from datetime import date
 from typing import Any, Dict, List
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from indicators import macd_hist  # noqa: E402  技术指标统一走 common（去重）
 
 def _load_sibling(name: str):
@@ -157,7 +156,6 @@ def _summary(strokes, centers, signals) -> str:
 # ========== CLI（取数后调 analyze）==========
 
 def _fetch_bars(code: str, days: int) -> List[Dict[str, Any]]:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
     from a_stock_http import fetch_tencent_kline  # noqa: E402
     market = "sh" if str(code).startswith(("6", "9")) else "sz"
     return fetch_tencent_kline(code, market, days=days, ktype="day")

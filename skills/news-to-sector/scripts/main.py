@@ -14,8 +14,7 @@ from datetime import datetime
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 COMMON_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", "common"))
-if COMMON_DIR not in sys.path:
-    sys.path.insert(0, COMMON_DIR)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from market_adapters import fetch_board_quotes
 from news_parser import parse_news

@@ -63,8 +63,7 @@ VALID_STRATEGY_KINDS = {"event_signal", "cross_sectional_score"}
 def _ensure_common_on_path() -> None:
     """skills/common 入 sys.path，只此一处（避免每个调用点各插一次）。"""
     common = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
-    if common not in sys.path:
-        sys.path.insert(0, common)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 
 def _verify_evidence(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -573,7 +572,6 @@ if __name__ == "__main__":
 
     output = evaluate_gate(load_payload(args.input, args.example))
     if args.register:
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
         import strategy_registry  # noqa: E402
         rec = strategy_registry.register_gate_result(output["strategy_id"], output)
         output["registered"] = {

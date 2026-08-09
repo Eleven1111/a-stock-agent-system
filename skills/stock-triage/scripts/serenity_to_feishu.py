@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Optional, Dict
 from urllib.parse import urlparse
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from feishu_push import DISCLOSURE
 from paths import cron_output_dir
 

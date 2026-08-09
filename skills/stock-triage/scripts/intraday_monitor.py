@@ -12,11 +12,10 @@ Usage:
 
 import json
 import sys
-import os
 from datetime import datetime, time as dtime
 from typing import Any, Dict, Mapping
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from paths import data_file
 from state_store import atomic_write_json, read_json
 from data_access_config import intraday_settings, risk_settings

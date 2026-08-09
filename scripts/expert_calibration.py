@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 site.addsitedir(ROOT)
-site.addsitedir(os.path.join(ROOT, "skills", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from skills.common.expert_calibration import (  # noqa: E402
     CalibrationDataError,

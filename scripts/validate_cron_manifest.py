@@ -6,10 +6,7 @@ import sys
 import os
 import re
 
-sys.path.insert(
-    0,
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "skills", "common"),
-)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import manifest_command  # noqa: E402
 

@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-sys.path.insert(0, COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 BLOCKED_RETURNCODES = {75, 78}
 
 from runtime_context import (  # noqa: E402

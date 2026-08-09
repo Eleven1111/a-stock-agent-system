@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Mapping, Tuple
 
 SCRIPT_DIR = os.path.dirname(__file__)
 sys.path.insert(0, SCRIPT_DIR)
-sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import four_dim_scorer  # noqa: E402
 import four_dim_score_log  # noqa: E402

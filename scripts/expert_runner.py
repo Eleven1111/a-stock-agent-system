@@ -14,14 +14,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import site
 import sys
 from datetime import datetime, timezone
 from typing import Any
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-site.addsitedir(COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import evidence_pack  # noqa: E402
 import agent_evidence  # noqa: E402

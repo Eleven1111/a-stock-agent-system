@@ -12,13 +12,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from typing import Any
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-if COMMON not in sys.path:
-    sys.path.insert(0, COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from deep_research_cache import read_deep_research  # noqa: E402
 from paths import data_file  # noqa: E402
