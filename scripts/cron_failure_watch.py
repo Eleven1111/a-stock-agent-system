@@ -22,11 +22,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from typing import Any, Dict, List, Optional, Sequence
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import runtime_context  # noqa: E402

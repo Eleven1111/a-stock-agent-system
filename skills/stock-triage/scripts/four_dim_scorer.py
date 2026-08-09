@@ -27,8 +27,6 @@ sys.path.insert(0, STOCK_ANALYST)
 
 # ========== 数据抓取（统一走 a_stock_http）==========
 
-_COMMON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                           "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from a_stock_http import (

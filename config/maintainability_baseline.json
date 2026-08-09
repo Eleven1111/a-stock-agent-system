@@ -3,7 +3,7 @@
   "budget": {
     "broad_exception": 147,
     "long_function": 65,
-    "sys_path_mutation": 50
+    "sys_path_mutation": 38
   },
   "schema": "maintainability_baseline_v1",
   "violations": [
@@ -127,10 +127,24 @@
       "symbol": "<module>"
     },
     {
+      "id": "6b93618d932116c578ee",
+      "kind": "sys_path_mutation",
+      "line": 13,
+      "path": "scripts/expert_calibration.py",
+      "symbol": "<module>"
+    },
+    {
       "id": "fc06a5c645ce235957b1",
       "kind": "sys_path_mutation",
       "line": 23,
       "path": "scripts/expert_runner.py",
+      "symbol": "<module>"
+    },
+    {
+      "id": "e9b5699d2f897d5962a3",
+      "kind": "sys_path_mutation",
+      "line": 17,
+      "path": "scripts/fundamentals_snapshot.py",
       "symbol": "<module>"
     },
     {

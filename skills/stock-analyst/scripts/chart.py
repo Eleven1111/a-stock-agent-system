@@ -1,12 +1,9 @@
 """
 K线图表输出模块（终端ASCII）
 """
-import os
 import sys
 import numpy as np
 
-SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, SKILL_DIR)
 
 from scripts.data_cache import fetch_kline
 from scripts.tech_analysis import sma

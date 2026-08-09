@@ -24,7 +24,6 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 
 ROOT = Path(__file__).resolve().parents[3]
-COMMON = ROOT / "skills" / "common"
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from http_client import DataSourceError, request_text  # noqa: E402

@@ -8,7 +8,6 @@ import json
 import os
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-COMMON = os.path.join(ROOT, "skills", "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from paths import data_file  # noqa: E402

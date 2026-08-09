@@ -10,11 +10,9 @@ Usage:
 """
 
 import json
-import os
 from datetime import datetime
 from typing import Dict, List
 
-COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from data_provider import fetch_serper_news as _fetch_serper_news

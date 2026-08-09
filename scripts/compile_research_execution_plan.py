@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import research_bus  # noqa: E402

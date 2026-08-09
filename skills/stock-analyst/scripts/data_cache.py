@@ -17,7 +17,6 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 
-COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from http_client import DataSourceError, request_bytes, request_json, request_text

@@ -19,7 +19,6 @@ import sys
 import os
 
 # 把脚本目录加入路径
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.data_cache import fetch_realtime, fetch_kline, fetch_zt_pool, fetch_index

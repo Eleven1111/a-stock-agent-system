@@ -6,7 +6,6 @@
 import os
 from datetime import datetime, timezone, timedelta
 
-_COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from paths import cron_output_dir

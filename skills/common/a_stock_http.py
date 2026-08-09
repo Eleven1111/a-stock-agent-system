@@ -11,13 +11,12 @@
 """
 
 import os
-import sys
 import threading
 import time
 from typing import Dict, Any, List, Optional
 from urllib.parse import urlencode
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import skills.common  # noqa: F401,E402  -- 使本模块可被独立加载（spec_from_file_location）
 from data_access_config import provider_settings
 from http_client import (
     DataSourceError,

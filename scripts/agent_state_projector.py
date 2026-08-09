@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-COMMON = os.path.join(ROOT, "skills", "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import monitor_registry  # noqa: E402

@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import json
-import os
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from config_registry import validate_registered_configs  # noqa: E402

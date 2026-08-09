@@ -12,14 +12,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
-import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, SCRIPT_DIR)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from a_stock_http import load_hermes_env  # noqa: E402
