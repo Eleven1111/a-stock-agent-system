@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "chanlun-backtest" / "scripts" / "mootdx_source.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "common" / "mootdx_source.py"
 SPEC = importlib.util.spec_from_file_location("mootdx_source", SCRIPT)
 ms = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ms)

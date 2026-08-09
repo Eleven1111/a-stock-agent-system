@@ -4,4 +4,4 @@
 from _canonical import run
 
 
-run("skills/stock-triage/scripts/recommendation_audit.py")
+run("skills/common/recommendation_audit.py")

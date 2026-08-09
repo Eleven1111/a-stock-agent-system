@@ -3,7 +3,7 @@
   "budget": {
     "broad_exception": 147,
     "long_function": 65,
-    "sys_path_mutation": 37
+    "sys_path_mutation": 36
   },
   "schema": "maintainability_baseline_v1",
   "violations": [
@@ -554,20 +554,6 @@
       "symbol": "<module>"
     },
     {
-      "id": "6b856b20e061b1a27007",
-      "kind": "broad_exception",
-      "line": 198,
-      "path": "skills/chanlun-backtest/scripts/mootdx_source.py",
-      "symbol": "fetch_klines"
-    },
-    {
-      "id": "5a5426f3b12b046c0dce",
-      "kind": "broad_exception",
-      "line": 223,
-      "path": "skills/chanlun-backtest/scripts/mootdx_source.py",
-      "symbol": "reconstruct_limitup_events"
-    },
-    {
       "id": "ba3143b3e3c34d296c8e",
       "kind": "sys_path_mutation",
       "line": 20,
@@ -1037,6 +1023,20 @@
       "symbol": "fetch_mootdx_spot"
     },
     {
+      "id": "3b5e5218eea36f8d7659",
+      "kind": "broad_exception",
+      "line": 198,
+      "path": "skills/common/mootdx_source.py",
+      "symbol": "fetch_klines"
+    },
+    {
+      "id": "d4c038f7814dde495e6c",
+      "kind": "broad_exception",
+      "line": 223,
+      "path": "skills/common/mootdx_source.py",
+      "symbol": "reconstruct_limitup_events"
+    },
+    {
       "id": "dd51b4643e1cd6dcc57b",
       "kind": "long_function",
       "line": 394,
@@ -1091,6 +1091,34 @@
       "line": 130,
       "path": "skills/common/quality_gate.py",
       "symbol": "check_quality"
+    },
+    {
+      "id": "3b7eb3e6a25e7ab890f2",
+      "kind": "long_function",
+      "line": 183,
+      "path": "skills/common/recommendation_audit.py",
+      "symbol": "position_guidance"
+    },
+    {
+      "id": "d98e846ce36c85f9effc",
+      "kind": "broad_exception",
+      "line": 210,
+      "path": "skills/common/recommendation_audit.py",
+      "symbol": "position_guidance"
+    },
+    {
+      "id": "6741c777cdfa93684eb6",
+      "kind": "broad_exception",
+      "line": 253,
+      "path": "skills/common/recommendation_audit.py",
+      "symbol": "position_guidance"
+    },
+    {
+      "id": "fb823aaf4bd4a9fde0fa",
+      "kind": "long_function",
+      "line": 392,
+      "path": "skills/common/recommendation_audit.py",
+      "symbol": "record_recommendation"
     },
     {
       "id": "2b9dce6d2a9af927bc06",
@@ -2281,41 +2309,6 @@
       "line": 1391,
       "path": "skills/stock-triage/scripts/portfolio_manager.py",
       "symbol": "refresh_prices"
-    },
-    {
-      "id": "e81a193115b3be6777c1",
-      "kind": "sys_path_mutation",
-      "line": 25,
-      "path": "skills/stock-triage/scripts/recommendation_audit.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "5ac2b39cedb3074c4d9f",
-      "kind": "long_function",
-      "line": 185,
-      "path": "skills/stock-triage/scripts/recommendation_audit.py",
-      "symbol": "position_guidance"
-    },
-    {
-      "id": "766e8f65793b63d22e22",
-      "kind": "broad_exception",
-      "line": 212,
-      "path": "skills/stock-triage/scripts/recommendation_audit.py",
-      "symbol": "position_guidance"
-    },
-    {
-      "id": "1402f83c9305fcbc794f",
-      "kind": "broad_exception",
-      "line": 255,
-      "path": "skills/stock-triage/scripts/recommendation_audit.py",
-      "symbol": "position_guidance"
-    },
-    {
-      "id": "32f37759c28fcdfd6eec",
-      "kind": "long_function",
-      "line": 394,
-      "path": "skills/stock-triage/scripts/recommendation_audit.py",
-      "symbol": "record_recommendation"
     },
     {
       "id": "c9d57a5c8be7d257d2b6",
