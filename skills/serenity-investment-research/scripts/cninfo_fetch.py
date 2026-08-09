@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urljoin
 
-COMMON_DIR = Path(__file__).resolve().parents[2] / "common"
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from http_client import build_request, request_bytes, request_json

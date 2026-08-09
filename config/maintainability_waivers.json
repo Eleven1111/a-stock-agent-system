@@ -1155,6 +1155,41 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a file touched by the skills/common packaging change",
       "violation_id": "453c696adfb70ee5212b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "fb049d2e1a55ff77c264"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "91d2005ad666b2a07b29"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "a8473d3184bfe3691edb"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "2e7012c745cb001fb7eb"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "b7aa0228d7215f72908e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "6dc070d33ac9d34e812e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "493a756e0f750979e6c8"
     }
   ]
 }

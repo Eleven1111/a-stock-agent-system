@@ -35,14 +35,11 @@
 """
 
 import sys
-import os
 import re
 import json
 from datetime import datetime
 
 # 添加项目根路径
-SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, SKILL_DIR)
 
 from scripts.data_cache import fetch_kline, fetch_realtime, fetch_zt_pool
 from scripts.tech_analysis import analyze_stock

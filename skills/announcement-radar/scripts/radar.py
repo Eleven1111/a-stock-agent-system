@@ -23,8 +23,6 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, SCRIPT_DIR)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import recall  # noqa: E402

@@ -16,7 +16,6 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 SCRIPT_DIR = os.path.dirname(__file__)
-sys.path.insert(0, SCRIPT_DIR)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "stock-triage", "scripts"))
 

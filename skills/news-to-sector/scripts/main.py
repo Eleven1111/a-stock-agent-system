@@ -7,13 +7,10 @@
 """
 
 import os
-import sys
 import argparse
 from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, SCRIPT_DIR)
-COMMON_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", "common"))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from market_adapters import fetch_board_quotes

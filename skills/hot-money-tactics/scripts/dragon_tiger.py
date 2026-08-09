@@ -22,11 +22,9 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from typing import Any, Dict, List, Optional, Sequence
 
-_COMMON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 INSTITUTION_MARKERS = ("机构专用",)

@@ -9,9 +9,6 @@ import os
 from datetime import date, datetime
 from typing import Any
 
-COMMON_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "common")
-)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from eastmoney_intelligence import ADAPTER_VERSION, provider_health  # noqa: E402

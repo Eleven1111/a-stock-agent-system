@@ -15,7 +15,6 @@ from datetime import date, datetime
 from typing import Any, Mapping
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-COMMON = os.path.join(ROOT, "skills", "common")
 AUCTION_SCRIPTS = os.path.join(ROOT, "skills", "daban-stock-picker", "scripts")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 sys.path.insert(0, AUCTION_SCRIPTS)

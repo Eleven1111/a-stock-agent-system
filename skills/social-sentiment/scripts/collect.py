@@ -11,7 +11,6 @@ from typing import Any, Callable, Mapping
 
 SCRIPT_DIR = os.path.dirname(__file__)
 ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
-COMMON = os.path.join(ROOT, "skills", "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from market_snapshot import compact_ref, write_snapshot  # noqa: E402

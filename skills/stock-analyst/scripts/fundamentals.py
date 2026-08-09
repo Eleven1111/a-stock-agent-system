@@ -11,8 +11,6 @@ import os
 from typing import Optional, Dict, List
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, SKILL_DIR)
-COMMON_DIR = os.path.join(os.path.dirname(SKILL_DIR), "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from paths import hermes_python

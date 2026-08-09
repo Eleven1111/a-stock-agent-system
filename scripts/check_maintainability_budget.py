@@ -86,6 +86,24 @@ class DebtVisitor(ast.NodeVisitor):
             and func.value.attr == "path"
         ):
             self._add("sys_path_mutation", node.lineno)
+        elif isinstance(func, ast.Attribute) and func.attr == "addsitedir":
+            # site.addsitedir is import-path surgery too; counting only
+            # sys.path.* let it through and understated the real total.
+            self._add("sys_path_mutation", node.lineno)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        # `sys.path = [...]` and `sys.path[0:0] = [...]` reach the same place
+        # as .insert(); without these the counter is trivially side-steppable.
+        for target in node.targets:
+            base = target.value if isinstance(target, ast.Subscript) else target
+            if (
+                isinstance(base, ast.Attribute)
+                and base.attr == "path"
+                and isinstance(base.value, ast.Name)
+                and base.value.id == "sys"
+            ):
+                self._add("sys_path_mutation", node.lineno)
         self.generic_visit(node)
 
 

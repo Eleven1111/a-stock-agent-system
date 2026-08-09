@@ -3,12 +3,10 @@
 数据源：serper.dev Google News（多 key 轮换，由 data_provider._next_serper_key 管理）
 """
 
-import os
 import re
 import sys
 from typing import Optional, List, Dict
 
-_COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from a_stock_http import load_hermes_env
 from data_provider import fetch_serper_news as _fetch_serper_news, _next_serper_key

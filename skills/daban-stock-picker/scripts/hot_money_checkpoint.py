@@ -15,7 +15,6 @@ from datetime import date, datetime
 from typing import Any, Mapping, Sequence
 
 
-SCRIPT_DIR = os.path.dirname(__file__)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from a_share_rules import add_trading_days  # noqa: E402

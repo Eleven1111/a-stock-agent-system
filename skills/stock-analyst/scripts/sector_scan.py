@@ -16,9 +16,6 @@ for k in ['HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy','ALL_PROXY','all
     os.environ.pop(k, None)
 
 # 添加项目路径
-SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, SKILL_DIR)
 
 from data_cache import fetch_zt_pool, fetch_sectors_ths, fetch_stock_list
 

@@ -17,7 +17,6 @@ import sys
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional
 
-COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from eastmoney_intelligence import fetch_dividend as _fetch_dividend

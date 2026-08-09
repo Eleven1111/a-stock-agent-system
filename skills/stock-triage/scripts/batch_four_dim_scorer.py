@@ -11,14 +11,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Tuple
 
-SCRIPT_DIR = os.path.dirname(__file__)
-sys.path.insert(0, SCRIPT_DIR)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import four_dim_scorer  # noqa: E402

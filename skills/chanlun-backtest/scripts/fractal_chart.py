@@ -16,7 +16,6 @@ import sys
 
 os.environ["NO_PROXY"] = ".gtimg.cn,.eastmoney.com"
 
-COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from http_client import request_json

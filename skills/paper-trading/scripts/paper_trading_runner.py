@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-COMMON = os.path.abspath(os.path.join(HERE, "..", "..", "common"))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from config_registry import load_registered  # noqa: E402

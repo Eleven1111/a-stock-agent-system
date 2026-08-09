@@ -21,7 +21,6 @@ from datetime import date
 from typing import Any
 
 SCRIPT_DIR = os.path.dirname(__file__)
-COMMON = os.path.join(SCRIPT_DIR, "..", "..", "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import candidate_fsm  # noqa: E402

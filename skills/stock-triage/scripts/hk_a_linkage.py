@@ -12,11 +12,9 @@ Usage:
 """
 
 import json
-import os
 from datetime import datetime
 from typing import Dict, Any
 
-COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from a_stock_http import (

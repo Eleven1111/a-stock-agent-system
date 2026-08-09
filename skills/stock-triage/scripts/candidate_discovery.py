@@ -26,7 +26,6 @@ from zoneinfo import ZoneInfo
 
 SCRIPT_DIR = os.path.dirname(__file__)
 ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
-COMMON = os.path.join(ROOT, "skills", "common")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import candidate_fsm  # noqa: E402

@@ -22,7 +22,6 @@ import sys
 from datetime import datetime
 from typing import Any, Dict, List
 
-sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "chanlun-backtest", "scripts"))
 import daban_bt_engine as eng  # noqa: E402
 import daban_bt_stats as st  # noqa: E402
