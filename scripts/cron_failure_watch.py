@@ -27,7 +27,7 @@ import sys
 from typing import Any, Dict, List, Optional, Sequence
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(ROOT, "skills", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import runtime_context  # noqa: E402
 

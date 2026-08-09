@@ -20,7 +20,7 @@ from typing import Any, Dict, List
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
-sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from a_stock_http import load_hermes_env  # noqa: E402
 from data_access_config import news_monitor_settings  # noqa: E402

@@ -9,8 +9,7 @@ import sys
 from typing import Optional, List, Dict
 
 _COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
-if _COMMON_DIR not in sys.path:
-    sys.path.insert(0, os.path.abspath(_COMMON_DIR))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from a_stock_http import load_hermes_env
 from data_provider import fetch_serper_news as _fetch_serper_news, _next_serper_key
 from http_client import DataSourceError

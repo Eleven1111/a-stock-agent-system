@@ -6,11 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import site
 from pathlib import Path
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-site.addsitedir(os.path.join(ROOT, "skills", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import research_bus  # noqa: E402
 from research_execution_plan import compile_execution_plan, persist_execution_plan  # noqa: E402

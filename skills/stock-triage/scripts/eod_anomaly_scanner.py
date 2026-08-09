@@ -31,14 +31,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from a_stock_http import DataSourceError  # noqa: E402
 from market_adapters import (  # noqa: E402
     fetch_a_share_spot,

@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
-sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import recall  # noqa: E402
 from classify import Classifier  # noqa: E402

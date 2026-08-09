@@ -13,7 +13,7 @@ from typing import Any, Iterable
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-sys.path.insert(0, COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 sys.path.insert(0, ROOT)
 
 from runtime_context import ledger_path  # noqa: E402

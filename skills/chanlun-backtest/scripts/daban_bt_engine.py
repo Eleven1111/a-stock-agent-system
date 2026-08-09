@@ -14,12 +14,10 @@
   first_seal(HHMMSS), lianban, seal_amount, float_mktcap, sector, is_st
 """
 
-import os
-import sys
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from tradeability import assess_tradeability, limit_pct  # noqa: E402
 import daban_config as _cfg  # noqa: E402
 

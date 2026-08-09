@@ -6,15 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from datetime import date, datetime
 from typing import Any
 
 COMMON_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "common")
 )
-if COMMON_DIR not in sys.path:
-    sys.path.insert(0, COMMON_DIR)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from eastmoney_intelligence import ADAPTER_VERSION, provider_health  # noqa: E402
 from market_snapshot import compact_ref, write_snapshot  # noqa: E402

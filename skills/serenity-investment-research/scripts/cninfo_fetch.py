@@ -11,15 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urljoin
 
 COMMON_DIR = Path(__file__).resolve().parents[2] / "common"
-if str(COMMON_DIR) not in sys.path:
-    sys.path.insert(0, str(COMMON_DIR))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from http_client import build_request, request_bytes, request_json
 

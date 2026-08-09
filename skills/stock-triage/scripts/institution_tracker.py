@@ -11,13 +11,11 @@ Usage:
 
 import json
 import os
-import sys
 from datetime import datetime
 from typing import Dict, List
 
 COMMON_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
-if COMMON_DIR not in sys.path:
-    sys.path.insert(0, COMMON_DIR)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from data_provider import fetch_serper_news as _fetch_serper_news
 from data_provider import _next_serper_key

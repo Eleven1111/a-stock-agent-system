@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import site
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
@@ -14,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 COMMON = os.path.abspath(os.path.join(HERE, "..", "..", "common"))
-site.addsitedir(COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from config_registry import load_registered  # noqa: E402
 from market_adapters import fetch_tencent_snapshot  # noqa: E402

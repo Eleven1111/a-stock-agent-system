@@ -4,12 +4,10 @@
 如果触发，输出触发信号供 triage cron 消费。
 """
 import os
-import sys
 from datetime import datetime, timezone, timedelta
 
 _COMMON_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "common")
-if _COMMON_DIR not in sys.path:
-    sys.path.insert(0, os.path.abspath(_COMMON_DIR))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from paths import cron_output_dir
 from http_client import request_text

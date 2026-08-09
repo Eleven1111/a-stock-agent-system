@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 # ========== 配置 ==========
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from a_stock_http import load_hermes_env
 from data_provider import (
     _next_serper_key,
@@ -1112,9 +1112,6 @@ if __name__ == "__main__":
         impact = data.get("impact")
         if isinstance(impact, dict) and impact.get("status") != "insufficient_data":
             try:
-                import os as _os
-                import sys as _sys
-                _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "..", "..", "common"))
                 from market_context import write_market_context
                 write_market_context(impact)
             except Exception as _e:  # noqa: BLE001

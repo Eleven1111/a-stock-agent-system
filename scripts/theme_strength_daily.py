@@ -19,14 +19,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from datetime import date
 from typing import Any, Mapping
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-if COMMON not in sys.path:
-    sys.path.insert(0, COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import theme_registry  # noqa: E402
 import theme_strength  # noqa: E402

@@ -820,6 +820,341 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
       "violation_id": "12bd9dd3f610b609194c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "6e4e0cffa72d75561318"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "7e015c59801a4241d473"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "1fafca36887e304a4376"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "0c85c36c86e6f48d36bb"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "c36714ea06da7d63c194"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "9c0a2f5c8df4611bc77c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a4f445540da3829fa9f9"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "afc3b32a19c16a9daaba"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "cc745661207f8f8a1766"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "9beac2583258cb497d5f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "af6f59226b1aec4485ed"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "f477ee1894cac623abaf"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "1609f47b14853e8b9e5b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "ba26eb517a6cb7d57dca"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "581207980d51fa8c2045"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "9852cf812d50a3281003"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "aeb3a98d20d18ccea23f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "9afc70d8d8782cf6bb4c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "03bedce22fdfd4ca7e7a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "867479147f5a037cbb7b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "6dd94cff1a319ef5fc52"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "8b3e6ae33170b44d7639"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "395fce6d923d42603151"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "be165d20f820fdeee1f3"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "fb9aa52b3e95f3c95ca2"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a656e3dedc12a92f8240"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "992f52259e26b838fe31"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "e45bf204a4a007d4f014"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "c12f5e073f480684edb7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "627634acb57ed5834fb4"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a61d19bdd3f74c9db7df"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "ee12d49991b21a68c6ae"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "ddafff897072f5fc0ff8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "5673bd7cbf3d8ad8fa74"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "575407b26479adca4a97"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "638df5a4d1846c2f2f24"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "7f55a0942c19571ff711"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "cd83ade8e6e9bcfc154b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "c26f5103a2759450ed06"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "abb14991f6b3f828d4a8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "6969157f368e61a79edf"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "bcae1b234c2041542cfb"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "d6a5b606d51a8b3995da"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "573196c39dd10a612dc0"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "d0efa26fa793b5e159d6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "97564abc9bc01be686b6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "eca920e6f12af73518ca"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "28df4c1b8dde54e32b1c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "8e525f0d0c6211461451"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "665fde66d81ad9de33c4"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "545c8bb69c7e4dda22c9"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "5dbede5ed5dc6903f794"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "1a88c5218fc87728a344"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "eaddc059822a8d4319f8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "3854e46176e54c7ee3eb"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "25e9c3337f710d506165"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a0d416ddc99599b4921a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "f9c129e8ef590184fbbf"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "298a9fe8f661cada7c9a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "e160bee14f3574659ad8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "5529876c6d58167d17ef"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "100158091da68e1c6a45"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "55c56d3ac650c196d55a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "bac2dcd9cc8c2a13a458"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "02c93e1ddcad007cdb55"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a71f29d1e30a119305a7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "453c696adfb70ee5212b"
     }
   ]
 }

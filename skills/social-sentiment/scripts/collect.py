@@ -6,14 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from datetime import date, datetime
 from typing import Any, Callable, Mapping
 
 SCRIPT_DIR = os.path.dirname(__file__)
 ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-sys.path.insert(0, COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from market_snapshot import compact_ref, write_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402

@@ -21,14 +21,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import site
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-site.addsitedir(COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from paths import skill_data_dir  # noqa: E402
 from state_store import read_json  # noqa: E402

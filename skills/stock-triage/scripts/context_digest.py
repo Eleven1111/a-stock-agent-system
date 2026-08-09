@@ -12,11 +12,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from datetime import datetime
 from typing import Any, Dict, List
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 import delivery_output
 
 

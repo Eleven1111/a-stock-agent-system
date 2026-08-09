@@ -6,11 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-sys.path.insert(0, COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from storage_retention import cleanup_storage  # noqa: E402
 

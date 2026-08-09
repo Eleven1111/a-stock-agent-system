@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 COMMON = os.path.join(ROOT, "skills", "common")
-sys.path.insert(0, COMMON)
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from runtime_context import (  # noqa: E402
     load_latest_artifact,

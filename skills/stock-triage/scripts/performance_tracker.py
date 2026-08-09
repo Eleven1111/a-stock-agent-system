@@ -33,7 +33,7 @@ import sys
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Any, Mapping
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
+import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.insert(0, ROOT)
 from state_store import read_json, atomic_write_json, update_json_list, mutate_json
@@ -741,7 +741,6 @@ def evaluate_strategy_gating(by_strategy: Dict[str, Dict],
 
 def apply_strategy_gating(decisions: List[Dict]) -> List[Dict]:
     """把门控决定写入 strategy_registry（skip 不写）。返回已应用项。"""
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
     import strategy_registry as sr
     applied = []
     for d in decisions:
