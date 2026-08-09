@@ -10,16 +10,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from datetime import date, datetime
 from typing import Any, Mapping
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-AUCTION_SCRIPTS = os.path.join(ROOT, "skills", "daban-stock-picker", "scripts")
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
-sys.path.insert(0, AUCTION_SCRIPTS)
 
-import auction_collector  # noqa: E402
+import discovery_recall  # noqa: E402
 import candidate_pipeline  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
@@ -84,7 +81,7 @@ def build_report(asof: str) -> dict[str, Any]:
     )
     open_codes = _codes(opened.get("signals")) if open_ready else None
     shortlist_codes = _codes(shortlist.get("shortlist")) if isinstance(shortlist, Mapping) else []
-    report = auction_collector.build_discovery_recall_report(
+    report = discovery_recall.build_discovery_recall_report(
         rows,
         prefilter_codes=pool.get("prefilter_codes") or [],
         auction_codes=[

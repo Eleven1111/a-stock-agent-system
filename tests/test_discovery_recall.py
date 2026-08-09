@@ -4,10 +4,19 @@ import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skills" / "daban-stock-picker" / "scripts" / "auction_collector.py"
-SPEC = importlib.util.spec_from_file_location("auction_collector_recall", SCRIPT)
-auction = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(auction)
+# 召回统计已迁入 skills/common/discovery_recall.py；快照标注仍归采集器所有。
+def _load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+recall = _load("discovery_recall_under_test", ROOT / "skills" / "common" / "discovery_recall.py")
+auction = _load(
+    "auction_collector_recall",
+    ROOT / "skills" / "daban-stock-picker" / "scripts" / "auction_collector.py",
+)
 
 
 def _quote(code: str, change: float) -> dict:
@@ -22,7 +31,7 @@ def _quote(code: str, change: float) -> dict:
 
 def test_recall_report_computes_stage_coverage_and_loss():
     rows = [_quote("600001", 10.0), _quote("600002", 9.0), _quote("600003", 1.0)]
-    report = auction.build_discovery_recall_report(
+    report = recall.build_discovery_recall_report(
         rows,
         prefilter_codes=["600001"],
         auction_codes=["600001"],
