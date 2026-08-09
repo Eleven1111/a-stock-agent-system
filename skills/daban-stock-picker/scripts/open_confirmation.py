@@ -134,8 +134,8 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
     and cumulative or per-bar volume.  Direct fields win so replay artifacts
     can preserve the provider's calculation.
     """
-    direct = lambda names: _metric_value(quote, factor, names=names)
-    open_volume = _as_float(direct(("open_volume", "opening_volume", "开盘量")))
+    def _direct(names): return _metric_value(quote, factor, names=names)
+    open_volume = _as_float(_direct(("open_volume", "opening_volume", "开盘量")))
     if open_volume is None:
         # Tencent's 09:35 ``volume`` is the session opening accumulation.
         open_volume = _as_float(direct(("volume", "成交量")))
@@ -155,8 +155,8 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
         "vwap_above_pct", "VWAP上方时间占比",
     )))
     if vwap_ratio is None:
-        above_minutes = _as_float(direct(("vwap_above_minutes", "above_vwap_minutes", "VWAP上方分钟")))
-        observed_minutes = _as_float(direct(("vwap_observation_minutes", "observed_minutes", "分时观测分钟")))
+        above_minutes = _as_float(_direct(("vwap_above_minutes", "above_vwap_minutes", "VWAP上方分钟")))
+        observed_minutes = _as_float(_direct(("vwap_observation_minutes", "observed_minutes", "分时观测分钟")))
         if above_minutes is not None and observed_minutes and observed_minutes > 0:
             vwap_ratio = above_minutes / observed_minutes
     dd15 = _as_float(direct((
@@ -206,11 +206,11 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
         "sector_breakout_count", "sector_breakouts", "sector_breakout_diffusion",
         "sector_probe_count", "sector_冲板数", "板块冲板数", "冲板扩散",
     )))
-    seal_persistence = direct((
+    seal_persistence = _direct((
         "seal_persistence", "seal_duration_minutes", "limitup_persistence",
         "封板持续性", "封板持续分钟",
     ))
-    reseal_persistence = direct((
+    reseal_persistence = _direct((
         "reseal_persistence", "reseal_duration_minutes", "reclose_persistence",
         "reclose_continuity", "回封持续性", "回封持续分钟",
     ))
