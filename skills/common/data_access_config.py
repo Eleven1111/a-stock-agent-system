@@ -79,6 +79,8 @@ DEFAULTS: Dict[str, Any] = {
         "freshness_sla_minutes": 180,
         "intraday_freshness_sla_minutes": 10,
         "intraday_candidate_limit": 20,
+        "intraday_query_budget_seconds": 45,
+        "intraday_provider_timeout_seconds": 5,
         "queries": [
             "国务院 发改委 工信部 证监会 A股 产业政策",
             "地缘冲突 制裁 关税 大宗商品 A股 风险",
@@ -348,6 +350,8 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
         "freshness_sla_minutes",
         "intraday_freshness_sla_minutes",
         "intraday_candidate_limit",
+        "intraday_query_budget_seconds",
+        "intraday_provider_timeout_seconds",
     ):
         value = news.get(key)
         default = DEFAULTS["news_monitor"][key]

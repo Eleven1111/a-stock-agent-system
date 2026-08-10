@@ -103,6 +103,8 @@ def fetch_serper_news(
     limit: int = 5,
     *,
     client: Optional[HttpClient] = None,
+    timeout_seconds: float | None = None,
+    max_attempts: int | None = None,
 ) -> HttpResult[List[Dict[str, Any]]]:
     """Fetch news via serper.dev with automatic multi-key rotation.
 
@@ -132,7 +134,22 @@ def fetch_serper_news(
             method="POST",
         )
         try:
-            response = (client or provider_client("serper")).request_json(request)
+            request_client = client or (
+                HttpClient(
+                    "serper",
+                    timeout=(
+                        float(timeout_seconds)
+                        if timeout_seconds is not None
+                        else float(provider_settings("serper").get("timeout_seconds", 10))
+                    ),
+                    max_attempts=(
+                        int(max_attempts)
+                        if max_attempts is not None
+                        else int(provider_settings("serper").get("max_attempts", 2))
+                    ),
+                )
+            )
+            response = request_client.request_json(request)
         except DataSourceError as exc:
             last_error = exc
             # 429 = rate limit, 403 = invalid key → try next key

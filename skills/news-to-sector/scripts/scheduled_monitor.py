@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
@@ -37,6 +38,10 @@ DEFAULT_FRESHNESS_SLA_MINUTES = int(_NEWS_CONFIG.get("freshness_sla_minutes", 18
 INTRADAY_LIMIT = int(_NEWS_CONFIG.get("intraday_limit", DEFAULT_LIMIT))
 INTRADAY_FRESHNESS_SLA_MINUTES = int(_NEWS_CONFIG.get("intraday_freshness_sla_minutes", 10))
 INTRADAY_CANDIDATE_LIMIT = int(_NEWS_CONFIG.get("intraday_candidate_limit", 20))
+INTRADAY_QUERY_BUDGET_SECONDS = float(_NEWS_CONFIG.get("intraday_query_budget_seconds", 45))
+INTRADAY_PROVIDER_TIMEOUT_SECONDS = float(
+    _NEWS_CONFIG.get("intraday_provider_timeout_seconds", 5)
+)
 SCHEDULED_STOCK_LIMIT = int(_NEWS_CONFIG.get("scheduled_stock_limit", 20))
 FALLBACK_NOISE_KEYWORDS = {
     "世界杯", "足球", "赛前", "比赛", "球队", "球员", "小将", "nba",
@@ -273,10 +278,27 @@ def run_monitor(
     errors = []
     serper_events = 0
     if api_key:
+        started = time.monotonic()
         for query in queries:
+            if mode == "intraday" and time.monotonic() - started >= INTRADAY_QUERY_BUDGET_SECONDS:
+                errors.append({
+                    "source": "serper",
+                    "error_type": "budget_exhausted",
+                    "error": "intraday query budget exhausted",
+                })
+                break
             try:
                 stock_code = stock_code_from_query(query)
-                fetched = fetch_news(query, api_key, limit)
+                if mode == "intraday":
+                    fetched = fetch_serper_news(
+                        query,
+                        api_key,
+                        limit,
+                        timeout_seconds=INTRADAY_PROVIDER_TIMEOUT_SECONDS,
+                        max_attempts=1,
+                    ).data
+                else:
+                    fetched = fetch_news(query, api_key, limit)
                 serper_events += len(fetched)
                 for event in fetched:
                     events.append(

@@ -6,6 +6,12 @@ import sys
 import os
 import re
 
+# Direct cron/CLI execution puts only ``scripts/`` on sys.path.  Bootstrap the
+# repository root before importing the shared package, just like the runtime
+# entrypoints do.
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import manifest_command  # noqa: E402
@@ -170,6 +176,7 @@ def validate(filepath):
             )
 
     ids = set()
+    logical_signatures = set()
     dependency_graph = {}
     schedule_slots = {}
     for i, job in enumerate(jobs):
@@ -182,6 +189,17 @@ def validate(filepath):
         if jid in ids:
             errors.append(f"job[{i}] duplicate id: {jid}")
         ids.add(jid)
+        command_signature = tuple(job.get("command_argv") or [])
+        signature = (
+            str(job.get("name") or ""),
+            str(job.get("schedule") or ""),
+            command_signature,
+        )
+        if signature in logical_signatures:
+            errors.append(
+                f"job[{i}] ({jid}) duplicates logical job name/schedule/command"
+            )
+        logical_signatures.add(signature)
         dependency_mode = (job.get("dependency_policy") or {}).get(
             "trading_date",
             "same_trading_date",

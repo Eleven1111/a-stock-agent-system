@@ -273,9 +273,9 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 600,
+        "timeout_seconds": 1200,
         "timeout_tier": "long",
-        "timeout_rationale": "冷启动或池过期时要重跑全市场候选发现；复用命中时秒级返回，600s 是给冷跑留的预算（2026-08-05 竞价事故中该作业确实跑满 600s）",
+        "timeout_rationale": "冷启动或池过期时要重跑全市场候选发现；复用命中时秒级返回，历史冷跑耗时约9-16分钟，1200s覆盖高位并保留有限余量；行情覆盖不足时由缓存有效性门槛快速失败，不生成伪空候选池",
         "env": {
           "A_STOCK_SKIP_INPUT_SNAPSHOT": "1"
         }
@@ -1243,7 +1243,7 @@
           "skills/stock-triage/scripts/intraday_monitor.py"
         ],
         "cwd": ".",
-        "timeout_seconds": 120,
+        "timeout_seconds": 180,
         "timeout_tier": "standard"
       },
       "external_note": "只监控当前持仓和动态订阅；清仓/取消后自动退订；脚本内置交易时段守卫"

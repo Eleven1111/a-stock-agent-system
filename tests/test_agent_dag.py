@@ -3,8 +3,37 @@ import os
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 from scripts import run_agent_dag
+
+
+def test_direct_entrypoint_bootstraps_repo_root_before_skills_import():
+    source = Path(run_agent_dag.__file__).read_text(encoding="utf-8")
+    root_setup = source.index("sys.path.insert(0, ROOT)")
+    skills_import = source.index("import skills.common")
+
+    assert root_setup < skills_import
+
+
+def test_job_runner_entrypoint_bootstraps_repo_root_before_skills_import():
+    source = (Path(run_agent_dag.__file__).parent / "hermes_job_runner.py").read_text(
+        encoding="utf-8"
+    )
+    root_setup = source.index("sys.path.insert(0, ROOT)")
+    skills_import = source.index("import skills.common")
+
+    assert root_setup < skills_import
+
+
+def test_job_runner_runtime_env_includes_repo_and_common_paths():
+    from scripts import hermes_job_runner
+
+    env = hermes_job_runner.build_runtime_env("hermes")
+    paths = env["PYTHONPATH"].split(os.pathsep)
+
+    assert str(Path(hermes_job_runner.ROOT)) in paths
+    assert str(Path(hermes_job_runner.ROOT) / "skills" / "common") in paths
 
 
 def _job(job_id, command, dependencies=None, mode="same_trading_date"):

@@ -22,6 +22,18 @@ DEFAULT_DELIVERY_ACCOUNT = "default"
 MANAGED_JOB_PREFIX = "A-stock: "
 
 
+def default_python(repo_dir: str) -> str:
+    """Prefer the repository interpreter used by the dispatcher.
+
+    Scheduler processes do not inherit the shell's virtualenv activation, so
+    falling back to the caller's interpreter silently creates mixed-runtime
+    cron jobs.  Keep a fallback for repositories that deliberately have no
+    local venv.
+    """
+    candidate = os.path.join(os.path.abspath(repo_dir), ".venv", "bin", "python")
+    return candidate if os.path.isfile(candidate) else sys.executable
+
+
 def _required_order(
     jobs: Mapping[str, Mapping[str, Any]],
     target: str,
@@ -124,6 +136,30 @@ def load_installed_openclaw_jobs(openclaw: str = "openclaw") -> list[dict[str, A
     if not isinstance(jobs, list) or not all(isinstance(job, dict) for job in jobs):
         raise RuntimeError("openclaw cron list JSON does not contain a jobs array")
     return jobs
+
+
+def validate_installed_job_uniqueness(
+    installed_jobs: Sequence[Mapping[str, Any]],
+    *,
+    managed_prefix: str = MANAGED_JOB_PREFIX,
+) -> None:
+    """Reject duplicate managed names before any reconciliation is generated."""
+    seen: dict[str, list[str]] = {}
+    for installed in installed_jobs:
+        name = str(installed.get("name") or "")
+        if not name.startswith(managed_prefix):
+            continue
+        installed_id = str(installed.get("id") or installed.get("jobId") or "")
+        if name and installed_id:
+            seen.setdefault(name, []).append(installed_id)
+    duplicates = {
+        name: ids for name, ids in seen.items() if len(ids) > 1
+    }
+    if duplicates:
+        detail = "; ".join(
+            f"{name}: {', '.join(ids)}" for name, ids in sorted(duplicates.items())
+        )
+        raise ValueError(f"duplicate installed OpenClaw jobs: {detail}")
 
 
 def apply_openclaw_commands(commands: Sequence[str]) -> None:
@@ -262,7 +298,11 @@ def main() -> int:
         default="cron/hermes-cron-manifest.json",
     )
     parser.add_argument("--repo-dir", default=os.getcwd())
-    parser.add_argument("--python", default=sys.executable)
+    parser.add_argument(
+        "--python",
+        default=None,
+        help="Python executable (default: <repo-dir>/.venv/bin/python when present)",
+    )
     parser.add_argument("--grace-seconds", type=int, default=60)
     parser.add_argument("--state-home", default=os.environ.get("A_STOCK_STATE_HOME"))
     parser.add_argument("--state-id", default=os.environ.get("A_STOCK_STATE_ID"))
@@ -292,17 +332,16 @@ def main() -> int:
         parser.error("--state-home or A_STOCK_STATE_HOME is required for OpenClaw jobs")
     if args.apply and not args.reconcile:
         parser.error("--apply requires --reconcile to avoid duplicate cron jobs")
+    python = args.python or default_python(args.repo_dir)
     with open(args.manifest, encoding="utf-8") as handle:
         manifest = json.load(handle)
-    installed_jobs = (
-        load_installed_openclaw_jobs(args.openclaw)
-        if args.reconcile
-        else None
-    )
+    installed = load_installed_openclaw_jobs(args.openclaw)
+    validate_installed_job_uniqueness(installed)
+    installed_jobs = installed if args.reconcile else None
     commands = build_openclaw_commands(
         manifest,
         repo_dir=os.path.abspath(args.repo_dir),
-        python=os.path.abspath(args.python),
+        python=os.path.abspath(python),
         grace_seconds=args.grace_seconds,
         state_home=args.state_home,
         state_id=args.state_id,

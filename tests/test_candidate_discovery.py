@@ -62,6 +62,48 @@ def test_fetch_universe_quotes_uses_cache_in_auction_window(monkeypatch):
     assert quotes["600000"]["price"] == 10.0
 
 
+def test_fetch_universe_quotes_does_not_reuse_auction_cache_without_trade_fields(monkeypatch):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    cached = {
+        item["code"]: {"price": 10.0, "volume": 0, "amount": 0}
+        for item in universe
+    }
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: True)
+    monkeypatch.setattr(discovery, "load_cached_quotes", lambda: cached)
+    monkeypatch.setattr(discovery, "load_config", _quote_config)
+    monkeypatch.setattr(
+        discovery,
+        "fetch_tencent_quote",
+        lambda codes: {
+            code: {"price": 10.0, "volume": 1_000, "amount": 100_000_000}
+            for code in codes
+        },
+    )
+
+    quotes = discovery.fetch_universe_quotes(universe)
+
+    assert len(quotes) == len(universe)
+    assert all(item["quote_source"] == "tencent" for item in quotes.values())
+
+
+def test_fetch_universe_quotes_rejects_incomplete_live_snapshot(monkeypatch):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: True)
+    monkeypatch.setattr(discovery, "load_cached_quotes", lambda: {})
+    monkeypatch.setattr(discovery, "load_config", _quote_config)
+    monkeypatch.setattr(
+        discovery,
+        "fetch_tencent_quote",
+        lambda codes: {
+            code: {"price": 10.0, "volume": 0, "amount": 0}
+            for code in codes
+        },
+    )
+
+    with pytest.raises(discovery.DataSourceError, match="可交易行情覆盖不足"):
+        discovery.fetch_universe_quotes(universe)
+
+
 def test_fetch_universe_quotes_saves_cache(monkeypatch, tmp_path):
     universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
     monkeypatch.setattr(discovery, "is_auction_window", lambda: False)

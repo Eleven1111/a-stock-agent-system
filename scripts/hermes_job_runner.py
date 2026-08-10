@@ -17,6 +17,11 @@ import traceback
 from typing import Any, Dict, List, Optional
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# This module is reached through ``agent_job_runner.py`` when cron launches a
+# job directly.  In that mode Python only adds ``scripts/`` to sys.path, so
+# bootstrap the repository root before importing the shared skills package.
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 BLOCKED_RETURNCODES = {75, 78}
 
@@ -84,7 +89,14 @@ def build_runtime_env(runtime: str) -> Dict[str, str]:
     resolve the real home (``HERMES_HOME`` / ``~/.hermes`` bootstrap) or fail
     closed when configuration is inconsistent.
     """
-    return load_hermes_env()
+    env = load_hermes_env()
+    common = os.path.join(ROOT, "skills", "common")
+    pythonpath = [ROOT, common]
+    existing = env.get("PYTHONPATH")
+    if existing:
+        pythonpath.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath)
+    return env
 
 
 def _producer_version() -> str:
