@@ -177,6 +177,23 @@ python scripts/compile_research_execution_plan.py --help
 python scripts/expert_calibration.py --help
 ```
 
+The P3 learning loop only proposes improvement candidates from research-consumer
+audit artifacts. A reviewer must supply a frozen benchmark before a case can be
+materialised into an offline eval suite. It never edits prompts, code, fact-plane
+state, or production configuration automatically:
+
+```bash
+python scripts/learning_eval_factory.py scan
+python scripts/learning_eval_factory.py status
+python scripts/learning_eval_factory.py export --output /tmp/a-stock-learning-eval
+python scripts/evaluate_agent_harness.py \
+  --cases /tmp/a-stock-learning-eval/cases.json \
+  --quiet
+```
+
+See [Learning Ledger and Eval Factory v1](docs/learning-eval-factory-v1.md) for
+the contracts and review boundary.
+
 See [the research committee guide](docs/research-committee-guide.md) and its
 [runtime contract](skills/research-committee/SKILL.md).
 
