@@ -282,6 +282,84 @@ def _preflight(
     return verified, sealed_catalog, []
 
 
+def _replay_plan(
+    verified: Mapping[str, Any],
+    inputs: Mapping[str, Any],
+    sealed_catalog: Mapping[str, Any],
+    *,
+    root: Path | None,
+    timeout_seconds: int,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    plan = verified["sealed_plan"]
+    first, reasons = _run_once(
+        plan,
+        inputs,
+        sealed_catalog,
+        workspace_root=root,
+        timeout_seconds=timeout_seconds,
+    )
+    if reasons or first is None:
+        return None, reasons
+    second, reasons = _run_once(
+        plan,
+        inputs,
+        sealed_catalog,
+        workspace_root=root,
+        timeout_seconds=timeout_seconds,
+    )
+    if reasons or second is None:
+        return None, reasons
+    if first != second:
+        return None, ["replay_nondeterministic"]
+    return first, []
+
+
+def _validated_execution(
+    verified: Mapping[str, Any],
+    sealed_catalog: Mapping[str, Any],
+    run: Mapping[str, Any],
+    *,
+    input_hash: str,
+    timestamp: str,
+) -> dict[str, Any]:
+    plan = verified["sealed_plan"]
+    checks = [
+        {"name": "compilation_integrity", "status": "passed"},
+        {"name": "catalog_and_plan_binding", "status": "passed"},
+        {"name": "input_contracts", "status": "passed"},
+        {"name": "isolated_subprocess", "status": "passed"},
+        {"name": "result_hash", "status": "passed"},
+        {"name": "deterministic_replay", "status": "passed"},
+    ]
+    validation = _validation(
+        status="passed",
+        validated_at=timestamp,
+        compilation_hash=verified["compilation_hash"],
+        plan_hash=plan["plan_hash"],
+        catalog_hash=sealed_catalog["catalog_hash"],
+        input_hash=input_hash,
+        result_hash=run["result_hash"],
+        replay_count=2,
+        replay_deterministic=True,
+        checks=checks,
+        reason_codes=[],
+    )
+    body = {
+        "schema": EXECUTION_SCHEMA,
+        "executor_version": EXECUTOR_VERSION,
+        "status": "validated",
+        "validated_at": timestamp,
+        "compilation_hash": verified["compilation_hash"],
+        "input_hash": input_hash,
+        "run": dict(run),
+        "reason_codes": [],
+        "validation": validation,
+        "research_only": True,
+        "trading_action": "none",
+    }
+    return _artifact(body)
+
+
 def execute_compilation(
     compilation: Mapping[str, Any],
     inputs: Mapping[str, Any],
@@ -318,78 +396,27 @@ def execute_compilation(
             input_hash=input_hash,
             reasons=reasons,
         )
-    root = _workspace_root(workspace_root)
-    plan = verified["sealed_plan"]
-    first, reasons = _run_once(
-        plan,
+    run, reasons = _replay_plan(
+        verified,
         inputs,
         sealed_catalog,
-        workspace_root=root,
+        root=_workspace_root(workspace_root),
         timeout_seconds=timeout_seconds,
     )
-    if reasons or first is None:
+    if reasons or run is None:
         return _blocked(
             validated_at=timestamp,
             compilation=verified,
             input_hash=input_hash,
             reasons=reasons,
         )
-    second, reasons = _run_once(
-        plan,
-        inputs,
+    return _validated_execution(
+        verified,
         sealed_catalog,
-        workspace_root=root,
-        timeout_seconds=timeout_seconds,
-    )
-    if reasons or second is None:
-        return _blocked(
-            validated_at=timestamp,
-            compilation=verified,
-            input_hash=input_hash,
-            reasons=reasons,
-        )
-    if first != second:
-        return _blocked(
-            validated_at=timestamp,
-            compilation=verified,
-            input_hash=input_hash,
-            reasons=["replay_nondeterministic"],
-        )
-    checks = [
-        {"name": "compilation_integrity", "status": "passed"},
-        {"name": "catalog_and_plan_binding", "status": "passed"},
-        {"name": "input_contracts", "status": "passed"},
-        {"name": "isolated_subprocess", "status": "passed"},
-        {"name": "result_hash", "status": "passed"},
-        {"name": "deterministic_replay", "status": "passed"},
-    ]
-    validation = _validation(
-        status="passed",
-        validated_at=timestamp,
-        compilation_hash=verified["compilation_hash"],
-        plan_hash=plan["plan_hash"],
-        catalog_hash=sealed_catalog["catalog_hash"],
+        run,
         input_hash=input_hash,
-        result_hash=first["result_hash"],
-        replay_count=2,
-        replay_deterministic=True,
-        checks=checks,
-        reason_codes=[],
+        timestamp=timestamp,
     )
-    body = {
-        "schema": EXECUTION_SCHEMA,
-        "executor_version": EXECUTOR_VERSION,
-        "status": "validated",
-        "validated_at": timestamp,
-        "compilation_hash": verified["compilation_hash"],
-        "input_hash": input_hash,
-        "run": first,
-        "reason_codes": [],
-        "validation": validation,
-        "research_only": True,
-        "trading_action": "none",
-    }
-    return _artifact(body)
 
 
 def _verify_execution(
