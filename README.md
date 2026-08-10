@@ -108,7 +108,9 @@ The system deliberately separates three kinds of work:
 1. **Fact plane** — deterministic adapters and DAG jobs produce immutable
    snapshots, source-health records, candidates, and ledger events.
 2. **Research plane** — skills and model-backed experts interpret bounded
-   evidence. Their output is research, not a fact or an executable order.
+   evidence. An optional plan-author role can draft allowlisted analysis plans,
+   but only the deterministic compiler can seal the handoff. Agent output is
+   research, not a fact or an executable order.
 3. **Decision plane** — deterministic policy applies freshness, tradeability,
    T+1, concentration, strategy-registry, OOS, and approval gates.
 
@@ -123,7 +125,7 @@ snapshot, lease, policy, and ledger rules.
 | Market intelligence | Multi-timeframe technical analysis, global markets, AH linkage, capital flow, institutions, events, social attention |
 | Candidate discovery | Dynamic A-share universe, natural-language recall, tail-window anomalies, limit-up and trend lanes |
 | Scoring | Four-dimensional S/A/B/C grading: technical 30%, sentiment 15%, catalyst 30%, deep research 25% |
-| Research | Serenity fundamental research, Chan-structure research, policy-intent decoding, multi-expert research committee |
+| Research | Serenity fundamental research, Chan-structure research, policy-intent decoding, multi-expert research committee, dual-Agent bounded plan compilation |
 | Risk and lifecycle | Tradeability, A-share T+1, concentration, stops, candidate FSM, recommendation audit, settlement |
 | Evaluation | IS/OOS walls, costs, controls, statistical gates, shadow promotion, expert calibration |
 | Operations | Manifest scheduler, resumable DAG, provider health, state recovery, execution traces, delivery telemetry |
