@@ -58,8 +58,8 @@ python scripts/config_doctor.py
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
 
-The current repository manifest, verified on 2026-08-04, contains **56
-registered jobs, 44 enabled**. This describes the committed manifest, not the
+The current repository manifest, verified on 2026-08-10, contains **62
+registered jobs, 47 enabled**. This describes the committed manifest, not the
 installed state of any particular machine.
 
 ### Run an offline example
@@ -295,6 +295,7 @@ returns or open-world prediction accuracy.
 
 | Topic | Document |
 |---|---|
+| Newcomer handbook (Chinese) | [docs/newcomer-guide.zh-CN.md](docs/newcomer-guide.zh-CN.md) |
 | Runtime architecture and hardening | [docs/architecture-hardening.md](docs/architecture-hardening.md) |
 | Trading lifecycle and settlement | [docs/trading-lifecycle.md](docs/trading-lifecycle.md) |
 | Portfolio research protocol | [docs/portfolio-research-protocol.md](docs/portfolio-research-protocol.md) |

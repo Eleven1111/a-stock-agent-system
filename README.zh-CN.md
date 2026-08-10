@@ -52,7 +52,7 @@ python scripts/config_doctor.py
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
 
-截至 2026-08-04，当前仓库 manifest 经验证共登记 **56 个任务，其中 44 个启用**。
+截至 2026-08-10，当前仓库 manifest 经验证共登记 **62 个任务，其中 47 个启用**。
 这里描述的是 Git 中提交的 manifest，不代表任意一台机器上已经安装的任务状态。
 
 ### 运行离线示例
@@ -262,6 +262,7 @@ CI 覆盖受支持的 Python 矩阵和 CodeQL。固定 Agent Harness 只验证�
 
 | 主题 | 文档 |
 |---|---|
+| 新人使用手册 | [docs/newcomer-guide.zh-CN.md](docs/newcomer-guide.zh-CN.md) |
 | Runtime 架构与加固 | [docs/architecture-hardening.md](docs/architecture-hardening.md) |
 | 交易生命周期与结算 | [docs/trading-lifecycle.md](docs/trading-lifecycle.md) |
 | 组合研究协议 | [docs/portfolio-research-protocol.md](docs/portfolio-research-protocol.md) |
