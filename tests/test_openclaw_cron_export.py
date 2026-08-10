@@ -12,7 +12,12 @@ import sys
 import pytest
 
 from scripts import generate_openclaw_cron as cron_export
-from scripts.generate_openclaw_cron import build_openclaw_commands, dependency_timeout_budget
+from scripts.generate_openclaw_cron import (
+    build_openclaw_commands,
+    dependency_timeout_budget,
+    default_python,
+    validate_installed_job_uniqueness,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -165,6 +170,21 @@ def test_reconcile_rejects_duplicate_installed_names(tmp_path):
                 {"id": "cron-2", "name": "A-stock: target"},
             ],
         )
+
+
+def test_installed_uniqueness_check_runs_before_reconcile(tmp_path):
+    with pytest.raises(ValueError, match="duplicate installed OpenClaw jobs"):
+        validate_installed_job_uniqueness([
+            {"id": "cron-1", "name": "A-stock: target"},
+            {"id": "cron-2", "name": "A-stock: target"},
+        ])
+
+
+def test_installed_uniqueness_ignores_unmanaged_jobs():
+    validate_installed_job_uniqueness([
+        {"id": "cron-1", "name": "other-job"},
+        {"id": "cron-2", "name": "other-job"},
+    ])
 
 
 def test_reconcile_loads_installed_jobs_from_openclaw_json(monkeypatch):
@@ -362,3 +382,11 @@ def test_cli_refuses_to_generate_unpinned_openclaw_jobs(tmp_path):
 
     assert result.returncode == 2
     assert "A_STOCK_STATE_HOME" in result.stderr
+
+
+def test_openclaw_default_python_prefers_repo_venv(tmp_path):
+    python = tmp_path / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("", encoding="utf-8")
+
+    assert default_python(str(tmp_path)) == str(python)

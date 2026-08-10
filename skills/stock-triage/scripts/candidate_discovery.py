@@ -58,6 +58,27 @@ MAX_BOOTSTRAP_POOL_AGE_DAYS = 4
 MIN_INDUSTRY_MAPPED_RATE = 0.80
 
 
+class DiscoveryStageError(RuntimeError):
+    """A bounded discovery failure with the stage that caused it."""
+
+    def __init__(self, stage: str, error: Exception):
+        self.stage = stage
+        self.original = error
+        super().__init__(str(error))
+
+
+def _run_discovery_stage(stage: str, callback: Callable[[], Any]) -> Any:
+    try:
+        return callback()
+    except DiscoveryStageError:
+        raise
+    except (
+        DataSourceError, OSError, RuntimeError, ValueError, TypeError, KeyError,
+        json.JSONDecodeError,
+    ) as exc:
+        raise DiscoveryStageError(stage, exc) from exc
+
+
 def load_config() -> Dict[str, Any]:
     with open(CONFIG_FILE, encoding="utf-8") as file:
         return json.load(file)
@@ -111,6 +132,19 @@ def load_cached_quotes(max_age_minutes: int = 1440) -> Dict[str, Dict[str, Any]]
         for code, fields in quotes.items()
         if isinstance(fields, Mapping) and candidate_pipeline.naked_code(code)
     }
+
+
+def _quote_has_trade_fields(fields: Mapping[str, Any]) -> bool:
+    """Return whether a quote is usable by the liquidity pre-filter.
+
+    During the opening auction providers can return a price while leaving
+    volume/amount at zero.  Such a response is transport-valid but must not be
+    treated as a reusable full-market cache for candidate discovery.
+    """
+    try:
+        return all(float(fields.get(key) or 0) > 0 for key in ("price", "volume", "amount"))
+    except (TypeError, ValueError):
+        return False
 
 
 def hot_money_selection_file() -> str:
@@ -403,42 +437,31 @@ def _universe_spot_quotes(metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Dict
     return mapped
 
 
-def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    config = load_config()["network"]
-    batch_size = int(config["quote_batch_size"])
-    workers = int(config["quote_workers"])
-    retries = int(config["request_retries"])
-    minimum_coverage = max(
-        500,
-        int(len(universe) * float(config["quote_min_coverage"])),
-    )
-    metadata = {
+def _universe_metadata(
+    universe: Sequence[Mapping[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    return {
         candidate_pipeline.naked_code(item["code"]): {
             **dict(item),
-            "is_st": (
-                item.get("is_st")
-                if isinstance(item.get("is_st"), bool)
-                else "ST" in str(item.get("name") or "").upper()
-            ),
+            "is_st": item.get("is_st") if isinstance(item.get("is_st"), bool)
+            else "ST" in str(item.get("name") or "").upper(),
         }
         for item in universe
     }
-    if is_auction_window():
-        cached_quotes = load_cached_quotes()
-        if len(cached_quotes) >= minimum_coverage:
-            result = {
-                code: {**metadata.get(code, {}), **fields, "code": code, "quote_source": "cache"}
-                for code, fields in cached_quotes.items()
-                if code in metadata
-            }
-            if len(result) >= minimum_coverage:
-                fetch_universe_quotes.last_quote_source = "cache"
-                return result
+
+
+def _fetch_batched_quotes(
+    universe: Sequence[Mapping[str, Any]],
+    metadata: Mapping[str, Mapping[str, Any]],
+    *,
+    batch_size: int,
+    workers: int,
+    retries: int,
+) -> Dict[str, Dict[str, Any]]:
     batches = [
         [candidate_pipeline.market_code(item["code"]) for item in batch]
         for batch in _chunks(list(universe), batch_size)
     ]
-
     quotes: Dict[str, Dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(_fetch_quote_batch, batch, retries) for batch in batches]
@@ -450,6 +473,53 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
             for prefixed, fields in batch_quotes.items():
                 code = candidate_pipeline.naked_code(prefixed)
                 quotes[code] = {**metadata.get(code, {}), **fields, "code": code}
+    return quotes
+
+
+def _cached_universe_quotes(
+    metadata: Mapping[str, Mapping[str, Any]], minimum_coverage: int,
+) -> Dict[str, Dict[str, Any]]:
+    if not is_auction_window():
+        return {}
+    usable = {
+        code: fields for code, fields in load_cached_quotes().items()
+        if _quote_has_trade_fields(fields) and code in metadata
+    }
+    if len(usable) < minimum_coverage:
+        return {}
+    return {
+        code: {**metadata.get(code, {}), **fields, "code": code, "quote_source": "cache"}
+        for code, fields in usable.items()
+    }
+
+
+def _store_universe_quotes(quotes: Dict[str, Dict[str, Any]]) -> None:
+    atomic_write_json(quotes_cache_file(), {
+        "schema": "universe_quotes_cache_v1",
+        "updated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+        "quotes": quotes,
+    })
+    sources = {str(fields.get("quote_source") or "tencent") for fields in quotes.values()}
+    fetch_universe_quotes.last_quote_source = next(iter(sources)) if len(sources) == 1 else "mixed"
+
+
+def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    config = load_config()["network"]
+    batch_size = int(config["quote_batch_size"])
+    workers = int(config["quote_workers"])
+    retries = int(config["request_retries"])
+    minimum_coverage = max(
+        500,
+        int(len(universe) * float(config["quote_min_coverage"])),
+    )
+    metadata = _universe_metadata(universe)
+    cached = _cached_universe_quotes(metadata, minimum_coverage)
+    if len(cached) >= minimum_coverage:
+        fetch_universe_quotes.last_quote_source = "cache"
+        return cached
+    quotes = _fetch_batched_quotes(
+        universe, metadata, batch_size=batch_size, workers=workers, retries=retries,
+    )
     if len(quotes) < minimum_coverage:
         try:
             spot_quotes = _universe_spot_quotes(metadata)
@@ -457,21 +527,19 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
             spot_quotes = {}
         for code, fields in spot_quotes.items():
             quotes.setdefault(code, fields)
-    if len(quotes) < minimum_coverage:
-        raise DataSourceError("market_quotes", f"全市场行情覆盖不足: {len(quotes)}/{len(universe)}")
+    usable_quotes = {
+        code: fields for code, fields in quotes.items() if _quote_has_trade_fields(fields)
+    }
+    if len(usable_quotes) < minimum_coverage:
+        raise DataSourceError(
+            "market_quotes",
+            f"全市场可交易行情覆盖不足: {len(usable_quotes)}/{len(universe)}",
+        )
     quotes = {
         code: {**fields, "quote_source": fields.get("quote_source", "tencent")}
         for code, fields in quotes.items()
     }
-    atomic_write_json(quotes_cache_file(), {
-        "schema": "universe_quotes_cache_v1",
-        "updated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
-        "quotes": quotes,
-    })
-    sources = {str(fields.get("quote_source") or "tencent") for fields in quotes.values()}
-    fetch_universe_quotes.last_quote_source = (
-        next(iter(sources)) if len(sources) == 1 else "mixed"
-    )
+    _store_universe_quotes(quotes)
     return quotes
 
 
@@ -941,7 +1009,7 @@ def run_discovery(
     watch_limit = int(watch_limit or pipeline_config["watch_limit"])
     prefilter_limit = int(prefilter_limit or universe_config["prefilter_limit"])
 
-    universe = list(universe_fetcher())
+    universe = list(_run_discovery_stage("universe", universe_fetcher))
     industry_by_code = dict(industry_provider(asof) or {})
     # 行业映射缺失会让全市场板块归属退化到交易所粗口径（沪市主板/科创板直接为空），
     # 主线/龙头判断随之失真。退化本身允许，但必须留痕——见 industry-map-refresh
@@ -968,7 +1036,9 @@ def run_discovery(
                 "error": str(exc),
             }
     universe = merge_nl_screening_recall(universe, nl_recall_report or {})
-    quote_map = dict(quote_fetcher(universe))
+    quote_map = dict(
+        _run_discovery_stage("quotes", lambda: quote_fetcher(universe))
+    )
     quote_source = str(
         getattr(quote_fetcher, "last_quote_source", "")
         or next(
@@ -1009,15 +1079,18 @@ def run_discovery(
         if item.get("code")
     ]
     production_kline = kline_fetcher is fetch_candidate_klines
-    kline_by_code = dict(
-        fetch_candidate_klines(
-            enrichment_universe,
-            event_asof=asof,
-            decision_mode="live",
-        )
-        if production_kline
-        else kline_fetcher(enrichment_universe)
-    )
+    kline_by_code = dict(_run_discovery_stage(
+        "klines",
+        lambda: (
+            fetch_candidate_klines(
+                enrichment_universe,
+                event_asof=asof,
+                decision_mode="live",
+            )
+            if production_kline
+            else kline_fetcher(enrichment_universe)
+        ),
+    ))
     batch_id = os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}"
     point_in_time = _candidate_pit_contract(asof, quote_map) if production_kline else None
     snapshot_pit = (
@@ -1350,6 +1423,10 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "rejected_count": result.get("rejected_count", 0),
         "enriched_count": result.get("enriched_count", 0),
         "candidate_count": result.get("candidate_count", 0),
+        "failure_stage": result.get("failure_stage"),
+        "failure_source": result.get("failure_source"),
+        "failure_type": result.get("failure_type"),
+        "fast_fail": bool(result.get("fast_fail", False)),
         "warnings": list(result.get("warnings") or []),
         "industry_map_health": result.get("industry_map_health"),
         "hot_money_selection": {
@@ -1564,12 +1641,20 @@ def main() -> None:
             if args.bootstrap_if_missing:
                 result["bootstrap_status"] = "generated_missing_or_stale"
     except Exception as exc:  # noqa: BLE001
+        stage = getattr(exc, "stage", "pipeline")
+        original = getattr(exc, "original", exc)
+        source = getattr(original, "source", None)
+        error_type = getattr(original, "error_type", type(original).__name__)
         result = {
             "schema": "candidate_watch_pool_v1",
             "asof": args.asof,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "status": "insufficient_data",
             "error": str(exc),
+            "failure_stage": stage,
+            "failure_source": source,
+            "failure_type": error_type,
+            "fast_fail": True,
             "candidates": [],
             "candidate_count": 0,
         }

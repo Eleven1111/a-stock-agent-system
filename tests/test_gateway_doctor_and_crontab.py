@@ -56,3 +56,15 @@ def test_system_crontab_rejects_template_jobs():
         assert "not self-contained" in str(exc)
     else:
         raise AssertionError("template job should be rejected")
+
+
+def test_system_crontab_defaults_to_repo_venv(tmp_path):
+    repo = tmp_path / "repo"
+    python = repo / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("", encoding="utf-8")
+
+    manifest = {"jobs": [{"id": "demo", "schedule": "0 9 * * 1-5", "enabled": True}]}
+    lines = crontab_lines(manifest, str(repo), "/tmp/hermes", str(python))
+
+    assert str(python) in "\n".join(lines)

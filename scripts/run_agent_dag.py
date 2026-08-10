@@ -14,6 +14,12 @@ from typing import Any, Mapping, Optional
 from zoneinfo import ZoneInfo
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+try:
+    from ._repo_bootstrap import ensure_repo_importable  # type: ignore[import-not-found]
+except ImportError:
+    from _repo_bootstrap import ensure_repo_importable  # type: ignore[no-redef]
+
+ensure_repo_importable(ROOT)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from runtime_context import (  # noqa: E402

@@ -57,15 +57,23 @@ def main() -> None:
     parser.add_argument("--repo-dir", default=os.getcwd())
     parser.add_argument("--hermes-home", default=os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"))
     parser.add_argument("--state-home", default=os.environ.get("A_STOCK_STATE_HOME"))
-    parser.add_argument("--python", default=os.environ.get("HERMES_CRON_PYTHON") or "python")
+    parser.add_argument(
+        "--python",
+        default=None,
+        help="Python executable (default: HERMES_CRON_PYTHON or <repo-dir>/.venv/bin/python)",
+    )
     args = parser.parse_args()
 
     manifest = load_manifest(args.manifest)
+    python = args.python or os.environ.get("HERMES_CRON_PYTHON")
+    if not python:
+        candidate = os.path.join(os.path.abspath(args.repo_dir), ".venv", "bin", "python")
+        python = candidate if os.path.isfile(candidate) else "python3"
     print("\n".join(crontab_lines(
         manifest,
         os.path.abspath(args.repo_dir),
         os.path.abspath(os.path.expanduser(args.hermes_home)),
-        args.python,
+        python,
         (
             os.path.abspath(os.path.expanduser(args.state_home))
             if args.state_home
