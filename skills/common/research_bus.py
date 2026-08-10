@@ -541,6 +541,7 @@ def validate_finding(
     config: dict[str, Any] | None = None,
     claim_id: str | None = None,
     worker: str | None = None,
+    now: str | None = None,
 ) -> list[str]:
     config = config or load_config()
     limits = config.get("finding") or {}
@@ -583,6 +584,7 @@ def validate_finding(
                 claim_id=claim_id,
                 worker=worker,
                 config=config,
+                now=now,
             )
         )
     max_chars = int(limits.get("max_finding_chars") or 10000)
@@ -601,6 +603,7 @@ def _validate_bound_evidence(
     claim_id: str | None,
     worker: str | None,
     config: dict[str, Any],
+    now: str | None,
 ) -> list[str]:
     if not bool((config.get("finding") or {}).get("require_bound_evidence")):
         return []
@@ -632,7 +635,7 @@ def _validate_bound_evidence(
                 claim_id=str(claim_id or ""),
                 submitter=str(worker or ""),
                 require_execution_eligible=False,
-                now=datetime.now().astimezone().isoformat(timespec="seconds"),
+                now=now or datetime.now().astimezone().isoformat(timespec="seconds"),
                 max_age_minutes=int(
                     (config.get("finding") or {}).get("manifest_max_age_minutes")
                     or 10
@@ -909,6 +912,7 @@ def submit_finding(
         config=config,
         claim_id=claim_id,
         worker=expected_worker,
+        now=now,
     )
     if errors:
         return {"ok": False, "errors": errors}

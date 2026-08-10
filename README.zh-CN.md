@@ -99,9 +99,14 @@ flowchart LR
 
 1. **事实平面**：确定性 Adapter 和 DAG 作业生成不可变快照、数据源健康记录、候选和
    Ledger 事件。
-2. **研究平面**：专业 Skill 和模型专家解释有界证据；其输出是研究，不是事实或可执行订单。
+2. **研究平面**：专业 Skill 和模型专家解释有界证据；内容寻址文档与时点检索包保留引用、
+   访问范围、冲突和来源等级；可选的计划编写角色只能起草白名单分析计划，只有确定性编译器
+   能够封装交接产物。Agent 输出是研究，不是事实或可执行订单。
 3. **决策平面**：确定性 Policy 统一执行 freshness、可成交性、T+1、集中度、策略注册、
    OOS 和审批门禁。
+
+编译后的研究诊断还必须经过独立的确定性执行门：在隔离子进程中重新验证 handoff、目录、
+计划和输入，重复执行两次，并且只以绑定 hash 的 validation evidence 落盘。
 
 所有定时命令最终都进入 `scripts/run_agent_dag.py`，因此 launchd、Hermes、OpenClaw、
 system cron 和人工运行共享同一套依赖、快照、租约、Policy 与 Ledger 规则。
@@ -113,9 +118,9 @@ system cron 和人工运行共享同一套依赖、快照、租约、Policy 与 
 | 市场情报 | 多周期技术分析、全球市场、AH 联动、资金流、机构事件、社交关注度 |
 | 候选发现 | 动态 A 股股票池、自然语言召回、尾盘异动、涨停与趋势双通道 |
 | 评分 | 技术 30% × 情绪 15% × 催化 30% × 深研 25% 的 S/A/B/C 四维评分 |
-| 研究 | Serenity 基本面深研、Chan 结构研究、政策意图解码、多专家研究委员会 |
+| 研究 | Serenity 基本面深研、Chan 结构研究、政策意图解码、多专家研究委员会、受治理的数据写回与混合检索、双 Agent 受限计划编译 |
 | 风险与生命周期 | 可成交性、A 股 T+1、集中度、止损止盈、候选 FSM、建议审计、结算 |
-| 评估 | IS/OOS 隔离、成本与对照组、统计门、shadow 晋级、专家校准 |
+| 评估 | IS/OOS 隔离、成本与对照组、统计门、shadow 晋级、专家校准、隔离确定性重放 |
 | 运维 | Manifest 调度器、可恢复 DAG、Provider Health、状态恢复、执行 Trace、交付遥测 |
 | 模拟 | 10 万元独立模拟账户，遵守 A 股手数、费用、涨跌停、T+1 和 `paper.*` 事件边界 |
 
@@ -159,6 +164,20 @@ python scripts/fundamentals_snapshot.py --help
 python scripts/compile_research_execution_plan.py --help
 python scripts/expert_calibration.py --help
 ```
+
+P3 学习闭环只会从 research consumer 审计产物提出改进候选；人工补齐冻结 benchmark
+并审核后，才能导出离线评测集。它不会自动修改提示词、代码、事实层或生产配置：
+
+```bash
+python scripts/learning_eval_factory.py scan
+python scripts/learning_eval_factory.py status
+python scripts/learning_eval_factory.py export --output /tmp/a-stock-learning-eval
+python scripts/evaluate_agent_harness.py \
+  --cases /tmp/a-stock-learning-eval/cases.json \
+  --quiet
+```
+
+契约与审核流程见 [Learning Ledger 与 Eval Factory v1](docs/learning-eval-factory-v1.md)。
 
 进一步阅读：[研究委员会使用指南](docs/research-committee-guide.md)和
 [运行时契约](skills/research-committee/SKILL.md)。

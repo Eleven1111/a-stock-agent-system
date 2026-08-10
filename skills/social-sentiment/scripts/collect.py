@@ -95,6 +95,63 @@ def _source_versions(source_health: Mapping[str, Mapping[str, Any]]) -> dict[str
     return versions
 
 
+def _unchanged_result(
+    asof: str,
+    source_health: Mapping[str, Mapping[str, Any]],
+    existing: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    watermark: str,
+) -> dict[str, Any]:
+    return {
+        "schema": "social_attention_collection_v1",
+        "status": "unchanged",
+        "asof": asof,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "source_health": source_health,
+        "available_sources": list(payload.get("available_sources") or []),
+        "stock_count": int(payload.get("stock_count") or 0),
+        "theme_count": int(payload.get("theme_count") or 0),
+        "snapshot_ref": existing.get("snapshot_ref"),
+        "source_watermark": watermark,
+        "cache_updated": False,
+    }
+
+
+def _collection_result(
+    asof: str,
+    source_health: Mapping[str, Mapping[str, Any]],
+    payload: Mapping[str, Any],
+    snapshot_ref: Mapping[str, Any],
+    cache_updated: bool,
+    watermark: str,
+) -> dict[str, Any]:
+    ordered = sorted(
+        payload["stocks"].values(),
+        key=lambda item: (
+            not item["eligible_for_boost"], -item["attention_score"], item["code"],
+        ),
+    )
+    top_themes = sorted(
+        ({"theme": name, **details} for name, details in payload["themes"].items()),
+        key=lambda item: (-item["attention_score"], item["theme"]),
+    )[:10]
+    return {
+        "schema": "social_attention_collection_v1",
+        "status": payload["status"],
+        "asof": asof,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "source_health": source_health,
+        "available_sources": payload["available_sources"],
+        "stock_count": payload["stock_count"],
+        "theme_count": payload["theme_count"],
+        "top_stocks": ordered[:20],
+        "top_themes": top_themes,
+        "snapshot_ref": snapshot_ref,
+        "cache_updated": cache_updated,
+        "source_watermark": watermark,
+    }
+
+
 def run_collection(
     *,
     asof: str,
@@ -113,19 +170,9 @@ def run_collection(
         and existing_payload.get("source_watermark") == watermark
         and existing_payload.get("trading_date") == asof
     ):
-        return {
-            "schema": "social_attention_collection_v1",
-            "status": "unchanged",
-            "asof": asof,
-            "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "source_health": source_health,
-            "available_sources": list(existing_payload.get("available_sources") or []),
-            "stock_count": int(existing_payload.get("stock_count") or 0),
-            "theme_count": int(existing_payload.get("theme_count") or 0),
-            "snapshot_ref": existing.get("snapshot_ref"),
-            "source_watermark": watermark,
-            "cache_updated": False,
-        }
+        return _unchanged_result(
+            asof, source_health, existing, existing_payload, watermark,
+        )
     payload = build_social_attention_snapshot(
         rankings,
         trading_date=asof,
@@ -153,35 +200,9 @@ def run_collection(
             "social_attention_snapshot": snapshot_ref,
         })
 
-    ordered = sorted(
-        payload["stocks"].values(),
-        key=lambda item: (
-            not item["eligible_for_boost"],
-            -item["attention_score"],
-            item["code"],
-        ),
+    return _collection_result(
+        asof, source_health, payload, snapshot_ref, cache_updated, watermark,
     )
-    return {
-        "schema": "social_attention_collection_v1",
-        "status": payload["status"],
-        "asof": asof,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "source_health": source_health,
-        "available_sources": payload["available_sources"],
-        "stock_count": payload["stock_count"],
-        "theme_count": payload["theme_count"],
-        "top_stocks": ordered[:20],
-        "top_themes": sorted(
-            (
-                {"theme": name, **details}
-                for name, details in payload["themes"].items()
-            ),
-            key=lambda item: (-item["attention_score"], item["theme"]),
-        )[:10],
-        "snapshot_ref": snapshot_ref,
-        "cache_updated": cache_updated,
-        "source_watermark": watermark,
-    }
 
 
 def format_report(result: Mapping[str, Any]) -> str:

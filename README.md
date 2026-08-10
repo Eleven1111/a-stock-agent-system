@@ -108,9 +108,17 @@ The system deliberately separates three kinds of work:
 1. **Fact plane** — deterministic adapters and DAG jobs produce immutable
    snapshots, source-health records, candidates, and ledger events.
 2. **Research plane** — skills and model-backed experts interpret bounded
-   evidence. Their output is research, not a fact or an executable order.
+   evidence. Content-addressed documents and point-in-time retrieval bundles
+   keep citations, access scope, conflicts, and source authority auditable. An
+   optional plan-author role can draft allowlisted analysis plans, but only the
+   deterministic compiler can seal the handoff. Agent output is research, not
+   a fact or an executable order.
 3. **Decision plane** — deterministic policy applies freshness, tradeability,
    T+1, concentration, strategy-registry, OOS, and approval gates.
+
+Compiled research diagnostics cross a separate deterministic execution gate:
+the handoff, catalog, plan, and inputs are revalidated in an isolated child
+process, replayed twice, and persisted only with hash-bound validation evidence.
 
 Every scheduled command re-enters `scripts/run_agent_dag.py`, so launchd,
 Hermes, OpenClaw, system cron, and manual runs share the same dependency,
@@ -123,9 +131,9 @@ snapshot, lease, policy, and ledger rules.
 | Market intelligence | Multi-timeframe technical analysis, global markets, AH linkage, capital flow, institutions, events, social attention |
 | Candidate discovery | Dynamic A-share universe, natural-language recall, tail-window anomalies, limit-up and trend lanes |
 | Scoring | Four-dimensional S/A/B/C grading: technical 30%, sentiment 15%, catalyst 30%, deep research 25% |
-| Research | Serenity fundamental research, Chan-structure research, policy-intent decoding, multi-expert research committee |
+| Research | Serenity fundamental research, Chan-structure research, policy-intent decoding, multi-expert research committee, governed write-back and hybrid retrieval, dual-Agent bounded plan compilation |
 | Risk and lifecycle | Tradeability, A-share T+1, concentration, stops, candidate FSM, recommendation audit, settlement |
-| Evaluation | IS/OOS walls, costs, controls, statistical gates, shadow promotion, expert calibration |
+| Evaluation | IS/OOS walls, costs, controls, statistical gates, shadow promotion, expert calibration, isolated deterministic replay |
 | Operations | Manifest scheduler, resumable DAG, provider health, state recovery, execution traces, delivery telemetry |
 | Simulation | Independent ¥100,000 paper account with A-share lots, costs, limits, T+1, and `paper.*` events |
 
@@ -176,6 +184,23 @@ python scripts/fundamentals_snapshot.py --help
 python scripts/compile_research_execution_plan.py --help
 python scripts/expert_calibration.py --help
 ```
+
+The P3 learning loop only proposes improvement candidates from research-consumer
+audit artifacts. A reviewer must supply a frozen benchmark before a case can be
+materialised into an offline eval suite. It never edits prompts, code, fact-plane
+state, or production configuration automatically:
+
+```bash
+python scripts/learning_eval_factory.py scan
+python scripts/learning_eval_factory.py status
+python scripts/learning_eval_factory.py export --output /tmp/a-stock-learning-eval
+python scripts/evaluate_agent_harness.py \
+  --cases /tmp/a-stock-learning-eval/cases.json \
+  --quiet
+```
+
+See [Learning Ledger and Eval Factory v1](docs/learning-eval-factory-v1.md) for
+the contracts and review boundary.
 
 See [the research committee guide](docs/research-committee-guide.md) and its
 [runtime contract](skills/research-committee/SKILL.md).
