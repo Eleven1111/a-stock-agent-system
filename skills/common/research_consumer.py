@@ -307,6 +307,7 @@ def _consume_claimed(
         "task_id": task.get("id"),
         "role": role,
         "claim_id": claim_id,
+        "evidence_pack_ref": pack.get("ref"),
         "reason_codes": reason_codes,
         "agent_result": {
             "schema": run_result.to_dict()["schema"],
