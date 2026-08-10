@@ -1910,7 +1910,7 @@
     {
       "id": "official-policy-watch",
       "name": "官方政策源分钟级监控",
-      "schedule": "3,13,23,33,43,53 8-22 * * *",
+      "schedule": "3,33 8-22 * * *",
       "timezone": "Asia/Shanghai",
       "trading_day_policy": "calendar_day",
       "command_argv": [
@@ -1947,7 +1947,7 @@
         "timeout_seconds": 120,
         "timeout_tier": "standard"
       },
-      "external_note": "08:00-22:00 每10分钟轮询国务院/部委/交易所/新华社等一手官方源；只在出现未见过的政策信号时推送",
+      "external_note": "08:00-22:00 每30分钟轮询国务院/部委/交易所/新华社等一手官方源；内容指纹变化时推送，无变化仅保留紧凑来源健康状态",
       "adaptive_backoff": true
     },
     {
@@ -2035,7 +2035,7 @@
     {
       "id": "news-monitor-intraday",
       "name": "盘中资讯快扫 — 持仓/候选/关注标的",
-      "schedule": "2,17,32,47 9-11,13-14 * * 1-5",
+      "schedule": "2,32 9-11,13-14 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command_argv": [
         "python",
@@ -2073,7 +2073,7 @@
         "timeout_seconds": 240,
         "timeout_tier": "standard"
       },
-      "external_note": "09:25-11:30/13:00-14:55 内部守卫；5分钟轻量抓取动态股票/主题，超过SLA只归档不产生方向信号",
+      "external_note": "09:25-11:30/13:00-14:55 内部守卫；每小时两次轻量增量抓取，单轮45秒预算，超过SLA只归档不产生方向信号",
       "adaptive_backoff": true
     },
     {

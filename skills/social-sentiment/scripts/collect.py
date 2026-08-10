@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from datetime import date, datetime
@@ -18,6 +19,7 @@ from paths import data_file  # noqa: E402
 from signal_context import update_signal_context  # noqa: E402
 from social_attention import (  # noqa: E402
     build_social_attention_snapshot,
+    read_social_attention_cache,
     write_social_attention_cache,
 )
 from social_attention_adapters import collect_social_rankings  # noqa: E402
@@ -25,6 +27,26 @@ from state_store import read_json  # noqa: E402
 
 
 PRODUCER_VERSION = "social-attention-collector-v1"
+
+
+def source_watermark(
+    rankings: Mapping[str, list[dict[str, Any]]],
+    source_health: Mapping[str, Mapping[str, Any]],
+) -> str:
+    """Stable source watermark excluding volatile capture timestamps."""
+    payload = {
+        "rankings": rankings,
+        "sources": {
+            key: {
+                "status": value.get("status"),
+                "count": value.get("count"),
+            }
+            for key, value in sorted(source_health.items())
+        },
+    }
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
 
 
 def load_stock_metadata() -> dict[str, dict[str, Any]]:
@@ -83,12 +105,34 @@ def run_collection(
     metadata_loader: Callable[[], Mapping[str, Mapping[str, Any]]] = load_stock_metadata,
 ) -> dict[str, Any]:
     rankings, source_health = ranking_collector()
+    watermark = source_watermark(rankings, source_health)
+    existing = read_social_attention_cache(max_age_hours=24 * 365) or {}
+    existing_payload = existing.get("payload") if isinstance(existing, Mapping) else {}
+    if (
+        isinstance(existing_payload, Mapping)
+        and existing_payload.get("source_watermark") == watermark
+        and existing_payload.get("trading_date") == asof
+    ):
+        return {
+            "schema": "social_attention_collection_v1",
+            "status": "unchanged",
+            "asof": asof,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "source_health": source_health,
+            "available_sources": list(existing_payload.get("available_sources") or []),
+            "stock_count": int(existing_payload.get("stock_count") or 0),
+            "theme_count": int(existing_payload.get("theme_count") or 0),
+            "snapshot_ref": existing.get("snapshot_ref"),
+            "source_watermark": watermark,
+            "cache_updated": False,
+        }
     payload = build_social_attention_snapshot(
         rankings,
         trading_date=asof,
         source_health=source_health,
         stock_metadata=metadata_loader(),
     )
+    payload["source_watermark"] = watermark
     snapshot = write_snapshot(
         "social-attention",
         payload,
@@ -136,6 +180,7 @@ def run_collection(
         )[:10],
         "snapshot_ref": snapshot_ref,
         "cache_updated": cache_updated,
+        "source_watermark": watermark,
     }
 
 

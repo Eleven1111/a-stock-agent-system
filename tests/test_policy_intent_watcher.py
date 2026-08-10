@@ -1,5 +1,6 @@
 import importlib.util
 import json
+from datetime import date
 from pathlib import Path
 
 
@@ -93,7 +94,7 @@ def test_build_watch_result_marks_only_unseen_items(monkeypatch, tmp_path):
     item = {
         "title": "国务院印发资本市场高质量发展意见",
         "url": "https://gov.example/policy.html",
-        "published_hint": "2026-06-25",
+        "published_hint": date.today().isoformat(),
         "source_id": "gov",
         "source_name": "Gov",
         "source_rank": "S5",
@@ -191,7 +192,7 @@ def test_watch_result_does_not_promote_stale_or_undated_items(monkeypatch):
     recent = watcher.score_item({
         "title": "证监会发布资本市场高质量发展意见",
         "url": "https://csrc.example/20260625/item.html",
-        "published_hint": "2026-06-25",
+        "published_hint": date.today().isoformat(),
         "source_id": "csrc",
         "source_name": "CSRC",
         "source_rank": "S4",

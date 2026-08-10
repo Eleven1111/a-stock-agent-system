@@ -407,6 +407,16 @@ def build_watch_result(
     elif ranked_items:
         status = "no_new_signal"
 
+    compact_sources = [
+        {
+            "source_id": item.get("source_id"),
+            "status": item.get("status"),
+            "fetched_at": item.get("fetched_at"),
+            "item_count": len(item.get("items") or []),
+            "error": item.get("error"),
+        }
+        for item in source_results
+    ]
     result = {
         "schema": "policy_intent_watch_v1",
         "checked_at": checked_at,
@@ -434,7 +444,8 @@ def build_watch_result(
         },
         "signals": new_items,
         "candidate_preview": ranked_items[:25],
-        "source_results": source_results,
+        "source_results": compact_sources,
+        "output_mode": "compact_source_health",
     }
     if status == "insufficient_source":
         result["blocked_reason"] = "all official policy sources failed"

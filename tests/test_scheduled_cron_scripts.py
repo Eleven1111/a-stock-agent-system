@@ -346,6 +346,22 @@ def test_social_attention_collection_writes_snapshot_and_signal_context(
     assert cache.exists()
     assert signal.exists()
 
+    unchanged = collector.run_collection(
+        asof="2026-06-15",
+        batch_id="test-batch-2",
+        ranking_collector=lambda: (
+            rankings,
+            {
+                "eastmoney": {"status": "ok"},
+                "xueqiu": {"status": "ok"},
+                "baidu": {"status": "disabled"},
+            },
+        ),
+        metadata_loader=lambda: {"002156": {"sector": "半导体"}},
+    )
+    assert unchanged["status"] == "unchanged"
+    assert unchanged["cache_updated"] is False
+
 
 def test_serenity_refresh_planner_uses_runtime_state_sources(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
