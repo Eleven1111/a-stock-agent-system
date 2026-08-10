@@ -74,7 +74,7 @@ def test_every_enabled_repo_job_uses_typed_argv():
         manifest = json.load(handle)
 
     enabled = [job for job in manifest["jobs"] if job.get("enabled")]
-    assert len(enabled) == 47
+    assert len(enabled) == 48
 
     for job in enabled:
         assert isinstance(job.get("command_argv"), list) and job["command_argv"]
