@@ -286,35 +286,15 @@ def _compile_draft(
     return sealed_plan, []
 
 
-def run_compile_chain(
-    compile_request: Mapping[str, Any],
+def _invoke_plan_agent(
+    request: Mapping[str, Any],
     *,
-    catalog: Mapping[str, Any],
     runtime: str,
     model: str,
     turn: TurnCallable,
     evidence_pack: Mapping[str, Any],
-    now: str | None = None,
-) -> dict[str, Any]:
-    """Run the plan-author role once, then deterministically seal its draft."""
-
-    request = dict(compile_request)
-    compiled_at = _aware(now)
-    errors = _request_errors(request, catalog)
-    if not str(model or "").strip():
-        errors.append("model_version_unconfigured")
-    if not isinstance(evidence_pack, Mapping):
-        errors.append("evidence_pack_invalid")
-    elif evidence_pack.get("ref") != request.get("evidence_pack_ref"):
-        errors.append("evidence_pack_ref_mismatch")
-    if errors:
-        return _blocked(
-            request,
-            runtime=runtime,
-            model=model,
-            compiled_at=compiled_at,
-            reasons=errors,
-        )
+    compiled_at: str,
+) -> tuple[Any | None, list[str]]:
     agent_request = agent_runtime_adapter.build_request(
         {**request, "id": request["task_id"]},
         PLAN_AGENT_ROLE,
@@ -332,18 +312,57 @@ def run_compile_chain(
     try:
         adapter = agent_runtime_adapter.build_adapter(runtime, turn)
     except ValueError as exc:
-        return _blocked(
-            request,
-            runtime=runtime,
-            model=model,
-            compiled_at=compiled_at,
-            reasons=[str(exc)],
-        )
-    agent_result = adapter.run(
-        agent_request,
-        evidence_pack=evidence_pack,
-        now=compiled_at,
+        return None, [str(exc)]
+    return (
+        adapter.run(
+            agent_request,
+            evidence_pack=evidence_pack,
+            now=compiled_at,
+        ),
+        [],
     )
+
+
+def _compiled_artifact(
+    request: Mapping[str, Any],
+    sealed_plan: Mapping[str, Any],
+    *,
+    runtime: str,
+    model: str,
+    compiled_at: str,
+    agent_result_hash: str,
+) -> dict[str, Any]:
+    body = {
+        "schema": COMPILATION_SCHEMA,
+        "compiler_version": COMPILER_VERSION,
+        "status": "compiled",
+        "handoff_status": "ready_for_deterministic_execution",
+        "task_id": request["task_id"],
+        "request_hash": request["request_hash"],
+        "research_proposal_hash": request["research_proposal_hash"],
+        "evidence_pack_ref": request["evidence_pack_ref"],
+        "catalog_hash": request["catalog_hash"],
+        "agent_runtime": runtime,
+        "agent_model": model,
+        "agent_result_hash": agent_result_hash,
+        "compiled_at": compiled_at,
+        "sealed_plan": dict(sealed_plan),
+        "reason_codes": [],
+        "research_only": True,
+        "trading_action": "none",
+    }
+    return _artifact(body)
+
+
+def _compile_agent_result(
+    request: Mapping[str, Any],
+    agent_result: Any,
+    *,
+    catalog: Mapping[str, Any],
+    runtime: str,
+    model: str,
+    compiled_at: str,
+) -> dict[str, Any]:
     try:
         agent_result_hash = _agent_result_identity(agent_result)
     except DualAgentCompilerError:
@@ -377,26 +396,63 @@ def run_compile_chain(
             reasons=reasons,
             agent_result_hash=agent_result_hash,
         )
-    body = {
-        "schema": COMPILATION_SCHEMA,
-        "compiler_version": COMPILER_VERSION,
-        "status": "compiled",
-        "handoff_status": "ready_for_deterministic_execution",
-        "task_id": request["task_id"],
-        "request_hash": request["request_hash"],
-        "research_proposal_hash": request["research_proposal_hash"],
-        "evidence_pack_ref": request["evidence_pack_ref"],
-        "catalog_hash": request["catalog_hash"],
-        "agent_runtime": runtime,
-        "agent_model": model,
-        "agent_result_hash": agent_result_hash,
-        "compiled_at": compiled_at,
-        "sealed_plan": sealed_plan,
-        "reason_codes": [],
-        "research_only": True,
-        "trading_action": "none",
-    }
-    return _artifact(body)
+    return _compiled_artifact(
+        request,
+        sealed_plan,
+        runtime=runtime,
+        model=model,
+        compiled_at=compiled_at,
+        agent_result_hash=agent_result_hash,
+    )
+
+
+def run_compile_chain(
+    compile_request: Mapping[str, Any],
+    *,
+    catalog: Mapping[str, Any],
+    runtime: str,
+    model: str,
+    turn: TurnCallable,
+    evidence_pack: Mapping[str, Any],
+    now: str | None = None,
+) -> dict[str, Any]:
+    """Run the plan-author role once, then deterministically seal its draft."""
+
+    request = dict(compile_request)
+    compiled_at = _aware(now)
+    errors = _request_errors(request, catalog)
+    if not str(model or "").strip():
+        errors.append("model_version_unconfigured")
+    if not isinstance(evidence_pack, Mapping):
+        errors.append("evidence_pack_invalid")
+    elif evidence_pack.get("ref") != request.get("evidence_pack_ref"):
+        errors.append("evidence_pack_ref_mismatch")
+    agent_result = None
+    if not errors:
+        agent_result, errors = _invoke_plan_agent(
+            request,
+            runtime=runtime,
+            model=model,
+            turn=turn,
+            evidence_pack=evidence_pack,
+            compiled_at=compiled_at,
+        )
+    if errors or agent_result is None:
+        return _blocked(
+            request,
+            runtime=runtime,
+            model=model,
+            compiled_at=compiled_at,
+            reasons=errors,
+        )
+    return _compile_agent_result(
+        request,
+        agent_result,
+        catalog=catalog,
+        runtime=runtime,
+        model=model,
+        compiled_at=compiled_at,
+    )
 
 
 def _verify_compilation(
