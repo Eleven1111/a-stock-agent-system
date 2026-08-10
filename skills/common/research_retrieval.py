@@ -325,6 +325,81 @@ def _conflicts(results: list[dict[str, Any]], documents: Mapping[str, dict[str, 
     ]
 
 
+def _eligible_documents(
+    documents: list[dict[str, Any]],
+    *,
+    cutoff: datetime,
+    scopes: set[str],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    eligible = []
+    excluded = {"future_or_unavailable": 0, "access_denied": 0}
+    for document in documents:
+        if _aware(document["published_at"], "published_at") > cutoff or _aware(
+            document["available_at"], "available_at"
+        ) > cutoff:
+            excluded["future_or_unavailable"] += 1
+        elif not set(document["access_scopes"]) <= scopes:
+            excluded["access_denied"] += 1
+        else:
+            eligible.append(document)
+    return eligible, excluded
+
+
+def _rank_documents(
+    documents: list[dict[str, Any]],
+    query_tokens: list[str],
+    semantic: Mapping[str, float],
+    *,
+    hybrid: bool,
+) -> list[tuple[float, dict[str, Any], float, float, float]]:
+    lexical = _lexical_scores(documents, query_tokens)
+    weights = (0.55, 0.35, 0.10) if hybrid else (0.90, 0.0, 0.10)
+    ranked = []
+    for document in documents:
+        lexical_score = lexical.get(document["document_id"], 0.0)
+        semantic_score = semantic.get(document["document_id"], 0.0)
+        if lexical_score == 0 and semantic_score == 0:
+            continue
+        authority = SOURCE_RANKS[document["source"]["source_rank"]]
+        total = (
+            weights[0] * lexical_score
+            + weights[1] * semantic_score
+            + weights[2] * authority
+        )
+        ranked.append((total, document, lexical_score, semantic_score, authority))
+    ranked.sort(key=lambda item: (-item[0], item[1]["document_id"]))
+    return ranked
+
+
+def _result_row(
+    ranked: tuple[float, dict[str, Any], float, float, float],
+    query_tokens: list[str],
+) -> dict[str, Any]:
+    total, document, lexical_score, semantic_score, authority = ranked
+    return {
+        "document_id": document["document_id"],
+        "document_hash": document["document_hash"],
+        "excerpt": untrusted_external_text(
+            _excerpt(document["content"], query_tokens),
+            source=document["source"]["url"],
+        ),
+        "citation": {
+            "title": document["title"],
+            "url": document["source"]["url"],
+            "source_name": document["source"]["name"],
+            "source_rank": document["source"]["source_rank"],
+            "published_at": document["published_at"],
+            "available_at": document["available_at"],
+        },
+        "score": round(total, 8),
+        "score_components": {
+            "lexical": round(lexical_score, 8),
+            "semantic": round(semantic_score, 8),
+            "authority": authority,
+        },
+    }
+
+
 def search(
     documents: Sequence[Mapping[str, Any]],
     query: str,
@@ -348,56 +423,12 @@ def search(
     if len(ids) != len(set(ids)):
         raise RetrievalError("duplicate_document_id")
     semantic = _semantic_scores(semantic_scores, set(ids))
-    eligible = []
-    excluded = {"future_or_unavailable": 0, "access_denied": 0}
-    for document in sealed:
-        if _aware(document["published_at"], "published_at") > cutoff or _aware(
-            document["available_at"], "available_at"
-        ) > cutoff:
-            excluded["future_or_unavailable"] += 1
-            continue
-        if not set(document["access_scopes"]) <= scopes:
-            excluded["access_denied"] += 1
-            continue
-        eligible.append(document)
+    eligible, excluded = _eligible_documents(sealed, cutoff=cutoff, scopes=scopes)
     query_tokens = _tokens(query_value)
-    lexical = _lexical_scores(eligible, query_tokens)
     hybrid = semantic_scores is not None
-    weights = (0.55, 0.35, 0.10) if hybrid else (0.90, 0.0, 0.10)
-    ranked = []
-    for document in eligible:
-        lexical_score = lexical.get(document["document_id"], 0.0)
-        semantic_score = semantic.get(document["document_id"], 0.0)
-        if lexical_score == 0 and semantic_score == 0:
-            continue
-        authority = SOURCE_RANKS[document["source"]["source_rank"]]
-        total = weights[0] * lexical_score + weights[1] * semantic_score + weights[2] * authority
-        ranked.append((total, document, lexical_score, semantic_score, authority))
-    ranked.sort(key=lambda item: (-item[0], item[1]["document_id"]))
+    ranked = _rank_documents(eligible, query_tokens, semantic, hybrid=hybrid)
     results = [
-        {
-            "document_id": document["document_id"],
-            "document_hash": document["document_hash"],
-            "excerpt": untrusted_external_text(
-                _excerpt(document["content"], query_tokens),
-                source=document["source"]["url"],
-            ),
-            "citation": {
-                "title": document["title"],
-                "url": document["source"]["url"],
-                "source_name": document["source"]["name"],
-                "source_rank": document["source"]["source_rank"],
-                "published_at": document["published_at"],
-                "available_at": document["available_at"],
-            },
-            "score": round(total, 8),
-            "score_components": {
-                "lexical": round(lexical_score, 8),
-                "semantic": round(semantic_score, 8),
-                "authority": authority,
-            },
-        }
-        for total, document, lexical_score, semantic_score, authority in ranked[:limit]
+        _result_row(item, query_tokens) for item in ranked[:limit]
     ]
     document_map = {document["document_id"]: document for document in eligible}
     body = {
