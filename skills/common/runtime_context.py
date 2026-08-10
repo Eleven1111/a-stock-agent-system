@@ -92,6 +92,12 @@ def ledger_path() -> str:
     return os.path.join(cron_output_dir(), "job_runs.json")
 
 
+def ledger_archive_path(month: str | None = None) -> str:
+    """Return the append-only archive for evicted run-ledger entries."""
+    bucket = str(month or datetime.now(SHANGHAI).strftime("%Y-%m"))[:7]
+    return os.path.join(cron_output_dir(), "job_runs_archive", f"{bucket}.jsonl")
+
+
 def _json_preview(value: str, limit: int = 1200) -> str:
     text = value or ""
     if len(text) <= limit:
@@ -362,6 +368,8 @@ def build_artifact(
     trace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     parsed = try_parse_json(stdout)
+    usage = parsed.get("usage") if isinstance(parsed, dict) else None
+    usage = usage if isinstance(usage, dict) else {}
     has_signal = output_has_signal(parsed, stdout)
     status = status_override or ("timeout" if timed_out else ("ok" if returncode == 0 else "failed"))
     stdout_limit = _artifact_stdout_limit()
@@ -403,6 +411,14 @@ def build_artifact(
         "stderr": stderr,
         "stdout_preview": _json_preview(stdout),
         "stderr_preview": _json_preview(stderr),
+        # Command cron jobs normally do not call a model.  Keeping explicit
+        # zero/false values makes that fact measurable instead of inferred.
+        "llm_called": bool(usage.get("llm_called", False)),
+        "agent_turns": int(usage.get("agent_turns") or 0),
+        "model": usage.get("model"),
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "usage_source": str(usage.get("source") or "deterministic_command"),
     }
 
 
@@ -429,5 +445,27 @@ def record_run(artifact: Dict[str, Any], max_items: int = 1000) -> None:
         "duration_seconds": artifact["duration_seconds"],
         "has_signal": artifact["has_signal"],
         "artifact_path": artifact.get("artifact_path"),
+        "llm_called": bool(artifact.get("llm_called", False)),
+        "agent_turns": int(artifact.get("agent_turns") or 0),
+        "model": artifact.get("model"),
+        "input_tokens": int(artifact.get("input_tokens") or 0),
+        "output_tokens": int(artifact.get("output_tokens") or 0),
     }
-    update_json_list(ledger_path(), entry, unique_key="run_id", max_items=max_items)
+
+    def _append_and_archive(existing: Any) -> list[dict[str, Any]]:
+        rows = [row for row in (existing if isinstance(existing, list) else [])
+                if not (isinstance(row, dict) and row.get("run_id") == entry["run_id"])]
+        rows.append(entry)
+        if max_items and len(rows) > max_items:
+            evicted = rows[:-max_items]
+            for row in evicted:
+                month = str(row.get("finished_at") or row.get("started_at") or "")[:7]
+                target = ledger_archive_path(month if len(month) == 7 else None)
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with open(target, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+            rows = rows[-max_items:]
+        return rows
+
+    from state_store import mutate_json
+    mutate_json(ledger_path(), _append_and_archive, [])

@@ -516,6 +516,8 @@ def test_target_output_records_push_telemetry_jsonl(tmp_path):
             "output_chars": len(delivered),
             "was_compressed": True,
             "silent_reason": "none",
+            "delivery_intent": "origin",
+            "delivery_status": "delivered",
         },
         {
             "job_id": "quiet-monitor",
@@ -524,6 +526,8 @@ def test_target_output_records_push_telemetry_jsonl(tmp_path):
             "output_chars": 0,
             "was_compressed": False,
             "silent_reason": "no_signal",
+            "delivery_intent": "origin",
+            "delivery_status": "suppressed",
         },
     ]
 

@@ -239,6 +239,10 @@ def run_job(args: argparse.Namespace) -> int:
     runtime = resolve_runtime_name(args.runtime)
 
     run_env = build_runtime_env(runtime)
+    # Make the scheduler origin available to deterministic children and the
+    # research bus. This links downstream research work to its cron run.
+    run_env["A_STOCK_CRON_RUN_ID"] = run_id
+    run_env["A_STOCK_CRON_JOB_ID"] = str(job["id"])
 
     if args.dry_run:
         dependency_gate = (

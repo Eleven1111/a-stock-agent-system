@@ -239,6 +239,8 @@ def enqueue_task(
             "subject_key": key,
             "reason": reason,
             "trigger": dict(trigger or {}),
+            "origin_cron_run_id": (trigger or {}).get("origin_cron_run_id"),
+            "origin_cron_job_id": (trigger or {}).get("origin_cron_job_id"),
             "priority": int(
                 priority if priority is not None else kind_cfg.get("priority", 50)
             ),
@@ -500,6 +502,8 @@ def _record_claim_turn(
         "claim_id": claimed.get("claim_id"),
         "attempt": (task.get("roles") or {}).get(role, {}).get("attempts"),
         "at": _now_text(now),
+        "origin_cron_run_id": task.get("origin_cron_run_id"),
+        "origin_cron_job_id": task.get("origin_cron_job_id"),
     })
 
 
@@ -877,6 +881,9 @@ def _record_submitted_finding(
         "worker": worker,
         "claim_id": claim_id,
         "finding_hash": finding_hash,
+        "origin_cron_run_id": task.get("origin_cron_run_id"),
+        "origin_cron_job_id": task.get("origin_cron_job_id"),
+        "usage": finding.get("usage") if isinstance(finding.get("usage"), dict) else None,
         "at": _now_text(now),
     })
 

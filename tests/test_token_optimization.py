@@ -7,7 +7,7 @@ blob while keeping the derived summary intact.
 
 import json
 
-from runtime_context import build_artifact
+from runtime_context import build_artifact, record_run
 from scripts.agent_runtime_context import build_runtime_context
 from scripts.agent_state_projector import (
     project_monitor_lite,
@@ -167,3 +167,34 @@ def test_build_artifact_keeps_small_stdout_whole(monkeypatch):
     )
     assert artifact["stdout"] == stdout
     assert artifact["stdout_truncated_chars"] == 0
+
+
+def test_artifact_exposes_explicit_zero_model_usage(monkeypatch):
+    artifact = build_artifact(
+        job={"id": "deterministic-job"}, run_id="usage-1", command="x", cwd=".",
+        returncode=0, stdout='{"status":"ok"}', stderr="",
+        started_at="2026-06-22T09:30:05+08:00",
+        finished_at="2026-06-22T09:30:06+08:00", duration_seconds=1,
+        context_artifacts=[],
+    )
+    assert artifact["llm_called"] is False
+    assert artifact["input_tokens"] == 0
+    assert artifact["usage_source"] == "deterministic_command"
+
+
+def test_run_ledger_archives_evicted_entries(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+
+    def artifact(run_id, finished_at):
+        return {
+            "job_id": "demo", "run_id": run_id, "status": "ok", "returncode": 0,
+            "started_at": finished_at, "finished_at": finished_at,
+            "duration_seconds": 1, "has_signal": False,
+            "artifact_path": f"demo/{run_id}.json",
+        }
+
+    record_run(artifact("r1", "2026-06-01T00:00:00+08:00"), max_items=2)
+    record_run(artifact("r2", "2026-06-02T00:00:00+08:00"), max_items=2)
+    record_run(artifact("r3", "2026-06-03T00:00:00+08:00"), max_items=2)
+    archive = tmp_path / "cron" / "output" / "job_runs_archive" / "2026-06.jsonl"
+    assert "r1" in archive.read_text(encoding="utf-8")

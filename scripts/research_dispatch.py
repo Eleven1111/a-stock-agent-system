@@ -43,7 +43,12 @@ def _enqueue(
         kind,
         subject,
         reason=reason,
-        trigger={"source": "research_dispatch", "reason": reason},
+        trigger={
+            "source": "research_dispatch",
+            "reason": reason,
+            "origin_cron_run_id": os.environ.get("A_STOCK_CRON_RUN_ID"),
+            "origin_cron_job_id": os.environ.get("A_STOCK_CRON_JOB_ID"),
+        },
         trading_date=trading_date,
         force=force,
         config=config,

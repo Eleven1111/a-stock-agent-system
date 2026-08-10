@@ -452,6 +452,10 @@ def _record_target_output_telemetry(
         "output_chars": int(output_chars),
         "was_compressed": bool(was_compressed),
         "silent_reason": silent_reason,
+        "delivery_intent": str(job.get("deliver") or "origin"),
+        "delivery_status": "delivered" if delivered else (
+            "suppressed" if silent_reason in {"local", "no_signal"} else "failed"
+        ),
     }
     try:
         append_push_telemetry(record, telemetry_path=telemetry_path)

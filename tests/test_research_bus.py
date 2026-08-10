@@ -118,6 +118,19 @@ def test_enqueue_creates_task_with_expert_plan(config):
     assert task["budget"]["estimated_chars"] > 24000
 
 
+def test_enqueue_links_origin_cron_run(config):
+    result = _enqueue(
+        config,
+        trigger={
+            "source": "research_dispatch",
+            "origin_cron_run_id": "dispatch-20260810-1",
+            "origin_cron_job_id": "research-dispatch",
+        },
+    )
+    assert result["task"]["origin_cron_run_id"] == "dispatch-20260810-1"
+    assert result["task"]["origin_cron_job_id"] == "research-dispatch"
+
+
 def test_enqueue_default_created_at_is_timezone_aware(config):
     task = bus.enqueue_task(
         "candidate_deep_dive",
