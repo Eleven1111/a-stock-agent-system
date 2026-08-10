@@ -48,10 +48,10 @@ def load_cases(path: str = CASES_PATH) -> dict[str, Any]:
         return json.load(handle)
 
 
-def load_pack(name: str) -> Mapping[str, Any] | None:
+def load_pack(name: str, *, fixtures_dir: str = FIXTURES_DIR) -> Mapping[str, Any] | None:
     if name == "__absent__":
         return None
-    with open(os.path.join(FIXTURES_DIR, f"{name}.json"), encoding="utf-8") as handle:
+    with open(os.path.join(fixtures_dir, f"{name}.json"), encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -70,8 +70,9 @@ def run_case(
     *,
     runtime: str,
     frozen_now: str,
+    fixtures_dir: str = FIXTURES_DIR,
 ) -> dict[str, Any]:
-    pack = load_pack(str(case.get("evidence_pack")))
+    pack = load_pack(str(case.get("evidence_pack")), fixtures_dir=fixtures_dir)
     overrides = dict(case.get("request") or {})
     request = agent_run_contract.AgentRunRequest(
         task_id=str(overrides.get("task_id") or "eval-task"),
@@ -115,8 +116,14 @@ def evaluate(
     document = load_cases(cases_path)
     frozen_now = str(document.get("frozen_now"))
     cases = document.get("cases") or []
+    fixtures_dir = os.path.join(os.path.dirname(os.path.abspath(cases_path)), "fixtures")
     results = [
-        run_case(case, runtime=runtime, frozen_now=frozen_now)
+        run_case(
+            case,
+            runtime=runtime,
+            frozen_now=str(case.get("frozen_now") or frozen_now),
+            fixtures_dir=fixtures_dir,
+        )
         for case in cases
         for runtime in runtimes
     ]
