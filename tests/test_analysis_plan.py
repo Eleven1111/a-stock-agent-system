@@ -130,6 +130,17 @@ def test_replay_uses_content_addressed_cache_and_preserves_outputs(tmp_path):
     assert second["cached"] is True
     assert first["cache_key"] == second["cache_key"]
     assert first["outputs"] == second["outputs"]
+    assert analysis_plan.verify_run_result(first) is True
+    assert analysis_plan.verify_run_result(second) is True
+
+
+def test_returned_run_hash_detects_output_tampering(tmp_path):
+    result = analysis_plan.execute_plan(
+        _plan(), _inputs(), catalog=CATALOG, cache_dir=tmp_path
+    )
+    result["outputs"]["direction"]["verdict"] = "direction_confirmed"
+
+    assert analysis_plan.verify_run_result(result) is False
 
 
 def test_tampered_cache_is_recomputed_instead_of_trusted(tmp_path):

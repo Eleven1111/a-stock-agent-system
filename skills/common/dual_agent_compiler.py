@@ -471,6 +471,12 @@ def _verify_compilation(
     return value
 
 
+def verify_compilation(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Recompute a handoff identity before it crosses into an executor."""
+
+    return _verify_compilation(dict(value))
+
+
 def store_compilation(
     value: Mapping[str, Any], *, store_dir: str | None = None
 ) -> dict[str, Any]:
@@ -515,4 +521,5 @@ __all__ = [
     "load_compilation",
     "run_compile_chain",
     "store_compilation",
+    "verify_compilation",
 ]
