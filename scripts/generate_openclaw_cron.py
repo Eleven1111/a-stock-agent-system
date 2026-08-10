@@ -168,6 +168,65 @@ def apply_openclaw_commands(commands: Sequence[str]) -> None:
         subprocess.run(shlex.split(command), check=True)
 
 
+def _installed_by_name(
+    installed_jobs: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, list[str]]:
+    installed_by_name: dict[str, list[str]] = {}
+    for installed in installed_jobs or ():
+        name = str(installed.get("name") or "")
+        installed_id = str(installed.get("id") or installed.get("jobId") or "")
+        if name and installed_id:
+            installed_by_name.setdefault(name, []).append(installed_id)
+    return installed_by_name
+
+
+def _job_command(
+    job_id: str,
+    job: Mapping[str, Any],
+    *,
+    jobs: Mapping[str, Mapping[str, Any]],
+    installed_by_name: Mapping[str, Sequence[str]],
+    repo_dir: str,
+    python: str,
+    openclaw: str,
+    grace_seconds: int,
+    command_env: Sequence[str],
+    delivery_channel: str,
+    delivery_to: str | None,
+    delivery_account: str,
+) -> str:
+    name = f"{MANAGED_JOB_PREFIX}{job_id}"
+    matches = list(installed_by_name.get(name, ()))
+    if len(matches) > 1:
+        raise ValueError(
+            f"duplicate installed OpenClaw jobs named {name}: {', '.join(matches)}"
+        )
+    action = (
+        ["edit", matches[0], "--name", name, "--cron", str(job["schedule"])]
+        if matches
+        else ["create", str(job["schedule"]), "--name", name]
+    )
+    argv = [
+        python, os.path.join(repo_dir, "scripts", "run_agent_dag.py"), job_id,
+        "--runtime", "openclaw", "--emit-target",
+    ]
+    parts = [openclaw, "cron", *action]
+    parts.extend([
+        "--tz", str(job.get("timezone") or "Asia/Shanghai"),
+        "--session", "isolated", "--command-argv", json.dumps(argv, ensure_ascii=False),
+        "--command-cwd", repo_dir,
+        "--timeout-seconds", str(dependency_timeout_budget(jobs, job_id, grace_seconds=grace_seconds)),
+        "--output-max-bytes", str(max(4096, int(job.get("max_output_chars") or 2000) * 4)),
+        "--exact",
+    ])
+    for value in command_env:
+        parts.extend(["--command-env", value])
+    parts.extend(_delivery_args(
+        job, channel=delivery_channel, target=delivery_to, account=delivery_account,
+    ))
+    return " ".join(shlex.quote(value) for value in parts)
+
+
 def build_openclaw_commands(
     manifest: Mapping[str, Any],
     *,
@@ -202,92 +261,31 @@ def build_openclaw_commands(
         for job in manifest.get("jobs", [])
         if isinstance(job, dict) and job.get("id")
     }
-    installed_by_name: dict[str, list[str]] = {}
-    if installed_jobs is not None:
-        for installed in installed_jobs:
-            name = str(installed.get("name") or "")
-            installed_id = str(installed.get("id") or installed.get("jobId") or "")
-            if name and installed_id:
-                installed_by_name.setdefault(name, []).append(installed_id)
-    commands: list[str] = []
+    installed = _installed_by_name(installed_jobs)
+    command_env = []
+    if state_home:
+        command_env.append(f"A_STOCK_STATE_HOME={state_home}")
+    if state_id:
+        command_env.append(f"A_STOCK_STATE_ID={state_id}")
+    if env_file:
+        command_env.append(f"A_STOCK_ENV_FILE={env_file}")
+    backup_home = os.environ.get("A_STOCK_BACKUP_HOME", "")
+    if backup_home:
+        command_env.append(f"A_STOCK_BACKUP_HOME={backup_home}")
+    commands = []
     for job_id, job in jobs.items():
         if not job.get("enabled", True):
             continue
-        name = f"{MANAGED_JOB_PREFIX}{job_id}"
-        matches = installed_by_name.get(name, [])
-        if len(matches) > 1:
-            raise ValueError(
-                f"duplicate installed OpenClaw jobs named {name}: {', '.join(matches)}"
-            )
-        argv = [
-            python,
-            os.path.join(repo_dir, "scripts", "run_agent_dag.py"),
-            job_id,
-            "--runtime",
-            "openclaw",
-            "--emit-target",
-        ]
-        timeout = dependency_timeout_budget(
-            jobs,
-            job_id,
-            grace_seconds=grace_seconds,
-        )
-        output_bytes = max(4096, int(job.get("max_output_chars") or 2000) * 4)
-        if matches:
-            parts = [
-                openclaw,
-                "cron",
-                "edit",
-                matches[0],
-                "--name",
-                name,
-                "--cron",
-                str(job["schedule"]),
-            ]
-        else:
-            parts = [
-                openclaw,
-                "cron",
-                "create",
-                str(job["schedule"]),
-                "--name",
-                name,
-            ]
-        parts.extend([
-            "--tz",
-            str(job.get("timezone") or "Asia/Shanghai"),
-            "--session",
-            "isolated",
-            "--command-argv",
-            json.dumps(argv, ensure_ascii=False),
-            "--command-cwd",
-            repo_dir,
-            "--timeout-seconds",
-            str(timeout),
-            "--output-max-bytes",
-            str(output_bytes),
-            "--exact",
-        ])
-        if state_home:
-            parts.extend(["--command-env", f"A_STOCK_STATE_HOME={state_home}"])
-        if state_id:
-            parts.extend(["--command-env", f"A_STOCK_STATE_ID={state_id}"])
-        if env_file:
-            parts.extend(["--command-env", f"A_STOCK_ENV_FILE={env_file}"])
-        # Backup home (used by provider-health, ledger-projector, hk-a-linkage, market-pulse-*)
-        backup_home = os.environ.get("A_STOCK_BACKUP_HOME", "")
-        if backup_home:
-            parts.extend(["--command-env", f"A_STOCK_BACKUP_HOME={backup_home}"])
         # Secrets and recipient identities are loaded by the child runner from
         # A_STOCK_ENV_FILE. Never serialize their values into cron commands,
         # dry-run output, process arguments, or the OpenClaw job store.
-        parts.extend(_delivery_args(
-            job,
-            channel=delivery_channel,
-            target=delivery_to,
-            account=delivery_account,
+        commands.append(_job_command(
+            job_id, job, jobs=jobs, installed_by_name=installed,
+            repo_dir=repo_dir, python=python, openclaw=openclaw,
+            grace_seconds=grace_seconds, command_env=command_env,
+            delivery_channel=delivery_channel, delivery_to=delivery_to,
+            delivery_account=delivery_account,
         ))
-        commands.append(" ".join(shlex.quote(value) for value in parts))
     return commands
 
 

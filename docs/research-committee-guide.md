@@ -173,6 +173,38 @@ python scripts/research_dispatch.py --kind user_request --code 600519 --reason "
 python scripts/expert_runner.py status
 ```
 
+### 4.1 让运行时安全消费一个工单
+
+Hermes/OpenClaw 的宿主集成应调用 `skills/common/research_consumer.py` 里的
+`consume_once(...)`，并把自己的单次模型调用函数作为 `turn` 注入。这个入口一次
+最多领取一个角色，不会自行启动常驻循环：
+
+```python
+import research_consumer
+
+result = research_consumer.consume_once(
+    runtime="hermes",
+    worker="hermes-primary",
+    turn=run_one_hermes_turn,
+    model="<实际模型版本>",
+)
+```
+
+宿主负责多久调用一次；consumer 负责 claim lease、fencing、证据包、输出契约、
+submit 和最后一个角色完成后的确定性 synthesis。每次调用都会在
+`research-committee/data/consumer_runs/` 下写一份 `research_consumer_run_v1`
+审计产物。
+
+- 未配置 `turn` 或模型版本时，在领取任务前 `blocked`，不会占住租约。
+- 证据包不足时，不调用模型，直接以 `abstain` 完成该角色。
+- 模型超时会按现有最大重试次数回到 `pending` 或进入 `failed`。
+- 未经独立审批的有效 finding 可以作为 `review_only` 进入研究黑板，但绝不具备
+  execution eligibility。
+- 声明写入事实层、调用未授权工具或输出无法绑定证据时都会失败关闭。
+
+不要把 consumer 直接接进普通 cron 并在 cron 进程里伪造模型结果；模型 session
+仍由 Hermes/OpenClaw 宿主管理。
+
 ---
 
 ## 5. 怎么升级一个（或几个）专家的能力

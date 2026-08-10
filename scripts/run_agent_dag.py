@@ -14,12 +14,12 @@ from typing import Any, Mapping, Optional
 from zoneinfo import ZoneInfo
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-# When this file is launched directly (as cron does), Python puts only
-# ``scripts/`` on sys.path.  Add the repository root before importing the
-# shared ``skills`` package so the entrypoint does not depend on an editable
-# install or a caller-provided PYTHONPATH.
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+try:
+    from ._repo_bootstrap import ensure_repo_importable  # type: ignore[import-not-found]
+except ImportError:
+    from _repo_bootstrap import ensure_repo_importable  # type: ignore[no-redef]
+
+ensure_repo_importable(ROOT)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from runtime_context import (  # noqa: E402

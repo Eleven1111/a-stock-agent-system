@@ -97,6 +97,53 @@ def _next_serper_key() -> str:
     return key
 
 
+def _serper_client(
+    client: Optional[HttpClient],
+    timeout_seconds: float | None,
+    max_attempts: int | None,
+) -> HttpClient:
+    if client is not None:
+        return client
+    settings = provider_settings("serper")
+    return HttpClient(
+        "serper",
+        timeout=float(timeout_seconds if timeout_seconds is not None else settings.get("timeout_seconds", 10)),
+        max_attempts=int(max_attempts if max_attempts is not None else settings.get("max_attempts", 2)),
+    )
+
+
+def _serper_events(
+    query: str,
+    limit: int,
+    response: HttpResult[Any],
+) -> List[Dict[str, Any]]:
+    if not isinstance(response.data, dict):
+        raise DataSourceError(
+            "serper", "expected a JSON object", error_type=ErrorType.INVALID_RESPONSE,
+            attempts=response.attempts, timestamp=response.fetched_at,
+        )
+    items = response.data.get("news") or []
+    if not isinstance(items, list):
+        raise DataSourceError(
+            "serper", "news must be a list", error_type=ErrorType.INVALID_RESPONSE,
+            attempts=response.attempts, timestamp=response.fetched_at,
+        )
+    events = []
+    for item in items[:limit]:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title") or ""
+        snippet = item.get("snippet") or ""
+        if title or snippet:
+            events.append({
+                "query": query, "title": title, "snippet": snippet,
+                "source": item.get("source"), "date": item.get("date"),
+                "link": item.get("link"), "provider": "serper",
+                "fetched_at": response.fetched_at,
+            })
+    return events
+
+
 def fetch_serper_news(
     query: str,
     api_key: Optional[str] = None,
@@ -122,7 +169,8 @@ def fetch_serper_news(
             timestamp="",
         )
 
-    last_error: Optional[Exception] = None
+    request_client = _serper_client(client, timeout_seconds, max_attempts)
+    last_error: Optional[DataSourceError] = None
     for attempt, key in enumerate(keys):
         request = build_request(
             "https://google.serper.dev/news",
@@ -134,21 +182,6 @@ def fetch_serper_news(
             method="POST",
         )
         try:
-            request_client = client or (
-                HttpClient(
-                    "serper",
-                    timeout=(
-                        float(timeout_seconds)
-                        if timeout_seconds is not None
-                        else float(provider_settings("serper").get("timeout_seconds", 10))
-                    ),
-                    max_attempts=(
-                        int(max_attempts)
-                        if max_attempts is not None
-                        else int(provider_settings("serper").get("max_attempts", 2))
-                    ),
-                )
-            )
             response = request_client.request_json(request)
         except DataSourceError as exc:
             last_error = exc
@@ -156,42 +189,9 @@ def fetch_serper_news(
             if attempt < len(keys) - 1:
                 continue
             raise
-        if not isinstance(response.data, dict):
-            raise DataSourceError(
-                "serper",
-                "expected a JSON object",
-                error_type=ErrorType.INVALID_RESPONSE,
-                attempts=response.attempts,
-                timestamp=response.fetched_at,
-            )
-        items = response.data.get("news") or []
-        if not isinstance(items, list):
-            raise DataSourceError(
-                "serper",
-                "news must be a list",
-                error_type=ErrorType.INVALID_RESPONSE,
-                attempts=response.attempts,
-                timestamp=response.fetched_at,
-            )
-        events = []
-        for item in items[:limit]:
-            if not isinstance(item, dict):
-                continue
-            title = item.get("title") or ""
-            snippet = item.get("snippet") or ""
-            if not title and not snippet:
-                continue
-            events.append({
-                "query": query,
-                "title": title,
-                "snippet": snippet,
-                "source": item.get("source"),
-                "date": item.get("date"),
-                "link": item.get("link"),
-                "provider": "serper",
-                "fetched_at": response.fetched_at,
-            })
-        return HttpResult(events, response.fetched_at, response.attempts)
+        return HttpResult(
+            _serper_events(query, limit, response), response.fetched_at, response.attempts
+        )
 
     raise last_error or DataSourceError(
         "serper", "all keys exhausted", error_type=ErrorType.MISSING_KEY, attempts=len(keys), timestamp="",

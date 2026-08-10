@@ -123,7 +123,6 @@ def test_finding_manifest_is_bound_to_pack_refs_and_model():
     assert agent_evidence.validate_finding_manifest(
         manifest, evidence_pack=PACK, evidence_refs=refs
     ) == [
-        "approval_artifact_missing",
         "human_review_required",
         "model_run_review_only",
     ]
@@ -132,13 +131,13 @@ def test_finding_manifest_is_bound_to_pack_refs_and_model():
         evidence_pack=PACK,
         evidence_refs=refs,
         require_execution_eligible=False,
-    ) == ["approval_artifact_missing"]
+    ) == []
     assert agent_evidence.validate_finding_manifest(
         manifest,
         evidence_pack=PACK,
         evidence_refs=["fact_artifacts.nonexistent"],
         require_execution_eligible=False,
-    ) == ["citation_unbound", "approval_artifact_missing"]
+    ) == ["citation_unbound"]
 
 
 def test_reviewed_manifest_recomputes_all_hashes_and_detects_tampering(
@@ -201,7 +200,7 @@ def test_review_claim_without_reviewer_is_not_execution_eligible():
         review_status="reviewed",
     )
     assert manifest["execution_eligible"] is False
-    assert "approval_artifact_missing" in manifest["reasons"]
+    assert manifest["reasons"] == ["human_review_required"]
 
 
 def test_unreviewed_manifest_cannot_forge_eligibility_by_rehashing():
@@ -361,4 +360,4 @@ def test_reviewed_by_string_without_approval_cannot_self_certify():
     )
 
     assert manifest["execution_eligible"] is False
-    assert "approval_artifact_missing" in manifest["reasons"]
+    assert manifest["reasons"] == ["human_review_required"]

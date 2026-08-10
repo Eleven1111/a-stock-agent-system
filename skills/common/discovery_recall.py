@@ -107,6 +107,7 @@ def build_discovery_recall_report(
     open_codes: Iterable[Any] | None = None,
     asof: str,
     source_stage: str = "09:24_full_market",
+    generated_at: str | None = None,
 ) -> Dict[str, Any]:
     """Build the bounded, fail-closed recall report for one trading date."""
     rows = [dict(item) for item in quotes]
@@ -149,7 +150,7 @@ def build_discovery_recall_report(
     return {
         "schema": "discovery_recall_report_v1",
         "asof": asof,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_at": generated_at or datetime.now().isoformat(timespec="seconds"),
         "source_stage": source_stage,
         "status": "ready" if opened is not None else "pending",
         "target_event": "near_limit_or_strong_board",

@@ -269,14 +269,18 @@ def build_finding_manifest(
     reasons = validate_reference_paths(evidence_pack, evidence_refs)
     if not str(model).strip():
         reasons.append("model_version_missing")
-    approval_reasons = validate_finding_approval(
-        approval,
-        task_id=task_id,
-        role=role,
-        claim_id=claim_id,
-        finding=finding or {},
-        submitter=submitter,
-        now=generated_at,
+    approval_reasons = (
+        validate_finding_approval(
+            approval,
+            task_id=task_id,
+            role=role,
+            claim_id=claim_id,
+            finding=finding or {},
+            submitter=submitter,
+            now=generated_at,
+        )
+        if approval is not None
+        else []
     )
     reasons.extend(approval_reasons)
     if approval is not None:
@@ -288,7 +292,7 @@ def build_finding_manifest(
                     reasons.append("approval_artifact_mismatch")
             except (OSError, ApprovalArtifactError, json.JSONDecodeError):
                 reasons.append("approval_path_untrusted")
-    approval_ready = not approval_reasons
+    approval_ready = approval is not None and not approval_reasons
     if not approval_ready:
         reasons.append("human_review_required")
     derived_review_status = "reviewed" if approval_ready else "unreviewed"
@@ -364,6 +368,8 @@ def _approval_binding_reasons(
     if manifest.get("context_sha256") not in (None, manifest.get("input_sha256")):
         reasons.append("context_hash_mismatch")
     approval = manifest.get("approval")
+    if not isinstance(approval, Mapping):
+        return reasons
     reasons.extend(validate_finding_approval(
         approval,
         task_id=task_id,
@@ -373,8 +379,6 @@ def _approval_binding_reasons(
         submitter=submitter,
         now=now,
     ))
-    if not isinstance(approval, Mapping):
-        return reasons
     if manifest.get("approval_sha256") != _hash(approval):
         reasons.append("approval_hash_mismatch")
     approval_ref = str(manifest.get("approval_ref") or "")

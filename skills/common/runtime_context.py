@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from a_share_rules import latest_trading_day, previous_trading_day
 from paths import cron_output_dir
-from state_store import atomic_write_json, read_json, update_json_list
+from state_store import atomic_write_json, read_json
 
 
 ARTIFACT_SCHEMA = "hermes_cron_artifact_v2"

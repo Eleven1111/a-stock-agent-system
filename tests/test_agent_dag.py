@@ -10,7 +10,7 @@ from scripts import run_agent_dag
 
 def test_direct_entrypoint_bootstraps_repo_root_before_skills_import():
     source = Path(run_agent_dag.__file__).read_text(encoding="utf-8")
-    root_setup = source.index("sys.path.insert(0, ROOT)")
+    root_setup = source.index("ensure_repo_importable(ROOT)")
     skills_import = source.index("import skills.common")
 
     assert root_setup < skills_import
@@ -20,7 +20,7 @@ def test_job_runner_entrypoint_bootstraps_repo_root_before_skills_import():
     source = (Path(run_agent_dag.__file__).parent / "hermes_job_runner.py").read_text(
         encoding="utf-8"
     )
-    root_setup = source.index("sys.path.insert(0, ROOT)")
+    root_setup = source.index("ensure_repo_importable(ROOT)")
     skills_import = source.index("import skills.common")
 
     assert root_setup < skills_import

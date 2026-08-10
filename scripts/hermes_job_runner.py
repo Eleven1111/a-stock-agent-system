@@ -17,11 +17,12 @@ import traceback
 from typing import Any, Dict, List, Optional
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-# This module is reached through ``agent_job_runner.py`` when cron launches a
-# job directly.  In that mode Python only adds ``scripts/`` to sys.path, so
-# bootstrap the repository root before importing the shared skills package.
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+try:
+    from ._repo_bootstrap import ensure_repo_importable  # type: ignore[import-not-found]
+except ImportError:
+    from _repo_bootstrap import ensure_repo_importable  # type: ignore[no-redef]
+
+ensure_repo_importable(ROOT)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 BLOCKED_RETURNCODES = {75, 78}
 

@@ -72,7 +72,10 @@ def _run_discovery_stage(stage: str, callback: Callable[[], Any]) -> Any:
         return callback()
     except DiscoveryStageError:
         raise
-    except Exception as exc:  # noqa: BLE001 - attach stage, preserve root cause
+    except (
+        DataSourceError, OSError, RuntimeError, ValueError, TypeError, KeyError,
+        json.JSONDecodeError,
+    ) as exc:
         raise DiscoveryStageError(stage, exc) from exc
 
 
@@ -434,47 +437,31 @@ def _universe_spot_quotes(metadata: Dict[str, Dict[str, Any]]) -> Dict[str, Dict
     return mapped
 
 
-def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    config = load_config()["network"]
-    batch_size = int(config["quote_batch_size"])
-    workers = int(config["quote_workers"])
-    retries = int(config["request_retries"])
-    minimum_coverage = max(
-        500,
-        int(len(universe) * float(config["quote_min_coverage"])),
-    )
-    metadata = {
+def _universe_metadata(
+    universe: Sequence[Mapping[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    return {
         candidate_pipeline.naked_code(item["code"]): {
             **dict(item),
-            "is_st": (
-                item.get("is_st")
-                if isinstance(item.get("is_st"), bool)
-                else "ST" in str(item.get("name") or "").upper()
-            ),
+            "is_st": item.get("is_st") if isinstance(item.get("is_st"), bool)
+            else "ST" in str(item.get("name") or "").upper(),
         }
         for item in universe
     }
-    if is_auction_window():
-        cached_quotes = load_cached_quotes()
-        usable_cached = {
-            code: fields
-            for code, fields in cached_quotes.items()
-            if _quote_has_trade_fields(fields)
-        }
-        if len(usable_cached) >= minimum_coverage:
-            result = {
-                code: {**metadata.get(code, {}), **fields, "code": code, "quote_source": "cache"}
-                for code, fields in usable_cached.items()
-                if code in metadata
-            }
-            if len(result) >= minimum_coverage:
-                fetch_universe_quotes.last_quote_source = "cache"
-                return result
+
+
+def _fetch_batched_quotes(
+    universe: Sequence[Mapping[str, Any]],
+    metadata: Mapping[str, Mapping[str, Any]],
+    *,
+    batch_size: int,
+    workers: int,
+    retries: int,
+) -> Dict[str, Dict[str, Any]]:
     batches = [
         [candidate_pipeline.market_code(item["code"]) for item in batch]
         for batch in _chunks(list(universe), batch_size)
     ]
-
     quotes: Dict[str, Dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(_fetch_quote_batch, batch, retries) for batch in batches]
@@ -486,6 +473,53 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
             for prefixed, fields in batch_quotes.items():
                 code = candidate_pipeline.naked_code(prefixed)
                 quotes[code] = {**metadata.get(code, {}), **fields, "code": code}
+    return quotes
+
+
+def _cached_universe_quotes(
+    metadata: Mapping[str, Mapping[str, Any]], minimum_coverage: int,
+) -> Dict[str, Dict[str, Any]]:
+    if not is_auction_window():
+        return {}
+    usable = {
+        code: fields for code, fields in load_cached_quotes().items()
+        if _quote_has_trade_fields(fields) and code in metadata
+    }
+    if len(usable) < minimum_coverage:
+        return {}
+    return {
+        code: {**metadata.get(code, {}), **fields, "code": code, "quote_source": "cache"}
+        for code, fields in usable.items()
+    }
+
+
+def _store_universe_quotes(quotes: Dict[str, Dict[str, Any]]) -> None:
+    atomic_write_json(quotes_cache_file(), {
+        "schema": "universe_quotes_cache_v1",
+        "updated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+        "quotes": quotes,
+    })
+    sources = {str(fields.get("quote_source") or "tencent") for fields in quotes.values()}
+    fetch_universe_quotes.last_quote_source = next(iter(sources)) if len(sources) == 1 else "mixed"
+
+
+def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    config = load_config()["network"]
+    batch_size = int(config["quote_batch_size"])
+    workers = int(config["quote_workers"])
+    retries = int(config["request_retries"])
+    minimum_coverage = max(
+        500,
+        int(len(universe) * float(config["quote_min_coverage"])),
+    )
+    metadata = _universe_metadata(universe)
+    cached = _cached_universe_quotes(metadata, minimum_coverage)
+    if len(cached) >= minimum_coverage:
+        fetch_universe_quotes.last_quote_source = "cache"
+        return cached
+    quotes = _fetch_batched_quotes(
+        universe, metadata, batch_size=batch_size, workers=workers, retries=retries,
+    )
     if len(quotes) < minimum_coverage:
         try:
             spot_quotes = _universe_spot_quotes(metadata)
@@ -505,15 +539,7 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
         code: {**fields, "quote_source": fields.get("quote_source", "tencent")}
         for code, fields in quotes.items()
     }
-    atomic_write_json(quotes_cache_file(), {
-        "schema": "universe_quotes_cache_v1",
-        "updated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
-        "quotes": quotes,
-    })
-    sources = {str(fields.get("quote_source") or "tencent") for fields in quotes.values()}
-    fetch_universe_quotes.last_quote_source = (
-        next(iter(sources)) if len(sources) == 1 else "mixed"
-    )
+    _store_universe_quotes(quotes)
     return quotes
 
 

@@ -336,7 +336,13 @@ def state_paths() -> dict[str, str]:
     }
 
 
-def mark_new_items(items: list[dict[str, Any]], *, no_state: bool, max_seen: int) -> tuple[list[dict[str, Any]], list[str]]:
+def mark_new_items(
+    items: list[dict[str, Any]],
+    *,
+    no_state: bool,
+    max_seen: int,
+    updated_at: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
     if no_state:
         return items, []
     paths = state_paths()
@@ -348,7 +354,7 @@ def mark_new_items(items: list[dict[str, Any]], *, no_state: bool, max_seen: int
         updated = updated[-max_seen:]
     atomic_write_json(paths["seen"], {
         "schema": "policy_seen_fingerprints_v1",
-        "updated_at": now_bj(),
+        "updated_at": updated_at,
         "fingerprints": updated,
     })
     return new_items, updated
@@ -357,13 +363,17 @@ def mark_new_items(items: list[dict[str, Any]], *, no_state: bool, max_seen: int
 def build_watch_result(
     catalog: dict[str, Any],
     *,
+    checked_at: str | None = None,
     timeout: float,
     max_per_source: int,
     no_state: bool,
     max_seen: int,
     lookback_days: int,
 ) -> dict[str, Any]:
-    checked_at = now_bj()
+    checked_at = checked_at or now_bj()
+    checked_datetime = datetime.fromisoformat(checked_at)
+    if checked_datetime.tzinfo is None:
+        raise ValueError("checked_at must include a timezone offset")
     source_results = [
         fetch_source(source, timeout=timeout, max_links=max_per_source)
         for source in catalog["sources"]
@@ -388,14 +398,19 @@ def build_watch_result(
         for item in ranked_items
         if item["should_decode"] and item["freshness"] == "recent"
     ]
-    new_items, _seen = mark_new_items(decode_ready_items, no_state=no_state, max_seen=max_seen)
+    new_items, _seen = mark_new_items(
+        decode_ready_items,
+        no_state=no_state,
+        max_seen=max_seen,
+        updated_at=checked_at,
+    )
     novelty = novelty_gate.NoveltyResult(new_items, [])
     if not no_state and new_items:
         novelty = novelty_gate.filter_items(
             new_items,
             namespace="market-news",
             job_id="official-policy-watch",
-            now=datetime.now(timezone.utc),
+            now=checked_datetime.astimezone(timezone.utc),
         )
         new_items = novelty.items
     ok_sources = [item for item in source_results if item["status"] == "ok"]
