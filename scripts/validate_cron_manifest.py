@@ -6,12 +6,13 @@ import sys
 import os
 import re
 
-# Direct cron/CLI execution puts only ``scripts/`` on sys.path.  Bootstrap the
-# repository root before importing the shared package, just like the runtime
-# entrypoints do.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+try:
+    from ._repo_bootstrap import ensure_repo_importable  # type: ignore[import-not-found]
+except ImportError:
+    from _repo_bootstrap import ensure_repo_importable  # type: ignore[no-redef]
+
+ensure_repo_importable(ROOT)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import manifest_command  # noqa: E402
