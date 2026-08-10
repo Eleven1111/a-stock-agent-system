@@ -1,0 +1,108 @@
+{
+  "schema": "dataset_catalog_v1",
+  "catalog_version": "1.0.0",
+  "datasets": [
+    {
+      "schema": "dataset_contract_v1",
+      "dataset_id": "cross_sectional_direction_rows_v1",
+      "version": "1.0.0",
+      "description": "Point-in-time A-share ranking scores joined only to outcomes observed after the evaluation horizon.",
+      "provider": {
+        "id": "internal:portfolio_research_history",
+        "adapter_version": "portfolio-research-history-v1"
+      },
+      "source_rank": "derived_internal",
+      "frequency": "per_decision_cohort",
+      "timezone": "Asia/Shanghai",
+      "currency": "CNY",
+      "adjustment": "not_applicable",
+      "point_in_time": {
+        "feature_cutoff_field": "src",
+        "feature_available_at_field": "score_available_at",
+        "outcome_period_end_field": "dst",
+        "outcome_available_at_field": "outcome_available_at",
+        "snapshot_ref_field": "snapshot_ref"
+      },
+      "coverage": {
+        "universe": "eligible_a_share_cash_equity",
+        "minimum_ratio": 0.95,
+        "missing_policy": "fail_closed"
+      },
+      "lineage": {
+        "producer": "portfolio_research_history",
+        "producer_version": "portfolio-research-history-v1",
+        "inputs": [
+          "market_snapshot_v1",
+          "candidate_lifecycle"
+        ]
+      },
+      "fields": [
+        {
+          "name": "entity_id",
+          "type": "string",
+          "semantic": "security_code",
+          "unit": "text",
+          "nullable": false
+        },
+        {
+          "name": "src",
+          "type": "date",
+          "semantic": "feature_cutoff_date",
+          "unit": "date",
+          "nullable": false
+        },
+        {
+          "name": "dst",
+          "type": "date",
+          "semantic": "outcome_period_end_date",
+          "unit": "date",
+          "nullable": false
+        },
+        {
+          "name": "score",
+          "type": "float",
+          "semantic": "ranking_score",
+          "unit": "unitless",
+          "nullable": false
+        },
+        {
+          "name": "forward_return",
+          "type": "float",
+          "semantic": "forward_return",
+          "unit": "decimal_return",
+          "nullable": false
+        },
+        {
+          "name": "score_available_at",
+          "type": "datetime",
+          "semantic": "feature_available_at",
+          "unit": "timestamp",
+          "nullable": false
+        },
+        {
+          "name": "outcome_available_at",
+          "type": "datetime",
+          "semantic": "outcome_available_at",
+          "unit": "timestamp",
+          "nullable": false
+        },
+        {
+          "name": "snapshot_ref",
+          "type": "string",
+          "semantic": "market_snapshot_ref",
+          "unit": "text",
+          "nullable": false
+        }
+      ],
+      "validators": [
+        "strict_fields",
+        "point_in_time_split",
+        "coverage_ratio"
+      ],
+      "known_limitations": [
+        "Forward returns are evaluation-only and must never be available to the feature cutoff.",
+        "The contract does not prove universe completeness until a caller supplies a coverage report."
+      ]
+    }
+  ]
+}
