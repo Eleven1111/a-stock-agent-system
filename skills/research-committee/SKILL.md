@@ -6,7 +6,7 @@ description: >-
   (task, role) work orders with a shared token-bounded evidence pack, and a
   deterministic synthesis reduces the blackboard into gated proposals. No
   live state writes, no order placement.
-version: 1.1.0
+version: 1.2.0
 author: Luna
 metadata:
   hermes:
@@ -24,9 +24,9 @@ registry）保持唯一门禁。首轮专家通过黑板独立提交；发生争
 ```text
 research-dispatch (cron, 确定性)          ← 触发扫描：候选池 top-K、行为风险、结算亏损
   -> research_tasks.json (总线, claim/TTL)
-expert_runner next (模型轮次入口)          ← claim (task, role) 工单
+research_consumer.consume_once (宿主入口) ← claim (task, role) 工单
   -> 共享 evidence pack (内容寻址, 硬预算)
-  -> 专家推理 → 独立审批 artifact → expert_runner submit
+  -> 专家推理 → finding manifest → research bus submit
   -> 黑板集齐 → 单赢家 deterministic synthesis → verdict + 报告一次成文
   -> disputed → round-specific evidence pack → bounded escalation/adjudicator
   -> advance 时写 proposals/pending/（policy_gate_required=true）
@@ -34,6 +34,13 @@ expert_runner next (模型轮次入口)          ← claim (task, role) 工单
 ```
 
 ## 模型轮次怎么干活（Hermes / OpenClaw 通用）
+
+宿主已经接入 `skills/common/research_consumer.py` 时，优先由宿主把真实的单次模型
+调用函数注入 `consume_once(...)`。consumer 一次最多消费一个角色，并统一处理
+claim fencing、证据包、输出契约、失败/弃权、提交、合成和 run artifact。未配置
+`turn` 或实际模型版本时必须在 claim 前 blocked。
+
+下面的 CLI 保留为人工操作、故障排查和尚未接入宿主 consumer 的兼容入口：
 
 ```bash
 python scripts/expert_runner.py next --worker <hermes|openclaw>

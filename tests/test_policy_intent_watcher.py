@@ -2,6 +2,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "skills" / "policy-intent-decoder" / "scripts" / "watch_official_policy.py"
@@ -79,6 +81,10 @@ def test_parse_date_hint_and_freshness_gate():
     assert watcher.parse_date_hint("https://x.example/202606/t20260618_1.html") == "2026-06-18"
     assert watcher.parse_date_hint("2026年6月5日发布") == "2026-06-05"
     assert watcher.freshness("2026-06-18", checked_at="2026-06-25T09:00:00+08:00", lookback_days=45) == "recent"
+    assert watcher.freshness("2026-05-12", checked_at="2026-06-25T09:00:00+08:00", lookback_days=45) == "recent"
+    assert watcher.freshness("2026-05-11", checked_at="2026-06-25T09:00:00+08:00", lookback_days=45) == "recent"
+    assert watcher.freshness("2026-05-10", checked_at="2026-06-25T09:00:00+08:00", lookback_days=45) == "stale"
+    assert watcher.freshness("2026-06-27", checked_at="2026-06-25T09:00:00+08:00", lookback_days=45) == "future_dated"
     assert watcher.freshness("2021-01-01", checked_at="2026-06-25T09:00:00+08:00", lookback_days=45) == "stale"
     assert watcher.freshness(None, checked_at="2026-06-25T09:00:00+08:00", lookback_days=45) == "undated"
 
@@ -117,6 +123,7 @@ def test_build_watch_result_marks_only_unseen_items(monkeypatch, tmp_path):
 
     first = watcher.build_watch_result(
         catalog,
+        checked_at="2026-06-25T09:00:00+08:00",
         timeout=1,
         max_per_source=5,
         no_state=False,
@@ -125,6 +132,7 @@ def test_build_watch_result_marks_only_unseen_items(monkeypatch, tmp_path):
     )
     second = watcher.build_watch_result(
         catalog,
+        checked_at="2026-06-25T09:00:00+08:00",
         timeout=1,
         max_per_source=5,
         no_state=False,
@@ -137,6 +145,7 @@ def test_build_watch_result_marks_only_unseen_items(monkeypatch, tmp_path):
     assert second["summary"]["new_count"] == 0
     seen = json.loads((tmp_path / "seen_policy_items.json").read_text(encoding="utf-8"))
     assert scored["fingerprint"] in seen["fingerprints"]
+    assert seen["updated_at"] == "2026-06-25T09:00:00+08:00"
 
 
 def test_watch_result_only_promotes_decode_ready_signals(monkeypatch):
@@ -168,6 +177,7 @@ def test_watch_result_only_promotes_decode_ready_signals(monkeypatch):
     )
     result = watcher.build_watch_result(
         catalog,
+        checked_at="2026-06-25T09:00:00+08:00",
         timeout=1,
         max_per_source=5,
         no_state=True,
@@ -227,6 +237,7 @@ def test_watch_result_does_not_promote_stale_or_undated_items(monkeypatch):
     )
     result = watcher.build_watch_result(
         catalog,
+        checked_at="2026-06-25T09:00:00+08:00",
         timeout=1,
         max_per_source=5,
         no_state=True,
@@ -235,3 +246,17 @@ def test_watch_result_does_not_promote_stale_or_undated_items(monkeypatch):
     )
     assert [item["freshness"] for item in result["signals"]] == ["recent"]
     assert sorted(item["freshness"] for item in result["candidate_preview"]) == ["recent", "stale", "undated"]
+
+
+def test_build_watch_result_rejects_checked_at_without_timezone():
+    watcher = load_module()
+    with pytest.raises(ValueError, match="timezone offset"):
+        watcher.build_watch_result(
+            {"sources": []},
+            checked_at="2026-06-25T09:00:00",
+            timeout=1,
+            max_per_source=5,
+            no_state=True,
+            max_seen=100,
+            lookback_days=45,
+        )
