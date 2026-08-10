@@ -2003,7 +2003,7 @@
         "--emit-target"
       ],
       "cwd": ".",
-      "enabled": false,
+      "enabled": true,
       "external": true,
       "expected_output": "json",
       "silent_when_no_signal": true,
