@@ -357,6 +357,25 @@ def _valid_cached_result(value: Any, cache_key: str) -> bool:
     return claimed_hash == _hash(body)
 
 
+def verify_run_result(value: Mapping[str, Any]) -> bool:
+    """Verify a returned run, normalizing cache/path presentation fields."""
+
+    if (
+        not isinstance(value, Mapping)
+        or value.get("schema") != RUN_SCHEMA
+        or value.get("research_only") is not True
+        or value.get("trading_action") != "none"
+    ):
+        return False
+    body = {
+        key: item
+        for key, item in value.items()
+        if key not in {"result_hash", "artifact_path"}
+    }
+    body["cached"] = False
+    return value.get("result_hash") == _hash(body)
+
+
 def execute_plan(
     plan: Mapping[str, Any],
     input_values: Mapping[str, Any],
@@ -409,4 +428,5 @@ __all__ = [
     "execute_plan",
     "seal_plan",
     "validate_plan",
+    "verify_run_result",
 ]

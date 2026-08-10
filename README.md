@@ -114,6 +114,10 @@ The system deliberately separates three kinds of work:
 3. **Decision plane** — deterministic policy applies freshness, tradeability,
    T+1, concentration, strategy-registry, OOS, and approval gates.
 
+Compiled research diagnostics cross a separate deterministic execution gate:
+the handoff, catalog, plan, and inputs are revalidated in an isolated child
+process, replayed twice, and persisted only with hash-bound validation evidence.
+
 Every scheduled command re-enters `scripts/run_agent_dag.py`, so launchd,
 Hermes, OpenClaw, system cron, and manual runs share the same dependency,
 snapshot, lease, policy, and ledger rules.
@@ -127,7 +131,7 @@ snapshot, lease, policy, and ledger rules.
 | Scoring | Four-dimensional S/A/B/C grading: technical 30%, sentiment 15%, catalyst 30%, deep research 25% |
 | Research | Serenity fundamental research, Chan-structure research, policy-intent decoding, multi-expert research committee, dual-Agent bounded plan compilation |
 | Risk and lifecycle | Tradeability, A-share T+1, concentration, stops, candidate FSM, recommendation audit, settlement |
-| Evaluation | IS/OOS walls, costs, controls, statistical gates, shadow promotion, expert calibration |
+| Evaluation | IS/OOS walls, costs, controls, statistical gates, shadow promotion, expert calibration, isolated deterministic replay |
 | Operations | Manifest scheduler, resumable DAG, provider health, state recovery, execution traces, delivery telemetry |
 | Simulation | Independent ¥100,000 paper account with A-share lots, costs, limits, T+1, and `paper.*` events |
 
