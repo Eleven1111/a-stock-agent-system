@@ -161,6 +161,20 @@ python scripts/compile_research_execution_plan.py --help
 python scripts/expert_calibration.py --help
 ```
 
+P3 学习闭环只会从 research consumer 审计产物提出改进候选；人工补齐冻结 benchmark
+并审核后，才能导出离线评测集。它不会自动修改提示词、代码、事实层或生产配置：
+
+```bash
+python scripts/learning_eval_factory.py scan
+python scripts/learning_eval_factory.py status
+python scripts/learning_eval_factory.py export --output /tmp/a-stock-learning-eval
+python scripts/evaluate_agent_harness.py \
+  --cases /tmp/a-stock-learning-eval/cases.json \
+  --quiet
+```
+
+契约与审核流程见 [Learning Ledger 与 Eval Factory v1](docs/learning-eval-factory-v1.md)。
+
 进一步阅读：[研究委员会使用指南](docs/research-committee-guide.md)和
 [运行时契约](skills/research-committee/SKILL.md)。
 
