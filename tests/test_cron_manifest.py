@@ -641,7 +641,13 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "max_age_minutes": 15,
     }
     assert _run_command(auction_brief).endswith("--stage auction")
-    assert jobs["hot-money-morning-checkpoint"]["context_from"] == ["open-confirmation"]
+    assert jobs["hot-money-morning-checkpoint"]["context_from"] == [
+        "auction-finalize",
+        "open-confirmation",
+    ]
+    assert jobs["hot-money-morning-checkpoint"]["dependency_policy"]["optional_jobs"] == [
+        "open-confirmation"
+    ]
     assert jobs["hot-money-morning-checkpoint"]["schedule"] == "50 9 * * 1-5"
     assert jobs["hot-money-afternoon-checkpoint"]["context_from"] == ["open-confirmation"]
     assert jobs["hot-money-afternoon-checkpoint"]["schedule"] == "15 13 * * 1-5"
@@ -653,7 +659,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
             f"python skills/daban-stock-picker/scripts/hot_money_checkpoint.py "
             f"--profile {profile} --json"
         )
-        assert jobs[job_id]["run"]["timeout_seconds"] <= 45
+        assert jobs[job_id]["run"]["timeout_seconds"] == 300
         assert any(
             "hot_money_checkpoint" in path
             for path in jobs[job_id]["allowed_state_writes"]

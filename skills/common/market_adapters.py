@@ -43,10 +43,10 @@ ADAPTER_VERSIONS = {
     "adata": "adata-adapter-v1",
     "eastmoney_datacenter": "eastmoney-datacenter-adapter-v1",
     "eastmoney_push2_degraded": "eastmoney-push2-degraded-adapter-v1",
-    "tencent_quote": "tencent-adapter-v2",
+    "tencent_quote": "tencent-adapter-v3",
     "tencent_kline": "tencent-kline-adapter-v2",
     "tencent_minute": "tencent-adapter-v1",
-    "tencent_orderbook": "tencent-adapter-v2",
+    "tencent_orderbook": "tencent-adapter-v3",
     "akshare_limitup": "akshare-adapter-v1",
     "akshare_spot": "akshare-adapter-v2",
     "ths_industry_catalog": "akshare-ths-adapter-v1",
@@ -1363,16 +1363,19 @@ def fetch_tencent_quote_with_provenance(
     decision_stage: str | None = None,
     maximum_corroboration_age_seconds: int = 120,
 ) -> dict[str, dict[str, Any]]:
-    """Tencent quotes remain non-directional until corroboration is adapter-bound."""
+    """Return Tencent quotes with the canonical adapter's transport contract."""
     result = _fetch_tencent_quotes_result(list(codes))
-    trust = transport_contract("http://qt.gtimg.cn/")
+    trust = transport_contract("https://qt.gtimg.cn/")
     quotes = {
         code: {
             **quote,
             "provider_version": quote.get("provider_version")
             or ADAPTER_VERSIONS["tencent_quote"],
             "transport_trust": quote.get("transport_trust") or trust["trust"],
-            "directional_eligible": False,
+            "directional_eligible": (
+                quote.get("directional_eligible") is True
+                and (quote.get("transport_trust") or trust["trust"]) == "authenticated"
+            ),
             "transport_reason": quote.get("transport_reason") or trust["reason"],
         }
         for code, quote in result.data.items()

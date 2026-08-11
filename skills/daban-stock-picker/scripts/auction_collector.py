@@ -483,7 +483,7 @@ def append_snapshot(
         trading_date=asof,
         batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
         producer="auction-snapshot",
-        source_versions={"tencent": "tencent-adapter-v2"},
+        source_versions={"tencent": "tencent-adapter-v3"},
     )
     quotes = dict(input_snapshot["payload"]["quotes"])
     snapshot_ref = compact_ref(input_snapshot)

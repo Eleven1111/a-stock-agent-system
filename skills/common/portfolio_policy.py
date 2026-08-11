@@ -6,6 +6,7 @@ import math
 from datetime import date
 from typing import Any, Iterable, Mapping
 
+from a_share_rules import CalendarCoverageError, previous_trading_day
 from data_access_config import risk_settings
 
 
@@ -205,6 +206,102 @@ _FACTOR_LIMITS = {
     ),
 }
 
+_FACTOR_EVIDENCE_REASONS = {
+    "risk_evidence_schema_invalid",
+    "risk_evidence_source_missing",
+    "risk_evidence_coverage_insufficient",
+    "risk_evidence_future",
+    "risk_evidence_stale",
+    "risk_evidence_asof_invalid",
+    "portfolio_value_unavailable",
+    "risk_evidence_data_cutoff_invalid",
+    "risk_evidence_data_cutoff_future",
+    "risk_evidence_data_stale",
+}
+
+
+def _coverage_evidence(
+    evidence: Mapping[str, Any], limits: Mapping[str, Any]
+) -> tuple[float, list[str]]:
+    reasons: list[str] = []
+    try:
+        coverage = float(evidence.get("coverage"))
+    except (TypeError, ValueError):
+        coverage = -1.0
+    if not math.isfinite(coverage):
+        coverage = -1.0
+    try:
+        min_coverage = float(limits.get("min_coverage", 1.0))
+    except (TypeError, ValueError):
+        min_coverage = float("nan")
+    if not math.isfinite(min_coverage):
+        reasons.append("min_coverage_invalid")
+        min_coverage = 1.0
+    if coverage < min_coverage:
+        reasons.append("risk_evidence_coverage_insufficient")
+    return coverage, reasons
+
+
+def _freshness_evidence(
+    evidence: Mapping[str, Any], limits: Mapping[str, Any], decision_asof: str
+) -> tuple[int | None, Any, list[str]]:
+    reasons: list[str] = []
+    try:
+        evidence_day = date.fromisoformat(str(evidence.get("asof"))[:10])
+        decision_day = date.fromisoformat(str(decision_asof)[:10])
+        age_days = (decision_day - evidence_day).days
+        max_age_days = float(limits.get("max_age_days", 0))
+        if not math.isfinite(max_age_days) or max_age_days < 0:
+            reasons.append("max_age_days_invalid")
+        elif age_days < 0:
+            reasons.append("risk_evidence_future")
+        elif age_days > max_age_days:
+            reasons.append("risk_evidence_stale")
+    except (TypeError, ValueError):
+        age_days = None
+        reasons.append("risk_evidence_asof_invalid")
+    data_cutoff = evidence.get("data_cutoff")
+    try:
+        cutoff_day = date.fromisoformat(str(data_cutoff)[:10])
+        decision_day = date.fromisoformat(str(decision_asof)[:10])
+        required_cutoff = previous_trading_day(decision_day)
+        if cutoff_day >= decision_day:
+            reasons.append("risk_evidence_data_cutoff_future")
+        elif cutoff_day < required_cutoff:
+            reasons.append("risk_evidence_data_stale")
+    except (TypeError, ValueError, CalendarCoverageError):
+        reasons.append("risk_evidence_data_cutoff_invalid")
+    return age_days, data_cutoff, reasons
+
+
+def _factor_measurements(
+    evidence: Mapping[str, Any], limits: Mapping[str, Any]
+) -> tuple[dict[str, float | None], list[str]]:
+    measured: dict[str, float | None] = {}
+    reasons: list[str] = []
+    for field, (limit_field, reason) in _FACTOR_LIMITS.items():
+        try:
+            value = float(evidence[field])
+        except (KeyError, TypeError, ValueError):
+            measured[field] = None
+            reasons.append(f"{field.removesuffix('_pct')}_missing")
+            continue
+        if not math.isfinite(value):
+            measured[field] = None
+            reasons.append(f"{field.removesuffix('_pct')}_invalid")
+            continue
+        measured[field] = value
+        try:
+            limit = float(limits[limit_field])
+        except (KeyError, TypeError, ValueError):
+            reasons.append(f"{limit_field}_missing")
+            continue
+        if not math.isfinite(limit):
+            reasons.append(f"{limit_field}_invalid")
+        elif value > limit:
+            reasons.append(reason)
+    return measured, reasons
+
 
 def evaluate_factor_liquidity_risk(
     evidence: Mapping[str, Any],
@@ -214,52 +311,36 @@ def evaluate_factor_liquidity_risk(
 ) -> dict[str, Any]:
     """Fail closed on missing/stale portfolio factor and liquidity evidence."""
     reasons: list[str] = []
-    if evidence.get("schema") != "portfolio_risk_evidence_v1":
+    if evidence.get("schema") != "portfolio_risk_evidence_v2":
         reasons.append("risk_evidence_schema_invalid")
     if not str(evidence.get("source") or "").strip():
         reasons.append("risk_evidence_source_missing")
-    try:
-        coverage = float(evidence.get("coverage"))
-    except (TypeError, ValueError):
-        coverage = -1.0
-    if coverage < float(limits.get("min_coverage", 1.0)):
-        reasons.append("risk_evidence_coverage_insufficient")
-    try:
-        evidence_day = date.fromisoformat(str(evidence.get("asof"))[:10])
-        decision_day = date.fromisoformat(str(decision_asof)[:10])
-        age_days = (decision_day - evidence_day).days
-        if age_days < 0:
-            reasons.append("risk_evidence_future")
-        elif age_days > int(limits.get("max_age_days", 0)):
-            reasons.append("risk_evidence_stale")
-    except ValueError:
-        age_days = None
-        reasons.append("risk_evidence_asof_invalid")
-
-    measured: dict[str, float | None] = {}
-    for field, (limit_field, reason) in _FACTOR_LIMITS.items():
-        try:
-            value = float(evidence[field])
-        except (KeyError, TypeError, ValueError):
-            measured[field] = None
-            reasons.append(f"{field.removesuffix('_pct')}_missing")
-            continue
-        measured[field] = value
-        try:
-            limit = float(limits[limit_field])
-        except (KeyError, TypeError, ValueError):
-            reasons.append(f"{limit_field}_missing")
-            continue
-        if value > limit:
-            reasons.append(reason)
+    coverage, coverage_reasons = _coverage_evidence(evidence, limits)
+    age_days, data_cutoff, freshness_reasons = _freshness_evidence(
+        evidence, limits, decision_asof
+    )
+    measured, measurement_reasons = _factor_measurements(evidence, limits)
+    reasons.extend(coverage_reasons)
+    reasons.extend(freshness_reasons)
+    reasons.extend(measurement_reasons)
+    unique_reasons = list(dict.fromkeys(reasons))
+    evidence_blocked = any(
+        reason in _FACTOR_EVIDENCE_REASONS
+        or reason.endswith("_missing")
+        or reason.endswith("_invalid")
+        for reason in unique_reasons
+    )
+    status = "blocked" if evidence_blocked else "rejected" if unique_reasons else "passed"
     return {
         "schema": "portfolio_factor_policy_v1",
-        "allowed": not reasons,
-        "reasons": list(dict.fromkeys(reasons)),
+        "status": status,
+        "allowed": not unique_reasons,
+        "reasons": unique_reasons,
         "asof": evidence.get("asof"),
         "source": evidence.get("source"),
         "coverage": coverage if coverage >= 0 else None,
         "age_days": age_days,
+        "data_cutoff": data_cutoff,
         "measured": measured,
         "limits": dict(limits),
     }
@@ -274,7 +355,18 @@ def evaluate_complete_admission(
     decision_asof: str,
 ) -> dict[str, Any]:
     """Apply concentration and factor/liquidity controls as one live gate."""
-    concentration = evaluate_candidate(portfolio, candidate, proposed_position_pct)
+    try:
+        requested_position_pct = float(proposed_position_pct)
+    except (TypeError, ValueError):
+        requested_position_pct = float("nan")
+    requested_position_valid = (
+        math.isfinite(requested_position_pct) and requested_position_pct >= 0
+    )
+    concentration = evaluate_candidate(
+        portfolio,
+        candidate,
+        requested_position_pct if requested_position_valid else 0.0,
+    )
     settings = risk_settings()
     factor = evaluate_factor_liquidity_risk(
         factor_evidence or {},
@@ -289,16 +381,50 @@ def evaluate_complete_admission(
         },
         decision_asof=decision_asof,
     )
+    position_evidence_reasons = (
+        [] if requested_position_valid else ["requested_position_invalid"]
+    )
+    if not factor_evidence or factor_evidence.get("proposed_position_pct") is None:
+        position_evidence_reasons.append("risk_evidence_position_missing")
+    else:
+        try:
+            evidenced_position_pct = float(factor_evidence["proposed_position_pct"])
+            if not math.isfinite(evidenced_position_pct) or evidenced_position_pct < 0:
+                position_evidence_reasons.append("risk_evidence_position_invalid")
+            elif requested_position_valid and evidenced_position_pct < requested_position_pct:
+                position_evidence_reasons.append("risk_evidence_position_understated")
+        except (TypeError, ValueError):
+            position_evidence_reasons.append("risk_evidence_position_invalid")
     reasons = list(dict.fromkeys([
         *(str(item) for item in concentration.get("reasons") or []),
         *(str(item) for item in factor.get("reasons") or []),
+        *position_evidence_reasons,
     ]))
+    concentration_reasons = [str(item) for item in concentration.get("reasons") or []]
+    measured_rejection = (
+        factor.get("status") == "rejected"
+        or any(reason in {"single_position_limit", "sector_exposure_limit"}
+               for reason in concentration_reasons)
+    )
+    evidence_blocked = (
+        factor.get("status") == "blocked"
+        or bool(position_evidence_reasons)
+        or any(reason in {"unknown_sector", "existing_position_sector_unknown"}
+               for reason in concentration_reasons)
+    )
+    status = (
+        "rejected" if measured_rejection
+        else "blocked" if evidence_blocked
+        else "passed"
+    )
     return {
         "schema": "portfolio_admission_v2",
+        "status": status,
         "allowed": not reasons,
         "reasons": reasons,
         "concentration": concentration,
         "factor_liquidity": factor,
+        "position_evidence_reasons": position_evidence_reasons,
     }
 
 

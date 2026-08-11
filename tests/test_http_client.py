@@ -28,6 +28,15 @@ class FakeResponse:
         return self.payload
 
 
+class RedirectedResponse(FakeResponse):
+    def __init__(self, payload: bytes, resolved_url: str):
+        super().__init__(payload)
+        self.resolved_url = resolved_url
+
+    def geturl(self) -> str:
+        return self.resolved_url
+
+
 def test_module_level_bytes_text_json_apis(monkeypatch):
     payloads = iter([
         FakeResponse(b"raw"),
@@ -94,6 +103,22 @@ def test_timeout_failure_is_typed_and_never_exceeds_two_attempts():
     assert caught.value.error_type == ErrorType.TIMEOUT
     assert caught.value.attempts == 2
     assert caught.value.timestamp == "2026-06-12T05:30:00+00:00"
+
+
+def test_https_request_rejects_plaintext_redirect():
+    client = HttpClient(
+        "test",
+        opener=lambda request, timeout: RedirectedResponse(b"unsafe", "http://example.test"),
+        clock=lambda: FIXED_TIME,
+        timeout=1,
+        max_attempts=1,
+    )
+
+    with pytest.raises(DataSourceError) as caught:
+        client.request_bytes("https://example.test")
+
+    assert caught.value.error_type == ErrorType.NETWORK
+    assert "https_downgrade" in caught.value.message
 
 
 def test_invalid_json_uses_invalid_response_error():

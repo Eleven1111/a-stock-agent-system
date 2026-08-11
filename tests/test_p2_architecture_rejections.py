@@ -253,7 +253,7 @@ def test_candidate_output_propagates_strict_execution_provenance():
     assert candidate["transport_provenance"]["directional_eligible"] is False
 
 
-def test_canonical_tencent_adapter_retains_lower_trust_metadata(monkeypatch):
+def test_canonical_tencent_adapter_uses_authenticated_transport(monkeypatch):
     parts = [""] * 46
     parts[1], parts[2], parts[3], parts[4] = "示例", "600001", "10", "9"
     parts[5], parts[6], parts[31], parts[32] = "9.5", "100", "1", "11.1"
@@ -263,7 +263,7 @@ def test_canonical_tencent_adapter_retains_lower_trust_metadata(monkeypatch):
 
     class Client:
         def request_text(self, request, encoding):
-            assert request.full_url.startswith("http://")
+            assert request.full_url.startswith("https://")
             assert encoding == "gbk"
             return type("Result", (), {
                 "data": f'v_sh600001="{"~".join(parts)}"',
@@ -274,9 +274,9 @@ def test_canonical_tencent_adapter_retains_lower_trust_metadata(monkeypatch):
     result = a_stock_http.fetch_tencent_quotes_result(["sh600001"], client=Client())
     quote = result.data["sh600001"]
     assert quote["provider"] == "tencent"
-    assert quote["provider_version"] == "tencent-adapter-v2"
-    assert quote["transport_trust"] == "lower"
-    assert quote["directional_eligible"] is False
+    assert quote["provider_version"] == "tencent-adapter-v3"
+    assert quote["transport_trust"] == "authenticated"
+    assert quote["directional_eligible"] is True
     monkeypatch.setattr(a_stock_http, "fetch_tencent_quotes_result", lambda codes: result)
     assert a_stock_http.fetch_tencent_quote(["sh600001"])["sh600001"] == quote
 
@@ -285,7 +285,7 @@ def test_caller_supplied_corroboration_cannot_upgrade_lower_trust_quote(monkeypa
     result = type("Result", (), {
         "data": {"600001": {
             "provider": "tencent",
-            "provider_version": "tencent-adapter-v2",
+            "provider_version": "tencent-adapter-v3",
             "fetched_at": "2026-07-10T01:00:00+00:00",
             "transport_trust": "lower",
             "transport_reason": "transport_lower_trust",
@@ -314,6 +314,26 @@ def test_caller_supplied_corroboration_cannot_upgrade_lower_trust_quote(monkeypa
     assert still_blocked["600001"]["corroboration_status"] == (
         "rejected_untrusted_input"
     )
+
+
+def test_market_adapter_preserves_authenticated_tencent_transport(monkeypatch):
+    result = type("Result", (), {
+        "data": {"600001": {
+            "provider": "tencent",
+            "provider_version": "tencent-adapter-v3",
+            "fetched_at": "2026-07-10T01:00:00+00:00",
+            "transport_trust": "authenticated",
+            "transport_reason": "authenticated_transport",
+            "directional_eligible": True,
+            "price": 10.0,
+        }}
+    })()
+    monkeypatch.setattr(market_adapters, "_fetch_tencent_quotes_result", lambda codes: result)
+
+    quote = market_adapters.fetch_tencent_quote_with_provenance(["600001"])["600001"]
+
+    assert quote["transport_trust"] == "authenticated"
+    assert quote["directional_eligible"] is True
 
 
 @pytest.mark.parametrize(
@@ -487,7 +507,7 @@ def test_missing_primary_provider_cannot_prove_independence(monkeypatch):
     assert quote["directional_eligible"] is False
 
 
-def test_tencent_orderbook_snapshot_also_retains_lower_trust_metadata(monkeypatch):
+def test_tencent_orderbook_snapshot_uses_authenticated_transport(monkeypatch):
     parts = [""] * 46
     parts[1], parts[2], parts[3], parts[4] = "示例", "600001", "10", "9"
     parts[5], parts[6], parts[31], parts[32] = "9.5", "100", "1", "11.1"
@@ -504,8 +524,8 @@ def test_tencent_orderbook_snapshot_also_retains_lower_trust_metadata(monkeypatc
 
     assert quote["provider"] == "tencent"
     assert quote["fetched_at"] == response.fetched_at
-    assert quote["transport_trust"] == "lower"
-    assert quote["directional_eligible"] is False
+    assert quote["transport_trust"] == "authenticated"
+    assert quote["directional_eligible"] is True
 
 
 def test_strict_backtest_primary_equity_deducts_full_execution_fees():

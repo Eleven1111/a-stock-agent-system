@@ -13,6 +13,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlparse
 from typing import Any, Callable, Dict, Generic, Optional, TypeVar
 
 
@@ -232,6 +233,16 @@ class HttpClient:
         for attempt in range(1, self.max_attempts + 1):
             try:
                 with self._opener(request_obj, timeout=self.timeout) as response:
+                    resolved_url = (
+                        response.geturl()
+                        if callable(getattr(response, "geturl", None))
+                        else request_obj.full_url
+                    )
+                    if (
+                        urlparse(request_obj.full_url).scheme.lower() == "https"
+                        and urlparse(str(resolved_url or "")).scheme.lower() != "https"
+                    ):
+                        raise urllib.error.URLError("https_downgrade")
                     payload = response.read()
                 self._record_health(True, (time.monotonic() - started) * 1000)
                 return HttpResult(payload, self._timestamp(), attempt)

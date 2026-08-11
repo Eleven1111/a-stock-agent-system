@@ -741,6 +741,53 @@
       "external_note": "09:27 推送全市场竞价涨跌TOP5、打板高分票及其是否进入执行短名单"
     },
     {
+      "id": "portfolio-risk-precompute",
+      "name": "开盘组合因子与流动性证据预计算",
+      "schedule": "29 9 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "portfolio-risk-precompute",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1200,
+      "context_from": [
+        "auction-finalize"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 15
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/portfolio_risk_evidence_*.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/portfolio_risk_evidence_latest.json",
+        "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/cron/output/portfolio-risk-precompute/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "scripts/portfolio_risk_precompute.py",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 300,
+        "timeout_tier": "standard"
+      },
+      "external_note": "09:29 仅使用决策日前日线，为竞价短名单预计算相关性、beta、行业暴露、ADV容量与组合波动；任一字段缺失继续fail-closed"
+    },
+    {
       "id": "auction-chain-watch",
       "name": "集合竞价链路失败汇总",
       "schedule": "35 9,10 * * 1-5",
@@ -1122,11 +1169,15 @@
       "deliver": "origin",
       "max_output_chars": 2200,
       "context_from": [
+        "auction-finalize",
         "open-confirmation"
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 30
+        "max_age_minutes": 30,
+        "optional_jobs": [
+          "open-confirmation"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -1145,10 +1196,10 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30,
-        "timeout_tier": "short"
+        "timeout_seconds": 300,
+        "timeout_tier": "standard"
       },
-      "external_note": "复用09:35前五候选并单次抓取腾讯行情，只记录主线龙头承接研究状态；不下单、不建议当日卖出"
+      "external_note": "优先复用09:35候选，09:35降级时从同日竞价短名单恢复；抓取HTTPS行情与截至09:50的分钟线，只记录研究状态，不下单、不建议当日卖出"
     },
     {
       "id": "hot-money-afternoon-checkpoint",
@@ -1194,8 +1245,8 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30,
-        "timeout_tier": "short"
+        "timeout_seconds": 300,
+        "timeout_tier": "standard"
       },
       "external_note": "复用09:35前五候选并单次抓取腾讯行情，只记录午后主线回流研究状态；不下单、不建议当日卖出"
     },
