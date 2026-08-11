@@ -40,6 +40,33 @@ def test_sends_via_lark_cli_when_configured(monkeypatch):
     assert text_arg == f"国务院发布新政策\n{feishu_push.DISCLOSURE}"
 
 
+def test_push_text_normalises_raw_json_at_egress_boundary(monkeypatch):
+    monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
+    calls = _capture_text(monkeypatch)
+
+    feishu_push.push_text(
+        "capital-flow",
+        '{"status":"degraded","summary":"资金流正常","alerts":[]}',
+    )
+
+    assert _sent_text(calls) == f"资金流正常\n{feishu_push.DISCLOSURE}"
+
+
+def test_render_capital_flow_payload_as_summary_instead_of_json():
+    rendered = feishu_push.render_delivery_text(
+        "capital-flow",
+        '{"schema":"capital_flow_v2","northbound":{"net_flow_yi":420},'
+        '"stocks":[{"name":"韩建河山"}],"sectors":[{"name":"半导体"}],'
+        '"alerts":[{"level":"🟡","msg":"换手率异常"}]}',
+        500,
+    )
+
+    assert "资金流向：北向+420.0亿" in rendered
+    assert "换手率异常" in rendered
+    assert "capital_flow_v2" not in rendered
+    assert "{\"schema\"" not in rendered
+
+
 def test_reports_failure_without_raising(monkeypatch):
     monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
 

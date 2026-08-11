@@ -43,6 +43,100 @@ def _with_disclosure(text: str) -> str:
     return f"{text}{separator}{DISCLOSURE}"
 
 
+def _render_capital_flow(parsed: Mapping[str, Any], max_chars: int) -> str:
+    northbound = parsed.get("northbound") or {}
+    net_flow = northbound.get("net_flow_yi")
+    net_text = "NA" if net_flow is None else f"{float(net_flow):+.1f}亿"
+    lines = [
+        f"资金流向：北向{net_text}；"
+        f"跟踪股{len(parsed.get('stocks') or [])}；"
+        f"板块{len(parsed.get('sectors') or [])}"
+    ]
+    alerts = parsed.get("alerts") or []
+    if alerts:
+        lines.append("资金异动：")
+        for alert in alerts[:10]:
+            if isinstance(alert, Mapping):
+                detail = alert.get("msg") or alert.get("message") or ""
+                lines.append(
+                    f"- {alert.get('level') or '⚠️'} {detail}".rstrip()
+                )
+            else:
+                lines.append(f"- {alert}")
+        if len(alerts) > 10:
+            lines.append(f"... 共 {len(alerts)} 条")
+    return "\n".join(lines)[:max_chars]
+
+
+def _append_first_item_group(
+    parsed: Mapping[str, Any], lines: list[str]
+) -> None:
+    for key in (
+        "signals", "alerts", "events", "confirmations",
+        "items", "articles", "news",
+    ):
+        items = parsed.get(key)
+        if not isinstance(items, list) or not items:
+            continue
+        for item in items[:10]:
+            if isinstance(item, Mapping):
+                rank = str(item.get("source_rank") or item.get("rank") or "")
+                title = str(item.get("title") or item.get("name") or "")
+                url = str(item.get("url") or "")
+                line = f"[{rank}] {title} {url}".strip()
+                lines.append(line if line else str(item)[:200])
+            else:
+                lines.append(str(item)[:200])
+        if len(items) > 10:
+            lines.append(f"... 共 {len(items)} 条")
+        return
+
+
+def _summary_count_text(summary: Any) -> str:
+    if not isinstance(summary, Mapping):
+        return ""
+    counts = {
+        str(key).replace("_count", ""): value
+        for key, value in summary.items()
+        if str(key).endswith("_count") and value is not None
+    }
+    return " | ".join(f"{key}={value}" for key, value in counts.items())
+
+
+def _fallback_delivery_line(job_id: str, parsed: Mapping[str, Any]) -> str:
+    status = parsed.get("status")
+    counts = [
+        f"{str(key).replace('_count', '')}={value}"
+        for key, value in parsed.items()
+        if str(key).endswith("_count") and value is not None
+    ]
+    prefix = job_id or "任务"
+    if status is not None:
+        prefix = f"{prefix}：{status}"
+    return prefix + (" | " + " | ".join(counts) if counts else "")
+
+
+def _render_mapping(
+    job_id: str, parsed: Mapping[str, Any], max_chars: int
+) -> str:
+    if parsed.get("schema") == "capital_flow_v2":
+        return _render_capital_flow(parsed, max_chars)
+    lines: list[str] = []
+    message = parsed.get("message")
+    if isinstance(message, str) and message.strip():
+        lines.append(message.strip())
+    summary = parsed.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        lines.append(summary.strip())
+    _append_first_item_group(parsed, lines)
+    count_text = _summary_count_text(summary)
+    if count_text:
+        lines.append(count_text)
+    if not lines:
+        lines.append(_fallback_delivery_line(job_id, parsed))
+    return "\n".join(line for line in lines if line).strip()[:max_chars]
+
+
 def render_delivery_text(job_id: str, stdout: str, max_chars: int) -> str:
     """Render job stdout as human-readable Feishu text.
 
@@ -59,38 +153,7 @@ def render_delivery_text(job_id: str, stdout: str, max_chars: int) -> str:
         return raw[:max_chars]
     if not isinstance(parsed, Mapping):
         return raw[:max_chars]
-
-    lines: list[str] = []
-    message = parsed.get("message")
-    if isinstance(message, str) and message.strip():
-        lines.append(message.strip())
-    for key in ("signals", "alerts", "events", "confirmations"):
-        items = parsed.get(key)
-        if not isinstance(items, list) or not items:
-            continue
-        for item in items[:10]:
-            if isinstance(item, Mapping):
-                rank = str(item.get("source_rank") or item.get("rank") or "")
-                title = str(item.get("title") or item.get("name") or "")
-                url = str(item.get("url") or "")
-                line = f"[{rank}] {title} {url}".strip()
-                lines.append(line if line else str(item)[:200])
-            else:
-                lines.append(str(item)[:200])
-        if len(items) > 10:
-            lines.append(f"... 共 {len(items)} 条")
-        break
-    summary = parsed.get("summary")
-    if isinstance(summary, Mapping):
-        counts = {
-            str(k).replace("_count", ""): v
-            for k, v in summary.items()
-            if str(k).endswith("_count") and v is not None
-        }
-        if counts:
-            lines.append(" | ".join(f"{k}={v}" for k, v in counts.items()))
-    text = "\n".join(line for line in lines if line).strip()
-    return (text or raw)[:max_chars]
+    return _render_mapping(job_id, parsed, max_chars)
 
 
 def push_text(job_id: str, text: str, *, timeout_seconds: int = 15) -> dict[str, Any]:
@@ -104,6 +167,16 @@ def push_text(job_id: str, text: str, *, timeout_seconds: int = 15) -> dict[str,
         return {"status": "not_configured", "job_id": job_id}
     if not text.strip():
         return {"status": "empty", "job_id": job_id}
+
+    # Keep the egress boundary safe even for callers that bypass
+    # render_delivery_text.  Feishu should never receive a raw artifact JSON
+    # merely because a new caller forgot to use the renderer.
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        parsed = None
+    if isinstance(parsed, Mapping):
+        text = render_delivery_text(job_id, text, 12000)
 
     text = _with_disclosure(text)
 
