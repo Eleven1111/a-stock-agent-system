@@ -564,8 +564,14 @@ def target_output(
         ):
             return "NO_REPLY\n"
         # Fall through to default delivery (OpenClaw announce channel)
+    job_id = str(job.get("id") or artifact.get("job_id") or "")
     stdout = str(artifact.get("stdout") or "")
     max_chars = max(200, int(job.get("max_output_chars") or 4000))
+    if job.get("deliver") == "feishu_direct":
+        # The direct Feishu path can fail (for example when the chat ID or
+        # lark-cli is unavailable). Its OpenClaw fallback must preserve the
+        # same human-readable contract instead of leaking producer JSON.
+        stdout = feishu_push.render_delivery_text(job_id, stdout, max_chars)
     was_compressed = len(stdout) > max_chars
     if was_compressed:
         stdout = _compress_stdout(job, artifact, len(stdout))[:max_chars]
