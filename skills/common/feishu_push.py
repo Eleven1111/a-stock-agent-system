@@ -60,11 +60,39 @@ def render_delivery_text(job_id: str, stdout: str, max_chars: int) -> str:
     if not isinstance(parsed, Mapping):
         return raw[:max_chars]
 
+    if parsed.get("schema") == "capital_flow_v2":
+        northbound = parsed.get("northbound") or {}
+        net_flow = northbound.get("net_flow_yi")
+        net_text = "NA" if net_flow is None else f"{float(net_flow):+.1f}亿"
+        lines = [
+            f"资金流向：北向{net_text}；"
+            f"跟踪股{len(parsed.get('stocks') or [])}；"
+            f"板块{len(parsed.get('sectors') or [])}"
+        ]
+        alerts = parsed.get("alerts") or []
+        if alerts:
+            lines.append("资金异动：")
+            for alert in alerts[:10]:
+                if isinstance(alert, Mapping):
+                    lines.append(f"- {alert.get('level') or '⚠️'} {alert.get('msg') or alert.get('message') or ''}".rstrip())
+                else:
+                    lines.append(f"- {alert}")
+            if len(alerts) > 10:
+                lines.append(f"... 共 {len(alerts)} 条")
+        return "\n".join(lines)[:max_chars]
+
     lines: list[str] = []
     message = parsed.get("message")
     if isinstance(message, str) and message.strip():
         lines.append(message.strip())
-    for key in ("signals", "alerts", "events", "confirmations"):
+    # Most notification jobs use a plain string summary.  The old renderer
+    # only handled summary mappings, so an otherwise useful payload such as
+    # {"summary":"资金流正常", "alerts":[]} fell through to raw JSON.
+    summary = parsed.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        lines.append(summary.strip())
+
+    for key in ("signals", "alerts", "events", "confirmations", "items", "articles", "news"):
         items = parsed.get(key)
         if not isinstance(items, list) or not items:
             continue
@@ -80,7 +108,7 @@ def render_delivery_text(job_id: str, stdout: str, max_chars: int) -> str:
         if len(items) > 10:
             lines.append(f"... 共 {len(items)} 条")
         break
-    summary = parsed.get("summary")
+
     if isinstance(summary, Mapping):
         counts = {
             str(k).replace("_count", ""): v
@@ -89,8 +117,22 @@ def render_delivery_text(job_id: str, stdout: str, max_chars: int) -> str:
         }
         if counts:
             lines.append(" | ".join(f"{k}={v}" for k, v in counts.items()))
+
+    # Last-resort human rendering.  Never send a machine-readable JSON blob
+    # to Feishu when the producer adds a new schema we have not seen yet.
+    if not lines:
+        status = parsed.get("status")
+        counts = [
+            f"{str(key).replace('_count', '')}={value}"
+            for key, value in parsed.items()
+            if str(key).endswith("_count") and value is not None
+        ]
+        prefix = job_id or "任务"
+        if status is not None:
+            prefix = f"{prefix}：{status}"
+        lines.append(prefix + (" | " + " | ".join(counts) if counts else ""))
     text = "\n".join(line for line in lines if line).strip()
-    return (text or raw)[:max_chars]
+    return text[:max_chars]
 
 
 def push_text(job_id: str, text: str, *, timeout_seconds: int = 15) -> dict[str, Any]:
@@ -104,6 +146,16 @@ def push_text(job_id: str, text: str, *, timeout_seconds: int = 15) -> dict[str,
         return {"status": "not_configured", "job_id": job_id}
     if not text.strip():
         return {"status": "empty", "job_id": job_id}
+
+    # Keep the egress boundary safe even for callers that bypass
+    # render_delivery_text.  Feishu should never receive a raw artifact JSON
+    # merely because a new caller forgot to use the renderer.
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        parsed = None
+    if isinstance(parsed, Mapping):
+        text = render_delivery_text(job_id, text, 12000)
 
     text = _with_disclosure(text)
 
