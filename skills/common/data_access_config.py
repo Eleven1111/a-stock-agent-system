@@ -78,7 +78,11 @@ DEFAULTS: Dict[str, Any] = {
         "intraday_limit": 2,
         "freshness_sla_minutes": 180,
         "intraday_freshness_sla_minutes": 10,
-        "intraday_candidate_limit": 20,
+        "intraday_candidate_limit": 10,
+        "intraday_stock_limit": 10,
+        "intraday_theme_limit": 5,
+        "query_cache_ttl_seconds": 600,
+        "stock_query_cache_ttl_seconds": 1800,
         "intraday_query_budget_seconds": 45,
         "intraday_provider_timeout_seconds": 5,
         "queries": [
@@ -350,6 +354,10 @@ def _sanitize(config: Dict[str, Any]) -> Dict[str, Any]:
         "freshness_sla_minutes",
         "intraday_freshness_sla_minutes",
         "intraday_candidate_limit",
+        "intraday_stock_limit",
+        "intraday_theme_limit",
+        "query_cache_ttl_seconds",
+        "stock_query_cache_ttl_seconds",
         "intraday_query_budget_seconds",
         "intraday_provider_timeout_seconds",
     ):

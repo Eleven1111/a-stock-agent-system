@@ -232,7 +232,9 @@ def test_scheduled_news_monitor_parses_event_time_and_latency(monkeypatch):
     assert result["signals"] == result["events"]
 
 
-def test_scheduled_news_monitor_fails_closed_on_stale_news(monkeypatch):
+def test_scheduled_news_monitor_fails_closed_on_stale_news(tmp_path, monkeypatch):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     monitor = load_module("scheduled_news_monitor_stale_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
     monkeypatch.setattr(monitor, "_serper_key", lambda: "test-key")
     monkeypatch.setattr(
@@ -292,6 +294,80 @@ def test_intraday_news_mode_includes_runtime_stock_targets(monkeypatch):
 
     assert any("平安银行 000001" in query for query in queries)
     assert any("监管问询" in query and "停牌" in query for query in queries)
+
+
+def test_intraday_news_mode_bounds_dynamic_query_expansion(monkeypatch):
+    monitor = load_module(
+        "scheduled_news_monitor_intraday_budget_test",
+        "skills/news-to-sector/scripts/scheduled_monitor.py",
+    )
+    monkeypatch.setattr(
+        monitor,
+        "load_stock_targets",
+        lambda candidate_limit=0: [
+            {"code": f"600{i:03d}", "name": f"候选{i}"} for i in range(30)
+        ],
+    )
+    monkeypatch.setattr(
+        monitor,
+        "active_entries",
+        lambda kind=None: [
+            {"kind": "stock", "key": f"000{i:03d}", "label": f"关注{i}"}
+            for i in range(100)
+        ]
+        + [{"kind": "theme", "key": f"主题{i}", "label": f"主题{i}"} for i in range(30)],
+    )
+
+    queries = monitor.build_queries(mode="intraday")
+
+    assert len(queries) <= 30
+
+
+def test_scheduled_news_monitor_reports_processing_funnel(tmp_path, monkeypatch):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monitor = load_module("scheduled_news_monitor_funnel_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: "test-key")
+    monkeypatch.setattr(
+        monitor,
+        "fetch_news",
+        lambda *args, **kwargs: [
+            {"title": "公司获得大额订单", "snippet": "订单", "date": "刚刚", "link": "https://example.com/1"},
+            {"title": "公司获得大额订单", "snippet": "重复", "date": "刚刚", "link": "https://example.com/1"},
+        ],
+    )
+    monkeypatch.setattr(monitor, "update_catalyst_context", lambda events: {})
+
+    result = monitor.run_monitor(
+        ["测试股 600001 公告"], limit=2, now=datetime(2026, 6, 17, 10, 0)
+    )
+
+    assert result["raw_event_count"] == 2
+    assert result["deduped_event_count"] == 1
+    assert result["novel_event_count"] == 1
+    assert result["actionable_signal_count"] == 1
+
+
+def test_scheduled_news_monitor_reuses_non_stock_queries_within_cache_ttl(tmp_path, monkeypatch):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monitor = load_module("scheduled_news_monitor_query_cache_test", "skills/news-to-sector/scripts/scheduled_monitor.py")
+    monkeypatch.setattr(monitor, "_serper_key", lambda: "test-key")
+    calls = []
+
+    def fetch(*args, **kwargs):
+        calls.append(args[0])
+        return [{"title": "最新政策", "snippet": "A股", "date": "刚刚", "link": "https://example.com/policy"}]
+
+    monkeypatch.setattr(monitor, "fetch_news", fetch)
+    monkeypatch.setattr(monitor, "update_catalyst_context", lambda events: {})
+
+    first = monitor.run_monitor(["国务院 A股 政策"], limit=1, now=datetime(2026, 6, 17, 10, 0))
+    second = monitor.run_monitor(["国务院 A股 政策"], limit=1, now=datetime(2026, 6, 17, 10, 5))
+
+    assert calls == ["国务院 A股 政策"]
+    assert first["executed_query_count"] == 1
+    assert second["cached_query_count"] == 1
 
 
 def test_social_attention_collection_writes_snapshot_and_signal_context(

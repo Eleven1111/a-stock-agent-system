@@ -28,6 +28,8 @@ from monitor_registry import active_entries  # noqa: E402
 from recommendation_quality import scan_announcement_risks  # noqa: E402
 from catalyst_context import update_catalyst_context  # noqa: E402
 from runtime_targets import load_stock_targets  # noqa: E402
+from paths import cache_dir  # noqa: E402
+from state_store import atomic_write_json, read_json  # noqa: E402
 import novelty_gate  # noqa: E402
 
 
@@ -38,10 +40,14 @@ DEFAULT_FRESHNESS_SLA_MINUTES = int(_NEWS_CONFIG.get("freshness_sla_minutes", 18
 INTRADAY_LIMIT = int(_NEWS_CONFIG.get("intraday_limit", DEFAULT_LIMIT))
 INTRADAY_FRESHNESS_SLA_MINUTES = int(_NEWS_CONFIG.get("intraday_freshness_sla_minutes", 10))
 INTRADAY_CANDIDATE_LIMIT = int(_NEWS_CONFIG.get("intraday_candidate_limit", 20))
+INTRADAY_STOCK_LIMIT = int(_NEWS_CONFIG.get("intraday_stock_limit", 10))
+INTRADAY_THEME_LIMIT = int(_NEWS_CONFIG.get("intraday_theme_limit", 5))
 INTRADAY_QUERY_BUDGET_SECONDS = float(_NEWS_CONFIG.get("intraday_query_budget_seconds", 45))
 INTRADAY_PROVIDER_TIMEOUT_SECONDS = float(
     _NEWS_CONFIG.get("intraday_provider_timeout_seconds", 5)
 )
+QUERY_CACHE_TTL_SECONDS = int(_NEWS_CONFIG.get("query_cache_ttl_seconds", 600))
+STOCK_QUERY_CACHE_TTL_SECONDS = int(_NEWS_CONFIG.get("stock_query_cache_ttl_seconds", 1800))
 SCHEDULED_STOCK_LIMIT = int(_NEWS_CONFIG.get("scheduled_stock_limit", 20))
 FALLBACK_NOISE_KEYWORDS = {
     "世界杯", "足球", "赛前", "比赛", "球队", "球员", "小将", "nba",
@@ -58,10 +64,30 @@ FALLBACK_HARD_MARKET_KEYWORDS = {
 }
 
 
+def query_cache_path() -> str:
+    return f"{cache_dir('news-to-sector')}/serper_query_cache.json"
+
+
+def _query_cache_ttl(query: str) -> int:
+    """Keep macro/theme results briefly; cool down repeated stock lookups longer."""
+    return STOCK_QUERY_CACHE_TTL_SECONDS if stock_code_from_query(query) else QUERY_CACHE_TTL_SECONDS
+
+
+def _cached_query_events(cache: Dict[str, Any], query: str, now: datetime) -> List[Dict[str, Any]] | None:
+    entry = cache.get(query)
+    if not isinstance(entry, dict):
+        return None
+    fetched_at = entry.get("fetched_at")
+    if not isinstance(fetched_at, (int, float)) or now.timestamp() - fetched_at > _query_cache_ttl(query):
+        return None
+    events = entry.get("events")
+    return list(events) if isinstance(events, list) else None
+
+
 def build_queries(base_queries: List[str] | None = None, *, mode: str = "scheduled") -> List[str]:
     queries = list(base_queries or DEFAULT_QUERIES)
     if mode == "intraday":
-        for target in load_stock_targets(candidate_limit=INTRADAY_CANDIDATE_LIMIT):
+        for target in load_stock_targets(candidate_limit=INTRADAY_CANDIDATE_LIMIT)[:INTRADAY_CANDIDATE_LIMIT]:
             code = str(target.get("code") or "")
             label = str(target.get("name") or code)
             if code:
@@ -71,6 +97,13 @@ def build_queries(base_queries: List[str] | None = None, *, mode: str = "schedul
         # Only query top-N stocks in scheduled mode to stay within API budget
         stock_entries = [e for e in entries if e.get("kind") == "stock"]
         entries = stock_entries[:SCHEDULED_STOCK_LIMIT] + [e for e in entries if e.get("kind") != "stock"]
+    elif mode == "intraday":
+        stock_entries = [e for e in entries if e.get("kind") == "stock"]
+        other_entries = [e for e in entries if e.get("kind") in {"theme", "sector"}]
+        entries = (
+            stock_entries[:INTRADAY_STOCK_LIMIT]
+            + other_entries[:INTRADAY_THEME_LIMIT]
+        )
     for item in entries:
         kind = item.get("kind")
         key = str(item.get("key") or "")
@@ -277,6 +310,11 @@ def run_monitor(
     events: List[Dict[str, Any]] = []
     errors = []
     serper_events = 0
+    query_cache = read_json(query_cache_path(), {})
+    if not isinstance(query_cache, dict):
+        query_cache = {}
+    cached_query_count = 0
+    executed_query_count = 0
     if api_key:
         started = time.monotonic()
         for query in queries:
@@ -289,16 +327,26 @@ def run_monitor(
                 break
             try:
                 stock_code = stock_code_from_query(query)
-                if mode == "intraday":
-                    fetched = fetch_serper_news(
-                        query,
-                        api_key,
-                        limit,
-                        timeout_seconds=INTRADAY_PROVIDER_TIMEOUT_SECONDS,
-                        max_attempts=1,
-                    ).data
+                cached = _cached_query_events(query_cache, query, current)
+                if cached is not None:
+                    fetched = cached
+                    cached_query_count += 1
                 else:
-                    fetched = fetch_news(query, api_key, limit)
+                    executed_query_count += 1
+                    if mode == "intraday":
+                        fetched = fetch_serper_news(
+                            query,
+                            api_key,
+                            limit,
+                            timeout_seconds=INTRADAY_PROVIDER_TIMEOUT_SECONDS,
+                            max_attempts=1,
+                        ).data
+                    else:
+                        fetched = fetch_news(query, api_key, limit)
+                    query_cache[query] = {
+                        "fetched_at": current.timestamp(),
+                        "events": fetched,
+                    }
                 serper_events += len(fetched)
                 for event in fetched:
                     events.append(
@@ -326,6 +374,9 @@ def run_monitor(
             "error": "SERPER_API_KEY/SERPER_API_KEYS missing",
         })
 
+    if executed_query_count:
+        atomic_write_json(query_cache_path(), query_cache)
+
     fallback_events = 0
     if not events:
         try:
@@ -344,6 +395,7 @@ def run_monitor(
         except DataSourceError as exc:
             errors.append({"query": "public_finance_fallback", **exc.to_dict()})
 
+    raw_event_count = len(events)
     seen = set()
     deduped = []
     for event in events:
@@ -352,6 +404,7 @@ def run_monitor(
             continue
         seen.add(key)
         deduped.append(classify_event(event))
+    deduped_event_count = len(deduped)
     job_id = "news-monitor-intraday" if mode == "intraday" else "news-monitor"
     novelty = novelty_gate.filter_items(
         deduped,
@@ -360,6 +413,7 @@ def run_monitor(
         now=current,
     )
     deduped = novelty.items
+    novel_event_count = len(deduped)
 
     risk_events = [
         event for event in deduped
@@ -389,12 +443,18 @@ def run_monitor(
         "status": status,
         "mode": mode,
         "query_count": len(queries),
+        "cached_query_count": cached_query_count,
+        "executed_query_count": executed_query_count,
         "events": deduped,
         "event_count": len(deduped),
+        "raw_event_count": raw_event_count,
+        "deduped_event_count": deduped_event_count,
+        "novel_event_count": novel_event_count,
         "risk_events": risk_events,
         "risk_event_count": len(risk_events),
         "signals": deduped if directional_ready else [],
         "signal_count": len(deduped) if directional_ready else 0,
+        "actionable_signal_count": len(deduped) if directional_ready else 0,
         "duplicate_event_count": novelty.duplicate_count,
         "archive_note": novelty_gate.duplicate_archive_note(novelty),
         "novelty_gate": {

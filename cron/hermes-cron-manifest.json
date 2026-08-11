@@ -1844,6 +1844,7 @@
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
+        "$A_STOCK_STATE_HOME/skills/news-to-sector/cache/",
         "$A_STOCK_STATE_HOME/cron/output/news-monitor/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
         "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
@@ -1889,6 +1890,7 @@
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/monitor_registry.json",
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
+        "$A_STOCK_STATE_HOME/skills/news-to-sector/cache/",
         "$A_STOCK_STATE_HOME/cron/output/news-monitor-weekend/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
         "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
@@ -2056,6 +2058,7 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/stock-triage/cache/catalyst_context.json",
+        "$A_STOCK_STATE_HOME/skills/news-to-sector/cache/",
         "$A_STOCK_STATE_HOME/cron/output/news-monitor-intraday/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
         "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
