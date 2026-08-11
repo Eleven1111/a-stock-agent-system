@@ -205,7 +205,11 @@ def evaluate_decision(
             reasons.append("market_risk_off")
 
         if portfolio_risk and portfolio_risk.get("allowed") is False:
-            decision = "avoid"
+            if portfolio_risk.get("status") == "blocked":
+                if decision in POSITIVE_ACTIONS:
+                    decision = "watch"
+            else:
+                decision = "avoid"
             multiplier = 0.0
             reasons.extend(str(reason) for reason in portfolio_risk.get("reasons") or [])
 

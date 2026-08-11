@@ -9,7 +9,9 @@ same-day exit for a position opened today.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
+import math
 import os
 from datetime import date, datetime
 from typing import Any, Mapping, Sequence
@@ -23,7 +25,7 @@ import candidate_fsm  # noqa: E402
 import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
-from market_adapters import fetch_tencent_snapshot  # noqa: E402
+from market_adapters import fetch_tencent_minute, fetch_tencent_snapshot  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot, write_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
@@ -37,12 +39,14 @@ PROFILE_RULES = {
         "stage": "morning_reconfirmed",
         "min_change_pct": 3.0,
         "min_open_return_pct": -1.0,
+        "required_bars": 15,
     },
     "afternoon_reflow": {
         "window": "13:15",
         "stage": "afternoon_reflow",
         "min_change_pct": 2.0,
         "min_open_return_pct": 0.0,
+        "required_bars": 30,
     },
 }
 
@@ -51,27 +55,79 @@ def open_confirmation_path(asof: str) -> str:
     return data_file("daban-stock-picker", f"open_confirmation_{asof}.json")
 
 
+def auction_shortlist_path(asof: str) -> str:
+    return data_file("daban-stock-picker", f"auction_shortlist_{asof}.json")
+
+
 def latest_output_path(profile: str) -> str:
     return data_file("daban-stock-picker", f"hot_money_checkpoint_{profile}_latest.json")
 
 
 def load_open_confirmation(asof: str) -> dict[str, Any]:
     result = read_json(open_confirmation_path(asof), {})
-    if not isinstance(result, dict) or result.get("status") != "ready":
+    if not isinstance(result, dict) or not result:
         raise DataSourceError("open_confirmation", f"{asof} 开盘确认结果缺失或不可用")
     if str(result.get("asof") or "") != asof:
         raise DataSourceError(
             "open_confirmation",
             f"开盘确认日期不一致: source={result.get('asof')}, event={asof}",
         )
-    if not isinstance(result.get("signals"), list):
-        raise DataSourceError("open_confirmation", "开盘确认缺少 signals")
+    if str(result.get("status") or "") not in {"ready", "degraded", "insufficient_data"}:
+        raise DataSourceError("open_confirmation", "开盘确认状态不可用于研究恢复")
     return result
+
+
+def _source_candidates(source: Mapping[str, Any]) -> list[dict[str, Any]]:
+    for key in ("signals", "evaluated_confirmations", "confirmations"):
+        candidates = source.get(key)
+        if isinstance(candidates, list) and candidates:
+            return [dict(item) for item in candidates if isinstance(item, Mapping)]
+    return []
+
+
+def load_checkpoint_source(asof: str) -> dict[str, Any]:
+    """Load 09:35 output when useful, otherwise recover from the same-day shortlist."""
+    confirmation = read_json(open_confirmation_path(asof), {})
+    if confirmation:
+        confirmation = load_open_confirmation(asof)
+        if _source_candidates(confirmation):
+            return confirmation
+    shortlist = read_json(auction_shortlist_path(asof), {})
+    if not isinstance(shortlist, dict) or str(shortlist.get("asof") or "") != asof:
+        raise DataSourceError(
+            "checkpoint_source",
+            f"{asof} 开盘确认与竞价短名单均无可恢复候选",
+        )
+    candidates = shortlist.get("shortlist")
+    if not isinstance(candidates, list) or not candidates:
+        raise DataSourceError("checkpoint_source", f"{asof} 无可恢复候选")
+    return {
+        **shortlist,
+        "status": "auction_fallback",
+        "evaluated_confirmations": candidates,
+    }
 
 
 def fetch_quotes(codes: Sequence[str]) -> dict[str, dict[str, Any]]:
     unique = list(dict.fromkeys(code for code in codes if code))[:MAX_CANDIDATES]
-    return dict(fetch_tencent_snapshot(unique)) if unique else {}
+    quotes = dict(fetch_tencent_snapshot(unique)) if unique else {}
+    def fetch_minutes(code: str) -> tuple[str, list[dict[str, Any]]]:
+        market_code = candidate_pipeline.market_code(code)
+        try:
+            rows = fetch_tencent_minute(
+                candidate_pipeline.naked_code(market_code),
+                market=market_code[:2],
+            )
+        except DataSourceError:
+            rows = []
+        return code, [dict(row) for row in rows]
+
+    with ThreadPoolExecutor(max_workers=min(4, len(quotes) or 1)) as executor:
+        minute_results = executor.map(fetch_minutes, quotes)
+    for code, rows in minute_results:
+        if rows:
+            quotes[code]["minute_bars"] = rows
+    return quotes
 
 
 def _quote_map(quotes: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -86,7 +142,8 @@ def _number(value: Any, default: float = 0.0) -> float:
     try:
         if value in (None, "", "-"):
             return default
-        return float(value)
+        result = float(value)
+        return result if math.isfinite(result) else default
     except (TypeError, ValueError):
         return default
 
@@ -153,9 +210,63 @@ def _checkpoint_vwap_ratio(metric: Any) -> float | None:
 
 
 def _checkpoint_intraday(
-    quote: Mapping[str, Any], item: Mapping[str, Any]
+    quote: Mapping[str, Any], item: Mapping[str, Any], *, cutoff: str
 ) -> tuple[list[float], list[float]]:
     """Return (positive prices, above-vwap flags) from the first minute series found."""
+    rows: list[Mapping[str, Any]] = []
+    for obj in (quote, item):
+        for key in ("intraday_bars", "minute_bars", "bars", "minutes", "分时"):
+            candidate = obj.get(key) if isinstance(obj, Mapping) else None
+            if isinstance(candidate, Sequence) and not isinstance(candidate, (str, bytes)):
+                by_time = {
+                    str(row.get("time")): row
+                    for row in candidate
+                    if isinstance(row, Mapping)
+                    and _valid_checkpoint_time(row.get("time"), cutoff=cutoff)
+                }
+                rows = [by_time[key] for key in sorted(by_time)]
+                break
+        if rows:
+            break
+    prices: list[float] = []
+    above: list[float] = []
+    for row in rows:
+        values = _checkpoint_row_values(row)
+        if values is None:
+            continue
+        price, vwap = values
+        prices.append(price)
+        above.append(1.0 if price > vwap else 0.0)
+    return prices, above
+
+
+def _checkpoint_row_values(row: Mapping[str, Any]) -> tuple[float, float] | None:
+    price = _number(row.get("price", row.get("close", row.get("最新价"))))
+    if price <= 0:
+        return None
+    vwap = _number(row.get("vwap", row.get("VWAP", row.get("均价"))))
+    if vwap <= 0:
+        amount = _number(row.get("cum_amount"))
+        volume = _number(row.get("cum_volume"))
+        if amount > 0 and volume > 0:
+            vwap = amount / (volume * 100.0)
+    if not math.isfinite(vwap) or vwap <= 0:
+        return None
+    return price, vwap
+
+
+def _valid_checkpoint_time(value: Any, *, cutoff: str) -> bool:
+    text = str(value or "")
+    if len(text) != 4 or not text.isdigit() or text > cutoff:
+        return False
+    hour, minute = int(text[:2]), int(text[2:])
+    value_minutes = hour * 60 + minute
+    return minute <= 59 and (570 <= value_minutes <= 690 or 780 <= value_minutes <= 900)
+
+
+def _checkpoint_window_ready(
+    quote: Mapping[str, Any], item: Mapping[str, Any], *, cutoff: str, period: int
+) -> bool:
     rows: list[Mapping[str, Any]] = []
     for obj in (quote, item):
         for key in ("intraday_bars", "minute_bars", "bars", "minutes", "分时"):
@@ -165,51 +276,96 @@ def _checkpoint_intraday(
                 break
         if rows:
             break
-    prices: list[float] = []
-    above: list[float] = []
-    for row in rows:
-        try:
-            price = float(row.get("price", row.get("close", row.get("最新价"))))
-        except (TypeError, ValueError):
-            continue
-        if price <= 0:
-            continue
-        prices.append(price)
-        try:
-            vwap = float(row.get("vwap", row.get("VWAP", row.get("均价"))))
-        except (TypeError, ValueError):
-            vwap = 0.0
-        if vwap > 0:
-            above.append(1.0 if price > vwap else 0.0)
-    return prices, above
+    observed = {
+        str(row.get("time")): row for row in rows
+        if _valid_checkpoint_time(row.get("time"), cutoff=cutoff)
+    }
+    expected = {
+        f"{(570 + offset) // 60:02d}{(570 + offset) % 60:02d}"
+        for offset in range(period)
+    }
+    return expected.issubset(observed) and all(
+        _checkpoint_row_values(observed[timestamp]) is not None
+        for timestamp in expected
+    )
+
+
+def _quote_at_checkpoint_cutoff(
+    quote: Mapping[str, Any], *, cutoff: str
+) -> dict[str, Any]:
+    result = dict(quote)
+    rows = []
+    for key in ("intraday_bars", "minute_bars", "bars", "minutes", "分时"):
+        candidate = quote.get(key)
+        if isinstance(candidate, Sequence) and not isinstance(candidate, (str, bytes)):
+            rows = [
+                row for row in candidate
+                if isinstance(row, Mapping)
+                and _valid_checkpoint_time(row.get("time"), cutoff=cutoff)
+            ]
+            break
+    rows.sort(key=lambda row: str(row.get("time")))
+    prices = [_number(row.get("price")) for row in rows if _number(row.get("price")) > 0]
+    if not rows or not prices:
+        return {}
+    last = rows[-1]
+    result.update({
+        "price": prices[-1],
+        "high": max(prices),
+        "low": min(prices),
+        "volume": last.get("cum_volume", result.get("volume")),
+        "amount": last.get("cum_amount", result.get("amount")),
+        "evidence_cutoff": cutoff,
+        "quote_reconstructed_from_minute": True,
+    })
+    previous = _number(result.get("prev_close"))
+    if previous > 0:
+        result["change_pct"] = round((prices[-1] / previous - 1.0) * 100.0, 4)
+    return result
 
 
 def _checkpoint_drawdown(prices: list[float], period: int) -> float | None:
     sample = prices[:period]
-    if not sample:
+    if len(sample) < period:
         return None
     return max(0.0, (max(sample) - sample[-1]) / max(sample) * 100.0)
 
 
-def _checkpoint_metrics(item: Mapping[str, Any], quote: Mapping[str, Any]) -> dict[str, Any]:
+def _checkpoint_metrics(
+    item: Mapping[str, Any], quote: Mapping[str, Any], *, cutoff: str
+) -> dict[str, Any]:
     """Return optional evidence, preserving missing values as ``None``."""
     def metric(names: Sequence[str]) -> float | None:
         return _optional_number(quote, item, names=names)
 
-    relative_volume = _checkpoint_relative_volume(metric)
-    vwap_ratio = _checkpoint_vwap_ratio(metric)
-    dd15 = metric(("open_15m_drawdown_pct", "opening_15m_drawdown_pct", "drawdown_15m_pct", "开盘15分钟回撤"))
-    dd30 = metric(("open_30m_drawdown_pct", "opening_30m_drawdown_pct", "drawdown_30m_pct", "开盘30分钟回撤"))
-    prices, above = _checkpoint_intraday(quote, item)
-    if vwap_ratio is None and above:
-        vwap_ratio = sum(above) / len(above)
+    prices, above = _checkpoint_intraday(quote, item, cutoff=cutoff)
     if prices:
-        if dd15 is None:
-            dd15 = _checkpoint_drawdown(prices, 15)
-        if dd30 is None:
-            dd30 = _checkpoint_drawdown(prices, 30)
+        vwap_ratio = sum(above) / len(above) if above else None
+        dd15 = _checkpoint_drawdown(prices, 15)
+        dd30 = _checkpoint_drawdown(prices, 30)
+    else:
+        vwap_ratio = _checkpoint_vwap_ratio(metric)
+        dd15 = metric(("open_15m_drawdown_pct", "opening_15m_drawdown_pct", "drawdown_15m_pct", "开盘15分钟回撤"))
+        dd30 = metric(("open_30m_drawdown_pct", "opening_30m_drawdown_pct", "drawdown_30m_pct", "开盘30分钟回撤"))
+    current_volume = _optional_number(quote, names=("volume", "成交量"))
+    previous_volume = _optional_number(
+        quote, item,
+        names=("previous_volume", "prev_volume", "yesterday_volume", "昨日量"),
+    )
+    relative_volume = (
+        current_volume / previous_volume
+        if current_volume is not None and previous_volume and previous_volume > 0
+        else _checkpoint_relative_volume(metric)
+    )
 
     values = {
+        "observed_bar_count": len(prices),
+        "fifteen_minute_ready": _checkpoint_window_ready(
+            quote, item, cutoff=cutoff, period=15
+        ),
+        "thirty_minute_ready": _checkpoint_window_ready(
+            quote, item, cutoff=cutoff, period=30
+        ),
         "open_relative_volume": relative_volume,
         "opening_relative_volume": relative_volume,
         "vwap_above_time_ratio": vwap_ratio,
@@ -243,7 +399,11 @@ def _checkpoint_metrics(item: Mapping[str, Any], quote: Mapping[str, Any]) -> di
     values["reseal_continuity"] = values["reseal_persistence"]
     values["reclose_continuity"] = values["reseal_persistence"]
     return {
-        key: round(value, 4) if isinstance(value, (int, float)) else value
+        key: (
+            round(value, 4)
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+            else value
+        )
         for key, value in values.items()
     }
 
@@ -258,12 +418,14 @@ def evaluate_checkpoint(
     if profile not in PROFILE_RULES:
         raise ValueError(f"unsupported checkpoint profile: {profile}")
     rules = PROFILE_RULES[profile]
+    cutoff = str(rules["window"]).replace(":", "")
     normalized_quotes = _quote_map(quotes)
     observations: list[dict[str, Any]] = []
     for raw in candidates[:MAX_CANDIDATES]:
         item = dict(raw)
         code = candidate_pipeline.naked_code(item.get("code"))
-        quote = normalized_quotes.get(code)
+        raw_quote = normalized_quotes.get(code)
+        quote = _quote_at_checkpoint_cutoff(raw_quote, cutoff=cutoff) if raw_quote else None
         reasons: list[str] = []
         tradeability: dict[str, Any]
         if not quote:
@@ -289,10 +451,29 @@ def evaluate_checkpoint(
             if price > 0 and open_price > 0
             else None
         )
-        checkpoint_metrics = _checkpoint_metrics(item, quote or {})
+        checkpoint_metrics = _checkpoint_metrics(item, quote or {}, cutoff=cutoff)
         research_state = "invalidated"
         if not reasons:
-            if (
+            required_bars = int(rules["required_bars"])
+            window_ready = (
+                checkpoint_metrics["fifteen_minute_ready"]
+                if required_bars == 15
+                else checkpoint_metrics["thirty_minute_ready"]
+            )
+            required_metrics = [
+                checkpoint_metrics.get("vwap_above_time_ratio"),
+                checkpoint_metrics.get("open_15m_drawdown_pct"),
+            ]
+            if required_bars == 30:
+                required_metrics.append(checkpoint_metrics.get("open_30m_drawdown_pct"))
+            if not window_ready or any(
+                value is None
+                or not math.isfinite(float(value))
+                for value in required_metrics
+            ):
+                research_state = "watch"
+                reasons.append(f"截至{rules['window']}分钟证据不足，研究确认降级")
+            elif (
                 change_pct >= float(rules["min_change_pct"])
                 and open_return is not None
                 and open_return >= float(rules["min_open_return_pct"])
@@ -367,8 +548,8 @@ def evaluate_checkpoint(
 def run_checkpoint(profile: str, asof: str) -> dict[str, Any]:
     if profile not in PROFILE_RULES:
         raise ValueError(f"unsupported checkpoint profile: {profile}")
-    source = load_open_confirmation(asof)
-    candidates = list(source.get("signals") or [])[:MAX_CANDIDATES]
+    source = load_checkpoint_source(asof)
+    candidates = _source_candidates(source)[:MAX_CANDIDATES]
     codes = [
         candidate_pipeline.market_code(item.get("code"))
         for item in candidates
@@ -395,7 +576,7 @@ def run_checkpoint(profile: str, asof: str) -> dict[str, Any]:
         batch_id=batch_id,
         producer=f"hot-money-{profile}",
         producer_version="hot-money-checkpoint-v1",
-        source_versions={"tencent": "tencent-adapter-v2"},
+        source_versions={"tencent": "tencent-adapter-v3"},
     )
     payload = input_snapshot["payload"]
     observations = evaluate_checkpoint(
@@ -413,6 +594,7 @@ def run_checkpoint(profile: str, asof: str) -> dict[str, Any]:
         "asof": asof,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "source_asof": source.get("source_asof"),
+        "source_status": source.get("status"),
         "research_only": True,
         "input_snapshot": compact_ref(input_snapshot),
         "observation_count": len(observations),
@@ -492,6 +674,7 @@ def json_report(result: Mapping[str, Any]) -> dict[str, Any]:
         "profile": result.get("profile"),
         "window": result.get("window"),
         "asof": result.get("asof"),
+        "source_status": result.get("source_status"),
         "research_only": True,
         "observation_count": result.get("observation_count"),
         "confirmed_count": result.get("confirmed_count"),
@@ -510,6 +693,14 @@ def json_report(result: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _require_same_day_live(asof: str) -> None:
+    if str(asof)[:10] != date.today().isoformat():
+        raise DataSourceError(
+            "hot_money_checkpoint",
+            "historical --asof requires immutable replay inputs; live quotes are same-day only",
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="游资主线龙头盘中研究确认")
     parser.add_argument("--profile", choices=sorted(PROFILE_RULES), required=True)
@@ -517,6 +708,7 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     try:
+        _require_same_day_live(args.asof)
         result = run_checkpoint(args.profile, args.asof)
     except DataSourceError as exc:
         failure = {

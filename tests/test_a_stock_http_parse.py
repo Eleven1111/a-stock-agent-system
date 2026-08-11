@@ -1,5 +1,8 @@
-"""腾讯行情解析 — 字段下标锁定测试（防止 parts[45] 等魔数静默漂移）"""
+"""腾讯行情解析 — 字段下标与认证传输锁定测试。"""
 
+from http_client import HttpResult
+
+import a_stock_http
 from a_stock_http import parse_tencent_minute_response, parse_tencent_quote_line, _TENCENT_FIELDS
 
 
@@ -100,3 +103,18 @@ def test_parse_minute_response_skips_malformed_rows():
 
 def test_parse_minute_response_handles_missing_data():
     assert parse_tencent_minute_response({}, "000001", "sz") == []
+
+
+def test_snapshot_uses_https_and_is_directionally_eligible(monkeypatch):
+    requested = {}
+
+    def fake_request_text(url, **kwargs):
+        requested["url"] = url
+        return HttpResult(_build_line(), "2026-08-11T01:35:00+00:00", 1)
+
+    monkeypatch.setattr(a_stock_http, "request_text", fake_request_text)
+    quote = a_stock_http.fetch_tencent_snapshot(["sz002156"])["sz002156"]
+
+    assert requested["url"].startswith("https://")
+    assert quote["transport_trust"] == "authenticated"
+    assert quote["directional_eligible"] is True

@@ -1114,7 +1114,7 @@ def run_discovery(
     }
     source_versions = {
         "exchange_listing": "exchange-listing-v1",
-        "tencent": "tencent-adapter-v2",
+        "tencent": "tencent-adapter-v3",
         "tencent_kline": "tencent-kline-adapter-v2",
         **dict(
             (

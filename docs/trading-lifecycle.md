@@ -96,11 +96,21 @@ python scripts/agent_runtime_context.py
 
 ## 09:35 开盘确认
 
-`open-confirmation` 重新拉取实时行情并并发查询巨潮资讯公告：
+`open-confirmation` 通过 HTTPS 重新拉取实时行情，并为竞价短名单补充截至 09:35 的
+分钟线，再并发查询巨潮资讯公告。09:30 到 09:35 只有 5 分钟经过时间（6 个分钟
+时间点），因此这是早盘观察关口，不会把未满窗口的数据标成 15/30 分钟回撤：
 
 - `buy`：可成交、价格窗口合格、公告质检通过
 - `watch`：条件不足或公告源不可用
 - `avoid`：一字板/停牌/涨停不可买，或公告出现澄清、监管、财务硬风险
+
+09:29 的 `portfolio-risk-precompute` 只使用决策日前的日线，为竞价短名单生成相关性、
+沪深 300 beta、拟新增后的行业暴露、ADV 容量和组合波动证据。缺字段或覆盖不足仍然
+fail-closed，但记为 `blocked -> watch/零仓位`；只有已经测得的集中度或因子超限才记为
+`rejected -> avoid/零仓位`。
+
+报告同时保留 `open_score_raw` 与 `open_score_live`。前者用于解释研究模型，后者才可
+参与实时排名；未注册趋势策略的实时权重仍为零，修复数据链不会绕过研究闸门。
 
 结果自动写入 `recommendations.json`，同一交易日和股票使用确定性 ID，重跑不会
 产生重复推荐。
@@ -114,9 +124,12 @@ Chanlun 看多结构作二次硬门控；Chanlun 不产生候选、不改变排�
 
 ## 09:50 与 13:15 研究确认
 
-两个任务只读取当日 `open_confirmation` 前五候选并各做一次有界腾讯行情刷新：
+两个任务各做一次有界 HTTPS 行情与分钟线刷新。09:50 优先读取当日
+`open_confirmation`；即使 09:35 为 `degraded/insufficient_data`，也会依次尝试
+`evaluated_confirmations`、`confirmations`，最后回退到同日竞价短名单，因此不会被
+09:35 的数据不足连带静默阻断：
 
-- 09:50：检查开盘后承接和板块内相对强度
+- 09:50：只使用截至 09:50 的分钟线，检查开盘后承接和板块内相对强度
 - 13:15：检查午后回流和板块内相对强度
 - 输出仅为 `confirmed/watch/invalidated` 研究状态
 - 不新增订单，不自动买入，不建议当日卖出

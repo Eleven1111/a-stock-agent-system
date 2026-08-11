@@ -37,7 +37,7 @@ def _candidate(code="sh600001", sector="半导体", qualified=True):
 
 
 def _quote(code="sh600001", change_pct=6.0, price=10.6, open_price=10.4):
-    return {
+    quote = {
         "code": code,
         "name": f"股票{code[-6:]}",
         "price": price,
@@ -48,6 +48,12 @@ def _quote(code="sh600001", change_pct=6.0, price=10.6, open_price=10.4):
         "volume": 100_000,
         "change_pct": change_pct,
     }
+    quote["minute_bars"] = [
+        {"time": f"{(570 + index) // 60:02d}{(570 + index) % 60:02d}",
+         "price": open_price + index / 100, "vwap": open_price}
+        for index in range(30)
+    ]
+    return quote
 
 
 def test_checkpoint_is_research_only_and_t1_safe():
@@ -141,6 +147,131 @@ def test_run_checkpoint_reuses_open_surface_and_writes_immutable_snapshot(
     assert persisted["observations"][0]["research_state"] == "confirmed"
     assert persisted["output_snapshot"]["snapshot_id"].startswith("snap-")
     assert captured["args"][1] == "morning_reconfirmed"
+
+
+@pytest.mark.parametrize("source_status", ["degraded", "insufficient_data"])
+def test_morning_checkpoint_recovers_candidates_from_degraded_open_surface(
+    tmp_path,
+    monkeypatch,
+    source_status,
+):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    asof = "2026-06-22"
+    atomic_write_json(
+        checkpoint.open_confirmation_path(asof),
+        {
+            "schema": "open_confirmation_v3",
+            "status": source_status,
+            "asof": asof,
+            "source_asof": "2026-06-19",
+            "signals": [],
+            "evaluated_confirmations": [_candidate()],
+        },
+    )
+    monkeypatch.setattr(
+        checkpoint,
+        "fetch_quotes",
+        lambda codes: {code: {**_quote(code), "minute_bars": [
+            {"time": f"09{minute:02d}", "price": 10.0 + minute / 100, "vwap": 10.0}
+            for minute in range(30, 51)
+        ]} for code in codes},
+    )
+    monkeypatch.setattr(checkpoint.candidate_lifecycle, "transition", lambda *a, **k: {})
+
+    result = checkpoint.run_checkpoint("morning_confirm", asof)
+
+    assert result["status"] == "ready"
+    assert result["observation_count"] == 1
+    assert result["source_status"] == source_status
+    assert result["observations"][0]["execution_action"] == "none"
+    assert result["observations"][0]["same_day_sell_allowed"] is False
+
+
+def test_fetch_quotes_attaches_bounded_minute_bars(monkeypatch):
+    codes = [f"sh60{index:04d}" for index in range(21)]
+    calls = []
+    monkeypatch.setattr(
+        checkpoint,
+        "fetch_tencent_snapshot",
+        lambda requested: {code: _quote(code) for code in requested},
+    )
+    monkeypatch.setattr(
+        checkpoint,
+        "fetch_tencent_minute",
+        lambda code, *, market: calls.append((market, code)) or [
+            {"time": "0930", "price": 10.0, "cum_volume": 100, "cum_amount": 100_000}
+        ],
+    )
+
+    quotes = checkpoint.fetch_quotes(codes)
+
+    assert len(quotes) == checkpoint.MAX_CANDIDATES
+    assert len(calls) == checkpoint.MAX_CANDIDATES
+    assert all(quote["minute_bars"] for quote in quotes.values())
+
+
+def test_morning_checkpoint_ignores_bars_after_profile_cutoff():
+    bars = [
+        {"time": f"09{minute:02d}", "price": 10.0 + minute / 100,
+         "cum_volume": 1000 * (minute - 29), "cum_amount": 1_000_000 * (minute - 29)}
+        for minute in range(30, 51)
+    ] + [
+        {"time": "1030", "price": 1.0, "cum_volume": 999_999, "cum_amount": 999_999}
+    ]
+    quote = {**_quote(), "minute_bars": bars}
+
+    candidate = {**_candidate(), "vwap_above_time_ratio": 0.0, "open_relative_volume": 0.1,
+                 "previous_volume": 50_000}
+    result = checkpoint.evaluate_checkpoint(
+        [candidate], {"sh600001": quote},
+        profile="morning_confirm", asof="2026-06-22",
+    )[0]
+
+    assert result["open_15m_drawdown_pct"] < 1.0
+    assert result["vwap_above_time_ratio"] is not None
+    assert result["vwap_above_time_ratio"] > 0.0
+    assert result["open_relative_volume"] == 0.42
+    assert result["price"] == 10.5
+
+
+def test_morning_checkpoint_does_not_confirm_without_complete_minute_evidence():
+    quote = {**_quote(), "minute_bars": _quote()["minute_bars"][:6]}
+
+    result = checkpoint.evaluate_checkpoint(
+        [_candidate()], {"sh600001": quote},
+        profile="morning_confirm", asof="2026-06-22",
+    )[0]
+
+    assert result["research_state"] == "watch"
+    assert "分钟证据不足" in "；".join(result["reasons"])
+
+
+@pytest.mark.parametrize("invalid_kind", ["nan_prices", "partial_vwap"])
+def test_morning_checkpoint_rejects_invalid_minute_window(invalid_kind):
+    bars = [
+        {"time": f"{(570 + index) // 60:02d}{(570 + index) % 60:02d}",
+         "price": 10.5, "vwap": 10.0}
+        for index in range(15)
+    ]
+    if invalid_kind == "nan_prices":
+        for bar in bars:
+            bar["price"] = float("nan")
+    else:
+        for bar in bars[1:]:
+            bar.pop("vwap")
+
+    result = checkpoint.evaluate_checkpoint(
+        [_candidate()], {"sh600001": {**_quote(), "minute_bars": bars}},
+        profile="morning_confirm", asof="2026-06-22",
+    )[0]
+
+    assert result["research_state"] != "confirmed"
+    assert result["fifteen_minute_ready"] is False
+
+
+def test_historical_checkpoint_live_fetch_is_blocked():
+    with pytest.raises(checkpoint.DataSourceError, match="replay"):
+        checkpoint._require_same_day_live("2026-06-22")
 
 
 def test_load_open_confirmation_rejects_wrong_day(tmp_path, monkeypatch):
