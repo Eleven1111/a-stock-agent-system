@@ -18,7 +18,7 @@ SCHEMA = "market_snapshot_v1"
 PIT_STAGE_SCHEMA = "pit_stage_contract_v1"
 DECISION_MODES = {"live", "replay"}
 SOURCE_ADAPTER_VERSIONS = {
-    "tencent": "tencent-adapter-v2",
+    "tencent": "tencent-adapter-v3",
     "tencent_kline": "tencent-kline-adapter-v2",
     "tencent_hk": "tencent-hk-adapter-v2",
     "serper": "serper-adapter-v1",

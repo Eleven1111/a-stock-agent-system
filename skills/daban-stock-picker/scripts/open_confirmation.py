@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -18,7 +19,7 @@ SCRIPT_DIR = os.path.dirname(__file__)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from a_stock_http import DataSourceError  # noqa: E402
-from market_adapters import fetch_tencent_snapshot  # noqa: E402
+from market_adapters import fetch_tencent_minute, fetch_tencent_snapshot  # noqa: E402
 from announcement_risk import scan_many  # noqa: E402
 from a_share_rules import add_trading_days, resolve_price_limit_rule  # noqa: E402
 from execution_model import build_execution_scenarios, estimate_trade_cost  # noqa: E402
@@ -107,7 +108,8 @@ def _as_float(value: Any) -> Optional[float]:
     try:
         if value is None or value == "":
             return None
-        return float(value)
+        result = float(value)
+        return result if math.isfinite(result) else None
     except (TypeError, ValueError):
         return None
 
@@ -133,6 +135,11 @@ def _intraday_series(
     for row in rows:
         price = _as_float(row.get("price", row.get("close", row.get("最新价"))))
         vwap = _as_float(row.get("vwap", row.get("VWAP", row.get("均价"))))
+        if vwap is None:
+            cum_amount = _as_float(row.get("cum_amount"))
+            cum_volume = _as_float(row.get("cum_volume"))
+            if cum_amount is not None and cum_volume and cum_volume > 0:
+                vwap = cum_amount / (cum_volume * 100.0)
         if price is not None and price > 0:
             prices.append(price)
             if vwap is not None and vwap > 0:
@@ -145,7 +152,7 @@ def _intraday_series(
 
 def _drawdown_pct(prices: Sequence[float], period: int) -> Optional[float]:
     sample = list(prices[:period])
-    if not sample or sample[-1] <= 0:
+    if len(sample) < period or sample[-1] <= 0:
         return None
     peak = max(sample)
     return max(0.0, (peak - sample[-1]) / peak * 100.0) if peak > 0 else None
@@ -199,60 +206,92 @@ def _direct_drawdowns(direct: Any) -> Tuple[Optional[float], Optional[float]]:
     return dd15, dd30
 
 
-def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> Dict[str, Any]:
-    """Derive optional open-quality evidence from a factor/quote pair.
+def _minute_value(value: Any) -> Optional[int]:
+    text = str(value or "")
+    if len(text) != 4 or not text.isdigit():
+        return None
+    hour, minute = int(text[:2]), int(text[2:])
+    if hour > 23 or minute > 59:
+        return None
+    value_minutes = hour * 60 + minute
+    if not (570 <= value_minutes <= 690 or 780 <= value_minutes <= 900):
+        return None
+    return value_minutes
 
-    Values are ``None`` when unavailable: callers must not turn a data gap into
-    a positive signal.  Intraday rows may contain either price/close and vwap,
-    and cumulative or per-bar volume.  Direct fields win so replay artifacts
-    can preserve the provider's calculation.
-    """
-    def _direct(names): return _metric_value(quote, factor, names=names)
-    prior_volume, relative_volume = _direct_volume_ratio(_direct)
-    rows = _intraday_rows(quote, factor)
-    vwap_ratio = _direct_vwap_ratio(_direct)
-    dd15, dd30 = _direct_drawdowns(_direct)
-    if rows:
-        prices, vwaps, volumes = _intraday_series(rows)
-        if vwap_ratio is None and vwaps:
-            vwap_ratio = sum(vwaps) / len(vwaps)
-        if dd15 is None:
-            dd15 = _drawdown_pct(prices, 15)
-        if dd30 is None:
-            dd30 = _drawdown_pct(prices, 30)
-        if relative_volume is None and volumes and prior_volume and prior_volume > 0:
-            # A cumulative first-window volume is the least surprising meaning
-            # of "open volume" for minute fixtures.
-            relative_volume = volumes[min(len(volumes), 15) - 1] / prior_volume
 
-    sector_limitups = _as_float(_direct((
+def _window_ready(rows: Sequence[Mapping[str, Any]], period: int) -> bool:
+    observed = {_minute_value(row.get("time")) for row in rows}
+    expected = {570 + offset for offset in range(period)}
+    return None not in observed and expected.issubset(observed)
+
+
+def _ordered_intraday_rows(*objects: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    rows_by_time = {
+        str(row.get("time")): row
+        for row in _intraday_rows(*objects)
+        if _minute_value(row.get("time")) is not None
+    }
+    return [rows_by_time[key] for key in sorted(rows_by_time)]
+
+
+def _observation_metadata(
+    rows: Sequence[Mapping[str, Any]], metric_values: Mapping[str, Any]
+) -> Dict[str, Any]:
+    times = [str(row.get("time")) for row in rows]
+    observed_bar_count = len(times)
+    elapsed_minutes = 0
+    if len(times) >= 2:
+        first, last = times[0], times[-1]
+        elapsed_minutes = max(
+            0,
+            (int(last[:2]) * 60 + int(last[2:4]))
+            - (int(first[:2]) * 60 + int(first[2:4])),
+        )
+    ready_15 = _window_ready(rows, 15)
+    ready_30 = _window_ready(rows, 30)
+    if observed_bar_count == 0:
+        stage = "unobserved"
+    elif ready_30:
+        stage = "open_30m"
+    elif ready_15:
+        stage = "open_15m"
+    elif elapsed_minutes <= 5:
+        stage = "early_5m"
+    else:
+        stage = "partial_open"
+    return {
+        "observed_bar_count": observed_bar_count,
+        "elapsed_minutes": elapsed_minutes,
+        "observation_stage": stage,
+        "metric_coverage": {
+            "available": [key for key, value in metric_values.items() if value is not None],
+            "pending": [key for key, value in metric_values.items() if value is None],
+            "fifteen_minute_ready": ready_15,
+            "thirty_minute_ready": ready_30,
+        },
+    }
+
+
+def _sector_open_metrics(direct: Any) -> Dict[str, Any]:
+    limitups = _rounded(_as_float(direct((
         "sector_limitup_count", "sector_limitups", "sector_limitup_diffusion",
         "sector_limitup_breadth", "板块涨停数", "板块涨停扩散",
-    )))
-    sector_breakouts = _as_float(_direct((
+    ))))
+    breakouts = _rounded(_as_float(direct((
         "sector_breakout_count", "sector_breakouts", "sector_breakout_diffusion",
         "sector_probe_count", "sector_冲板数", "板块冲板数", "冲板扩散",
-    )))
-    seal_persistence = _direct((
+    ))))
+    seal_value = direct((
         "seal_persistence", "seal_duration_minutes", "limitup_persistence",
         "封板持续性", "封板持续分钟",
     ))
-    reseal_persistence = _direct((
+    reseal_value = direct((
         "reseal_persistence", "reseal_duration_minutes", "reclose_persistence",
         "reclose_continuity", "回封持续性", "回封持续分钟",
     ))
-    limitups, breakouts = _rounded(sector_limitups), _rounded(sector_breakouts)
-    seal = seal_persistence if seal_persistence is not _MISSING else None
-    reseal = reseal_persistence if reseal_persistence is not _MISSING else None
+    seal = seal_value if seal_value is not _MISSING else None
+    reseal = reseal_value if reseal_value is not _MISSING else None
     return {
-        "open_relative_volume": _rounded(relative_volume),
-        "opening_relative_volume": _rounded(relative_volume),
-        "vwap_above_time_ratio": _rounded(vwap_ratio),
-        "vwap_above_ratio": _rounded(vwap_ratio),
-        "open_15m_drawdown_pct": _rounded(dd15),
-        "drawdown_15m_pct": _rounded(dd15),
-        "open_30m_drawdown_pct": _rounded(dd30),
-        "drawdown_30m_pct": _rounded(dd30),
         "sector_limitup_diffusion": limitups,
         "sector_limitup_count": limitups,
         "sector_breakout_diffusion": breakouts,
@@ -263,6 +302,52 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
         "seal_continuity": seal,
         "reseal_continuity": reseal,
         "reclose_continuity": reseal,
+    }
+
+
+def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> Dict[str, Any]:
+    """Derive optional open-quality evidence from a factor/quote pair.
+
+    Values are ``None`` when unavailable: callers must not turn a data gap into
+    a positive signal.  Intraday rows may contain either price/close and vwap,
+    and cumulative or per-bar volume.  Direct fields win so replay artifacts
+    can preserve the provider's calculation.
+    """
+    def _direct(names): return _metric_value(quote, factor, names=names)
+    prior_volume, relative_volume = _direct_volume_ratio(_direct)
+    rows = _ordered_intraday_rows(quote, factor)
+    vwap_ratio = _direct_vwap_ratio(_direct)
+    dd15, dd30 = _direct_drawdowns(_direct)
+    if rows:
+        prices, vwaps, volumes = _intraday_series(rows)
+        if vwap_ratio is None and vwaps and len(vwaps) == len(prices):
+            vwap_ratio = sum(vwaps) / len(vwaps)
+        if dd15 is None and _window_ready(rows, 15):
+            dd15 = _drawdown_pct(prices, 15)
+        if dd30 is None and _window_ready(rows, 30):
+            dd30 = _drawdown_pct(prices, 30)
+        if relative_volume is None and volumes and prior_volume and prior_volume > 0:
+            # A cumulative first-window volume is the least surprising meaning
+            # of "open volume" for minute fixtures.
+            relative_volume = volumes[min(len(volumes), 15) - 1] / prior_volume
+
+    metric_values = {
+        "open_relative_volume": _rounded(relative_volume),
+        "vwap_above_time_ratio": _rounded(vwap_ratio),
+        "open_15m_drawdown_pct": _rounded(dd15),
+        "open_30m_drawdown_pct": _rounded(dd30),
+    }
+    return {
+        **_observation_metadata(rows, metric_values),
+        "open_relative_volume": metric_values["open_relative_volume"],
+        "opening_relative_volume": metric_values["open_relative_volume"],
+        "vwap_above_time_ratio": metric_values["vwap_above_time_ratio"],
+        "vwap_above_ratio": metric_values["vwap_above_time_ratio"],
+        "open_15m_drawdown_pct": metric_values["open_15m_drawdown_pct"],
+        "drawdown_15m_pct": metric_values["open_15m_drawdown_pct"],
+        "open_30m_drawdown_pct": metric_values["open_30m_drawdown_pct"],
+        "drawdown_30m_pct": metric_values["open_30m_drawdown_pct"],
+        **_sector_open_metrics(_direct),
     }
 
 
@@ -288,7 +373,7 @@ def _quality_component(value: Any, *, kind: str) -> Optional[float]:
 
 def _lane_score(auction: float, action_quality: float, open_quality: float,
                 metrics: Mapping[str, Any], lane: str) -> float:
-    """Independent lane models; unavailable terms fall back to open quality."""
+    """Independent lane models; unavailable evidence contributes no points."""
     volume = _quality_component(metrics.get("open_relative_volume"), kind="volume")
     vwap = _quality_component(metrics.get("vwap_above_time_ratio"), kind="ratio")
     drawdown15 = _quality_component(metrics.get("open_15m_drawdown_pct"), kind="drawdown")
@@ -300,12 +385,15 @@ def _lane_score(auction: float, action_quality: float, open_quality: float,
     fallback = max(0.0, min(1.0, open_quality))
     if lane == "daban":
         components = (volume, diffusion, breakout, seal, reseal)
-        values = [fallback if item is None else item for item in components]
+        values = [0.0 if item is None else item for item in components]
         score = (0.45 * auction + 15.0 * action_quality + 10.0 * fallback
                  + 8.0 * values[0] + 8.0 * values[1] + 5.0 * values[2]
                  + 10.0 * values[3] + 9.0 * values[4])
     else:
-        values = [fallback if item is None else item for item in (volume, vwap, drawdown15, drawdown30, breakout)]
+        values = [
+            0.0 if item is None else item
+            for item in (volume, vwap, drawdown15, drawdown30, breakout)
+        ]
         score = (0.35 * auction + 12.0 * action_quality + 12.0 * fallback
                  + 7.0 * values[0] + 14.0 * values[1] + 9.0 * values[2]
                  + 7.0 * values[3] + 7.0 * values[4])
@@ -657,6 +745,7 @@ def evaluate_open_confirmation(
         "action": action,
         "tradeability": tradeability,
         "volume": quote.get("volume"),
+        "minute_bars": list(quote.get("minute_bars") or []),
         "adv_value": factor.get("adv_value"),
         "strict_execution": True,
         "decision_mode": factor.get("decision_mode"),
@@ -698,6 +787,24 @@ def _confirmation_path(asof: str) -> str:
 
 def _confirmation_latest_path() -> str:
     return data_file("daban-stock-picker", "open_confirmation_latest.json")
+
+
+def _portfolio_risk_evidence_path(asof: str) -> str:
+    return data_file("stock-triage", f"portfolio_risk_evidence_{asof}.json")
+
+
+def load_portfolio_risk_evidence(asof: str) -> Dict[str, Dict[str, Any]]:
+    batch = read_json(_portfolio_risk_evidence_path(asof), {})
+    if not isinstance(batch, Mapping) or str(batch.get("asof") or "") != asof:
+        return {}
+    evidence_by_code = batch.get("evidence_by_code")
+    if not isinstance(evidence_by_code, Mapping):
+        return {}
+    return {
+        candidate_pipeline.naked_code(code): dict(evidence)
+        for code, evidence in evidence_by_code.items()
+        if isinstance(evidence, Mapping)
+    }
 
 
 def _evidence_sources(
@@ -750,6 +857,32 @@ def shortlist_degradation(shortlist_result: Mapping[str, Any]) -> Optional[str]:
     detail = "；".join(reasons) or "原因未记录"
     collection = shortlist_result.get("collection_status") or "unknown"
     return f"竞价短名单降级（collection_status={collection}）：{detail}"
+
+
+def _score_audit_fields(
+    merged: Mapping[str, Any],
+    state: Mapping[str, Any],
+    live_trend_weight: float,
+) -> Dict[str, Any]:
+    trend_identity = state["strategy_identity"] == candidate_pipeline.TREND_STRATEGY_ID
+    raw_score = (
+        merged["open_trend_score_raw"] if trend_identity
+        else merged["open_daban_score"]
+    )
+    coverage = merged.get("metric_coverage") or {}
+    if trend_identity and live_trend_weight <= 0:
+        score_status = "research_only"
+    elif coverage.get("fifteen_minute_ready") is not True:
+        score_status = "early_observation"
+    else:
+        score_status = "live_eligible"
+    live_score = state["strategy_live_score"]
+    return {
+        "open_score_raw": raw_score,
+        "open_score_live": live_score,
+        "score_status": score_status,
+        "open_score": live_score,
+    }
 
 
 def _score_confirmation(
@@ -820,7 +953,7 @@ def _score_confirmation(
         "open_migration_from": state["migration_from"],
         "open_strategy_state_event": state["strategy_state_event"],
         "open_strategy_state": state["strategy_state"],
-        "open_score": state["strategy_live_score"],
+        **_score_audit_fields(merged, state, live_trend_weight),
     })
     return merged
 
@@ -1002,7 +1135,87 @@ def _rejection_reasons(
     return result
 
 
-def _fetch_snapshots(codes: Sequence[str]) -> Dict[str, Dict[str, Any]]:
+def _minute_rows_for_open(code: str, *, cutoff: str = "0935") -> list[dict[str, Any]]:
+    market_code = candidate_pipeline.market_code(code)
+    market = market_code[:2]
+    rows = fetch_tencent_minute(
+        candidate_pipeline.naked_code(market_code),
+        market=market,
+    )
+    filtered = [
+        dict(row) for row in rows
+        if str(row.get("time") or "").isdigit()
+        and str(row.get("time")) <= cutoff
+    ]
+    return _complete_open_minute_rows(filtered, cutoff=cutoff)
+
+
+def _complete_open_minute_rows(
+    rows: Sequence[Mapping[str, Any]], *, cutoff: str
+) -> list[dict[str, Any]]:
+    by_time = {
+        str(row.get("time")): dict(row)
+        for row in rows
+        if _minute_value(row.get("time")) is not None
+    }
+    expected = [
+        f"{(570 + offset) // 60:02d}{(570 + offset) % 60:02d}"
+        for offset in range(6)
+    ]
+    if cutoff != "0935" or not all(timestamp in by_time for timestamp in expected):
+        return []
+    ordered = [by_time[timestamp] for timestamp in expected]
+    for row in ordered:
+        price = _as_float(row.get("price"))
+        volume = _as_float(row.get("cum_volume"))
+        amount = _as_float(row.get("cum_amount"))
+        if not price or price <= 0 or not volume or volume <= 0 or not amount or amount <= 0:
+            return []
+    return ordered
+
+
+def _reconstruct_quote_at_cutoff(
+    quote: Mapping[str, Any], rows: Sequence[Mapping[str, Any]], *, cutoff: str
+) -> Dict[str, Any]:
+    result = dict(quote)
+    complete_rows = _complete_open_minute_rows(rows, cutoff=cutoff)
+    if not complete_rows:
+        return {}
+    prices = [float(row["price"]) for row in complete_rows]
+    if not prices:
+        return result
+    last = complete_rows[-1]
+    result.update({
+        "price": prices[-1],
+        "high": max(prices),
+        "low": min(prices),
+        "volume": last["cum_volume"],
+        "amount": last["cum_amount"],
+        "bids": [],
+        "asks": [],
+        "evidence_cutoff": cutoff,
+        "quote_reconstructed_from_minute": True,
+    })
+    prev_close = _as_float(result.get("prev_close"))
+    if prev_close and prev_close > 0:
+        result["change_pct"] = round((prices[-1] / prev_close - 1.0) * 100.0, 4)
+    return result
+
+
+def _require_same_day_live(asof: str) -> None:
+    if str(asof)[:10] != date.today().isoformat():
+        raise DataSourceError(
+            "open_confirmation",
+            "historical --asof requires an immutable replay input; live quotes are same-day only",
+        )
+
+
+def _fetch_snapshots(
+    codes: Sequence[str],
+    *,
+    asof: str,
+    minute_codes: Sequence[str] = (),
+) -> Dict[str, Dict[str, Any]]:
     unique_codes = list(dict.fromkeys(code for code in codes if code))
     quotes: Dict[str, Dict[str, Any]] = {}
     for index in range(0, len(unique_codes), QUOTE_BATCH_SIZE):
@@ -1011,6 +1224,23 @@ def _fetch_snapshots(codes: Sequence[str]) -> Dict[str, Dict[str, Any]]:
                 unique_codes[index:index + QUOTE_BATCH_SIZE]
             )
         )
+    if asof == date.today().isoformat():
+        wanted_minutes = {
+            candidate_pipeline.market_code(code) for code in minute_codes
+        }
+        for code, quote in list(quotes.items()):
+            if candidate_pipeline.market_code(code) not in wanted_minutes:
+                continue
+            try:
+                minute_rows = _minute_rows_for_open(code)
+            except DataSourceError:
+                minute_rows = []
+            if minute_rows:
+                rebuilt = _reconstruct_quote_at_cutoff(quote, minute_rows, cutoff="0935")
+                rebuilt["minute_bars"] = minute_rows
+                quotes[code] = rebuilt
+            else:
+                quotes.pop(code, None)
     return quotes
 
 
@@ -1020,7 +1250,14 @@ def build_confirmation(
     limit: int = DEFAULT_OPEN_LIMIT,
 ) -> Dict[str, Any]:
     shortlist_result = load_shortlist(asof)
-    factors = list(shortlist_result.get("shortlist", []))
+    risk_evidence_by_code = load_portfolio_risk_evidence(asof)
+    factors = []
+    for raw_factor in shortlist_result.get("shortlist", []):
+        factor = dict(raw_factor)
+        code = candidate_pipeline.naked_code(factor.get("code"))
+        if code in risk_evidence_by_code:
+            factor["portfolio_risk_evidence"] = risk_evidence_by_code[code]
+        factors.append(factor)
     if codes:
         wanted = {candidate_pipeline.naked_code(code) for code in codes}
         factors = [
@@ -1043,20 +1280,26 @@ def build_confirmation(
             candidate_pipeline.market_code(code)
             for code in (signal_ctx.get("lianban_ladder") or {})
         )
-    raw_quotes = _fetch_snapshots(quote_codes) if quote_codes else {}
+    raw_quotes = _fetch_snapshots(
+        quote_codes,
+        asof=asof,
+        minute_codes=[factor.get("code") for factor in factors if factor.get("code")],
+    ) if quote_codes else {}
     input_snapshot = materialize_input_snapshot(
         "open-confirmation-input",
         {
             "schema": "open_confirmation_inputs_v1",
             "quotes": raw_quotes,
             "signal_context": signal_ctx,
+            "portfolio_risk_evidence": risk_evidence_by_code,
         },
         trading_date=asof,
         batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
         producer="open-confirmation",
         source_versions={
-            "tencent": "tencent-adapter-v2",
+            "tencent": "tencent-adapter-v3",
             "akshare": "akshare-adapter-v1",
+            "portfolio_risk": "portfolio-risk-evidence-v2",
             **dict(
                 (signal_ctx.get("social_attention") or {}).get(
                     "source_versions"
@@ -1252,6 +1495,7 @@ def build_confirmation(
         "market_regime": regime,
         "discipline_state": discipline_state,
         "input_snapshot": compact_ref(input_snapshot),
+        "portfolio_risk_evidence_count": len(risk_evidence_by_code),
         "confirmations": confirmations,
         "evaluated_confirmations": evaluated_confirmations,
         "signals": signals,
@@ -1347,6 +1591,13 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
                 "open_rank": item.get("open_rank"),
                 "open_sector_rank": item.get("open_sector_rank"),
                 "open_score": item.get("open_score"),
+                "open_score_raw": item.get("open_score_raw"),
+                "open_score_live": item.get("open_score_live"),
+                "score_status": item.get("score_status"),
+                "observation_stage": item.get("observation_stage"),
+                "observed_bar_count": item.get("observed_bar_count"),
+                "elapsed_minutes": item.get("elapsed_minutes"),
+                "metric_coverage": item.get("metric_coverage"),
                 "strategy_id": item.get("strategy_id"),
                 "decision": item.get("decision"),
                 "quality_status": (item.get("quality_report") or {}).get("status"),
@@ -1385,6 +1636,7 @@ def main() -> None:
 
     codes = [c.strip() for c in args.codes.split(",") if c.strip()] if args.codes else []
     try:
+        _require_same_day_live(args.asof)
         result = build_confirmation(codes, args.asof, limit=args.limit)
     except DataSourceError as exc:
         result = {

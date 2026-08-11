@@ -31,7 +31,8 @@ from paths import env_file as _env_file
 from provider_contract import transport_contract
 
 
-TENCENT_QUOTE_ADAPTER_VERSION = "tencent-adapter-v2"
+TENCENT_QUOTE_ADAPTER_VERSION = "tencent-adapter-v3"
+TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
 
 
 def load_hermes_env() -> Dict[str, str]:
@@ -163,7 +164,7 @@ def fetch_tencent_quotes_result(
     """Canonical Tencent quote transport with provenance metadata."""
     symbols = [tencent_symbol(code) for code in codes]
     request = build_request(
-        "http://qt.gtimg.cn/q=" + ",".join(symbols),
+        TENCENT_QUOTE_URL + ",".join(symbols),
         headers={"User-Agent": "Mozilla/5.0"},
     )
     if client is None:
@@ -174,7 +175,7 @@ def fetch_tencent_quotes_result(
             max_attempts=int(settings.get("max_attempts", 2)),
         )
     response = client.request_text(request, encoding="gbk")
-    transport = transport_contract("http://qt.gtimg.cn/")
+    transport = transport_contract(TENCENT_QUOTE_URL)
     quotes: Dict[str, Dict[str, Any]] = {}
     for line in response.data.strip().splitlines():
         parsed = parse_tencent_quote_line(line)
@@ -227,7 +228,7 @@ def fetch_tencent_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     腾讯实时行情 + 五档盘口（一次请求合并），供集合竞价采集使用。
     返回: {code: {price, prev_close, volume, market_cap, name, ..., bids, asks}}
     """
-    url = "http://qt.gtimg.cn/q=" + ",".join(codes)
+    url = TENCENT_QUOTE_URL + ",".join(codes)
     try:
         response = request_text(
             url,

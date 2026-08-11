@@ -120,8 +120,10 @@ def _passed_buy(**overrides):
             "adv_value": 10000000,
             "corporate_action_status": "clear",
             "portfolio_risk_evidence": {
-                "schema": "portfolio_risk_evidence_v1",
+                "schema": "portfolio_risk_evidence_v2",
                 "asof": day,
+                "data_cutoff": "2026-07-09",
+                "proposed_position_pct": 25.0,
                 "source": "risk-engine-fixture",
                 "coverage": 1.0,
                 "correlation": 0.35,

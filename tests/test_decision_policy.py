@@ -103,6 +103,39 @@ def test_portfolio_concentration_blocks_positive_action():
     assert "single_position_limit" in result["reasons"]
 
 
+def test_missing_portfolio_evidence_blocks_without_calling_it_a_rejection():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        portfolio_risk={
+            "allowed": False,
+            "status": "blocked",
+            "reasons": ["risk_evidence_source_missing"],
+        },
+    )
+
+    assert result["decision"] == "watch"
+    assert result["position_multiplier"] == 0.0
+    assert "risk_evidence_source_missing" in result["reasons"]
+
+
+def test_measured_portfolio_limit_remains_a_rejection():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        portfolio_risk={
+            "allowed": False,
+            "status": "rejected",
+            "reasons": ["correlation_limit"],
+        },
+    )
+
+    assert result["decision"] == "avoid"
+    assert "correlation_limit" in result["reasons"]
+
+
 def test_market_intelligence_not_ready_blocks_positive_action():
     result = decision_policy.evaluate_decision(
         requested_action="buy",

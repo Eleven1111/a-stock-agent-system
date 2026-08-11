@@ -1,9 +1,10 @@
-"""09:35 open confirmation pure decision tests."""
+"""09:35 early open confirmation pure decision tests."""
 
 import importlib.util
 from pathlib import Path
 
 import candidate_lifecycle
+import pytest
 from state_store import atomic_write_json, read_json
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "daban-stock-picker" / "scripts" / "open_confirmation.py"
@@ -663,8 +664,10 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
             "listing_stage": "normal",
                 "is_st": False,
                 "portfolio_risk_evidence": {
-                    "schema": "portfolio_risk_evidence_v1",
+                    "schema": "portfolio_risk_evidence_v2",
                     "asof": event_asof,
+                    "data_cutoff": "2026-06-10",
+                    "proposed_position_pct": 25.0,
                     "source": "risk-engine-fixture",
                     "coverage": 1.0,
                     "correlation": 0.35,
@@ -954,3 +957,200 @@ def test_derive_open_metrics_keeps_data_gaps_as_none():
     assert metrics["open_15m_drawdown_pct"] is None
     assert metrics["sector_limitup_diffusion"] is None
     assert metrics["seal_persistence"] is None
+
+
+def test_five_minute_observation_does_not_claim_fifteen_minute_metrics():
+    minute_bars = [
+        {
+            "time": f"09{minute:02d}",
+            "price": 10.0 + minute / 100,
+            "cum_volume": 1_000 * (minute - 29),
+            "cum_amount": 10_000 * (minute - 29),
+        }
+        for minute in range(30, 36)
+    ]
+
+    metrics = oc.derive_open_metrics({}, {"minute_bars": minute_bars})
+
+    assert metrics["observed_bar_count"] == 6
+    assert metrics["elapsed_minutes"] == 5
+    assert metrics["observation_stage"] == "early_5m"
+    assert metrics["open_15m_drawdown_pct"] is None
+    assert metrics["open_30m_drawdown_pct"] is None
+
+
+def test_gapped_minute_rows_do_not_claim_complete_window():
+    rows = [
+        {"time": f"{(570 + index) // 60:02d}{(570 + index) % 60:02d}",
+         "price": 10 + index / 100, "vwap": 10}
+        for index in range(14)
+    ] + [{"time": "1000", "price": 11.0, "vwap": 10.0}]
+
+    metrics = oc.derive_open_metrics({}, {"minute_bars": rows})
+
+    assert metrics["observed_bar_count"] == 15
+    assert metrics["metric_coverage"]["fifteen_minute_ready"] is False
+    assert metrics["open_15m_drawdown_pct"] is None
+
+
+def test_score_exposes_raw_and_live_values_without_bypassing_trend_gate():
+    result = oc._score_confirmation(
+        {
+            "code": "sz000039",
+            "action": "trend_watch",
+            "change_pct": 3.6,
+            "tradeability": {"tradeable": True},
+            "minute_bars": [
+                {"time": "0930", "price": 9.78, "vwap": 9.78},
+                {"time": "0935", "price": 9.21, "vwap": 9.50},
+            ],
+        },
+        {
+            "code": "sz000039",
+            "auction_score": 90.0,
+            "auction_trend_score_raw": 90.0,
+            "auction_selected_by": {"daban": False, "trend": True},
+        },
+        0.8,
+    )
+
+    assert result["open_score_raw"] > 0
+    assert result["open_score_live"] == 0.0
+    assert result["open_score"] == result["open_score_live"]
+    assert result["trend_live_weight"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("count", "ready_15", "ready_30"),
+    [(14, False, False), (15, True, False), (29, True, False), (30, True, True)],
+)
+def test_open_metric_windows_require_complete_distinct_bars(count, ready_15, ready_30):
+    rows = [
+        {"time": f"{(570 + index) // 60:02d}{(570 + index) % 60:02d}",
+         "price": 10 + index / 100, "vwap": 10}
+        for index in range(count)
+    ]
+
+    metrics = oc.derive_open_metrics({}, {"minute_bars": rows})
+
+    assert (metrics["open_15m_drawdown_pct"] is not None) is ready_15
+    assert (metrics["open_30m_drawdown_pct"] is not None) is ready_30
+
+
+def test_json_report_preserves_raw_and_live_score_audit_fields():
+    report = oc.json_report({
+        "schema": "open_confirmation_v3",
+        "status": "ready",
+        "signals": [{
+            "code": "sz000039",
+            "open_score": 0.0,
+            "open_score_raw": 78.27,
+            "open_score_live": 0.0,
+            "score_status": "research_only",
+            "metric_coverage": {"fifteen_minute_ready": False},
+        }],
+    })
+
+    assert report["signals"][0]["open_score_raw"] == 78.27
+    assert report["signals"][0]["open_score_live"] == 0.0
+    assert report["signals"][0]["score_status"] == "research_only"
+
+
+def test_loads_same_day_precomputed_portfolio_risk_evidence(tmp_path, monkeypatch):
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    asof = "2026-06-22"
+    atomic_write_json(
+        oc._portfolio_risk_evidence_path(asof),
+        {"asof": asof, "evidence_by_code": {"000039": {"schema": "portfolio_risk_evidence_v2"}}},
+    )
+
+    evidence = oc.load_portfolio_risk_evidence(asof)
+
+    assert evidence["000039"]["schema"] == "portfolio_risk_evidence_v2"
+
+
+def test_open_snapshot_fetches_minutes_only_for_bounded_shortlist(monkeypatch):
+    requested = []
+    monkeypatch.setattr(
+        oc,
+        "fetch_tencent_snapshot",
+        lambda codes: {code: {"price": 10.0} for code in codes},
+    )
+    monkeypatch.setattr(
+        oc,
+        "fetch_tencent_minute",
+        lambda code, *, market: requested.append((market, code)) or [
+            {
+                "time": f"09{minute:02d}",
+                "price": 10.0,
+                "cum_volume": 100 * (minute - 29),
+                "cum_amount": 100_000 * (minute - 29),
+            }
+            for minute in range(30, 36)
+        ],
+    )
+
+    quotes = oc._fetch_snapshots(
+        ["sh600001", "sz000002", "sh600003"],
+        asof=oc.date.today().isoformat(),
+        minute_codes=["sh600001", "sz000002"],
+    )
+
+    assert sorted(requested) == [("sh", "600001"), ("sz", "000002")]
+    assert "minute_bars" in quotes["sh600001"]
+    assert "minute_bars" not in quotes["sh600003"]
+
+
+def test_open_snapshot_degrades_when_minute_provider_fails(monkeypatch):
+    monkeypatch.setattr(
+        oc,
+        "fetch_tencent_snapshot",
+        lambda codes: {code: {"price": 10.0} for code in codes},
+    )
+    monkeypatch.setattr(
+        oc,
+        "fetch_tencent_minute",
+        lambda code, *, market: (_ for _ in ()).throw(
+            oc.DataSourceError("tencent_minute", "unavailable")
+        ),
+    )
+
+    quotes = oc._fetch_snapshots(
+        ["sh600001"],
+        asof=oc.date.today().isoformat(),
+        minute_codes=["sh600001"],
+    )
+
+    assert "sh600001" not in quotes
+
+
+def test_historical_open_live_fetch_is_blocked():
+    with pytest.raises(oc.DataSourceError, match="replay"):
+        oc._require_same_day_live("2026-06-22")
+
+
+def test_open_cutoff_reconstruction_requires_complete_sorted_minutes():
+    complete = [
+        {
+            "time": f"09{minute:02d}",
+            "price": 10 + minute / 100,
+            "cum_volume": 100 * (minute - 29),
+            "cum_amount": 100_000 * (minute - 29),
+        }
+        for minute in range(35, 29, -1)
+    ]
+
+    rebuilt = oc._reconstruct_quote_at_cutoff(
+        {"price": 19.9, "volume": 999_999, "prev_close": 10.0},
+        complete,
+        cutoff="0935",
+    )
+    incomplete = oc._reconstruct_quote_at_cutoff(
+        {"price": 19.9, "volume": 999_999}, complete[:-1], cutoff="0935"
+    )
+
+    assert rebuilt["price"] == 10.35
+    assert rebuilt["volume"] == 600
+    assert rebuilt["evidence_cutoff"] == "0935"
+    assert incomplete == {}
