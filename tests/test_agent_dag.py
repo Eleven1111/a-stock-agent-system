@@ -591,3 +591,37 @@ def test_target_output_records_not_configured_feishu_push(tmp_path, monkeypatch)
     assert records[0]["silent_reason"] == "feishu_not_configured"
     assert records[1]["delivered"] is True
     assert records[1]["silent_reason"] == "none"
+
+
+def test_target_output_renders_policy_json_before_feishu_fallback(tmp_path, monkeypatch):
+    telemetry = tmp_path / "state" / "cron" / "push_telemetry.jsonl"
+    monkeypatch.setattr(
+        run_agent_dag.feishu_push,
+        "push_text",
+        lambda job_id, text: {"status": "not_configured", "job_id": job_id},
+    )
+
+    output = run_agent_dag.target_output(
+        {
+            "id": "official-policy-watch",
+            "deliver": "feishu_direct",
+            "silent_when_no_signal": False,
+            "max_output_chars": 3000,
+        },
+        {
+            "trading_date": "2026-06-12",
+            "stdout": json.dumps({
+                "schema": "policy_intent_watch_v1",
+                "status": "ready",
+                "summary": {"new_count": 1},
+                "signals": [{"title": "国务院发布资本市场新政策", "url": "https://example.com/policy"}],
+            }, ensure_ascii=False),
+            "has_signal": True,
+        },
+        telemetry_path=str(telemetry),
+        record_telemetry=True,
+    )
+
+    assert "国务院发布资本市场新政策" in output
+    assert "policy_intent_watch_v1" not in output
+    assert "\"signals\"" not in output
