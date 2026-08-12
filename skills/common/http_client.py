@@ -9,6 +9,7 @@ import socket
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,7 +24,7 @@ T = TypeVar("T")
 # a system proxy (e.g. Clash Verge).  Must run before any urllib.request call
 # because urllib caches proxy settings at first use.
 _DIRECT_MARKET_DATA_HOSTS = (
-    "push2.eastmoney.com,push2his.eastmoney.com,"
+    "push2.eastmoney.com,push2his.eastmoney.com,push2delay.eastmoney.com,"
     "datacenter-web.eastmoney.com,reportapi.eastmoney.com,mxapi.eastmoney.com,"
     ".gtimg.cn,.sinajs.cn,.10jqka.com.cn,.hexun.com"
 )
@@ -44,6 +45,45 @@ def _build_proxy_aware_opener() -> Any:
     """
     director = urllib.request.build_opener()
     return director.open
+
+
+# ── Eastmoney push2 → push2delay mirror fallback ────────────────────────
+# push2/push2his CDN is intermittently rate-limited (RemoteDisconnected / 502).
+# The official delay mirror (push2delay.eastmoney.com) serves the same API
+# paths with the same payload shapes, so on transport failure we transparently
+# retry once against the mirror host.  Verified 2026-08-12: 6/6 success.
+_EASTMONEY_DELAY_MIRROR_HOSTS = {
+    "push2.eastmoney.com": "push2delay.eastmoney.com",
+    "push2his.eastmoney.com": "push2delay.eastmoney.com",
+    "17.push2.eastmoney.com": "push2delay.eastmoney.com",
+    "82.push2.eastmoney.com": "push2delay.eastmoney.com",
+}
+
+
+def _eastmoney_delay_mirror_request(
+    request: str | urllib.request.Request,
+    headers: Optional[Dict[str, str]] = None,
+) -> urllib.request.Request | None:
+    """Rewrite a push2/push2his URL to the push2delay mirror, or None.
+
+    Returns a *new* Request object against the mirror host when the request
+    targets one of the rate-limited Eastmoney push2 hosts; otherwise None.
+    """
+    request_obj = _request(request, headers)
+    url = request_obj.full_url
+    parsed = urllib.parse.urlparse(url)
+    mirror_host = _EASTMONEY_DELAY_MIRROR_HOSTS.get(parsed.netloc)
+    if mirror_host is None:
+        return None
+    rewritten = urllib.parse.urlunparse(
+        parsed._replace(netloc=mirror_host)
+    )
+    return urllib.request.Request(
+        rewritten,
+        data=request_obj.data,
+        headers=dict(request_obj.headers),
+        method=request_obj.get_method(),
+    )
 
 
 # ── Process-level throttle ──────────────────────────────────────────────
@@ -228,6 +268,10 @@ class HttpClient:
     ) -> HttpResult[bytes]:
         _throttle_wait(self.source, self.min_interval_seconds)
         request_obj = _request(request, headers)
+        # Eastmoney push2/push2his are intermittently CDN-rate-limited.  When the
+        # primary host fails at the transport level, retry once against the
+        # official delay mirror (push2delay) which serves the same API paths.
+        mirror_request = _eastmoney_delay_mirror_request(request_obj)
         last_error: Optional[DataSourceError] = None
         started = time.monotonic()
         for attempt in range(1, self.max_attempts + 1):
@@ -309,6 +353,36 @@ class HttpClient:
                     attempts=attempt,
                     timestamp=self._timestamp(),
                 )
+            # Transport failure on the primary Eastmoney push2 host: transparently
+            # retry once against the push2delay mirror (same payload shape).
+            if (
+                mirror_request is not None
+                and last_error is not None
+                and last_error.error_type
+                in (ErrorType.TIMEOUT, ErrorType.NETWORK, ErrorType.HTTP)
+                and attempt == self.max_attempts
+            ):
+                try:
+                    with self._opener(mirror_request, timeout=self.timeout) as response:
+                        payload = response.read()
+                    self._record_health(True, (time.monotonic() - started) * 1000)
+                    return HttpResult(
+                        payload,
+                        self._timestamp(),
+                        self.max_attempts + 1,
+                    )
+                except Exception as exc:  # noqa: BLE001 - mirror is best-effort
+                    self._record_health(False, (time.monotonic() - started) * 1000)
+                    raise DataSourceError(
+                        self.source,
+                        f"{last_error.message}; push2delay mirror also failed: {exc}",
+                        exc,
+                        error_type=last_error.error_type,
+                        attempts=self.max_attempts + 1,
+                        timestamp=self._timestamp(),
+                        status_code=last_error.status_code,
+                        retry_after_seconds=last_error.retry_after_seconds,
+                    ) from exc
         self._record_health(False, (time.monotonic() - started) * 1000)
         if last_error is None:
             raise RuntimeError("HTTP request failed without an error")

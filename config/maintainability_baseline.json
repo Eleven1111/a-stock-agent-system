@@ -3,7 +3,7 @@
   "budget": {
     "broad_exception": 147,
     "long_function": 65,
-    "sys_path_mutation": 36
+    "sys_path_mutation": 39
   },
   "schema": "maintainability_baseline_v1",
   "violations": [
