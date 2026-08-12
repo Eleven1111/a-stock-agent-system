@@ -1,6 +1,7 @@
 """Tests for the Eastmoney push2 -> push2delay mirror fallback."""
 
 import urllib.error
+from urllib.parse import urlparse
 
 import pytest
 
@@ -31,25 +32,25 @@ def test_mirror_rewrites_push2_hosts():
         "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=3"
     )
     assert req is not None
-    assert req.full_url.startswith("https://push2delay.eastmoney.com/")
+    assert urlparse(req.full_url).netloc == "push2delay.eastmoney.com"
 
     req = _eastmoney_delay_mirror_request(
         "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=1.600519"
     )
     assert req is not None
-    assert req.full_url.startswith("https://push2delay.eastmoney.com/")
+    assert urlparse(req.full_url).netloc == "push2delay.eastmoney.com"
 
     req = _eastmoney_delay_mirror_request(
         "https://17.push2.eastmoney.com/api/qt/clist/get"
     )
     assert req is not None
-    assert req.full_url.startswith("https://push2delay.eastmoney.com/")
+    assert urlparse(req.full_url).netloc == "push2delay.eastmoney.com"
 
     req = _eastmoney_delay_mirror_request(
         "https://82.push2.eastmoney.com/api/qt/clist/get"
     )
     assert req is not None
-    assert req.full_url.startswith("https://push2delay.eastmoney.com/")
+    assert urlparse(req.full_url).netloc == "push2delay.eastmoney.com"
 
 
 def test_mirror_leaves_non_push2_hosts_untouched():
@@ -93,7 +94,7 @@ def test_transport_failure_retries_against_mirror(monkeypatch):
     assert result.data == b"mirror-ok"
     assert result.attempts == 2  # 1 primary + 1 mirror
     assert len(calls) == 2
-    assert "push2delay.eastmoney.com" in calls[1]
+    assert urlparse(calls[1]).netloc == "push2delay.eastmoney.com"
 
 
 def test_http_502_retries_against_mirror(monkeypatch):
@@ -125,7 +126,7 @@ def test_http_502_retries_against_mirror(monkeypatch):
         "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
     )
     assert result.data == b"ok-after-502"
-    assert "push2delay.eastmoney.com" in calls[1]
+    assert urlparse(calls[1]).netloc == "push2delay.eastmoney.com"
 
 
 def test_non_push2_failure_does_not_retry_mirror(monkeypatch):
