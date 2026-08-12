@@ -6,9 +6,18 @@
   "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
   "timeout_tier_bands": {
     "_note": "run.timeout_tier 必须与 run.timeout_seconds 所在档位一致，long 档必须写 run.timeout_rationale。跨档调超时因此一定出现在 diff 里；校验在 scripts/validate_cron_manifest.py，实测余量守卫在 scripts/cron_budget_report.py --fail-on-warn。",
-    "short": [10, 60],
-    "standard": [61, 300],
-    "long": [301, 2400]
+    "short": [
+      10,
+      60
+    ],
+    "standard": [
+      61,
+      300
+    ],
+    "long": [
+      301,
+      2400
+    ]
   },
   "jobs": [
     {
@@ -2254,6 +2263,50 @@
         "timeout_tier": "standard"
       },
       "external_note": "每个交易日收盘后推进 provisional T+1 至 final T+3；Hermes/OpenClaw 共用"
+    },
+    {
+      "id": "research-dataset-build",
+      "name": "研究数据集物化",
+      "schedule": "40 16 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "research-dataset-build",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1500,
+      "context_from": [
+        "performance-daily"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 120
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/",
+        "$A_STOCK_STATE_HOME/cron/output/research-dataset-build/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "scripts/build_research_datasets.py",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
+      }
     },
     {
       "id": "ledger-projector",

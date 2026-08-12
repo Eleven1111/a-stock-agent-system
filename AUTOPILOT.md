@@ -15,7 +15,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（61 个作业，当前 46 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（64 个作业，当前 50 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -138,6 +138,38 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 全市场约 50 次接口请求 × `http_client` 2.5s/源 节流。
 因此 `run.timeout_seconds` 设为 1800，不可套用其他作业的 15~60s。
 产物：`$A_STOCK_STATE_HOME/cron/output/announcement-radar/<date>.json`。
+
+### 研究数据集物化（research-dataset-build）
+
+把 catalog 声明的数据集物化成契约行，让研究数据真正开始积累。此前 catalog
+只有契约、没有生产方，没有任何数据集在增长。
+
+| 项 | 值 |
+|---|---|
+| 作业 id | `research-dataset-build` |
+| 调度 | `40 16 * * 1-5`（排在结算作业 `performance-daily` 16:10 之后） |
+| 执行 | `python scripts/build_research_datasets.py --json` |
+| 依赖 | `performance-daily`（同交易日，最大延迟 120 分钟） |
+| 交付 | `local`（只写本地产物，不推送） |
+| 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/dataset_<dataset_id>_<asof>.json` |
+| 超时 | 120s（`standard` 档；取行情的方向数据集走并发，4 worker） |
+
+**停止：** 把 manifest 中该作业的 `enabled` 改为 `false`，或停整个调度器（见上）。
+
+```bash
+python -c "import json;p='cron/hermes-cron-manifest.json';d=json.load(open(p));[j.update(enabled=False) for j in d['jobs'] if j['id']=='research-dataset-build'];json.dump(d,open(p,'w'),ensure_ascii=False,indent=2)"
+```
+
+**手动跑（离线，只建已结算信号数据集，不触网）：**
+
+```bash
+A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
+  .venv/bin/python scripts/build_research_datasets.py --settled-only --json
+```
+
+注意：`coverage_ratio` 衡量的是**投影完整性**（多少源记录成功变成行），
+不是样本是否足够。3 条结算样本同样会得到 1.0。样本量守卫在下游
+（`cross_sectional_direction` 的 `min_pairs_per_cohort = 100`）。
 
 ### 历史与注意事项
 
