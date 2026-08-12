@@ -63,6 +63,21 @@ def _sector_momentum_lines() -> list[str]:
     return lines
 
 
+def _preopen_no_candidate_line(result: Mapping[str, Any]) -> str:
+    """Explain an empty pre-open pool without turning missing data into a regime."""
+    selection = result.get("hot_money_selection") or {}
+    timing = selection.get("market_timing") or {}
+    status = str(timing.get("status") or "")
+    tier = str(timing.get("tier") or "")
+    fresh = timing.get("context_fresh")
+    if status in {"insufficient_data", "unknown"} or tier in {"", "stale"} or fresh is False:
+        return "⚠️ 盘前择时证据未就绪，暂不判定市场强弱；等待开盘确认"
+    weak = (timing.get("weak_market") or {}).get("weak_regime")
+    if weak:
+        return "⚠️ 盘前弱市门禁生效，候选暂降级为 research_only；等待开盘确认"
+    return "⚠️ 盘前暂无可交付候选，等待开盘确认"
+
+
 def _degraded_lines(result: Mapping[str, Any], *, tail: str) -> list[str]:
     """降级警示行；未降级返回空列表。
 
@@ -168,8 +183,11 @@ def _open_lines(result: Mapping[str, Any], asof: str) -> list[str]:
     digest = stage_intelligence.open_digest(result)
     temperature = result.get("market_temperature") or {}
     regime = result.get("market_regime") or {}
+    generated_at = str(result.get("generated_at") or "")
+    time_label = generated_at[11:16] if len(generated_at) >= 16 else "开盘阶段"
     lines = [
         f"## 开盘摘要 | {asof}",
+        f"判定时点：{time_label}（仅代表开盘阶段，不代表全天走势）",
         f"市场概况：温度={temperature.get('tier') or 'N/A'}｜"
         f"状态={regime.get('regime') or regime.get('label') or 'N/A'}",
     ]
@@ -220,7 +238,7 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
         )
         if not digest["top_daban"] and not digest["top_trend"]:
             lines.append("")
-            lines.append("⚠️ 极端弱市，所有候选已降级为 research_only，无可操作标的")
+            lines.append(_preopen_no_candidate_line(result))
     elif stage == "auction":
         lines.extend(_auction_lines(result, asof))
     elif stage == "open":

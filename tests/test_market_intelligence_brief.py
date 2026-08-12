@@ -24,6 +24,46 @@ def test_preopen_brief_contains_both_score_lanes():
     assert "3634" in text
 
 
+def test_preopen_missing_timing_is_not_reported_as_extreme_weak_market():
+    text = brief.format_brief(
+        "preopen",
+        {
+            "asof": "2026-08-12",
+            "scanned_count": 5208,
+            "eligible_count": 3130,
+            "candidate_count": 0,
+            "auction_scan_count": 200,
+            "candidates": [],
+            "hot_money_selection": {
+                "market_timing": {
+                    "status": "insufficient_data",
+                    "tier": "stale",
+                    "context_fresh": False,
+                }
+            },
+        },
+    )
+
+    assert "择时证据未就绪" in text
+    assert "极端弱市" not in text
+
+
+def test_open_brief_labels_the_judgement_time():
+    text = brief.format_brief(
+        "open",
+        {
+            "asof": "2026-08-12",
+            "generated_at": "2026-08-12T09:35:06",
+            "market_temperature": {"tier": "冰点"},
+            "market_regime": {"regime": "risk_off"},
+            "signals": [],
+        },
+    )
+
+    assert "09:35" in text
+    assert "不代表全天走势" in text
+
+
 def test_auction_brief_marks_pool_outsider_as_research_only():
     text = brief.format_brief(
         "auction",
