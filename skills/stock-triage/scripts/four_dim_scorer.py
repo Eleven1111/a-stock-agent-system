@@ -68,27 +68,44 @@ from emotion_cycle_features import compute_emotion_features as _compute_emotion_
 
 _EMOTION_CYCLE_STRATEGY_ID = "emotion_cycle:v1"
 
+# 环境项偏移。方向依据 market_temperature 的档位语义（发酵期是核心入场区，
+# 加速期只做最强故给正但更小，冰点/极热只出不进）；**幅度尚无样本外证据**，
+# 属先验设定。定值应在 settled_signal_outcomes_v1 攒够样本后做一次方向检验。
 _MARKET_TEMPERATURE_SENTIMENT_DELTA = {
     "冰点": -0.4,
     "修复": 0.2,
     "发酵": 0.6,
-    "加速": 0.3,
+    "加速": 0.3,  # 有意低于发酵：加速期只做最强，环境加成收窄
     "极热": -0.5,
 }
+# 与 candidate_discovery 的排序上下文口径一致：梯队超过 1 天即不可用。
+_TEMPERATURE_MAX_AGE_DAYS = 1
 
 
 def _market_temperature_sentiment_overlay(
     signal_ctx: Optional[Dict[str, Any]],
+    asof: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Convert shared market temperature into a bounded sentiment delta."""
+    """Convert shared market temperature into a bounded sentiment delta.
+
+    ``asof`` 必须落到 ``temperature_from_context``：它的日期门禁整块都在
+    ``if event_asof:`` 里，不传等于关闭过期检查——上下文文件的 24h 门禁挡不住
+    这一层，因为 ``generated_at`` 每次 partial 写入都会刷新而 ``ladder_asof``
+    不会。缺省取今天，使「没传」退化成设闸而非不设闸。
+    """
     if not signal_ctx:
         return {
             "delta": 0.0,
             "temperature": {"tier": None, "context_status": "unknown"},
             "notes": ["市场温度不可用，未计入情绪面"],
         }
+    event_asof = str(asof or date.today().isoformat())
     try:
-        temperature = dict(temperature_from_context(signal_ctx))
+        temperature = dict(temperature_from_context(
+            signal_ctx,
+            event_asof=event_asof,
+            max_age_days=_TEMPERATURE_MAX_AGE_DAYS,
+        ))
     except (TypeError, ValueError, RuntimeError):
         temperature = {"tier": None, "context_status": "unknown"}
 
@@ -596,7 +613,8 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
 
 def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
                     signal_ctx: Optional[Dict[str, Any]] = None,
-                    sector: Optional[str] = None) -> Dict[str, Any]:
+                    sector: Optional[str] = None,
+                    asof: Optional[str] = None) -> Dict[str, Any]:
     """情绪面评分（0-10）——个股量价 + 连板梯队/板块赚钱效应/资金流上下文。
 
     本系统核心玩法是抓赚钱效应板块做打板/高成长，情绪面是主战场：
@@ -647,7 +665,7 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
     social = sentiment_attention_overlay(code, ctx)
     score += social["delta"]
     signals.extend(social["notes"])
-    temperature_overlay = _market_temperature_sentiment_overlay(ctx)
+    temperature_overlay = _market_temperature_sentiment_overlay(ctx, asof)
     score += temperature_overlay["delta"]
     signals.extend(temperature_overlay["notes"])
 
