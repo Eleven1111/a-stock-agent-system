@@ -12,6 +12,10 @@
   · 期望值 = 胜率×均盈 − 败率×均亏，配合盈亏比
   · 相对沪深300 的 alpha（剔除大盘 beta，看是否真有超额）
 
+成本口径：策略门控（enable/disable）消费**税后**期望——税前口径会系统性高估
+短线策略，A 股双边成本约 11-16bps，打板隔日兑现的边际信号正好落在这层里。
+税前指标同时保留上报（expectancy / win_rate），税后见 *_net 与 cost_model。
+
 关键修复（相对旧版）:
   · 取消「首次穿越 +3% 即永久锁定 win」的结构性向上偏置
   · 结算与信号价均取自**前复权 K 线**，规避送转除权导致的收益失真
@@ -40,6 +44,7 @@ from state_store import read_json, atomic_write_json, update_json_list, mutate_j
 from paths import data_file
 from tradeability import limit_pct, round_limit
 from a_stock_http import fetch_tencent_kline, DataSourceError
+from execution_model import FEE_SCHEDULE, net_return_pct
 import signal_ledger
 from scripts.cron_budget_report import build_push_report, read_push_telemetry
 
@@ -55,6 +60,10 @@ AGED_PENDING_DAYS = 3
 TERMINAL_UNRESOLVED_DAYS = 7
 MIN_SETTLEMENT_COVERAGE = 0.95
 MAX_TERMINAL_AMBIGUITY_RATIO = 0.02
+# 信号不记手数，成本率必须挂在一个显式的名义本金上（最低佣金 5 元使成本率随
+# 本金变化）。取模拟盘配置口径：initial_cash 100000 / max_positions 5 = 20000
+# （config/paper_trading.json）。该假设随统计结果一起上报，读者可按自身仓位重算。
+SETTLEMENT_NOTIONAL = 20000.0
 EVIDENCE_PIPELINE_KEYWORDS = (
     "candidate",
     "auction",
@@ -404,10 +413,71 @@ def _expectancy(rets: List[float]) -> Dict[str, float]:
     return {"expectancy": round(expectancy, 2), "payoff_ratio": round(payoff, 2)}
 
 
+def _net_return(record: Mapping[str, Any], gross: float) -> Optional[float]:
+    """把税前收益换成税后。日期缺失或早于费率表生效日 → None（不猜，不静默回退）。"""
+    record_day = _record_date(dict(record))
+    if record_day is None:
+        return None
+    try:
+        priced = net_return_pct(
+            gross_return_pct=gross,
+            notional=SETTLEMENT_NOTIONAL,
+            asof=record_day.isoformat(),
+        )
+    except ValueError:
+        return None
+    return float(priced["net_return_pct"])
+
+
+def _net_returns(records: List[Dict]) -> List[float]:
+    """已结算记录的税后 T+1 收益序列；不可定价的记录被剔除而非补零。"""
+    values = [
+        _net_return(record, float(record["t1_close_ret"]))
+        for record in records
+        if record.get("t1_close_ret") is not None
+    ]
+    return [value for value in values if value is not None]
+
+
+def _cost_model(records: List[Dict]) -> Dict[str, Any]:
+    """成本口径元数据。priced 为 0 时下游必须按样本不足处理，不得当作零成本。"""
+    priceable = _net_returns(records)
+    settled = [r for r in records if r.get("t1_close_ret") is not None]
+    return {
+        "basis": "net_of_estimated_cost",
+        "assumed_notional": SETTLEMENT_NOTIONAL,
+        "fee_schedule_version": FEE_SCHEDULE["version"],
+        "priced": len(priceable),
+        "unpriceable": max(0, len(settled) - len(priceable)),
+        "authoritative_source": "broker_statement",
+    }
+
+
+def _net_metrics(records: List[Dict]) -> Dict[str, Any]:
+    """税后指标；样本为空一律返回 None，避免空集被读成 0.0 的假绿。"""
+    net_rets = _net_returns(records)
+    if not net_rets:
+        return {
+            "closed_net": 0,
+            "win_rate_net": None,
+            "avg_t1_close_ret_net": None,
+            "expectancy_net": None,
+        }
+    return {
+        "closed_net": len(net_rets),
+        "win_rate_net": round(
+            sum(1 for value in net_rets if value >= 0) / len(net_rets) * 100, 1
+        ),
+        "avg_t1_close_ret_net": round(sum(net_rets) / len(net_rets), 2),
+        "expectancy_net": _expectancy(net_rets)["expectancy"],
+    }
+
+
 def _attribution_returns(
     records: List[Dict],
     *,
     final_only: bool = False,
+    net_of_cost: bool = False,
 ) -> Dict[str, List[float]]:
     """Direction-normalized returns for research evidence co-occurrence.
 
@@ -430,6 +500,11 @@ def _attribution_returns(
             value = float(record["t1_close_ret"])
             if item.get("direction") == "bearish":
                 value = -value
+            if net_of_cost:
+                priced = _net_return(record, value)
+                if priced is None:
+                    continue
+                value = priced
             grouped.setdefault(strategy_id, []).append(value)
     return grouped
 
@@ -438,8 +513,11 @@ def _attribution_stats(
     records: List[Dict],
     *,
     final_only: bool = False,
+    net_of_cost: bool = False,
 ) -> Dict[str, Dict[str, float]]:
-    grouped = _attribution_returns(records, final_only=final_only)
+    grouped = _attribution_returns(
+        records, final_only=final_only, net_of_cost=net_of_cost
+    )
     return {
         strategy_id: {
             "total": len(values),
@@ -656,6 +734,7 @@ def compute_stats(
             "win_rate": round(len(s_wins) / len(s_closed) * 100, 1) if s_closed else 0,
             "avg_t1_close": round(sum(s_rets) / len(s_rets), 2) if s_rets else 0,
             **_expectancy(s_rets),
+            **_net_metrics(s_closed),
         }
 
     # T+1 provisional is useful for observation, but strategy enable/disable
@@ -664,20 +743,30 @@ def compute_stats(
         r for r in closed
         if r.get("settlement_status") != "provisional"
     ]
+    # 门控口径为**税后**：税前期望会系统性高估短线策略（A 股双边成本约 11-16bps，
+    # 打板隔日兑现的边际信号正是被这层成本吃掉的那批）。closed 同步取税后可定价
+    # 样本数，使不可定价记录不会把样本量凑够而绕过 GATING_MIN_SAMPLES。
     gating_by_strategy = {}
     for strategy_id in sorted({r.get("strategy_id", "default") for r in records}):
         s_closed = [
             r for r in final_closed
             if r.get("strategy_id", "default") == strategy_id
         ]
+        net_rets = _net_returns(s_closed)
         gating_by_strategy[strategy_id] = {
-            "closed": len(s_closed),
-            **_expectancy([r["t1_close_ret"] for r in s_closed]),
+            "closed": len(net_rets),
+            "closed_gross": len(s_closed),
+            "cost_basis": "net_of_estimated_cost",
+            **_expectancy(net_rets),
+            "expectancy_gross": _expectancy(
+                [r["t1_close_ret"] for r in s_closed]
+            )["expectancy"],
         }
     by_attribution_strategy = _attribution_stats(closed)
     gating_by_attribution_strategy = _attribution_stats(
         final_closed,
         final_only=True,
+        net_of_cost=True,
     )
 
     return {
@@ -695,6 +784,8 @@ def compute_stats(
         "avg_t1_close_ret": round(sum(rets) / len(rets), 2) if rets else 0,
         "avg_alpha_t1": round(sum(alphas) / len(alphas), 2) if alphas else None,
         **_expectancy(rets),
+        **_net_metrics(closed),
+        "cost_model": _cost_model(closed),
         "by_grade": by_grade,
         "by_strategy": by_strategy,
         "gating_by_strategy": gating_by_strategy,
@@ -821,6 +912,16 @@ def format_stats(stats: Dict, records: List[Dict]) -> str:
                  f"隔日收益(均): {stats['avg_t1_close_ret']:+.2f}%")
     lines.append(f"📐 期望值: **{stats['expectancy']:+.2f}%** | 盈亏比: {stats['payoff_ratio']} | "
                  f"超额(α vs 沪深300): **{alpha_str}**")
+    net_expectancy = stats.get("expectancy_net")
+    cost_model = stats.get("cost_model") or {}
+    if net_expectancy is None:
+        lines.append("🧮 税后期望: 样本不可定价（成本口径无法计算）")
+    else:
+        lines.append(
+            f"🧮 税后期望(门控口径): **{net_expectancy:+.2f}%** | "
+            f"税后胜率: {stats.get('win_rate_net')}% | "
+            f"名义本金假设: {cost_model.get('assumed_notional')}"
+        )
     lines.append("")
     lines.append("| 等级 | 信号 | 结算 | 胜率 | 隔日收益 | 期望 |")
     lines.append("|------|------|------|------|----------|------|")
