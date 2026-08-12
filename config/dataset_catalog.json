@@ -1,6 +1,6 @@
 {
   "schema": "dataset_catalog_v1",
-  "catalog_version": "1.0.0",
+  "catalog_version": "1.1.0",
   "datasets": [
     {
       "schema": "dataset_contract_v1",
@@ -102,6 +102,123 @@
       "known_limitations": [
         "Forward returns are evaluation-only and must never be available to the feature cutoff.",
         "The contract does not prove universe completeness until a caller supplies a coverage report."
+      ]
+    },
+    {
+      "schema": "dataset_contract_v1",
+      "dataset_id": "settled_signal_outcomes_v1",
+      "version": "1.0.0",
+      "description": "Settled A-share signals joined to their T+1 outcome, carrying both gross and net-of-estimated-cost forward returns per strategy.",
+      "provider": {
+        "id": "internal:signal_ledger",
+        "adapter_version": "dataset-projection-v1"
+      },
+      "source_rank": "derived_internal",
+      "frequency": "per_settled_signal",
+      "timezone": "Asia/Shanghai",
+      "currency": "CNY",
+      "adjustment": "pre_adjusted",
+      "point_in_time": {
+        "feature_cutoff_field": "src",
+        "feature_available_at_field": "score_available_at",
+        "outcome_period_end_field": "dst",
+        "outcome_available_at_field": "outcome_available_at",
+        "snapshot_ref_field": "snapshot_ref"
+      },
+      "coverage": {
+        "universe": "settled_signal_ledger_events",
+        "minimum_ratio": 0.95,
+        "missing_policy": "fail_closed"
+      },
+      "lineage": {
+        "producer": "dataset_projection",
+        "producer_version": "dataset-projection-v1",
+        "inputs": [
+          "signal_ledger",
+          "execution_model"
+        ]
+      },
+      "fields": [
+        {
+          "name": "entity_id",
+          "type": "string",
+          "semantic": "security_code",
+          "unit": "text",
+          "nullable": false
+        },
+        {
+          "name": "strategy_id",
+          "type": "string",
+          "semantic": "strategy_identity",
+          "unit": "text",
+          "nullable": false
+        },
+        {
+          "name": "src",
+          "type": "date",
+          "semantic": "feature_cutoff_date",
+          "unit": "date",
+          "nullable": false
+        },
+        {
+          "name": "dst",
+          "type": "date",
+          "semantic": "outcome_period_end_date",
+          "unit": "date",
+          "nullable": false
+        },
+        {
+          "name": "score",
+          "type": "float",
+          "semantic": "ranking_score",
+          "unit": "unitless",
+          "nullable": false
+        },
+        {
+          "name": "forward_return",
+          "type": "float",
+          "semantic": "forward_return",
+          "unit": "decimal_return",
+          "nullable": false
+        },
+        {
+          "name": "net_forward_return",
+          "type": "float",
+          "semantic": "net_forward_return",
+          "unit": "decimal_return",
+          "nullable": false
+        },
+        {
+          "name": "score_available_at",
+          "type": "datetime",
+          "semantic": "feature_available_at",
+          "unit": "timestamp",
+          "nullable": false
+        },
+        {
+          "name": "outcome_available_at",
+          "type": "datetime",
+          "semantic": "outcome_available_at",
+          "unit": "timestamp",
+          "nullable": false
+        },
+        {
+          "name": "snapshot_ref",
+          "type": "string",
+          "semantic": "market_snapshot_ref",
+          "unit": "text",
+          "nullable": false
+        }
+      ],
+      "validators": [
+        "strict_fields",
+        "point_in_time_split",
+        "coverage_ratio"
+      ],
+      "known_limitations": [
+        "Net returns assume a fixed notional; the minimum commission makes the cost rate notional-dependent, so a different position size restates them.",
+        "Outcome availability is derived from the settlement date at market close, not from a per-record observation timestamp.",
+        "Settled signals accumulate slowly; coverage fails closed until the ledger holds enough terminal settlements to satisfy minimum_ratio."
       ]
     }
   ]

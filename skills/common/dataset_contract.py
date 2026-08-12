@@ -22,6 +22,10 @@ SEMANTIC_UNITS = {
     "outcome_period_end_date": "date",
     "ranking_score": "unitless",
     "forward_return": "decimal_return",
+    # 税后前瞻收益与策略身份：语义登记在此，单位才会被 _field_errors 强制，
+    # 否则未登记的 semantic 只校验非空，单位可以随便填。
+    "net_forward_return": "decimal_return",
+    "strategy_identity": "text",
     "feature_available_at": "timestamp",
     "outcome_available_at": "timestamp",
     "market_snapshot_ref": "text",
