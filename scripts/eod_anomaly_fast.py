@@ -3,7 +3,9 @@
 Fast tail anomaly scanner - optimized version for cron jobs.
 Fetches minute data only for top-N most liquid stocks.
 """
-import sys, time, json
+import sys
+import time
+import json
 sys.path.insert(0, '.')
 sys.path.insert(0, 'skills/common')
 sys.path.insert(0, 'skills/stock-triage/scripts')
@@ -109,16 +111,16 @@ def position_60d(code, market):
 
 def main():
     asof = date.today().isoformat()
-    
+
     # Step 1: Fetch spot
     rows = fetch_spot()
     universe_count = len(rows)
-    
+
     # Step 2: Screen
     screened = screen(rows)
     screened_count = len(screened)
     print(f"Screened: {screened_count} stocks", file=sys.stderr)
-    
+
     # Step 3: Fetch minute data for screened stocks
     print(f"Fetching minute data for {screened_count} stocks...", file=sys.stderr)
     t0 = time.time()
@@ -136,19 +138,19 @@ def main():
         if (i + 1) % 50 == 0:
             print(f"  {i+1}/{screened_count} done ({time.time()-t0:.0f}s elapsed)", file=sys.stderr)
     print(f"  Minute data done in {time.time()-t0:.1f}s, {len(signals)} signals", file=sys.stderr)
-    
+
     # Step 4: Filter by thresholds
-    anomaly_codes = [c for c, s in signals.items() 
-                     if s["tail_volume_ratio"] >= VOLUME_RATIO_MIN 
+    anomaly_codes = [c for c, s in signals.items()
+                     if s["tail_volume_ratio"] >= VOLUME_RATIO_MIN
                      and s["tail_price_change_pct"] >= PRICE_CHANGE_MIN]
     print(f"  Anomaly candidates: {len(anomaly_codes)}", file=sys.stderr)
-    
+
     # Step 5: Fetch 60d positions for anomaly codes
     positions = {}
     for code in anomaly_codes:
         market = market_of(code)
         positions[code] = position_60d(code, market)
-    
+
     # Step 6: Build candidates
     screened_by_code = {s["code"]: s for s in screened}
     candidates = []
@@ -170,10 +172,10 @@ def main():
             "market_cap": base.get("market_cap"),
             "anomaly_strength": round(sig["tail_volume_ratio"] * sig["tail_price_change_pct"], 2),
         })
-    
+
     # Sort by anomaly strength
     candidates.sort(key=lambda x: -x["anomaly_strength"])
-    
+
     # Build result
     result = {
         "schema": "eod_anomaly_scan_v1",
@@ -186,9 +188,9 @@ def main():
         "candidates": candidates,
         "data_source": "tencent_minute"
     }
-    
+
     print(json.dumps(result, ensure_ascii=False))
-    
+
     # Also write to archive
     import os
     data_dir = "skills/stock-triage/data"
