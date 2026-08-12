@@ -19,6 +19,14 @@ FACTOR_FIELDS = (
     "portfolio_volatility_pct",
 )
 
+# 尾部分位数比 beta 需要更长的样本：95% VaR 在 60 个观测下才落到第 3 差的那天，
+# 少于此的样本估不出尾部，只能返回 None。
+MIN_TAIL_OBSERVATIONS = 60
+VAR_CONFIDENCE = 0.95
+# 确定性压力情景：基准单日跌幅。取值对应 A 股常见的普跌/千股跌停/极端日，
+# 不做随机模拟——情景本身必须可复现、可审计。
+STRESS_BENCHMARK_SHOCKS_PCT = (-3.0, -7.0, -10.0)
+
 
 def normalize_code(value: Any) -> str:
     code = str(value or "").strip().lower()
@@ -318,6 +326,87 @@ def build_candidate_evidence(
         "assumptions": [
             "tencent_daily_volume_is_lots_when_amount_is_unavailable",
             "style_exposure_uses_sector_as_the_runtime_style_proxy",
+        ],
+    }
+
+
+def _historical_var_cvar(
+    returns: Sequence[float], *, confidence: float = VAR_CONFIDENCE
+) -> tuple[float, float] | None:
+    """历史模拟法 VaR/CVaR，返回**正数损失百分比**；样本不足返回 None。
+
+    不拟合分布：直接取经验分位。95% 置信下 tail_size = floor(0.05 * n)，
+    VaR 为第 tail_size 差的那天，CVaR 为这 tail_size 天的均值。
+    """
+    ordered = sorted(float(value) for value in returns if math.isfinite(value))
+    if len(ordered) < MIN_TAIL_OBSERVATIONS:
+        return None
+    tail_size = max(1, int(math.floor((1.0 - confidence) * len(ordered))))
+    threshold = ordered[tail_size - 1]
+    tail_mean = statistics.fmean(ordered[:tail_size])
+    return -threshold * 100.0, -tail_mean * 100.0
+
+
+def _stress_scenarios(portfolio_beta: float | None) -> list[dict[str, Any]]:
+    """基准冲击 × 组合 beta 的确定性传导；beta 未知时不编造数字。"""
+    if portfolio_beta is None or not math.isfinite(portfolio_beta):
+        return []
+    return [
+        {
+            "scenario": f"benchmark_{abs(shock):g}pct_single_day_drop",
+            "benchmark_shock_pct": shock,
+            "projected_portfolio_pct": round(portfolio_beta * shock, 4),
+        }
+        for shock in STRESS_BENCHMARK_SHOCKS_PCT
+    ]
+
+
+def build_tail_risk_evidence(
+    portfolio: Mapping[str, Any],
+    *,
+    bars_by_code: Mapping[str, Sequence[Mapping[str, Any]]],
+    benchmark_bars: Sequence[Mapping[str, Any]],
+    decision_asof: str,
+) -> dict[str, Any]:
+    """组合层尾部风险证据：历史 VaR/CVaR + 确定性压力情景。
+
+    只产出证据，不参与准入否决——风险度量与准入门槛分开改，避免一次改动
+    同时移动测量尺和判定线。样本不足时字段为 None 并写明原因，不返回 0.0。
+    """
+    portfolio_returns, missing, cutoffs = _portfolio_returns(
+        portfolio, bars_by_code, decision_asof
+    )
+    benchmark_returns = _returns(_prior_bars(benchmark_bars, decision_asof))
+    reasons = list(missing)
+    if not portfolio_returns:
+        reasons.append("portfolio_history_missing")
+    if len(benchmark_returns) < MIN_RETURN_OBSERVATIONS:
+        reasons.append("benchmark_history_missing")
+    if len(portfolio_returns) < MIN_TAIL_OBSERVATIONS:
+        reasons.append("tail_sample_insufficient")
+    tail = _historical_var_cvar(list(portfolio_returns.values()))
+    portfolio_beta = _beta(portfolio_returns, benchmark_returns)
+    worst_day = min(portfolio_returns.values()) * 100.0 if portfolio_returns else None
+    return {
+        "schema": "portfolio_tail_risk_v1",
+        "asof": str(decision_asof)[:10],
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "data_cutoff": min(cutoffs) if cutoffs else None,
+        "source": "tencent_https_daily_kline_v1",
+        "observations": len(portfolio_returns),
+        "minimum_observations": MIN_TAIL_OBSERVATIONS,
+        "confidence": VAR_CONFIDENCE,
+        "var_pct": round(tail[0], 4) if tail else None,
+        "cvar_pct": round(tail[1], 4) if tail else None,
+        "worst_observed_day_pct": round(worst_day, 4) if worst_day is not None else None,
+        "portfolio_beta": round(portfolio_beta, 6) if portfolio_beta is not None else None,
+        "stress_scenarios": _stress_scenarios(portfolio_beta),
+        "missing_reasons": list(dict.fromkeys(reasons)),
+        "advisory_only": True,
+        "assumptions": [
+            "historical_simulation_without_a_fitted_distribution",
+            "stress_transmission_is_beta_only_and_ignores_idiosyncratic_shocks",
+            "equal_weight_of_each_observed_day_no_volatility_decay",
         ],
     }
 
