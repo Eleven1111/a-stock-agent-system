@@ -68,11 +68,55 @@ from emotion_cycle_features import compute_emotion_features as _compute_emotion_
 
 _EMOTION_CYCLE_STRATEGY_ID = "emotion_cycle:v1"
 
+_MARKET_TEMPERATURE_SENTIMENT_DELTA = {
+    "冰点": -0.4,
+    "修复": 0.2,
+    "发酵": 0.6,
+    "加速": 0.3,
+    "极热": -0.5,
+}
+
+
+def _market_temperature_sentiment_overlay(
+    signal_ctx: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Convert shared market temperature into a bounded sentiment delta."""
+    if not signal_ctx:
+        return {
+            "delta": 0.0,
+            "temperature": {"tier": None, "context_status": "unknown"},
+            "notes": ["市场温度不可用，未计入情绪面"],
+        }
+    try:
+        temperature = dict(temperature_from_context(signal_ctx))
+    except (TypeError, ValueError, RuntimeError):
+        temperature = {"tier": None, "context_status": "unknown"}
+
+    explicit_status = signal_ctx.get("temperature_context_status") or signal_ctx.get("context_status")
+    if explicit_status in {"stale", "unknown", "degraded"}:
+        temperature["context_status"] = explicit_status
+        temperature["context_fresh"] = False
+    tier = str(temperature.get("tier") or "")
+    status = str(temperature.get("context_status") or "")
+    if status != "fresh" or tier not in _MARKET_TEMPERATURE_SENTIMENT_DELTA:
+        return {
+            "delta": 0.0,
+            "temperature": temperature,
+            "notes": ["市场温度不可用，未计入情绪面"],
+        }
+    delta = _MARKET_TEMPERATURE_SENTIMENT_DELTA[tier]
+    return {
+        "delta": delta,
+        "temperature": temperature,
+        "notes": [f"市场温度{tier}({delta:+.1f})"],
+    }
+
 # 大盘 context overlay（外围环境回流个股评分；无缓存则 no-op）
 from market_context import read_market_context, apply_market_overlay
 
 # 情绪上下文（连板梯队/板块赚钱效应/资金流回流情绪面；无缓存则回退历史逻辑）
 from signal_context import read_signal_context, sentiment_boost
+from market_temperature import temperature_from_context
 from social_attention import sentiment_attention_overlay
 from catalyst_context import read_catalyst_events
 from config_registry import config_path
@@ -603,6 +647,9 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
     social = sentiment_attention_overlay(code, ctx)
     score += social["delta"]
     signals.extend(social["notes"])
+    temperature_overlay = _market_temperature_sentiment_overlay(ctx)
+    score += temperature_overlay["delta"]
+    signals.extend(temperature_overlay["notes"])
 
     score = max(0, min(10, score))
 
@@ -614,6 +661,8 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
         "context_boost": boost["delta"],
         "social_attention_delta": social["delta"],
         "social_attention": social["record"],
+        "market_temperature_delta": temperature_overlay["delta"],
+        "market_temperature": temperature_overlay["temperature"],
         "sector": boost.get("sector"),
         "detail": "; ".join(signals) if signals else "情绪中性",
     }

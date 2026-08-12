@@ -18,6 +18,44 @@ def test_sentiment_with_ctx_boost(tmp_path, monkeypatch):
     assert out["sector"] == "半导体"
 
 
+def test_sentiment_includes_fresh_market_temperature_as_bounded_environment_delta(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    ctx = {
+        "ladder_asof": "2026-08-12",
+        "lianban_ladder": {
+            "002156": {"lianban": 4, "sector": "半导体"},
+            "600001": {"lianban": 2},
+            "600002": {"lianban": 1},
+            "600003": {"lianban": 1},
+        },
+        "prev_lianban_ladder": {
+            "002156": {"lianban": 1}, "600001": {"lianban": 1},
+            "600002": {"lianban": 1}, "600003": {"lianban": 1},
+        },
+        "limitup_total": 50,
+    }
+    out = fds.score_sentiment("002156", "通富微电", quote=dict(_QUOTE), signal_ctx=ctx)
+
+    assert out["market_temperature"]["tier"] == "发酵"
+    assert out["market_temperature_delta"] == 0.6
+    assert "市场温度发酵(+0.6)" in out["detail"]
+
+
+def test_sentiment_does_not_score_stale_temperature_as_environment_signal(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    ctx = {
+        "ladder_asof": "2026-08-12",
+        "lianban_ladder": {"002156": {"lianban": 1}},
+        "temperature_tier": "冰点",
+        "temperature_context_status": "stale",
+    }
+    out = fds.score_sentiment("002156", "通富微电", quote=dict(_QUOTE), signal_ctx=ctx)
+
+    assert out["market_temperature_delta"] == 0.0
+    assert out["market_temperature"]["context_status"] == "stale"
+    assert "市场温度不可用" in out["detail"]
+
+
 def test_sentiment_without_ctx_unchanged(tmp_path, monkeypatch):
     """无上下文时行为与历史一致：涨停+3、换手>10 +0.5 → 8.5。"""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
