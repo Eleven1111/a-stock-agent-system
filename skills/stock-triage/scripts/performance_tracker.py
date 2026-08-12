@@ -146,6 +146,9 @@ def evaluate_signal(
         "max_drawdown": max_drawdown,
         "alpha_t1": alpha_t1,
         "bars_observed": len(window),
+        # 结算所对应的 T+1 日期。此前只用了这根 K 线的价格就把日期丢掉，导致
+        # 下游无法在不重算交易日历的前提下知道结果归属哪一天。
+        "settled_on": str(t1.get("date") or "") or None,
         "settlement_status": "final" if final else "provisional",
         "resolved": final,
     }
