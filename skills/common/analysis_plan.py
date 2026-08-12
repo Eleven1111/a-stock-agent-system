@@ -31,18 +31,43 @@ RECALL_INPUT_FIELDS = {
     "schema", "quotes", "prefilter_codes", "auction_codes", "executable_codes",
     "open_codes", "asof", "generated_at", "source_stage",
 }
+# 算子参数是**选择器，不是判定阈值**。判定阈值（如 cross_sectional_direction
+# 的 min_pairs_per_cohort）在其模块里明确写着「固定为常量：调参 = 重新过闸」，
+# 因此不暴露为参数——否则计划文件就成了绕开研究闸门的旁路。
+# param_schema 里每项：type / required / 可选 default / 数值的 minimum-maximum /
+# 枚举的 choices。未声明的参数名一律拒绝，白名单语义不变。
 OPERATORS = {
     "group_direction_cohorts_v1": {
         "input_schemas": ("dataset:cross_sectional_direction_rows_v1",),
         "output_schema": "direction_cohorts_v1",
+        "operator_version": "group-direction-cohorts-v1",
+        "param_schema": {},
+    },
+    "group_settled_outcomes_v1": {
+        "input_schemas": ("dataset:settled_signal_outcomes_v1",),
+        "output_schema": "direction_cohorts_v1",
+        "operator_version": "group-settled-outcomes-v1",
+        "param_schema": {
+            "strategy_id": {"type": "string", "required": True},
+            "return_basis": {
+                "type": "string",
+                "required": False,
+                "default": "net",
+                "choices": ("gross", "net"),
+            },
+        },
     },
     "cross_sectional_direction_v1": {
         "input_schemas": ("direction_cohorts_v1",),
         "output_schema": "cross_sectional_direction_v1",
+        "operator_version": "cross-sectional-direction-v1",
+        "param_schema": {},
     },
     "discovery_recall_v1": {
         "input_schemas": ("discovery_recall_input_v1",),
         "output_schema": "discovery_recall_report_v1",
+        "operator_version": "discovery-recall-v1",
+        "param_schema": {},
     },
 }
 
@@ -110,6 +135,63 @@ def _input_schemas(
     return errors, schemas
 
 
+_PARAM_TYPES = {
+    "string": lambda value: isinstance(value, str),
+    "integer": lambda value: isinstance(value, int) and not isinstance(value, bool),
+    "number": lambda value: isinstance(value, (int, float)) and not isinstance(value, bool),
+    "boolean": lambda value: isinstance(value, bool),
+}
+
+
+def _one_param_errors(node_id: str, name: str, rule: Mapping[str, Any], value: Any) -> list[str]:
+    if not _PARAM_TYPES[str(rule["type"])](value):
+        return [f"param_type_invalid:{node_id}.{name}"]
+    errors: list[str] = []
+    choices = rule.get("choices")
+    if choices and value not in choices:
+        errors.append(f"param_choice_invalid:{node_id}.{name}")
+    minimum, maximum = rule.get("minimum"), rule.get("maximum")
+    if minimum is not None and value < minimum:
+        errors.append(f"param_below_minimum:{node_id}.{name}")
+    if maximum is not None and value > maximum:
+        errors.append(f"param_above_maximum:{node_id}.{name}")
+    return errors
+
+
+def _param_errors(node_id: str, operator: str, params: Any) -> list[str]:
+    """按算子的 param_schema 校验；未知算子已在别处报错，这里不重复。"""
+    schema = (OPERATORS.get(operator) or {}).get("param_schema")
+    if schema is None:
+        return []
+    if params is None:
+        params = {}
+    if not isinstance(params, Mapping):
+        return [f"params_not_object:{node_id}"]
+    errors = [
+        f"param_not_allowed:{node_id}.{name}"
+        for name in params
+        if name not in schema
+    ]
+    for name, rule in schema.items():
+        if name not in params:
+            if rule.get("required"):
+                errors.append(f"param_required:{node_id}.{name}")
+            continue
+        errors.extend(_one_param_errors(node_id, name, rule, params[name]))
+    return errors
+
+
+def resolved_params(operator: str, params: Any) -> dict[str, Any]:
+    """把声明的参数与 schema 默认值合并；校验已在计划编译期完成。"""
+    schema = (OPERATORS.get(operator) or {}).get("param_schema") or {}
+    declared = dict(params or {})
+    return {
+        name: declared.get(name, rule.get("default"))
+        for name, rule in schema.items()
+        if name in declared or "default" in rule
+    }
+
+
 def _node_definitions(nodes: Any, input_ids: set[str]) -> tuple[list[str], dict[str, dict[str, Any]]]:
     if not isinstance(nodes, list) or not nodes:
         return ["nodes_missing"], {}
@@ -131,8 +213,7 @@ def _node_definitions(nodes: Any, input_ids: set[str]) -> tuple[list[str], dict[
             errors.append(f"operator_not_allowed:{operator}")
         if not isinstance(node.get("inputs"), list) or not node.get("inputs"):
             errors.append(f"node_inputs_missing:{node_id}")
-        if node.get("params") != {}:
-            errors.append(f"operator_params_not_allowed:{node_id}")
+        errors.extend(_param_errors(node_id, operator, node.get("params")))
         by_id[node_id] = dict(node)
     return errors, by_id
 
@@ -307,9 +388,40 @@ def _group_direction_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {"schema": "direction_cohorts_v1", "cohorts": cohorts}
 
 
-def _run_operator(operator: str, inputs: list[Any]) -> Any:
+def _group_settled_outcomes(
+    rows: Sequence[Mapping[str, Any]], params: Mapping[str, Any]
+) -> dict[str, Any]:
+    """按策略切出该策略自己的横截面队列；税前/税后由 return_basis 选择。
+
+    选不出任何行时**报错而非返回空队列**：空队列到下游只会得到
+    ``insufficient_sample``，读起来像「样本不够」，掩盖了真正的原因
+    （策略 ID 写错或该策略尚无结算）。
+    """
+    strategy_id = str(params["strategy_id"])
+    field = "net_forward_return" if params.get("return_basis", "net") == "net" else "forward_return"
+    selected = [row for row in rows if str(row.get("strategy_id") or "") == strategy_id]
+    if not selected:
+        raise AnalysisPlanError(f"no_rows_for_strategy:{strategy_id}")
+    missing = [row for row in selected if row.get(field) is None]
+    if missing:
+        raise AnalysisPlanError(f"return_basis_unavailable:{field}")
+    return _group_direction_rows([
+        {
+            "src": row["src"],
+            "dst": row["dst"],
+            "score": row["score"],
+            "forward_return": row[field],
+            "entity_id": row["entity_id"],
+        }
+        for row in selected
+    ])
+
+
+def _run_operator(operator: str, inputs: list[Any], params: Mapping[str, Any]) -> Any:
     if operator == "group_direction_cohorts_v1":
         return _group_direction_rows(inputs[0])
+    if operator == "group_settled_outcomes_v1":
+        return _group_settled_outcomes(inputs[0], params)
     if operator == "cross_sectional_direction_v1":
         return cross_sectional_direction.evaluate(inputs[0]["cohorts"])
     if operator == "discovery_recall_v1":
@@ -338,11 +450,15 @@ def _execute_nodes(
     for node_id in order:
         node = nodes[node_id]
         dependencies = [values[str(item)] for item in node["inputs"]]
-        output = _run_operator(str(node["operator"]), dependencies)
+        operator = str(node["operator"])
+        params = resolved_params(operator, node.get("params"))
+        output = _run_operator(operator, dependencies, params)
         values[node_id] = output
         lineage[node_id] = {
-            "operator": node["operator"],
+            "operator": operator,
+            "operator_version": OPERATORS[operator]["operator_version"],
             "inputs": list(node["inputs"]),
+            "params": params,
             "input_hashes": [_hash(item) for item in dependencies],
             "output_hash": _hash(output),
         }
