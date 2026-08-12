@@ -110,6 +110,7 @@ def test_strategy_gating_uses_only_final_settlements():
             "t1_open_premium": -5.0,
             "promoted": False,
             "settlement_status": "provisional",
+            "signal_date": "2026-08-03",
         },
         {
             "code": "2",
@@ -121,14 +122,76 @@ def test_strategy_gating_uses_only_final_settlements():
             "t1_open_premium": 2.0,
             "promoted": False,
             "settlement_status": "final",
+            "signal_date": "2026-08-04",
+        },
+    ]
+
+    stats = compute_stats(records)
+    gating = stats["gating_by_strategy"]["daban:first_board_reseal"]
+
+    assert stats["by_strategy"]["daban:first_board_reseal"]["closed"] == 2
+    assert gating["closed"] == 1
+    # 门控口径已切到税后：+3.00% 毛收益扣双边成本后为 +2.89%
+    assert gating["cost_basis"] == "net_of_estimated_cost"
+    assert gating["expectancy"] == 2.89
+    assert gating["expectancy_gross"] == 3.0
+
+
+def test_gating_expectancy_is_net_of_trading_cost():
+    """税前微正、税后转负的边际策略必须被门控停用，而不是放行。"""
+    records = [
+        {
+            "code": str(index),
+            "name": "marginal",
+            "grade": "A",
+            "strategy_id": "daban:marginal_edge",
+            "outcome": "win",
+            "t1_close_ret": 0.05,
+            "t1_open_premium": 0.0,
+            "promoted": False,
+            "settlement_status": "final",
+            "signal_date": "2026-08-04",
+        }
+        for index in range(pt.GATING_MIN_SAMPLES)
+    ]
+
+    stats = compute_stats(records)
+    gating = stats["gating_by_strategy"]["daban:marginal_edge"]
+
+    assert gating["closed"] == pt.GATING_MIN_SAMPLES
+    assert gating["expectancy_gross"] > 0
+    assert gating["expectancy"] < 0
+
+    decisions = pt.evaluate_strategy_gating(stats["gating_by_strategy"])
+    assert [d["action"] for d in decisions] == ["disable"]
+
+
+def test_undatable_records_are_excluded_from_net_metrics():
+    """无日期 → 无法定价 → 不进税后样本，且计数可见，不得静默补零。"""
+    records = [
+        {
+            "code": "1",
+            "name": "a",
+            "grade": "A",
+            "strategy_id": "daban:undated",
+            "outcome": "win",
+            "t1_close_ret": 3.0,
+            "t1_open_premium": 2.0,
+            "promoted": False,
+            "settlement_status": "final",
         },
     ]
 
     stats = compute_stats(records)
 
-    assert stats["by_strategy"]["daban:first_board_reseal"]["closed"] == 2
-    assert stats["gating_by_strategy"]["daban:first_board_reseal"]["closed"] == 1
-    assert stats["gating_by_strategy"]["daban:first_board_reseal"]["expectancy"] == 3.0
+    assert stats["cost_model"]["priced"] == 0
+    assert stats["cost_model"]["unpriceable"] == 1
+    assert stats["expectancy_net"] is None
+    assert stats["win_rate_net"] is None
+    gating = stats["gating_by_strategy"]["daban:undated"]
+    assert gating["closed"] == 0 and gating["closed_gross"] == 1
+    decisions = pt.evaluate_strategy_gating(stats["gating_by_strategy"])
+    assert [d["action"] for d in decisions] == ["skip"]
 
 
 def test_compute_stats_reports_directional_research_attribution():
@@ -143,6 +206,7 @@ def test_compute_stats_reports_directional_research_attribution():
             "t1_open_premium": 2.0,
             "promoted": False,
             "settlement_status": "final",
+            "signal_date": "2026-08-04",
             "strategy_attributions": [
                 {
                     "strategy_id": "chanlun_third_buy",
@@ -158,9 +222,14 @@ def test_compute_stats_reports_directional_research_attribution():
 
     stats = compute_stats(records)
 
+    # 上报口径仍为税前
     assert stats["by_attribution_strategy"]["chanlun_third_buy"]["expectancy"] == 4.0
     assert stats["by_attribution_strategy"]["chanlun_top_divergence"]["expectancy"] == -4.0
-    assert stats["gating_by_attribution_strategy"]["chanlun_third_buy"]["closed"] == 1
+    # 门控口径为税后：多头 +4.00% → +3.88%，空头 -4.00% → -4.11%
+    gating = stats["gating_by_attribution_strategy"]
+    assert gating["chanlun_third_buy"]["closed"] == 1
+    assert gating["chanlun_third_buy"]["expectancy"] == 3.88
+    assert gating["chanlun_top_divergence"]["expectancy"] == -4.11
 
 
 def test_compute_stats_aggregates_by_evidence_source_and_inactive_pipeline():

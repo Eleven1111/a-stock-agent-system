@@ -87,6 +87,42 @@ def estimate_round_trip_pnl(
     }
 
 
+def net_return_pct(
+    *,
+    gross_return_pct: float,
+    notional: float,
+    asof: str,
+) -> dict[str, Any]:
+    """Restate a gross return percentage net of both-side estimated fees.
+
+    Signals carry no lot size, so the caller supplies the notional the cost rate
+    is based on. It is echoed back because the minimum commission makes the cost
+    percentage notional-dependent: a reader holding a different position size
+    must be able to restate the number rather than trust a hidden assumption.
+    """
+    if notional <= 0:
+        raise ValueError("positive notional is required")
+    entry_value = float(notional)
+    exit_value = entry_value * (1.0 + float(gross_return_pct) / 100.0)
+    if exit_value <= 0:
+        raise ValueError("gross_return_pct implies a non-positive exit value")
+    buy_cost = estimate_trade_cost("buy", entry_value, asof=asof)
+    sell_cost = estimate_trade_cost("sell", exit_value, asof=asof)
+    total_cost = float(buy_cost["total"]) + float(sell_cost["total"])
+    return {
+        "schema": "a_share_net_return_v1",
+        "status": "estimate_only",
+        "gross_return_pct": round(float(gross_return_pct), 4),
+        "net_return_pct": round(
+            (exit_value - entry_value - total_cost) / entry_value * 100.0, 4
+        ),
+        "cost_pct": round(total_cost / entry_value * 100.0, 4),
+        "assumed_notional": round(entry_value, 2),
+        "fee_schedule_version": buy_cost["rules"]["version"],
+        "authoritative_source": "broker_statement",
+    }
+
+
 def _capacity(quantity: int, signal_price: float, adv_value: float | None) -> dict[str, Any]:
     if adv_value is None or adv_value <= 0:
         return {"status": "capacity_unknown", "participation": None}
