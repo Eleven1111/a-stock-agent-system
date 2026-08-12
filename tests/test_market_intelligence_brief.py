@@ -64,6 +64,60 @@ def test_open_brief_labels_the_judgement_time():
     assert "不代表全天走势" in text
 
 
+def test_preopen_unknown_temperature_tier_is_not_reported_as_weak_market():
+    """选股就绪但温度档位 unknown：仍属证据未就绪，不得说成弱市门禁。"""
+    text = brief.format_brief(
+        "preopen",
+        {
+            "asof": "2026-08-12",
+            "candidate_count": 0,
+            "candidates": [],
+            "hot_money_selection": {
+                "market_timing": {
+                    "status": "ready",
+                    "tier": "unknown",
+                    "weak_market": {"weak_regime": True},
+                }
+            },
+        },
+    )
+
+    assert "择时证据未就绪" in text
+    assert "弱市门禁生效" not in text
+
+
+def test_open_brief_converts_utc_timestamps_to_shanghai():
+    """带 Z 的 UTC 时戳必须折算成北京时间，否则免责标注会差 8 小时。"""
+    text = brief.format_brief(
+        "open",
+        {
+            "asof": "2026-08-12",
+            "generated_at": "2026-08-12T01:35:06+00:00",
+            "market_temperature": {"tier": "冰点"},
+            "market_regime": {"regime": "risk_off"},
+            "signals": [],
+        },
+    )
+
+    assert "09:35" in text
+    assert "01:35" not in text
+
+
+def test_open_brief_falls_back_when_the_timestamp_is_unparseable():
+    text = brief.format_brief(
+        "open",
+        {
+            "asof": "2026-08-12",
+            "generated_at": "not-a-timestamp",
+            "market_temperature": {"tier": "冰点"},
+            "market_regime": {"regime": "risk_off"},
+            "signals": [],
+        },
+    )
+
+    assert "判定时点：开盘阶段" in text
+
+
 def test_auction_brief_marks_pool_outsider_as_research_only():
     text = brief.format_brief(
         "auction",

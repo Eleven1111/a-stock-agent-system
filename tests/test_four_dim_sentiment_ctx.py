@@ -56,6 +56,56 @@ def test_sentiment_does_not_score_stale_temperature_as_environment_signal(tmp_pa
     assert "市场温度不可用" in out["detail"]
 
 
+def test_sentiment_ignores_temperature_from_a_stale_ladder_without_an_explicit_status(
+    tmp_path, monkeypatch
+):
+    """真实生产路径：ladder_asof 过期，但 ctx 里没有任何显式状态字段。
+
+    read_signal_context() 返回的记录不含 context_status —— 它只按 generated_at
+    做 24h 门禁，而 generated_at 每次 partial 写入都会刷新，ladder_asof 不会。
+    所以「上下文文件是新的、梯队是旧的」是可达状态，必须按不可用处理。
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    ctx = {
+        "ladder_asof": "2020-01-02",
+        "lianban_ladder": {
+            "002156": {"lianban": 4, "sector": "半导体"},
+            "600001": {"lianban": 2},
+            "600002": {"lianban": 1},
+            "600003": {"lianban": 1},
+        },
+        "prev_lianban_ladder": {
+            "002156": {"lianban": 1}, "600001": {"lianban": 1},
+            "600002": {"lianban": 1}, "600003": {"lianban": 1},
+        },
+        "limitup_total": 50,
+    }
+
+    out = fds.score_sentiment(
+        "002156", "通富微电", quote=dict(_QUOTE), signal_ctx=ctx, asof="2026-08-12"
+    )
+
+    assert out["market_temperature_delta"] == 0.0
+    assert out["market_temperature"]["tier"] != "发酵"
+    assert "市场温度不可用" in out["detail"]
+
+
+def test_sentiment_defaults_to_gating_temperature_when_no_asof_is_given(
+    tmp_path, monkeypatch
+):
+    """不传 asof 时必须默认按今天设闸，而不是退回「无门禁」。"""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    ctx = {
+        "ladder_asof": "2020-01-02",
+        "lianban_ladder": {"002156": {"lianban": 4, "sector": "半导体"}},
+        "limitup_total": 50,
+    }
+
+    out = fds.score_sentiment("002156", "通富微电", quote=dict(_QUOTE), signal_ctx=ctx)
+
+    assert out["market_temperature_delta"] == 0.0
+
+
 def test_sentiment_without_ctx_unchanged(tmp_path, monkeypatch):
     """无上下文时行为与历史一致：涨停+3、换手>10 +0.5 → 8.5。"""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))

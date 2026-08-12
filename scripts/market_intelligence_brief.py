@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import argparse
 import os
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Any, Mapping
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -63,14 +64,42 @@ def _sector_momentum_lines() -> list[str]:
     return lines
 
 
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+def _shanghai_time_label(generated_at: Any) -> str:
+    """判定时点标签，统一折算到 Asia/Shanghai。
+
+    这一行的用途是免责（"仅代表开盘阶段"），所以标错时区比不标更糟：上游若
+    写入带 Z/+00:00 的 UTC 时戳，字符串切片会把 UTC 时刻当成北京时间显示。
+    无时区信息的时戳按本地时间处理（与既有写入方一致），解析失败则不标。
+    """
+    raw = str(generated_at or "")
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return "开盘阶段"
+    if parsed.tzinfo is None:
+        return parsed.strftime("%H:%M")
+    return parsed.astimezone(_SHANGHAI).strftime("%H:%M")
+
+
 def _preopen_no_candidate_line(result: Mapping[str, Any]) -> str:
     """Explain an empty pre-open pool without turning missing data into a regime."""
     selection = result.get("hot_money_selection") or {}
     timing = selection.get("market_timing") or {}
+    # status 是选股就绪状态（ready / insufficient_data），tier 是温度档位——
+    # 两者不同源。温度不可用时 _unavailable_temperature 会把 tier 直接设成
+    # 状态字符串，故 tier 侧必须同时排除 stale 与 unknown，否则「选股就绪但
+    # 温度未知」会掉进弱市分支，又把缺数据说成 regime。
     status = str(timing.get("status") or "")
     tier = str(timing.get("tier") or "")
     fresh = timing.get("context_fresh")
-    if status in {"insufficient_data", "unknown"} or tier in {"", "stale"} or fresh is False:
+    if (
+        status in {"insufficient_data", "unknown"}
+        or tier in {"", "stale", "unknown"}
+        or fresh is False
+    ):
         return "⚠️ 盘前择时证据未就绪，暂不判定市场强弱；等待开盘确认"
     weak = (timing.get("weak_market") or {}).get("weak_regime")
     if weak:
@@ -183,8 +212,7 @@ def _open_lines(result: Mapping[str, Any], asof: str) -> list[str]:
     digest = stage_intelligence.open_digest(result)
     temperature = result.get("market_temperature") or {}
     regime = result.get("market_regime") or {}
-    generated_at = str(result.get("generated_at") or "")
-    time_label = generated_at[11:16] if len(generated_at) >= 16 else "开盘阶段"
+    time_label = _shanghai_time_label(result.get("generated_at"))
     lines = [
         f"## 开盘摘要 | {asof}",
         f"判定时点：{time_label}（仅代表开盘阶段，不代表全天走势）",
