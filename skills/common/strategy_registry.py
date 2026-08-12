@@ -30,6 +30,7 @@ if _HERE not in sys.path:
 
 from paths import data_file  # noqa: E402
 from research_artifact import verify_artifact  # noqa: E402
+import strategy_manifest  # noqa: E402
 from state_store import mutate_json, read_json  # noqa: E402
 from validation_program import (  # noqa: E402
     load_validation_thresholds,
@@ -230,11 +231,17 @@ def register_gate_result(strategy_id: str, gate_output: Dict[str, Any],
     evidence = gate_output.get("evidence") or {}
     strategy_kind, kind_reason = _registry_strategy_kind(strategy_id, gate_output)
     direction_binding = _direction_binding(gate_output)
+    origin = strategy_manifest.normalize_origin(gate_output.get("origin"))
     requested_allowed = (
         gate_output.get("decision") == "passed_for_reference"
         and gate_output.get("allowed_in_live_agent") is True
     )
     if strategy_kind is None:
+        requested_allowed = False
+    # 外部作者的策略永不获得实盘许可位。这是与 promote_strategy 的档位天花板
+    # 独立的第二道：即使有人改坏晋升检查，_base_live_allowed 仍因此永假，
+    # live_weight 数学上恒 0。
+    if origin == "external_user":
         requested_allowed = False
     evidence_verified, evidence_reason = _evidence_valid(
         strategy_id,
@@ -257,6 +264,9 @@ def register_gate_result(strategy_id: str, gate_output: Dict[str, Any],
         rec = data.get(strategy_id, {})
         rec.update({
             "strategy_id": strategy_id,
+            "origin": origin,
+            "manifest_hash": gate_output.get("manifest_hash"),
+            "maximum_promotion_state": strategy_manifest.maximum_promotion_state(origin),
             "gate_decision": gate_output.get("decision"),
             "allowed_in_live_agent": allowed,
             "gate_asof": gate_output.get("asof") or date.today().isoformat(),
@@ -562,6 +572,12 @@ def promote_strategy(
         current = str(promotion.get("state") or "research_only")
         if _NEXT_PROMOTION_STATE.get(current) != target_state:
             raise ValueError("invalid_promotion_transition")
+        # 信任档位天花板：外部作者的策略最高只能停在 shadow。放在状态机检查之后、
+        # 证据检查之前——档位是身份约束，不该靠"凑不齐证据"来间接拦住。
+        if not strategy_manifest.promotion_within_origin_ceiling(
+            rec.get("origin"), target_state
+        ):
+            raise ValueError("origin_tier_exceeded")
         reason = "promotion_gate_passed"
         if target_state in {"eligible_for_manual_pilot", "live"}:
             if empirical_gate is None or shadow_record is None:
