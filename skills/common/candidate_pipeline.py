@@ -1238,6 +1238,13 @@ def rank_auction_shortlist(
 
     _add_lane("daban", (limit + 1) // 2)
     _add_lane("trend", limit // 2)
+    # 兜底通道无需"池级 deliverable 计数"前置闸门：下面逐项的
+    # assess_delivery_quality 门禁（与 _lane_member 里那道）已经保证
+    # deliverable_watch=0 时一只都进不来，短名单自然为空。加计数只是把同一个
+    # 判定在全池再跑一遍。
+    # 排序键保持 auction_score：它是 strategy_state 选定车道后的
+    # strategy_live_score（策略分），并非量能分；改用 auction_daban_score 会让
+    # 本该车道中立的 balanced_fill 系统性压低 trend 候选。
     if len(selected) < limit:
         fill_order = sorted(
             rows,

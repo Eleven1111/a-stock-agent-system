@@ -35,6 +35,7 @@ import hot_money_selection  # noqa: E402
 import industry_map  # noqa: E402
 import nl_screening  # noqa: E402
 import stage_intelligence  # noqa: E402
+import theme_registry  # noqa: E402
 import monitor_registry  # noqa: E402
 from config_registry import config_path  # noqa: E402
 from a_stock_http import DataSourceError  # noqa: E402
@@ -82,6 +83,84 @@ def _run_discovery_stage(stage: str, callback: Callable[[], Any]) -> Any:
 def load_config() -> Dict[str, Any]:
     with open(CONFIG_FILE, encoding="utf-8") as file:
         return json.load(file)
+
+
+def register_mainline_themes(
+    selection_state: Mapping[str, Any],
+    *,
+    event_asof: str,
+) -> Dict[str, Any]:
+    """把当期主线板块注册为 L3 动态主题（断链 2 接线）。
+
+    theme_strength_daily 只评估已注册主题；注册表若长期为空，弱市交付门禁的
+    “窄主题前二龙头 / 容量核心”豁免通道永远无证据可依，弱市里的强板块就
+    永远进不了可交付车道。注册来源 = 游资主线排名：进入当期主线
+    （state=confirmed/emerging）且至少有一类共振证据的板块注册为主题，
+    members = 该板块在候选池内的成分股代码。
+
+    theme_registry.register 内部 fail-closed（宽行业标签、空成员、墓碑主题
+    一律拒绝）；本函数再逐项包 try/except，注册异常永不打断候选发现。
+    """
+    summary: Dict[str, Any] = {
+        "schema": "theme_registration_v1",
+        "asof": event_asof,
+        "registered": [],
+        "skipped": [],
+        "errors": [],
+    }
+    sectors = list(selection_state.get("sectors") or [])
+    stock_sectors = selection_state.get("stock_sectors") or {}
+    if not sectors or not isinstance(stock_sectors, Mapping):
+        return summary
+    members_by_sector: Dict[str, List[str]] = {}
+    for code, sector in stock_sectors.items():
+        members_by_sector.setdefault(str(sector), []).append(str(code))
+    try:
+        alive_themes = {
+            str(theme.get("name") or "")
+            for theme in theme_registry.active_themes(event_asof)
+        }
+    except (OSError, RuntimeError, ValueError, TypeError):
+        alive_themes = set()
+    for row in sectors:
+        sector = str(row.get("sector") or "").strip()
+        if not sector or row.get("state") not in ("confirmed", "emerging"):
+            continue
+        if int(row.get("evidence_count") or 0) < 1:
+            summary["skipped"].append({"sector": sector, "reason": "no_resonance_evidence"})
+            continue
+        members = members_by_sector.get(sector) or []
+        if not members:
+            summary["skipped"].append({"sector": sector, "reason": "no_members"})
+            continue
+        source_evidence = None
+        if sector not in alive_themes:
+            source_evidence = [{
+                "kind": "limitup_commonality",
+                "detail": (
+                    f"主线板块 rank={row.get('rank')}"
+                    f" limitups={row.get('limitup_count')}"
+                    f" evidence={','.join(str(e) for e in (row.get('evidence_types') or []))}"
+                ),
+                "asof": event_asof,
+            }]
+        try:
+            outcome = theme_registry.register(sector, members, source_evidence=source_evidence)
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            summary["errors"].append({"sector": sector, "error": str(exc)})
+            continue
+        if outcome.get("changed"):
+            summary["registered"].append({
+                "sector": sector,
+                "theme_id": outcome.get("id") or (outcome.get("theme") or {}).get("id"),
+                "member_count": len(members),
+            })
+        else:
+            summary["skipped"].append({
+                "sector": sector,
+                "reason": str(outcome.get("reason") or "unchanged"),
+            })
+    return summary
 
 
 def latest_pool_file() -> str:
@@ -1190,6 +1269,12 @@ def run_discovery(
         source_versions=input_snapshot.get("source_versions") or {},
     )
     selection_state["snapshot"] = compact_ref(selection_snapshot)
+    # 断链 2 接线：把当期主线板块注册为 L3 动态主题，喂 15:45 的
+    # theme_strength_daily 生命周期评估（注册表为空则主线识别永不生效）。
+    selection_state["theme_registration"] = register_mainline_themes(
+        selection_state,
+        event_asof=asof,
+    )
     result = candidate_pipeline.build_watch_pool(
         quotes,
         kline_by_code,
