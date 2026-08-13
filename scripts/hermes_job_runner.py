@@ -181,11 +181,7 @@ def _emit(
         max_chars = int(job.get("max_output_chars") or 4000)
         _push_feishu(
             str(job.get("id") or artifact.get("job_id") or ""),
-            feishu_push.render_delivery_text(
-                str(job.get("id") or artifact.get("job_id") or ""),
-                str(artifact.get("stdout") or ""),
-                max_chars,
-            ),
+            feishu_push.render_artifact_text(artifact, max_chars),
             trace_ctx=trace_ctx,
         )
         return
