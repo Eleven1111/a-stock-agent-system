@@ -104,6 +104,8 @@ def test_market_timing_derives_breadth_and_previous_ladder_premium():
     assert timing["breadth"]["decliners"] == 1
     assert timing["breadth"]["limitup_count"] == 6
     assert timing["previous_ladder_premium"] == 10.0
+    # 空间板高度 = 当日梯队最高连板数（600001 3 连板）
+    assert timing["market_space_height"] == 3
 
 
 def test_market_timing_marks_stale_structural_weak_market():
@@ -285,6 +287,17 @@ def test_leader_identity_ranks_within_mainline_sector():
     assert by_code["600003"]["hot_money_qualified"] is False
     assert by_code["600007"]["hot_money_qualified"] is False
 
+    # 身位落盘：候选自身连板数 + 当日空间板高度，供归因按板位切片（G4/G5）。
+    assert by_code["600001"]["board_height"] == 3
+    assert by_code["600002"]["board_height"] == 2
+    assert by_code["600002"]["is_mid_position"] is True
+    assert by_code["600003"]["board_height"] == 1
+    assert by_code["600003"]["is_mid_position"] is False
+    # 600007/600008 不在梯队里（无涨停），身位缺失诚实置 None，不冒充 0。
+    assert by_code["600007"]["board_height"] is None
+    assert by_code["600007"]["is_mid_position"] is False
+    assert by_code["600001"]["market_space_height"] == 3
+
 
 def test_leader_identity_carries_ladder_microstructure_into_reflexivity():
     context = _context()
@@ -394,3 +407,58 @@ def test_compact_selection_context_carries_hot_money_qualified():
 
     assert compact["hot_money_qualified"] is True
     assert compact["qualified"] is True
+
+
+def test_selection_context_carries_ladder_break_rate_and_board_height():
+    """归因维度落盘（P0）：炸板率/涨跌比/空间板高度进 market_timing，
+    候选自身身位进 leader，都是 signal_opened_event 的 selection_context 透传字段。"""
+    candidate = {
+        "code": "600001",
+        "sector": "半导体",
+        "leader_rank": 1,
+        "hot_money_qualified": True,
+        "board_height": 3,
+        "is_mid_position": False,
+    }
+    selection_state = {
+        "status": "ready",
+        "sectors": [{"sector": "半导体", "rank": 1, "qualified_for_daban": True}],
+        "market_timing": {
+            "breadth": {"advancers": 60, "decliners": 20},
+            "ladder_break_rate": 0.18,
+            "market_space_height": 5,
+        },
+    }
+
+    context = hms.selection_context_for(candidate, selection_state, window="D0_close")
+
+    assert context["market_timing"]["ladder_break_rate"] == 0.18
+    assert context["market_timing"]["advance_decline_ratio"] == 3.0
+    assert context["market_timing"]["market_space_height"] == 5
+    assert context["leader"]["board_height"] == 3
+    assert context["leader"]["is_mid_position"] is False
+
+
+def test_advance_decline_ratio_stays_none_without_decliners():
+    """0 跌家不得算出恒真的正无穷涨跌比——按现有 fail-closed 纪律置 None。"""
+    assert hms._advance_decline_ratio({"advancers": 10, "decliners": 0}) is None
+    assert hms._advance_decline_ratio(None) is None
+
+
+def test_advance_selection_context_carries_board_height_forward():
+    d0_context = hms.selection_context_for(
+        {"code": "600001", "sector": "半导体", "board_height": 2, "is_mid_position": True},
+        {"status": "ready", "sectors": []},
+        window="D0_close",
+    )
+    candidate = {
+        "code": "600001",
+        "selection_context": d0_context,
+        "board_height": 2,
+        "is_mid_position": True,
+    }
+
+    auction_context = hms.advance_selection_context(candidate, window="auction")
+
+    assert auction_context["leader"]["board_height"] == 2
+    assert auction_context["leader"]["is_mid_position"] is True
