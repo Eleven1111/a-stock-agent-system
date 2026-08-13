@@ -758,3 +758,96 @@ def test_balanced_fill_does_not_revive_low_scoring_auction():
 
     assert result["shortlist"] == []
     assert any("兜底" in reason for reason in result["rejected"][0]["rejection_reasons"])
+
+
+def test_rejected_records_each_candidate_once(monkeypatch):
+    """同一只被拒候选不得在 rejected 里出现两次。
+
+    兜底通道逐项判定时会记一次原因，末尾"未进入短名单"扫描又会记一次，
+    于是被拒只数翻倍、且后写的通用原因盖过前面更具体的那条。下游
+    （auction_collector 的拒绝清单、复盘里的原因分布）按条数统计即失真。
+    """
+    monkeypatch.setattr(
+        cp,
+        "assess_delivery_quality",
+        lambda item, *, lane, stage, selection_state=None: {
+            "status": "research_only",
+            "reasons": ["弱市交付门禁未通过"],
+        },
+    )
+    pool = {
+        "asof": "2026-06-10",
+        "candidates": [
+            {
+                "code": f"sh60{i:04d}",
+                "name": f"股票{i}",
+                "daban_score": 90 - i,
+                "trend_score": 70 - i,
+                "selected_by": {"daban": True, "trend": False},
+            }
+            for i in range(8)
+        ],
+    }
+    factors = [
+        {
+            "code": f"sh60{i:04d}",
+            "auction_gap_pct": 2.0,
+            "auction_amount": 20_000_000 - i * 100_000,
+            "auction_bid_ask_ratio": 2.5,
+            "auction_net_bid_delta": 10_000,
+            "is_yiziban": False,
+        }
+        for i in range(8)
+    ]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=5)
+
+    # 没有一只通过交付门禁 → 短名单为空（行为不变）
+    assert result["shortlist"] == []
+    codes = [cp.naked_code(item["code"]) for item in result["rejected"]]
+    assert len(codes) == len(set(codes)) == 8      # 8 只，各记一次
+    # 保留的是具体门禁原因，而不是末尾扫描的通用兜底文案
+    assert all(
+        "弱市交付门禁未通过" in item["rejection_reasons"]
+        for item in result["rejected"]
+    )
+
+
+def test_rejected_still_records_candidates_that_only_missed_the_top_n():
+    """只是排名没进前 N（没被任何门禁拒过）的候选，仍必须出现在 rejected 里。
+
+    去重不能顺手把这类唯一入账路径也去掉。
+    """
+    pool = {
+        "asof": "2026-06-10",
+        "candidates": [
+            {
+                "code": f"sh60{i:04d}",
+                "name": f"股票{i}",
+                "daban_score": 90 - i,
+                "trend_score": 70 - i,
+                "selected_by": {"daban": True, "trend": False},
+            }
+            for i in range(6)
+        ],
+    }
+    factors = [
+        {
+            "code": f"sh60{i:04d}",
+            "auction_gap_pct": 2.0,
+            "auction_amount": 20_000_000 - i * 100_000,
+            "auction_bid_ask_ratio": 2.5,
+            "auction_net_bid_delta": 10_000,
+            "is_yiziban": False,
+        }
+        for i in range(6)
+    ]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=2)
+
+    assert len(result["shortlist"]) == 2
+    shortlisted = {cp.naked_code(item["code"]) for item in result["shortlist"]}
+    rejected_codes = [cp.naked_code(item["code"]) for item in result["rejected"]]
+    # 落选的 4 只都在册且各只一次，与入选的互不重叠
+    assert len(rejected_codes) == len(set(rejected_codes))
+    assert set(rejected_codes) == {cp.naked_code(f"sh60{i:04d}") for i in range(6)} - shortlisted
