@@ -3,6 +3,16 @@
   "waivers": [
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing 1-line-over-budget apply_leader_identity in hot_money_selection.py (already 81 lines at HEAD); the daban strategy-optimization P0 change only threaded board_height/is_mid_position through the existing per-candidate loop via a new extracted helper (_board_position), it did not grow the function's own logic",
+      "violation_id": "1137efc91356aca708f7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing broad-except around the optional `import yaml` guard in daban_config.py; the daban P1 change only added the emotion_cycle/index_trend default blocks and did not touch this exception handler",
+      "violation_id": "a1f78d7b29c7687d7087"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing sys.path mutation in chanlun_gate_evaluation.py, unrelated to the T6 --lineage v2 output-path change that touched this file",
       "violation_id": "02a08608b84dfc62d469"
     },

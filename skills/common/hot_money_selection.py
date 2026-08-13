@@ -254,6 +254,7 @@ def _ladder_features(
 
     return {
         "height_counts": counts,
+        "market_space_height": max(levels) if levels else None,
         "ladder_gap": ladder_gap,
         "ladder_missing_heights": missing,
         "height_change_3d": (
@@ -272,6 +273,29 @@ def _ladder_features(
         "leader_next_day_premium": leader_premium,
         "ladder_break_rate": ladder_break,
     }
+
+
+def _board_position(
+    ladder_entry: Mapping[str, Any], market_space_height: int | None
+) -> dict[str, Any]:
+    """候选自身连板身位：92科比"三进四淘汰率>70%"的中位跟风区间 = 非首板也非最高身位。"""
+    board_height = _entry_height(ladder_entry) or None
+    return {
+        "board_height": board_height,
+        "market_space_height": market_space_height,
+        "is_mid_position": board_height is not None and 2 <= board_height <= 4,
+    }
+
+
+def _advance_decline_ratio(breadth: Mapping[str, Any] | None) -> float | None:
+    """涨跌比 = advancers/decliners; unknown breadth or zero decliners stays None
+    rather than fabricating an infinite ratio."""
+    if not isinstance(breadth, Mapping):
+        return None
+    decliners = _num(breadth.get("decliners"))
+    if decliners <= 0:
+        return None
+    return round(_num(breadth.get("advancers")) / decliners, 4)
 
 
 def _breadth(observed: Sequence[Mapping[str, Any]]) -> dict[str, int]:
@@ -622,6 +646,7 @@ def apply_leader_identity(
         for row in state.get("sectors") or []
         if row.get("sector")
     }
+    market_space_height = (state.get("market_timing") or {}).get("market_space_height")
     ladder = dict(signal_context or {}).get("lianban_ladder") or {}
     output = [dict(item) for item in candidates]
     grouped: dict[str, list[dict[str, Any]]] = {}
@@ -647,6 +672,7 @@ def apply_leader_identity(
             ladder_entry = dict(ladder.get(_code(item.get("code"))) or {})
             if ladder_entry.get("first_seal") and not item.get("first_seal"):
                 item["first_seal"] = ladder_entry["first_seal"]
+            item.update(_board_position(ladder_entry, market_space_height))
             item["sector_rank"] = sector_state.get("rank")
             item["sector_state"] = sector_state.get("state")
             item["sector_evidence_types"] = list(sector_state.get("evidence_types") or [])
@@ -731,6 +757,9 @@ def selection_context_for(
                 market.get("promotion_rate_by_height") or {}
             ),
             "mid_board_break_rate": market.get("mid_board_break_rate"),
+            "ladder_break_rate": market.get("ladder_break_rate"),
+            "advance_decline_ratio": _advance_decline_ratio(market.get("breadth")),
+            "market_space_height": market.get("market_space_height"),
             "leader_next_day_premium": market.get("leader_next_day_premium"),
             "next_day_net_premium": temperature.get("next_day_net_premium"),
             "next_day_net_premium_ci": temperature.get("next_day_net_premium_ci"),
@@ -785,6 +814,8 @@ def selection_context_for(
             "qualified": bool(candidate.get("hot_money_qualified")),
             "hot_money_qualified": bool(candidate.get("hot_money_qualified")),
             "ablation": candidate.get("ablation"),
+            "board_height": candidate.get("board_height"),
+            "is_mid_position": candidate.get("is_mid_position"),
         },
         "selection_snapshot": dict(state.get("snapshot") or {}),
     }
@@ -832,6 +863,8 @@ def advance_selection_context(
             "auction_sector_delta": candidate.get("auction_sector_delta"),
             "open_sector_rank": candidate.get("open_sector_rank"),
             "open_sector_delta": candidate.get("open_sector_delta"),
+            "board_height": candidate.get("board_height"),
+            "is_mid_position": candidate.get("is_mid_position"),
         }.items() if value is not None
     })
     context["leader"] = leader
