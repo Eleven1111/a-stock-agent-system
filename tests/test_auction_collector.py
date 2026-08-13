@@ -324,6 +324,76 @@ def test_finalize_flags_empty_collection_instead_of_reporting_ready(tmp_path, mo
     assert ac.monitor_registry.active_entries("stock", asof=event_asof) == []
 
 
+def test_finalize_marks_research_only_when_delivery_gate_clears_the_pool(tmp_path, monkeypatch):
+    """采集正常但弱市交付门禁清零候选池时，也必须标 research_only。
+
+    这条区分的是"无机会"（采集到了、但没有一只够格）与"无观测"（采集失败）。
+    此前 research_only 恒为 False，空短名单会被下游当成"已评估、可执行"的结论。
+    """
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(ac.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(ac.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac.signal_ledger, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(ac, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    monkeypatch.setattr(
+        ac,
+        "read_market_context",
+        lambda: {
+            "status": "ok", "context_status": "fresh", "context_fresh": True,
+            "sector_impact": {}, "alerts": [],
+        },
+    )
+    # 弱市：没有任何候选通过交付门禁
+    monkeypatch.setattr(
+        ac.candidate_pipeline,
+        "assess_delivery_quality",
+        lambda item, *, lane, stage, selection_state=None: {
+            "status": "research_only", "reasons": ["弱市交付门禁未通过"],
+        },
+    )
+    atomic_write_json(
+        str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
+        {"cash": 20000, "positions": [], "cash_reconciled": True},
+    )
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    candidates = [
+        {
+            "code": f"600{i:03d}", "name": f"股票{i}", "sector": "银行",
+            "daban_score": 90 - i, "trend_score": 70 - i,
+            "selected_by": {"daban": True, "trend": False},
+        }
+        for i in range(8)
+    ]
+    atomic_write_json(ac._pool_path(), {
+        "status": "ready", "asof": source_asof, "candidates": candidates,
+    })
+    candidate_lifecycle.initialize_day(source_asof, candidates)
+    atomic_write_json(ac._state_path(event_asof), {"asof": event_asof, "series": {
+        f"sh{item['code']}": [{
+            "t": "09:24:50", "name": item["name"], "price": 10.5, "prev_close": 10.0,
+            "volume": 20_000 - index * 100, "market_cap": 100.0,
+            "bids": [(10.5, 5_000)] * 5, "asks": [(10.51, 2_000)] * 5,
+        }]
+        for index, item in enumerate(candidates)
+    }})
+
+    result = ac.finalize(event_asof, shortlist_limit=5)
+
+    # 采集是成功的（8 只全部有观测并被逐项判定），但门禁清零了池子
+    assert result["status"] == "ready"
+    assert result["input_count"] == 8
+    # 8 只全部落进 rejected（同一只可能被 fill 循环与末尾扫描各记一次，故按代码去重）
+    assert len({str(item["code"])[-6:] for item in result["rejected"]}) == 8
+    assert result["shortlist_count"] == 0
+    assert result["shortlist"] == []
+    assert result["research_only"] is True
+    assert result["preopen_decisions"] == []
+    # 没有可交付候选就不得注册监控
+    assert ac.monitor_registry.active_entries("stock", asof=event_asof) == []
+
+
 def test_finalize_degrades_when_the_snapshot_job_never_ran(tmp_path, monkeypatch):
     """依赖门放行失败的上游后，finalize 必须自己判空降级，而不是抛异常或报结论。
 

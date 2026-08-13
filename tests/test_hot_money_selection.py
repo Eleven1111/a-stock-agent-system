@@ -78,16 +78,79 @@ def test_build_sector_leadership_emits_crowding_fragility():
 
 
 def test_stale_or_missing_context_fails_closed_for_daban():
+    # 真过期 = 梯队整整跳过了一个交易日：事件日 06-23(周二) 的上一交易日是
+    # 06-22(周一)，用 06-18(周四) 的梯队意味着 06-22 那场的梯队没拿到。
     timing = hms.build_market_timing(
         _quotes(),
-        _context("2026-06-21"),
-        event_asof="2026-06-22",
+        _context("2026-06-18"),
+        event_asof="2026-06-23",
         config=_config(),
     )
 
     assert timing["status"] == "insufficient_data"
     assert timing["daban_ready"] is False
     assert any("过期" in reason or "不一致" in reason for reason in timing["reasons"])
+
+
+def test_previous_trading_day_ladder_is_ready_across_weekend_and_holiday():
+    """上一交易日收盘梯队用于当日盘前是合法的，允许量按交易日折算。
+
+    事件日 06-22 是周一，上一交易日是 06-18(周四)——中间隔着周末**和**
+    06-19 端午休市，自然日差 4 天。写死"允许 1 个自然日"会把这份合法梯队
+    误判过期，让周一与节后首日的主线识别永远不生效。
+    """
+    assert hms.allowed_ladder_age_days("2026-06-22") == 4
+
+    timing = hms.build_market_timing(
+        _quotes(),
+        _context("2026-06-18"),
+        event_asof="2026-06-22",
+        config=_config(),
+    )
+
+    assert timing["status"] == "ready"
+    assert timing["daban_ready"] is True
+
+
+def test_post_holiday_first_session_accepts_pre_holiday_ladder():
+    # 国庆休市 10-01..10-07，节后首日 10-08 的上一交易日是 09-30（差 8 个自然日）。
+    assert hms.allowed_ladder_age_days("2026-10-08") == 8
+
+    timing = hms.build_market_timing(
+        _quotes(),
+        _context("2026-09-30"),
+        event_asof="2026-10-08",
+        config=_config(),
+    )
+
+    assert timing["daban_ready"] is True
+
+
+def test_future_dated_ladder_still_fails_closed():
+    # 放宽滞后允许量不得放过未来日期的梯队。
+    timing = hms.build_market_timing(
+        _quotes(),
+        _context("2026-06-24"),
+        event_asof="2026-06-23",
+        config=_config(),
+    )
+
+    assert timing["daban_ready"] is False
+
+
+def test_uncovered_calendar_year_fails_closed():
+    # 交易日历未覆盖该年份 → 无法判定新鲜度 → fail-closed（AGENTS.md）。
+    assert hms.allowed_ladder_age_days("2031-06-23") is None
+
+    timing = hms.build_market_timing(
+        _quotes(),
+        _context("2031-06-22"),
+        event_asof="2031-06-23",
+        config=_config(),
+    )
+
+    assert timing["daban_ready"] is False
+    assert any("日历未覆盖" in reason for reason in timing["reasons"])
 
 
 def test_market_timing_derives_breadth_and_previous_ladder_premium():
@@ -119,8 +182,8 @@ def test_market_timing_marks_stale_structural_weak_market():
 
     timing = hms.build_market_timing(
         quotes,
-        _context("2026-06-21"),
-        event_asof="2026-06-22",
+        _context("2026-06-18"),
+        event_asof="2026-06-23",
         config=_config(),
     )
 
