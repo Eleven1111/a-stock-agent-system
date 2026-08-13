@@ -78,9 +78,10 @@ def test_build_sector_leadership_emits_crowding_fragility():
 
 
 def test_stale_or_missing_context_fails_closed_for_daban():
+    # 梯队日期早于事件日前一日（age_days=2）才应 fail-closed。
     timing = hms.build_market_timing(
         _quotes(),
-        _context("2026-06-21"),
+        _context("2026-06-20"),
         event_asof="2026-06-22",
         config=_config(),
     )
@@ -88,6 +89,19 @@ def test_stale_or_missing_context_fails_closed_for_daban():
     assert timing["status"] == "insufficient_data"
     assert timing["daban_ready"] is False
     assert any("过期" in reason or "不一致" in reason for reason in timing["reasons"])
+
+
+def test_one_day_old_ladder_is_ready():
+    # 前一日收盘梯队用于当日盘前判断是合法的：age_days=1 应 ready，而非 stale。
+    timing = hms.build_market_timing(
+        _quotes(),
+        _context("2026-06-21"),
+        event_asof="2026-06-22",
+        config=_config(),
+    )
+
+    assert timing["status"] == "ready"
+    assert timing["daban_ready"] is True
 
 
 def test_market_timing_derives_breadth_and_previous_ladder_premium():
@@ -117,7 +131,7 @@ def test_market_timing_marks_stale_structural_weak_market():
 
     timing = hms.build_market_timing(
         quotes,
-        _context("2026-06-21"),
+        _context("2026-06-20"),
         event_asof="2026-06-22",
         config=_config(),
     )

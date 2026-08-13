@@ -6,6 +6,7 @@ so selection cannot add network dependencies or bypass snapshot lineage.
 
 from __future__ import annotations
 
+from datetime import date
 from statistics import mean
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -295,6 +296,16 @@ def _breadth(observed: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     }
 
 
+def _ladder_age_days(context_asof: str, event_asof: str) -> int:
+    """事件日 − 梯队日（天数）。解析失败返回大数，按过期处理。"""
+    try:
+        context_day = date.fromisoformat(str(context_asof)[:10])
+        event_day = date.fromisoformat(str(event_asof)[:10])
+    except ValueError:
+        return 10_000
+    return (event_day - context_day).days
+
+
 def _timing_reasons(
     temperature: Mapping[str, Any],
     *,
@@ -307,7 +318,7 @@ def _timing_reasons(
     reasons: list[str] = []
     if not temperature.get("context_fresh"):
         reasons.extend(str(note) for note in temperature.get("notes") or [])
-    if context_asof and context_asof != event_asof:
+    if context_asof and event_asof and _ladder_age_days(context_asof, event_asof) > 1:
         reasons.append(f"梯队日期与事件日不一致或已过期: {context_asof} != {event_asof}")
     if quote_count < min_quote_count:
         reasons.append(f"全市场有效行情不足: {quote_count} < {min_quote_count}")
@@ -342,7 +353,9 @@ def build_market_timing(
         for row in observed
         if _code(row.get("code")) in previous_codes
     ]
-    temperature = temperature_from_context(context, event_asof=event_asof, max_age_days=0)
+    # 前一日收盘的连板梯队用于当日盘前判断是合法的：允许 1 个自然日延迟。
+    # 只有梯队日期早于事件日前一日（age_days > 1）或来自未来才判 stale。
+    temperature = temperature_from_context(context, event_asof=event_asof, max_age_days=1)
     ladder_features = _ladder_features(
         context.get("lianban_ladder"),
         context.get("prev_lianban_ladder"),

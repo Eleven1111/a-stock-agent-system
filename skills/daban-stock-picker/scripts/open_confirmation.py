@@ -1335,6 +1335,10 @@ def build_confirmation(
         limit=limit,
         temperature=temperature,
     )
+    # 弱市门禁清零候选池（research_only=True，非采集降级）时不得生成任何
+    # watch/buy 信号——factors 已为空，此处为显式 fail-closed 安全网。
+    if bool(shortlist_result.get("research_only")):
+        signals = []
     scored_by_code = {
         candidate_pipeline.naked_code(item.get("code")): item
         for item in score_confirmations(factors, confirmations)
@@ -1500,6 +1504,7 @@ def build_confirmation(
         "evaluated_confirmations": evaluated_confirmations,
         "signals": signals,
         "signal_count": len(signals),
+        "research_only": bool(shortlist_result.get("research_only")),
     }
     research_snapshot = record_open_confirmation(result)
     result["portfolio_research_snapshot"] = {

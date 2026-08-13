@@ -600,7 +600,9 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     result["schema"] = "auction_finalize_v2"
     result["asof"] = asof
     result["status"] = "ready"
-    result["research_only"] = False
+    # 空短名单（弱市门禁清零候选池）时不得伪装成可执行结论：
+    # research_only=True + decision_count=0 让下游明确区分"无机会"与"无观测"。
+    result["research_only"] = len(result["shortlist"]) == 0
     top_candidates = list(result["shortlist"][:5])
     announcement_map = scan_many(
         candidate_pipeline.naked_code(item.get("code"))
