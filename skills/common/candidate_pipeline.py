@@ -1298,31 +1298,37 @@ def rank_auction_shortlist(
     for index, item in enumerate(shortlist, 1):
         item["auction_rank"] = index
     selected_codes = {naked_code(item["code"]) for item in shortlist}
+    # 前面（竞价因子缺失、兜底通道逐项判定）已经记过原因的候选不再重复入账：
+    # 同一只出现两次会让下游"被拒只数/原因分布"统计翻倍，且这里的通用原因
+    # 会盖过前面更具体的那条。
+    already_rejected = {naked_code(item["code"]) for item in rejected}
     for item in rows:
-        if naked_code(item["code"]) not in selected_codes:
-            selected_by = item.get("selected_by")
-            lanes = []
-            if isinstance(selected_by, Mapping):
-                lanes = [lane for lane in ("daban", "trend") if selected_by.get(lane)]
-            if not lanes:
-                lanes = ["trend"]
-            qualities = [
-                assess_delivery_quality(item, lane=lane, stage="09:25")
-                for lane in lanes
-            ]
-            gate_reasons = [
-                reason
-                for quality in qualities
-                if quality["status"] != "deliverable_watch"
-                for reason in quality.get("reasons") or []
-            ]
-            rejected.append({
-                **item,
-                "rejection_reasons": (
-                    list(dict.fromkeys(gate_reasons))
-                    or [f"竞价分策略排名未进入前{limit}"]
-                ),
-            })
+        code = naked_code(item["code"])
+        if code in selected_codes or code in already_rejected:
+            continue
+        selected_by = item.get("selected_by")
+        lanes = []
+        if isinstance(selected_by, Mapping):
+            lanes = [lane for lane in ("daban", "trend") if selected_by.get(lane)]
+        if not lanes:
+            lanes = ["trend"]
+        qualities = [
+            assess_delivery_quality(item, lane=lane, stage="09:25")
+            for lane in lanes
+        ]
+        gate_reasons = [
+            reason
+            for quality in qualities
+            if quality["status"] != "deliverable_watch"
+            for reason in quality.get("reasons") or []
+        ]
+        rejected.append({
+            **item,
+            "rejection_reasons": (
+                list(dict.fromkeys(gate_reasons))
+                or [f"竞价分策略排名未进入前{limit}"]
+            ),
+        })
     return {
         "schema": "auction_shortlist_v1",
         "source_asof": pool.get("asof"),
