@@ -139,7 +139,8 @@ def test_tail_close_jobs_are_disabled_research_only_and_dag_ordered():
         assert "tail_close_signal.py" in _run_command(job)
 
 
-def test_pure_notification_jobs_push_feishu_direct_and_skip_agent_context():
+def test_pure_notification_jobs_deliver_local_and_skip_agent_context():
+    # 飞书推送已停用（2026-08-13），纯通知类 job 只落盘不推送，仍不经过 agent context。
     for job_id in (
         "capital-flow",
         "event-calendar",
@@ -148,7 +149,7 @@ def test_pure_notification_jobs_push_feishu_direct_and_skip_agent_context():
         "news-monitor-weekend",
         "news-monitor-intraday",
     ):
-        assert _manifest_job(job_id)["deliver"] == "feishu_direct"
+        assert _manifest_job(job_id)["deliver"] == "local"
 
 
 def test_high_frequency_idle_prone_jobs_opt_into_adaptive_backoff():
@@ -178,7 +179,7 @@ def test_auction_chain_watchdog_is_registered_and_survives_a_broken_chain():
     assert job["enabled"] is True
     assert job["context_from"] == []
     assert "dependency_policy" not in job
-    assert job["deliver"] == "feishu_direct"
+    assert job["deliver"] == "local"
     assert job["silent_when_no_signal"] is True
     assert "scripts/cron_failure_watch.py" in _run_command(job)
     # 09:35 竞价链应已收口，10:35 复查一次做双保险
