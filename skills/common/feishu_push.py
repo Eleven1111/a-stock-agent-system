@@ -145,15 +145,90 @@ def render_delivery_text(job_id: str, stdout: str, max_chars: int) -> str:
     When stdout parses as a JSON object we render a compact digest (top-level
     message string, signal/event lines, summary counters). Non-JSON output
     (e.g. capital-flow's markdown report) passes through unchanged.
+
+    Truncated producer JSON (artifact stdout is capped below the full payload)
+    must never leak raw JSON to Feishu; it degrades to a short status line.
     """
     raw = str(stdout or "")
     try:
         parsed = json.loads(raw)
     except (ValueError, TypeError):
+        stripped = raw.lstrip()
+        if stripped[:1] in ("{", "["):
+            return _fallback_delivery_line(job_id, {"status": "output_too_large"})
         return raw[:max_chars]
     if not isinstance(parsed, Mapping):
         return raw[:max_chars]
     return _render_mapping(job_id, parsed, max_chars)
+
+
+_PREVIEW_LABELS = {
+    "signals": "信号",
+    "alerts": "预警",
+    "events": "事件",
+    "factors": "因子",
+    "candidates": "候选",
+    "confirmations": "确认",
+}
+
+
+def _preview_item_line(item: Any) -> str | None:
+    if not isinstance(item, Mapping):
+        return str(item)[:200]
+    rank = str(item.get("source_rank") or item.get("rank") or "")
+    title = str(item.get("title") or item.get("name") or "")
+    url = str(item.get("url") or "")
+    line = f"[{rank}] {title} {url}".strip()
+    return line or None
+
+
+def render_summary_text(job_id: str, summary: Mapping[str, Any], max_chars: int) -> str:
+    """Render a structured artifact summary (computed from untruncated stdout)."""
+    lines: list[str] = []
+    message = summary.get("message")
+    if isinstance(message, str) and message.strip():
+        lines.append(message.strip())
+    elif isinstance(message, Mapping) and message:
+        parts = [f"{k}={v}" for k, v in message.items() if v is not None]
+        if parts:
+            lines.append(" | ".join(parts))
+    for key, label in _PREVIEW_LABELS.items():
+        preview = summary.get(f"{key}_preview")
+        if not isinstance(preview, list) or not preview:
+            continue
+        count = summary.get(f"{key}_count")
+        if count is not None:
+            lines.append(f"{label}（{count} 条）：")
+        for item in preview[:10]:
+            line = _preview_item_line(item)
+            if line:
+                lines.append(f"- {line}")
+        if count and count > len(preview):
+            lines.append(f"... 共 {count} 条")
+    if not lines:
+        lines.append(_fallback_delivery_line(job_id, summary))
+    return "\n".join(line for line in lines if line).strip()[:max_chars]
+
+
+def render_artifact_text(artifact: Mapping[str, Any], max_chars: int) -> str:
+    """Render an artifact's delivery text without leaking raw producer JSON.
+
+    Prefers the full structured stdout when it parses as JSON; otherwise falls
+    back to the artifact's structured ``summary`` (computed from the
+    untruncated stdout), and finally to the raw-stdout passthrough.
+    """
+    job_id = str(artifact.get("job_id") or "")
+    stdout = str(artifact.get("stdout") or "")
+    try:
+        parsed = json.loads(stdout)
+    except (ValueError, TypeError):
+        parsed = None
+    if isinstance(parsed, Mapping):
+        return _render_mapping(job_id, parsed, max_chars)
+    summary = artifact.get("summary")
+    if isinstance(summary, Mapping) and ("schema" in summary or "status" in summary):
+        return render_summary_text(job_id, summary, max_chars)
+    return render_delivery_text(job_id, stdout, max_chars)
 
 
 def push_text(job_id: str, text: str, *, timeout_seconds: int = 15) -> dict[str, Any]:

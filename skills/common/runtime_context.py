@@ -163,6 +163,22 @@ SUMMARY_BASE_KEYS = {"schema", "status", "message", "summary"}
 SUMMARY_MAX_KEYS = 32
 
 
+def _list_preview(items: List[Any], limit: int = 10) -> List[Any]:
+    """Extract a compact human-readable preview from signal/event items."""
+    preview: List[Any] = []
+    for item in items[:limit]:
+        if isinstance(item, dict):
+            preview.append({
+                "source_rank": item.get("source_rank") or item.get("rank"),
+                "title": item.get("title") or item.get("name"),
+                "url": item.get("url"),
+                "signal_score": item.get("signal_score"),
+            })
+        else:
+            preview.append(item)
+    return preview
+
+
 def summarize_output(parsed: Any, stdout: str) -> Dict[str, Any]:
     """Reduce a job payload to schema/status plus bounded counters.
 
@@ -184,6 +200,9 @@ def summarize_output(parsed: Any, stdout: str) -> Dict[str, Any]:
         value = parsed.get(key)
         if isinstance(value, list):
             summary[f"{key}_count"] = len(value)
+            preview = _list_preview(value)
+            if preview:
+                summary[f"{key}_preview"] = preview
     for key, value in parsed.items():
         if len(summary) >= SUMMARY_MAX_KEYS:
             break
