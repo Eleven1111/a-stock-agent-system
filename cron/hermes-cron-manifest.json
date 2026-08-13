@@ -875,6 +875,46 @@
       "external_note": "23:10 归档当日诊断报告到 $A_STOCK_STATE_HOME/diagnostics/<日期>.md，滚动保留 30 天。calendar_day：非交易日也要跑，调度器整体停摆恰恰只能从「非交易日也没有报告」看出来。只读聚合，不得有 context_from —— 出事时它必须照跑"
     },
     {
+      "id": "cycle-state-shadow",
+      "name": "情绪周期状态影子记录",
+      "schedule": "15 23 * * *",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "calendar_day",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "cycle-state-shadow",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 600,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/",
+        "$A_STOCK_STATE_HOME/cron/output/cycle-state-shadow/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "scripts/cycle_state_shadow.py",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
+      },
+      "external_note": "23:15 在 daily-diagnostics(23:10) 之后跑：读当日选股产物 hot_money_selection_latest.json 里已算好的 market_state，推进周期记忆(日龄+分歧计数)并取沪指趋势闸门，append 一行影子记录到 cycle_shadow_log.jsonl。SHADOW ONLY：不改任何实盘信号/排序/仓位。calendar_day：非交易日照跑，market_state 缺失时 fail-closed 记 available:false，一行不落才能看出调度停摆。"
+    },
+    {
       "id": "open-confirmation",
       "name": "开盘确认+上车判定",
       "schedule": "35 9 * * 1-5",

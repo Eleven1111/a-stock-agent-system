@@ -40,6 +40,32 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "week_trades_max": 3, "day_loss_pct_stop": -2.0, "week_loss_pct_freeze": -5.0,
         "consecutive_losses_max": 3, "position_time_stop_trading_days": 2,
     },
+    # P1 影子闸门（打板优化方案 §3 P1）：周期状态机记忆层 + 指数趋势闸门。
+    # 默认 enabled:false —— 只做影子记录（emit shadow log），绝不影响实盘排序/评分/
+    # 信号。启用（翻 enabled:true 或走 regime_gate 杠杆）必须先用 P1 影子日志 +
+    # strategy_attribution_report 做"假想拦截 vs 实际结算"对照，证明拦截组显著更差。
+    "emotion_cycle": {
+        "enabled": False,
+        # 分歧计数 >= 此值视为"二次及以上分歧"（手册 E-02：防退潮）。
+        "second_divergence_min": 2,
+        # 退潮状态（手册 E-05：退潮第1天清仓）——影子拦截全部新开仓。
+        "weaken_states": ["S6"],
+        # 分歧状态（手册 R-03：分歧日的弱转强不做）——影子降级二板弱转强。
+        "divergence_states": ["S5"],
+        # 主升/扩散确认状态：进入即把分歧计数清零（分歧转一致，重新起算）。
+        "rise_reset_states": ["S3"],
+    },
+    "index_trend": {
+        "enabled": False,
+        "index_code": "000001",          # 上证指数
+        "index_market": "sh",
+        "ma_periods": [5, 10, 20],
+        # 两日量能 < 20 日均量 * 此比例 视为缩量降仓（手册 T-05，相对口径不写死万亿）。
+        "volume_shrink_ratio": 0.7,
+        "defend_below_ma": 20,           # 收盘跌破 20 日线 → 转防守（手册 T-02）
+        "reduce_below_ma": 5,            # 收盘跌破 5 日线 → 减仓（手册 T-02）
+        "min_bars": 21,                  # 不足则 fail-closed
+    },
     # §7b 三项调整机制，默认全部关闭；启用必须引用打板归因报告数据
     # （scripts/strategy_attribution_report.py），杠杆实现见 daban_adjustments.py。
     "adjustments": {
