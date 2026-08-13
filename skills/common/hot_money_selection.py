@@ -10,6 +10,7 @@ from datetime import date
 from statistics import mean
 from typing import Any, Iterable, Mapping, Sequence
 
+from a_share_rules import previous_trading_day
 from crowding_fragility import build_market_crowding_fragility, sector_crowding_fragility
 from market_temperature import classify_market_state, temperature_from_context
 from reflexivity import assess_candidate
@@ -321,13 +322,32 @@ def _breadth(observed: Sequence[Mapping[str, Any]]) -> dict[str, int]:
 
 
 def _ladder_age_days(context_asof: str, event_asof: str) -> int:
-    """事件日 − 梯队日（天数）。解析失败返回大数，按过期处理。"""
+    """事件日 − 梯队日（自然日）。解析失败返回大数，按过期处理。"""
     try:
         context_day = date.fromisoformat(str(context_asof)[:10])
         event_day = date.fromisoformat(str(event_asof)[:10])
     except ValueError:
         return 10_000
     return (event_day - context_day).days
+
+
+def allowed_ladder_age_days(event_asof: str) -> int | None:
+    """事件日允许的梯队最大滞后（自然日）= 到**上一交易日**的自然日距离。
+
+    盘前作业（candidate-preopen 08:30）用的必然是上一交易日收盘的梯队：周二只差
+    1 天，周一差 3 天（上周五），长假后首日可达 9 天。写死自然日常量会把周一与
+    节后这些**合法**梯队误判为过期，主线识别在这些交易日永远不生效——按交易日
+    折算才是这个门禁真正想表达的语义。
+
+    交易日历未覆盖该年份时返回 None，由调用方 fail-closed
+    （AGENTS.md：未覆盖的日历数据一律 fail closed）。
+    """
+    try:
+        event_day = date.fromisoformat(str(event_asof)[:10])
+        # CalendarCoverageError 是 RuntimeError 子类，与"31 天内无交易日"一并接住。
+        return (event_day - previous_trading_day(event_day)).days
+    except (ValueError, RuntimeError):
+        return None
 
 
 def _timing_reasons(
@@ -337,13 +357,17 @@ def _timing_reasons(
     event_asof: str,
     quote_count: int,
     min_quote_count: int,
+    allowed_age_days: int | None,
 ) -> list[str]:
     """Blocking reasons for the hot-money clock; empty means ready."""
     reasons: list[str] = []
     if not temperature.get("context_fresh"):
         reasons.extend(str(note) for note in temperature.get("notes") or [])
-    if context_asof and event_asof and _ladder_age_days(context_asof, event_asof) > 1:
-        reasons.append(f"梯队日期与事件日不一致或已过期: {context_asof} != {event_asof}")
+    if context_asof and event_asof:
+        if allowed_age_days is None:
+            reasons.append(f"交易日历未覆盖事件日 {event_asof}，梯队新鲜度无法判定")
+        elif _ladder_age_days(context_asof, event_asof) > allowed_age_days:
+            reasons.append(f"梯队日期与事件日不一致或已过期: {context_asof} != {event_asof}")
     if quote_count < min_quote_count:
         reasons.append(f"全市场有效行情不足: {quote_count} < {min_quote_count}")
     if not temperature.get("allow_new_daban"):
@@ -377,9 +401,15 @@ def build_market_timing(
         for row in observed
         if _code(row.get("code")) in previous_codes
     ]
-    # 前一日收盘的连板梯队用于当日盘前判断是合法的：允许 1 个自然日延迟。
-    # 只有梯队日期早于事件日前一日（age_days > 1）或来自未来才判 stale。
-    temperature = temperature_from_context(context, event_asof=event_asof, max_age_days=1)
+    # 上一交易日收盘的连板梯队用于当日盘前判断是合法的。允许量按**交易日**折算
+    # （周二=1天、周一=3天、节后可达9天），而不是写死自然日常量。
+    # 日历未覆盖 → allowed=None → max_age_days=0（只认当日梯队，fail-closed）。
+    allowed_age_days = allowed_ladder_age_days(event_asof)
+    temperature = temperature_from_context(
+        context,
+        event_asof=event_asof,
+        max_age_days=allowed_age_days if allowed_age_days is not None else 0,
+    )
     ladder_features = _ladder_features(
         context.get("lianban_ladder"),
         context.get("prev_lianban_ladder"),
@@ -396,6 +426,7 @@ def build_market_timing(
         event_asof=event_asof,
         quote_count=len(observed),
         min_quote_count=int(cfg["min_quote_count"]),
+        allowed_age_days=allowed_age_days,
     )
 
     ready = not reasons

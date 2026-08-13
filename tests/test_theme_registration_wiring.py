@@ -8,27 +8,31 @@ theme_strength_daily 只评估已注册主题；注册表长期为空会让弱�
 from __future__ import annotations
 
 import importlib
+import os
 
 import pytest
 
 
 @pytest.fixture
 def wiring(tmp_path, monkeypatch):
+    # conftest 已把 skills/common 与 skills/stock-triage/scripts 上路，无需再插
+    # sys.path（插了也不还原，会漏给后续测试）。
+    session_home = os.environ.get("A_STOCK_STATE_HOME")
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     import theme_registry
 
     importlib.reload(theme_registry)
 
-    import sys, os
-
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skills", "stock-triage", "scripts"))
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "skills", "common"))
     import candidate_discovery as discovery
 
     yield theme_registry, discovery
 
-    # 还原：把模块重新绑定回默认路径，避免污染后续测试
-    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    # 还原顺序是关键：必须先把 env 恢复成 conftest 的会话级测试 home，再 reload。
+    # 若像先前那样 delenv 之后 reload，REGISTRY_FILE 会被重新绑到**真实
+    # ~/.hermes**，同进程内后续任何 register() 都会写进用户真实家目录
+    # （test_state_home_isolation 正是为拦这类泄漏而存在）。
+    if session_home is not None:
+        os.environ["A_STOCK_STATE_HOME"] = session_home
     importlib.reload(theme_registry)
 
 
@@ -132,3 +136,20 @@ def test_empty_selection_state_returns_empty_summary(wiring):
     assert summary["registered"] == []
     assert summary["skipped"] == []
     assert summary["errors"] == []
+
+
+def test_fixture_teardown_never_repoints_registry_at_real_home(wiring):
+    """本 fixture 的 teardown 曾把 REGISTRY_FILE 重绑到真实 ~/.hermes。
+
+    该缺陷只在文件执行顺序反过来时才被 test_state_home_isolation 抓到（字母序
+    下 isolation 先跑，全量套件是绿的），所以在这里就地钉死不变量：无论何时，
+    主题注册表都不得落在用户真实家目录。
+    """
+    registry, _discovery = wiring
+    real_hermes = os.path.expanduser("~/.hermes")
+    assert not registry.REGISTRY_FILE.startswith(real_hermes)
+
+    # 模拟 teardown 后的再次 reload：env 已还原成会话级测试 home，
+    # 重新加载也必须留在测试目录内。
+    importlib.reload(registry)
+    assert not registry.REGISTRY_FILE.startswith(real_hermes)

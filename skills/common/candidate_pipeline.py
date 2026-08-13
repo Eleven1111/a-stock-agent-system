@@ -1238,31 +1238,17 @@ def rank_auction_shortlist(
 
     _add_lane("daban", (limit + 1) // 2)
     _add_lane("trend", limit // 2)
-
-    def _deliverable(item: Mapping[str, Any]) -> bool:
-        """候选是否通过弱市交付门禁（deliverable_watch）。"""
-        selected_by = item.get("selected_by")
-        lane = (
-            "trend"
-            if isinstance(selected_by, Mapping) and selected_by.get("trend")
-            else "daban"
-        )
-        return (
-            assess_delivery_quality(item, lane=lane, stage="09:25")["status"]
-            == "deliverable_watch"
-        )
-
-    # 方案A：弱市硬门禁 —— 若候选池里没有任何一只通过弱市交付门禁
-    # （deliverable_watch=0），跳过 balanced_fill，返回空短名单、不生成可执行决策。
-    # 否则兜底通道会从 research_only 池里按量能分位"矬子里拔将军"，把银行/地产等
-    # 竞价量能稳定的大盘股硬拉进决策建议。
-    deliverable_count = sum(1 for item in rows if _deliverable(item))
-    if deliverable_count > 0 and len(selected) < limit:
-        # 方案B：兜底通道改按策略分 auction_daban_score 排序，而非量能主导的
-        # auction_score，进一步过滤掉没有策略信号的票。
+    # 兜底通道无需"池级 deliverable 计数"前置闸门：下面逐项的
+    # assess_delivery_quality 门禁（与 _lane_member 里那道）已经保证
+    # deliverable_watch=0 时一只都进不来，短名单自然为空。加计数只是把同一个
+    # 判定在全池再跑一遍。
+    # 排序键保持 auction_score：它是 strategy_state 选定车道后的
+    # strategy_live_score（策略分），并非量能分；改用 auction_daban_score 会让
+    # 本该车道中立的 balanced_fill 系统性压低 trend 候选。
+    if len(selected) < limit:
         fill_order = sorted(
             rows,
-            key=lambda item: (-_num(item.get("auction_daban_score")), item["code"]),
+            key=lambda item: (-_num(item.get("auction_score")), item["code"]),
         )
         for item in fill_order:
             code = naked_code(item["code"])

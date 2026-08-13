@@ -1154,3 +1154,75 @@ def test_open_cutoff_reconstruction_requires_complete_sorted_minutes():
     assert rebuilt["volume"] == 600
     assert rebuilt["evidence_cutoff"] == "0935"
     assert incomplete == {}
+
+
+def test_research_only_shortlist_emits_no_signals_even_when_candidates_present(
+    tmp_path, monkeypatch
+):
+    """research_only 的短名单必须一条信号都不产出——这是显式 fail-closed 安全网。
+
+    实际链路里 research_only 与空短名单同时出现（弱市门禁清零候选池），signals
+    本就为空；本用例刻意喂一份**非空**短名单来单独钉住安全网自身的契约，否则
+    这段代码永远不会被任何断言覆盖，将来有别的生产方设置 research_only 时会
+    静默失效。
+    """
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "MIRROR_LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
+    monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    atomic_write_json(
+        oc._shortlist_path(event_asof),
+        {
+            "schema": "auction_finalize_v2",
+            "asof": event_asof,
+            "source_asof": source_asof,
+            "status": "ready",
+            "research_only": True,
+            "shortlist": [{
+                "code": "sz300001",
+                "name": "趋势候选",
+                "auction_score": 80,
+                "auction_daban_score": 0,
+                "auction_trend_score": 80,
+                "auction_selected_by": {"daban": False, "trend": True},
+                "auction_gap_pct": 2.0,
+                "board_status": "high_open",
+                "is_yiziban": False,
+            }],
+        },
+    )
+    monkeypatch.setattr(
+        oc,
+        "read_signal_context",
+        lambda **_kwargs: {
+            "ladder_asof": source_asof,
+            "lianban_ladder": {f"00000{i}": {"lianban": 1} for i in range(1, 6)},
+            "prev_lianban_ladder": {f"00000{i}": {"lianban": 1} for i in range(1, 6)},
+        },
+    )
+    monkeypatch.setattr(
+        oc,
+        "fetch_tencent_snapshot",
+        lambda codes: {
+            code: {
+                "name": code, "price": 10.5, "prev_close": 10.0, "open": 10.4,
+                "high": 10.6, "low": 10.3, "volume": 100_000,
+                "change_pct": 5.0, "directional_eligible": True,
+            }
+            for code in codes
+        },
+    )
+
+    result = oc.build_confirmation([], event_asof, limit=2)
+
+    assert result["research_only"] is True
+    assert result["signals"] == []
+    assert result["signal_count"] == 0
