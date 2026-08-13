@@ -8,6 +8,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing broad-except around the optional `import yaml` guard in daban_config.py; the daban P1 change only added the emotion_cycle/index_trend default blocks and did not touch this exception handler",
+      "violation_id": "a1f78d7b29c7687d7087"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing sys.path mutation in chanlun_gate_evaluation.py, unrelated to the T6 --lineage v2 output-path change that touched this file",
       "violation_id": "02a08608b84dfc62d469"
     },

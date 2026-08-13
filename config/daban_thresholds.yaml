@@ -48,3 +48,24 @@ market_gate:
   week_loss_pct_freeze: -5.0
   consecutive_losses_max: 3
   position_time_stop_trading_days: 2  # 打板仓位持有超过N个交易日仍未走出行情，无论盈亏提示了结
+
+# ── P1 影子闸门（打板优化方案 §3 P1）───────────────────────────────────────────
+# 默认 enabled:false，只做影子记录，绝不影响实盘排序/评分/信号。启用前必须用影子
+# 日志 + strategy_attribution_report 做"假想拦截 vs 实际结算"对照。缺块回退
+# daban_config.DEFAULTS（同值），行为与未配置时一致。
+emotion_cycle:
+  enabled: false
+  second_divergence_min: 2        # 分歧计数≥此值=二次以上分歧（手册 E-02 防退潮）
+  weaken_states: ["S6"]           # 退潮状态：影子拦截全部新开仓（手册 E-05）
+  divergence_states: ["S5"]       # 分歧状态：影子降级二板弱转强（手册 R-03）
+  rise_reset_states: ["S3"]       # 主升确认：分歧计数清零（分歧转一致重新起算）
+
+index_trend:
+  enabled: false
+  index_code: "000001"            # 上证指数
+  index_market: "sh"
+  ma_periods: [5, 10, 20]
+  volume_shrink_ratio: 0.7        # 两日量能<20日均量*此值=缩量降仓（手册 T-05 相对口径）
+  defend_below_ma: 20             # 收盘跌破20日线→防守（手册 T-02）
+  reduce_below_ma: 5              # 收盘跌破5日线→减仓（手册 T-02）
+  min_bars: 21                    # 不足则 fail-closed
