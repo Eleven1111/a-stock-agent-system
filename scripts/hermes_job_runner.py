@@ -188,6 +188,8 @@ def _emit(
 
     stdout = artifact.get("stdout", "")
     max_chars = int(job.get("max_output_chars") or 4000)
+    if deliver == "origin":
+        stdout = feishu_push.render_origin_text(artifact, max_chars)
     if len(stdout) <= max_chars:
         sys.stdout.write(stdout)
         if stdout and not stdout.endswith("\n"):
