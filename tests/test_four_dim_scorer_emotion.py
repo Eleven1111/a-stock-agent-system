@@ -4,14 +4,14 @@ import four_dim_scorer as fds
 
 
 def test_emotion_cycle_unregistered_zero_weight_notes(monkeypatch):
-    """未注册 emotion_cycle:v1 → notes 含 [研究假设]，score 不受影响。"""
+    """未注册 emotion_cycle:v1 → notes 含 [研究假设]（探针未通过标记），score 不受影响。"""
     klines = [{"close": 10.0, "high": 10.2, "low": 9.8, "volume": 1000} for _ in range(60)]
     quote = {"price": 10.0, "change_pct": 1.0}
 
     monkeypatch.setattr(fds, "_chan_allowed", lambda sid: False)
 
     result = fds.score_technical("002156", "通富微电", quote=quote, klines=klines)
-    assert "[研究假设]情绪周期(未过闸·0权重)" in result["detail"]
+    assert "[研究假设]情绪周期(探针未通过#232·0权重)" in result["detail"]
     assert "emotion_cycle" in result
     assert result["emotion_cycle"]["volume_percentile_60d"]["available"] is True
 
