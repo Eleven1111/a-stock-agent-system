@@ -51,6 +51,27 @@ def test_capital_flow_uses_runtime_stocks_and_active_topics(monkeypatch):
     assert unmapped == ["未知主题"]
 
 
+def test_capital_flow_keeps_unmapped_sector_as_name_only_target(monkeypatch):
+    module = load_module(
+        "capital_flow_name_only_sector_test",
+        "skills/stock-triage/scripts/capital_flow_monitor.py",
+    )
+    monkeypatch.setattr(
+        module.runtime_targets,
+        "load_topics",
+        lambda: [
+            {"kind": "sector", "key": "通信设备", "label": "通信设备"},
+            {"kind": "theme", "key": "未知主题", "label": "未知主题"},
+        ],
+    )
+    monkeypatch.setattr(module, "resolve_sector_code", lambda _name: None)
+
+    sectors, unmapped = module.load_runtime_sectors()
+
+    assert sectors == [("", "通信设备")]
+    assert unmapped == ["通信设备", "未知主题"]
+
+
 def test_institution_tracker_uses_runtime_targets(monkeypatch):
     module = load_module(
         "institution_dynamic_targets_test",

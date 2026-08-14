@@ -77,6 +77,34 @@ def test_build_sector_leadership_emits_crowding_fragility():
     assert "crowding_score" in semi and "fragility_score" in semi
 
 
+def test_stale_sector_flow_is_not_consumed_as_current_day_evidence():
+    """Yesterday's failed-refresh value must not qualify today's sector."""
+    quotes = [
+        _quote("600001", "房地产", 4.0),
+        _quote("600002", "房地产", 3.0),
+        _quote("600003", "房地产", 2.0),
+    ]
+    context = {
+        "sector_flows": {"房地产": -24.18},
+        "sector_flows_asof": "2026-08-13",
+        "sector_flows_stale": True,
+    }
+    timing = {
+        "event_asof": "2026-08-14",
+        "daban_ready": False,
+        "breadth": {},
+        "temperature": {},
+    }
+
+    state = hms.build_sector_leadership(
+        quotes, context, timing, config=_config()
+    )
+
+    real_estate = next(row for row in state["sectors"] if row["sector"] == "房地产")
+    assert real_estate["sector_flow_yi"] is None
+    assert "sector_flow" not in real_estate["evidence_types"]
+
+
 def test_stale_or_missing_context_fails_closed_for_daban():
     # 真过期 = 梯队整整跳过了一个交易日：事件日 06-23(周二) 的上一交易日是
     # 06-22(周一)，用 06-18(周四) 的梯队意味着 06-22 那场的梯队没拿到。
@@ -308,6 +336,92 @@ def test_weak_market_mainline_requires_multi_evidence_confirmation():
     assert semi["theme_confirmed"] is True
     assert semi["qualified_for_daban"] is True
     assert weak_with_theme["status"] == "ready"
+
+
+def test_weak_market_projects_social_attention_by_mainline_stock_membership():
+    """Different provider taxonomies align by stock identity, not global aliases."""
+    quotes = [
+        _quote("600001", "医疗服务", 10.0, 1_500_000_000, 18),
+        _quote("600002", "医疗服务", 9.9, 1_000_000_000, 14),
+        _quote("600003", "医疗服务", 9.8, 800_000_000, 11),
+        _quote("600004", "军工", -4.0),
+        _quote("600005", "煤炭", -3.0),
+        _quote("600006", "银行", -2.0),
+        _quote("600007", "传媒", -5.0),
+        _quote("600008", "有色", -6.0),
+        _quote("600009", "通信", -7.0),
+        _quote("600010", "食品", -8.0),
+    ]
+    context = {
+        "ladder_asof": "2026-06-22",
+        "lianban_ladder": {
+            "600001": {"sector": "医疗服务", "lianban": 2},
+            "600002": {"sector": "医疗服务", "lianban": 1},
+            "600003": {"sector": "医疗服务", "lianban": 1},
+        },
+        "prev_lianban_ladder": {
+            "600001": {"sector": "医疗服务", "lianban": 1},
+            "600004": {"sector": "军工", "lianban": 1},
+            "600005": {"sector": "煤炭", "lianban": 1},
+            "600006": {"sector": "银行", "lianban": 1},
+            "600007": {"sector": "传媒", "lianban": 1},
+        },
+        "sector_limitups": {"医疗服务": 3},
+        "social_attention": {
+            "schema": "social_attention_snapshot_v1",
+            "themes": {
+                "医疗器械": {"confirmed": True, "attention_score": 72.0},
+                "医药生物": {"confirmed": True, "attention_score": 68.0},
+            },
+            "stocks": {
+                "600001": {
+                    "name": "股票600001",
+                    "sector": "医疗器械",
+                    "sector_source": "industry",
+                    "industry": "医疗器械",
+                    "industry_source": "industry_map",
+                    "attention_score": 72.0,
+                    "eligible_for_boost": True,
+                },
+                "600002": {
+                    "name": "股票600002",
+                    "sector": "医药生物",
+                    "sector_source": "industry",
+                    "industry": "医药生物",
+                    "industry_source": "industry_map",
+                    "attention_score": 68.0,
+                    "eligible_for_boost": True,
+                },
+            },
+        },
+    }
+    timing = hms.build_market_timing(
+        quotes, context, event_asof="2026-06-22", config=_config()
+    )
+
+    state = hms.build_sector_leadership(quotes, context, timing, config=_config())
+    medical = next(row for row in state["sectors"] if row["sector"] == "医疗服务")
+
+    assert timing["weak_market"]["weak_regime"] is True
+    assert medical["evidence_types"] == ["limitup_cluster", "social_theme"]
+    assert medical["theme_confirmed"] is True
+    assert medical["qualified_for_daban"] is True
+    assert medical["theme_alignment"]["method"] == "stock_membership_projection"
+    assert medical["theme_alignment"]["matched_stock_codes"] == ["600001", "600002"]
+    assert medical["theme_alignment"]["source_sectors"] == [
+        {
+            "sector": "医疗器械",
+            "sector_sources": ["industry"],
+            "stock_count": 1,
+            "matched_stock_codes": ["600001"],
+        },
+        {
+            "sector": "医药生物",
+            "sector_sources": ["industry"],
+            "stock_count": 1,
+            "matched_stock_codes": ["600002"],
+        },
+    ]
 
 
 def test_missing_sector_coverage_blocks_only_hot_money_lane():

@@ -100,3 +100,18 @@ def test_industry_boards_fall_back_to_nested_raw_code(monkeypatch):
     ])
 
     assert ma.fetch_industry_boards() == [("BK0477", "半导体")]
+
+
+def test_name_only_sector_flow_never_calls_code_dependent_fallbacks(monkeypatch):
+    attempted_providers = []
+    monkeypatch.setattr(ma, "_cache_get", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ma, "_cache_set", lambda *_args, **_kwargs: None)
+
+    def fake_chain(_dataset, attempts, *, empty):
+        attempted_providers.extend(provider for provider, _fetcher in attempts)
+        return empty
+
+    monkeypatch.setattr(ma, "_fallback_chain", fake_chain)
+
+    assert ma.fetch_sector_fund_flow("", name="通信设备") == {}
+    assert attempted_providers == ["akshare"]

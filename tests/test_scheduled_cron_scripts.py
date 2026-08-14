@@ -423,6 +423,42 @@ def test_social_attention_collection_writes_snapshot_and_signal_context(
     assert signal.exists()
 
 
+def test_social_attention_metadata_includes_cached_industry(monkeypatch):
+    collector = load_module(
+        "social_attention_collect_industry_test",
+        "skills/social-sentiment/scripts/collect.py",
+    )
+
+    monkeypatch.setattr(
+        collector,
+        "read_json",
+        lambda path, default: (
+            {
+                "stocks": [{
+                    "code": "SH600000",
+                    "name": "浦发银行",
+                    "industry": "J 金融业",
+                }]
+            }
+            if str(path).endswith("exchange_universe.json")
+            else {"candidates": []}
+        ),
+    )
+    monkeypatch.setattr(
+        collector.industry_map,
+        "load_cached",
+        lambda asof: {"600000": "银行"},
+    )
+
+    metadata = collector.load_stock_metadata("2026-08-14")
+
+    assert metadata["600000"] == {
+        "name": "浦发银行",
+        "industry": "银行",
+        "industry_source": "industry_map",
+    }
+
+
 def test_serenity_refresh_planner_uses_runtime_state_sources(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     planner = load_module(

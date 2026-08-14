@@ -108,6 +108,31 @@ def test_theme_attention_evidence_requires_narrow_confirmed_theme():
     assert broad["confirmed"] is False
 
 
+def test_theme_projection_rejects_broad_source_industry():
+    context = {
+        "social_attention": {
+            "schema": "social_attention_snapshot_v1",
+            "themes": {},
+            "stocks": {
+                "600001": {
+                    "sector": "C 制造业",
+                    "sector_source": "industry",
+                    "attention_score": 90.0,
+                    "eligible_for_boost": True,
+                }
+            },
+        }
+    }
+
+    evidence = sa.theme_attention_evidence(
+        "医疗服务", context, member_codes=["600001"]
+    )
+
+    assert evidence["available"] is False
+    assert evidence["confirmed"] is False
+    assert evidence["alignment"] is None
+
+
 def test_single_source_is_display_only():
     snapshot = sa.build_social_attention_snapshot(
         {"eastmoney": _rankings()["eastmoney"][:1]},
