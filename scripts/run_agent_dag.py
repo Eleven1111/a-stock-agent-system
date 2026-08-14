@@ -567,6 +567,8 @@ def target_output(
     job_id = str(job.get("id") or artifact.get("job_id") or "")
     stdout = str(artifact.get("stdout") or "")
     max_chars = max(200, int(job.get("max_output_chars") or 4000))
+    if job.get("deliver") == "origin":
+        stdout = feishu_push.render_origin_text(artifact, max_chars)
     if job.get("deliver") == "feishu_direct":
         # The direct Feishu path can fail (for example when the chat ID or
         # lark-cli is unavailable). Its OpenClaw fallback must preserve the
