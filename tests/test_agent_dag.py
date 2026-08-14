@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts import run_agent_dag
 
 
@@ -436,6 +438,69 @@ def test_blocked_dag_exits_nonzero_and_explains_itself(monkeypatch, capsys):
     assert "NO_REPLY" not in output
     assert "auction-snapshot" in output
     assert "candidate-preopen" in output
+
+
+def test_emit_target_renders_afternoon_checkpoint_for_discord(monkeypatch, capsys):
+    """The OpenClaw/Discord boundary must not forward checkpoint JSON verbatim."""
+    job_id = "hot-money-afternoon-checkpoint"
+    artifact = {
+        "job_id": job_id,
+        "trading_date": "2026-08-14",
+        "batch_id": "a-share-20260814",
+        "has_signal": True,
+        "stdout": json.dumps(
+            {
+                "status": "ready",
+                "profile": "afternoon_reflow",
+                "window": "13:15",
+                "asof": "2026-08-14",
+                "research_only": True,
+                "observation_count": 2,
+                "confirmed_count": 1,
+                "confirmed": [
+                    {
+                        "code": "600000",
+                        "name": "浦发银行",
+                        "research_state": "confirmed",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+    }
+    monkeypatch.setattr(
+        run_agent_dag,
+        "execute_dag",
+        lambda **kwargs: {
+            "status": "ok",
+            "trading_date": artifact["trading_date"],
+            "batch_id": artifact["batch_id"],
+        },
+    )
+    monkeypatch.setattr(
+        run_agent_dag,
+        "_load_artifact",
+        lambda *args, **kwargs: artifact,
+    )
+    monkeypatch.setattr(
+        run_agent_dag.sys,
+        "argv",
+        ["run_agent_dag.py", job_id, "--emit-target"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_agent_dag.main()
+
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 0
+    assert "13:15" in output
+    assert "观察数量：2" in output
+    assert "确认数量：1" in output
+    assert "浦发银行（600000）" in output
+    assert "研究专用" in output
+    assert "不可交易" in output
+    assert not output.lstrip().startswith("{")
+    assert '"confirmed"' not in output
 
 
 def test_skipped_non_trading_day_stays_silent_and_exits_zero(monkeypatch, capsys):

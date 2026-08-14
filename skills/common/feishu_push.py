@@ -116,9 +116,55 @@ def _fallback_delivery_line(job_id: str, parsed: Mapping[str, Any]) -> str:
     return prefix + (" | " + " | ".join(counts) if counts else "")
 
 
+_HOT_MONEY_CHECKPOINT_LABELS = {
+    "hot-money-morning-checkpoint": "09:50主线龙头承接确认",
+    "hot-money-afternoon-checkpoint": "13:15主线龙头回流确认",
+}
+
+
+def _render_hot_money_checkpoint(
+    job_id: str, parsed: Mapping[str, Any], max_chars: int
+) -> str:
+    """Render checkpoint JSON as a compact, unambiguous user notification."""
+    label = _HOT_MONEY_CHECKPOINT_LABELS.get(job_id, "主线龙头检查点")
+    window = str(parsed.get("window") or "")
+    title = f"任务：{job_id}｜{label}"
+    if window and window not in title:
+        title = f"任务：{job_id}｜{window} {label}"
+
+    observations = parsed.get("observation_count", "未知")
+    confirmed_count = parsed.get("confirmed_count", "未知")
+    lines = [
+        title,
+        f"观察数量：{observations}；确认数量：{confirmed_count}",
+    ]
+    confirmed = parsed.get("confirmed")
+    if isinstance(confirmed, list) and confirmed:
+        lines.append("确认标的：")
+        for item in confirmed[:10]:
+            if not isinstance(item, Mapping):
+                lines.append(f"- {item}")
+                continue
+            name = str(item.get("name") or "未命名标的")
+            code = str(item.get("code") or "未知代码")
+            lines.append(f"- {name}（{code}）")
+        if len(confirmed) > 10:
+            lines.append(f"... 共 {len(confirmed)} 只")
+    else:
+        lines.append("确认标的：无")
+
+    status = parsed.get("status")
+    if status not in (None, "ready"):
+        lines.append(f"状态：{status}")
+    lines.append("研究专用：仅供研究观察，不可交易，不构成投资建议。")
+    return "\n".join(lines)[:max_chars]
+
+
 def _render_mapping(
     job_id: str, parsed: Mapping[str, Any], max_chars: int
 ) -> str:
+    if job_id in _HOT_MONEY_CHECKPOINT_LABELS:
+        return _render_hot_money_checkpoint(job_id, parsed, max_chars)
     if parsed.get("schema") == "capital_flow_v2":
         return _render_capital_flow(parsed, max_chars)
     lines: list[str] = []
@@ -229,6 +275,26 @@ def render_artifact_text(artifact: Mapping[str, Any], max_chars: int) -> str:
     if isinstance(summary, Mapping) and ("schema" in summary or "status" in summary):
         return render_summary_text(job_id, summary, max_chars)
     return render_delivery_text(job_id, stdout, max_chars)
+
+
+def render_origin_text(artifact: Mapping[str, Any], max_chars: int) -> str:
+    """Render structured JSON for an external origin channel.
+
+    Producer stdout remains the machine-facing artifact. Only the two
+    hot-money checkpoint JSON payloads crossing the origin/Discord boundary
+    are rendered; other origin jobs keep their existing output contract.
+    """
+    stdout = str(artifact.get("stdout") or "")
+    try:
+        parsed = json.loads(stdout)
+    except (ValueError, TypeError):
+        return stdout
+    if (
+        isinstance(parsed, Mapping)
+        and str(artifact.get("job_id") or "") in _HOT_MONEY_CHECKPOINT_LABELS
+    ):
+        return render_artifact_text(artifact, max_chars)
+    return stdout
 
 
 def push_text(job_id: str, text: str, *, timeout_seconds: int = 15) -> dict[str, Any]:
