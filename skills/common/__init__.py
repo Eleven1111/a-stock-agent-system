@@ -28,5 +28,11 @@ import os as _os
 import sys as _sys
 
 _HERE = _os.path.dirname(_os.path.abspath(__file__))
-if _HERE not in _sys.path:
-    _sys.path.insert(0, _HERE)
+# 必须始终把 skills/common 挪到 sys.path 最前，而非仅“不存在才插入”。
+# cron 的 hermes_job_runner 会设 PYTHONPATH=ROOT:skills/common，此时
+# _HERE 已在 path 但排在 scripts/ 之后；若沿用“不存在才插入”，scripts/ 下
+# 的同名兼容包装器（如 scripts/social_attention.py）会遮蔽 canonical 实现，
+# 触发循环导入（discovery-recall-report 08-11 起每日 failed）。
+if _HERE in _sys.path:
+    _sys.path.remove(_HERE)
+_sys.path.insert(0, _HERE)

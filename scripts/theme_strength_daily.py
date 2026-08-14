@@ -29,33 +29,54 @@ import theme_registry  # noqa: E402
 import theme_strength  # noqa: E402
 from market_snapshot import read_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
+from signal_context import context_file  # noqa: E402
 from state_store import read_json  # noqa: E402
 
 
 def _load_discovery_inputs(asof: str) -> dict[str, Any] | None:
-    """Resolve the latest candidate-discovery-input snapshot payload via the
-    candidate pool's lineage ref. Returns None (fail-closed) when unavailable."""
+    """Resolve the full-universe quotes + signal_context needed for theme
+    strength. Prefers the persisted candidate-discovery input snapshot; falls
+    back to the universe-quotes cache + signal_context cache when the snapshot
+    was skipped (A_STOCK_SKIP_INPUT_SNAPSHOT=1 writes no 263MB snapshot file).
+
+    Returns None (fail-closed) when no usable basis exists."""
     pool = read_json(data_file("stock-triage", "candidate_pool_latest.json"), {})
     if not isinstance(pool, dict):
         return None
-    ref = pool.get("input_snapshot") or {}
-    path = ref.get("snapshot_path")
-    if not path or not os.path.exists(str(path)):
-        return None
-    try:
-        record = read_snapshot(str(path))
-    except (ValueError, OSError):
-        return None
-    payload = record.get("payload") or {}
-    if str(payload.get("schema") or "") != "candidate_discovery_inputs_v1":
-        return None
-    if asof and str(pool.get("asof") or "") not in ("", asof) and str(record.get("trading_date")) != asof:
+    if asof and str(pool.get("asof") or "") not in ("", asof):
         # Stale lineage relative to the requested trading date -> fail closed.
         return None
+    ref = pool.get("input_snapshot") or {}
+    path = ref.get("snapshot_path")
+    if path and os.path.exists(str(path)):
+        try:
+            record = read_snapshot(str(path))
+        except (ValueError, OSError):
+            record = None
+        if record is not None:
+            payload = record.get("payload") or {}
+            if str(payload.get("schema") or "") == "candidate_discovery_inputs_v1":
+                if str(record.get("trading_date") or "") != asof:
+                    return None
+                return {
+                    "quotes": payload.get("quotes") or {},
+                    "signal_context": payload.get("signal_context") or {},
+                    "trading_date": record.get("trading_date"),
+                }
+    # 回退：输入快照未落盘（in-memory 模式）。universe_quotes_cache 与
+    # signal_context.json 正是 discovery 写入快照的原始来源，等价回退。
+    # theme_strength 仅需 quotes.change_pct + lianban_ladder + stock_flows。
+    quotes_cache = read_json(data_file("stock-triage", "universe_quotes_cache.json"), {})
+    quotes = quotes_cache.get("quotes") if isinstance(quotes_cache, dict) else None
+    if not isinstance(quotes, dict) or not quotes:
+        return None
+    signal_ctx = read_json(context_file(), {})
+    if not isinstance(signal_ctx, dict) or not signal_ctx.get("lianban_ladder"):
+        return None
     return {
-        "quotes": payload.get("quotes") or {},
-        "signal_context": payload.get("signal_context") or {},
-        "trading_date": record.get("trading_date"),
+        "quotes": quotes,
+        "signal_context": signal_ctx,
+        "trading_date": str(pool.get("asof") or asof),
     }
 
 
