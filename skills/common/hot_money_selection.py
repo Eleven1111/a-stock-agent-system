@@ -15,6 +15,7 @@ from crowding_fragility import build_market_crowding_fragility, sector_crowding_
 from market_temperature import classify_market_state, temperature_from_context
 from reflexivity import assess_candidate
 from sector_taxonomy import resolve_sector
+from signal_context import filter_sector_flows_for_asof
 from social_attention import theme_attention_evidence
 from tradeability import limit_pct
 from weak_market_delivery import derive_weak_market_regime
@@ -458,7 +459,9 @@ def build_sector_leadership(
 ) -> dict[str, Any]:
     """Rank sectors cross-sectionally and expose persistence as research evidence."""
     cfg = _config(config)
-    context = dict(signal_context or {})
+    context = filter_sector_flows_for_asof(
+        signal_context, market_timing.get("event_asof")
+    )
     valid = [row for row in quotes if _num(row.get("price")) > 0]
     stock_sectors = {
         _code(row.get("code")): sector
@@ -485,7 +488,11 @@ def build_sector_leadership(
         top_changes = sorted(
             (_num(member.get("change_pct")) for member in members), reverse=True
         )[:10]
-        theme_evidence = theme_attention_evidence(sector, context)
+        theme_evidence = theme_attention_evidence(
+            sector,
+            context,
+            member_codes=[_code(member.get("code")) for member in members],
+        )
         theme_attention = attention_themes.get(sector) or {}
         attention = _num(theme_evidence.get("attention_score"))
         if attention <= 0:
@@ -526,6 +533,7 @@ def build_sector_leadership(
             ),
             "theme_stock_count": int(theme_evidence.get("stock_count") or 0),
             "theme_attention_score": theme_evidence.get("attention_score"),
+            "theme_alignment": theme_evidence.get("alignment"),
             "sector_flow_yi": flow_yi,
             "evidence_types": evidence_types,
             "evidence_count": len(evidence_types),

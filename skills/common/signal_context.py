@@ -76,6 +76,31 @@ def read_signal_context(max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
     return record
 
 
+def filter_sector_flows_for_asof(
+    context: Optional[Dict[str, Any]], asof: Any
+) -> Dict[str, Any]:
+    """Return context whose sector flows are valid for the requested date.
+
+    ``signal_context`` deliberately retains a failed refresh's last successful
+    values for diagnosis.  Consumers must therefore use this boundary before
+    treating ``sector_flows`` as same-day evidence.  Missing metadata fails
+    closed so legacy caches cannot masquerade as fresh data.
+    """
+    filtered = dict(context or {})
+    flows = filtered.get("sector_flows")
+    expected = str(asof or "")[:10]
+    actual = str(filtered.get("sector_flows_asof") or "")[:10]
+    if (
+        not isinstance(flows, dict)
+        or not flows
+        or not expected
+        or actual != expected
+        or bool(filtered.get("sector_flows_stale"))
+    ):
+        filtered.pop("sector_flows", None)
+    return filtered
+
+
 # ========== 纯函数：情绪加成（可单测）==========
 
 def sentiment_boost(code: str, ctx: Optional[Dict[str, Any]],

@@ -138,8 +138,9 @@ def _quality_for_snapshots(snapshots: List[Dict[str, Any]]) -> AuctionQuality:
     time_coverage_rate = len(slots) / total if total else 0.0
     window_coverage_rate = len(slots) / AUCTION_EXPECTED_TIMEPOINTS
     reasons: List[str] = []
-    if nonzero_rate < QUALITY_MIN_NONZERO_RATE:
-        reasons.append("竞价量能非零率低于质量门槛")
+    # L1 免费源不提供竞价成交量，量能非零率恒低是数据源局限而非信号缺失；
+    # 不再作为质量门禁（2026-08-14，Master 确认仅 L1 数据，去掉该门槛）。
+    # nonzero_rate 仍保留在输出字段中供审计，但不参与 unavailable 判定。
     if mirror_rate is None:
         reasons.append("五档盘口无有效覆盖")
     elif mirror_rate > QUALITY_MAX_MIRROR_RATE:

@@ -254,6 +254,14 @@ def load_runtime_sectors() -> tuple[list[tuple[str, str]], list[str]]:
             code = resolve_sector_code(label) or resolve_sector_code(topic["key"])
         if not code:
             unmapped.append(label)
+            # The primary THS sector-flow route matches exact industry names
+            # and does not require an Eastmoney BK code.  Keep auto-discovered
+            # sectors in the bounded target set; unresolved themes remain
+            # excluded because their labels are not guaranteed industries.
+            identity = f"name:{label}"
+            if topic.get("kind") == "sector" and identity not in seen:
+                seen.add(identity)
+                sectors.append(("", label))
             continue
         # Resolve display name: prefer dynamic, fallback to label
         display_name = KNOWN_SECTOR_CODES.get(code) or label
@@ -705,6 +713,11 @@ def collect_flow_data(
             sector["main_net_yi"] = exact_flow.get("main_net_yi")
             sector["main_flow_status"] = "ok"
             sector["main_flow_provider"] = exact_flow.get("provider")
+            sector["main_flow_asof"] = (
+                exact_flow.get("date")
+                or exact_flow.get("asof")
+                or result["timestamp"]
+            )
             exact_available += 1
             if sector["main_net_yi"] is not None and sector["main_net_yi"] > 10:
                 result["alerts"].append({
@@ -869,11 +882,39 @@ def cache_signal_context(data: Dict[str, Any]) -> None:
         nb = (data.get("northbound") or {}).get("net_flow_yi")
         if nb is not None:
             partial["northbound_net_yi"] = nb
-        sector_flows = {s["name"]: s.get("main_net_yi")
-                        for s in data.get("sectors", [])
-                        if s.get("name") and s.get("main_net_yi") is not None}
+        sector_flows = {
+            s["name"]: s.get("main_net_yi")
+            for s in data.get("sectors", [])
+            if (
+                s.get("name")
+                and s.get("main_net_yi") is not None
+                and s.get("main_flow_status") == "ok"
+                and s.get("main_flow_asof")
+            )
+        }
         if sector_flows:
             partial["sector_flows"] = sector_flows
+            sector_asofs = [
+                str(sector.get("main_flow_asof"))
+                for sector in data.get("sectors", [])
+                if sector.get("name") in sector_flows
+                and sector.get("main_flow_asof")
+            ]
+            partial["sector_flows_asof"] = (
+                min(sector_asofs) if sector_asofs else data.get("timestamp")
+            )
+            partial["sector_flows_stale"] = False
+            partial["sector_flows_last_attempt_at"] = data.get("timestamp")
+        elif (
+            "sector_main_flow" in (data.get("source_health") or {})
+            or data.get("sectors")
+            or data.get("unmapped_sectors")
+        ):
+            # Keep the last successful values and their as-of untouched.  A
+            # failed refresh must be visible even if another capital-flow
+            # field updates signal_context.generated_at in the same write.
+            partial["sector_flows_stale"] = True
+            partial["sector_flows_last_attempt_at"] = data.get("timestamp")
         stock_flows = {str(s["code"]).zfill(6): {"main_net_yi": s.get("main_net_yi")}
                        for s in data.get("stocks", [])
                        if s.get("code") and s.get("main_net_yi") is not None}

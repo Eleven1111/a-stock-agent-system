@@ -1073,14 +1073,19 @@ def fetch_sector_fund_flow(bk_code: str, *, name: str | None = None, days: int =
         payload = _fetch_eastmoney_push2_flow(f"90.{bk_code}", days=days)
         return {**_parse_push2_flow_payload(payload), "provider": "eastmoney_push2_degraded"}
 
+    attempts: list[tuple[str, Callable[[], dict[str, Any]]]] = [
+        ("akshare", akshare_ths_sector),
+    ]
+    if _EASTMONEY_BOARD_CODE_RE.match(str(bk_code or "")):
+        attempts.extend((
+            ("adata", adata_sector),
+            ("eastmoney_push2_degraded", eastmoney_push2_sector),
+        ))
+
     try:
         value = _fallback_chain(
             "sector_fund_flow",
-            (
-                ("akshare", akshare_ths_sector),
-                ("adata", adata_sector),
-                ("eastmoney_push2_degraded", eastmoney_push2_sector),
-            ),
+            attempts,
             empty={},
         )
     except DataSourceError:

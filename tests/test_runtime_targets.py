@@ -95,6 +95,133 @@ def test_runtime_topics_only_include_active_sector_and_theme_entries():
     ]
 
 
+def test_runtime_topics_include_current_dynamic_mainline_when_registry_empty():
+    topics = runtime_targets.build_topics(
+        registry=[],
+        hot_money_selection={
+            "asof": "2026-08-14",
+            "config": {"mainline_top_n": 2},
+            "sectors": [
+                {"sector": "通信设备", "rank": 1, "state": "emerging"},
+                {"sector": "医药生物", "rank": 3, "state": "neutral"},
+            ],
+        },
+        candidate_pool={
+            "asof": "2026-08-14",
+            "candidates": [
+                {
+                    "sector": "电子信息",
+                    "sector_rank": 2,
+                    "sector_state": "confirmed",
+                },
+                {
+                    "sector": "机械设备",
+                    "sector_rank": 4,
+                    "sector_state": "neutral",
+                },
+            ],
+        },
+        asof=date(2026, 8, 14),
+    )
+
+    assert topics == [
+        {"kind": "sector", "key": "通信设备", "label": "通信设备"},
+        {"kind": "sector", "key": "电子信息", "label": "电子信息"},
+    ]
+
+
+def test_manual_cancelled_topic_is_not_revived_by_dynamic_mainline():
+    topics = runtime_targets.build_topics(
+        registry=[
+            {
+                "kind": "sector",
+                "key": "通信设备",
+                "label": "通信设备",
+                "status": "cancelled",
+                "manual_cancelled": True,
+            },
+        ],
+        hot_money_selection={
+            "asof": "2026-08-14",
+            "sectors": [
+                {"sector": "通信设备", "rank": 1, "state": "emerging"},
+            ],
+        },
+        candidate_pool={
+            "asof": "2026-08-14",
+            "candidates": [
+                {
+                    "sector": "通信设备",
+                    "sector_rank": 1,
+                    "sector_state": "emerging",
+                },
+            ],
+        },
+        asof=date(2026, 8, 14),
+    )
+
+    assert topics == []
+
+
+def test_load_topics_merges_active_registry_with_current_mainline(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        runtime_targets.monitor_registry,
+        "load_registry",
+        lambda: [
+            {
+                "kind": "theme",
+                "key": "机器人",
+                "label": "人形机器人",
+                "status": "active",
+            },
+        ],
+    )
+
+    def fake_read_json(path, default):
+        if str(path).endswith("hot_money_selection_latest.json"):
+            return {
+                "asof": "2026-08-14",
+                "sectors": [
+                    {"sector": "通信设备", "rank": 1, "state": "emerging"},
+                ],
+            }
+        if str(path).endswith("candidate_pool_latest.json"):
+            return {"asof": "2026-08-14", "candidates": []}
+        return default
+
+    monkeypatch.setattr(runtime_targets, "read_json", fake_read_json)
+
+    assert runtime_targets.load_topics(asof=date(2026, 8, 14)) == [
+        {"kind": "theme", "key": "机器人", "label": "人形机器人"},
+        {"kind": "sector", "key": "通信设备", "label": "通信设备"},
+    ]
+
+
+def test_current_candidate_pool_embedded_selection_supplies_mainline():
+    topics = runtime_targets.build_topics(
+        registry=[],
+        hot_money_selection={},
+        candidate_pool={
+            "asof": "2026-08-14",
+            "hot_money_selection": {
+                "config": {"mainline_top_n": 2},
+                "sectors": [
+                    {"sector": "电子信息", "rank": 1, "state": "emerging"},
+                    {"sector": "机械设备", "rank": 4, "state": "neutral"},
+                ],
+            },
+            "candidates": [],
+        },
+        asof=date(2026, 8, 14),
+    )
+
+    assert topics == [
+        {"kind": "sector", "key": "电子信息", "label": "电子信息"},
+    ]
+
+
 def test_expired_or_malformed_registry_entries_are_inactive():
     registry = [
         {

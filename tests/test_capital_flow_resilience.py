@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import signal_context
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -129,3 +131,104 @@ def test_provider_failures_are_not_reported_as_legitimate_empty(monkeypatch):
     assert result["directional_ready"] is False
     assert result["source_health"]["northbound"]["attempts"][0]["status"] == "error"
     assert result["source_health"]["northbound"]["attempts"][1]["status"] == "error"
+
+
+def test_failed_sector_flow_cache_preserves_old_value_and_marks_stale(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    signal_context.update_signal_context({
+        "sector_flows": {"通信设备": 8.5},
+        "sector_flows_asof": "2026-08-13",
+        "sector_flows_stale": False,
+    })
+    module = _load()
+
+    module.cache_signal_context({
+        "timestamp": "2026-08-14T10:30:00",
+        "sectors": [
+            {"name": "通信设备", "main_flow_status": "unavailable"},
+        ],
+        "source_health": {
+            "sector_main_flow": [
+                {"code": "BK0448", "status": "error"},
+            ],
+        },
+    })
+
+    context = signal_context.read_signal_context()
+    assert context["sector_flows"] == {"通信设备": 8.5}
+    assert context["sector_flows_asof"] == "2026-08-13"
+    assert context["sector_flows_stale"] is True
+    assert context["sector_flows_last_attempt_at"] == "2026-08-14T10:30:00"
+
+
+def test_no_sector_result_marks_prior_cache_stale(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    signal_context.update_signal_context({
+        "sector_flows": {"房地产": -24.18},
+        "sector_flows_asof": "2026-08-13",
+        "sector_flows_stale": False,
+    })
+    module = _load()
+
+    module.cache_signal_context({
+        "timestamp": "2026-08-14T10:30:00",
+        "sectors": [],
+        "unmapped_sectors": ["通信设备"],
+        "source_health": {"sector_main_flow": []},
+    })
+
+    context = signal_context.read_signal_context()
+    assert context["sector_flows"] == {"房地产": -24.18}
+    assert context["sector_flows_asof"] == "2026-08-13"
+    assert context["sector_flows_stale"] is True
+    assert context["sector_flows_last_attempt_at"] == "2026-08-14T10:30:00"
+
+
+def test_successful_sector_flow_cache_records_source_asof_and_freshness(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    module = _load()
+    monkeypatch.setattr(
+        module,
+        "fetch_northbound_flow",
+        lambda: {
+            "date": "2026-08-14",
+            "net_flow_yi": 1.0,
+            "provider": "test",
+        },
+    )
+    monkeypatch.setattr(module, "fetch_tencent_flows", lambda _stocks: {})
+    monkeypatch.setattr(
+        module,
+        "fetch_sector_fund_flow",
+        lambda _code, name=None, days=3: {
+            "date": "2026-08-14",
+            "main_net_yi": 12.5,
+            "provider": "test",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "collect_sector_momentum",
+        lambda **_kwargs: {"status": "empty", "momentum": None, "rotation": None},
+    )
+
+    result = module.collect_flow_data(
+        stocks=[],
+        sectors=[("BK0448", "通信设备")],
+    )
+    module.cache_signal_context(result)
+
+    context = signal_context.read_signal_context()
+    assert context["sector_flows"] == {"通信设备": 12.5}
+    assert context["sector_flows_asof"] == "2026-08-14"
+    assert context["sector_flows_stale"] is False
+    assert context["sector_flows_last_attempt_at"] == result["timestamp"]

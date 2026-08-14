@@ -83,23 +83,84 @@ def build_stock_targets(
 def build_topics(
     *,
     registry: Iterable[Mapping[str, Any]] | None = None,
+    hot_money_selection: Mapping[str, Any] | None = None,
+    candidate_pool: Mapping[str, Any] | None = None,
     asof: date | None = None,
 ) -> list[dict[str, str]]:
-    result = []
-    seen = set()
-    for entry in registry or []:
-        kind = str(entry.get("kind") or "")
-        if kind not in {"sector", "theme"} or not is_active_entry(entry, asof):
-            continue
-        key = str(entry.get("key") or "").strip()
-        if not key or (kind, key) in seen:
-            continue
-        seen.add((kind, key))
+    target_date = asof or date.today()
+    registry_items = list(registry or [])
+    cancelled_names = {
+        str(value).strip()
+        for entry in registry_items
+        if entry.get("kind") in {"sector", "theme"}
+        and entry.get("manual_cancelled")
+        for value in (entry.get("key"), entry.get("label"))
+        if str(value or "").strip()
+    }
+    result: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(kind: str, key: Any, label: Any = None) -> None:
+        normalized = str(key or "").strip()
+        normalized_label = str(label or normalized).strip()
+        identity = (kind, normalized)
+        if (
+            not normalized
+            or normalized in cancelled_names
+            or normalized_label in cancelled_names
+            or identity in seen
+        ):
+            return
+        seen.add(identity)
         result.append({
             "kind": kind,
-            "key": key,
-            "label": str(entry.get("label") or key),
+            "key": normalized,
+            "label": normalized_label,
         })
+
+    for entry in registry_items:
+        kind = str(entry.get("kind") or "")
+        if kind not in {"sector", "theme"} or not is_active_entry(entry, target_date):
+            continue
+        key = str(entry.get("key") or "").strip()
+        add(kind, key, entry.get("label"))
+
+    artifact_date = target_date.isoformat()
+
+    def is_current(artifact: Mapping[str, Any] | None) -> bool:
+        value = artifact or {}
+        return str(value.get("asof") or value.get("trading_date") or "")[:10] == artifact_date
+
+    def is_mainline(rank: Any, state: Any, selection: Mapping[str, Any]) -> bool:
+        if str(state or "") in {"confirmed", "emerging"}:
+            return True
+        try:
+            limit = int((selection.get("config") or {}).get("mainline_top_n") or 0)
+            return limit > 0 and int(rank) <= limit
+        except (TypeError, ValueError):
+            return False
+
+    selection = hot_money_selection or {}
+    if is_current(selection):
+        for row in selection.get("sectors") or []:
+            if isinstance(row, Mapping) and is_mainline(
+                row.get("rank"), row.get("state"), selection
+            ):
+                add("sector", row.get("sector"))
+
+    pool = candidate_pool or {}
+    if is_current(pool):
+        pool_selection = pool.get("hot_money_selection") or {}
+        for row in pool_selection.get("sectors") or []:
+            if isinstance(row, Mapping) and is_mainline(
+                row.get("rank"), row.get("state"), pool_selection
+            ):
+                add("sector", row.get("sector"))
+        for row in pool.get("candidates") or []:
+            if isinstance(row, Mapping) and is_mainline(
+                row.get("sector_rank"), row.get("sector_state"), pool_selection
+            ):
+                add("sector", row.get("sector"))
     return result
 
 
@@ -125,5 +186,16 @@ def stock_map(candidate_limit: int = 0) -> dict[str, str]:
     }
 
 
-def load_topics() -> list[dict[str, str]]:
-    return build_topics(registry=monitor_registry.load_registry())
+def load_topics(asof: date | None = None) -> list[dict[str, str]]:
+    return build_topics(
+        registry=monitor_registry.load_registry(),
+        hot_money_selection=read_json(
+            data_file("stock-triage", "hot_money_selection_latest.json"),
+            {},
+        ),
+        candidate_pool=read_json(
+            data_file("stock-triage", "candidate_pool_latest.json"),
+            {},
+        ),
+        asof=asof,
+    )

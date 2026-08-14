@@ -843,7 +843,10 @@ def load_signal_context_for_discovery(
     """Expose only same-day evidence; validate market and social clocks separately."""
     try:
         from market_temperature import temperature_from_context
-        from signal_context import read_signal_context
+        from signal_context import (
+            filter_sector_flows_for_asof,
+            read_signal_context,
+        )
 
         signal_ctx = read_signal_context() or {}
         temperature = temperature_from_context(
@@ -865,6 +868,8 @@ def load_signal_context_for_discovery(
                 "northbound_net_yi",
             ):
                 ranking_ctx.pop(key, None)
+
+        ranking_ctx = filter_sector_flows_for_asof(ranking_ctx, asof)
 
         social = signal_ctx.get("social_attention")
         social_asof = (

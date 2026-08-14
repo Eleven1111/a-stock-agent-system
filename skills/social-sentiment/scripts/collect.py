@@ -14,6 +14,7 @@ ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from market_snapshot import compact_ref, write_snapshot  # noqa: E402
+import industry_map  # noqa: E402
 from paths import data_file  # noqa: E402
 from signal_context import update_signal_context  # noqa: E402
 from social_attention import (  # noqa: E402
@@ -27,7 +28,7 @@ from state_store import read_json  # noqa: E402
 PRODUCER_VERSION = "social-attention-collector-v1"
 
 
-def load_stock_metadata() -> dict[str, dict[str, Any]]:
+def load_stock_metadata(asof: str | None = None) -> dict[str, dict[str, Any]]:
     """Use only dynamic runtime state; never hardcode sectors or watchlists."""
     result: dict[str, dict[str, Any]] = {}
     for filename in ("exchange_universe.json", "candidate_pool_latest.json"):
@@ -59,6 +60,20 @@ def load_stock_metadata() -> dict[str, dict[str, Any]]:
             ):
                 if row.get(key):
                     existing[key] = row[key]
+
+    # The exchange universe contains listing metadata and may expose only a
+    # coarse industry, while the candidate pool can legitimately be empty in a
+    # weak market.  Enrich every runtime stock from the canonical cached map so
+    # social rankings can still resolve narrow sectors and form theme evidence.
+    industry_by_code = industry_map.load_cached(asof or date.today().isoformat())
+    for raw_code, industry in industry_by_code.items():
+        code = str(raw_code).lower()
+        if code.startswith(("sh", "sz", "bj")):
+            code = code[2:]
+        code = code.zfill(6)
+        if code in result and industry:
+            result[code]["industry"] = str(industry)
+            result[code]["industry_source"] = "industry_map"
     return result
 
 
@@ -80,14 +95,17 @@ def run_collection(
     ranking_collector: Callable[
         [], tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]
     ] = collect_social_rankings,
-    metadata_loader: Callable[[], Mapping[str, Mapping[str, Any]]] = load_stock_metadata,
+    metadata_loader: Callable[[], Mapping[str, Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     rankings, source_health = ranking_collector()
+    stock_metadata = (
+        metadata_loader() if metadata_loader is not None else load_stock_metadata(asof)
+    )
     payload = build_social_attention_snapshot(
         rankings,
         trading_date=asof,
         source_health=source_health,
-        stock_metadata=metadata_loader(),
+        stock_metadata=stock_metadata,
     )
     snapshot = write_snapshot(
         "social-attention",
