@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from paths import data_file
 from state_store import file_lock, mutate_json, read_json
@@ -187,11 +187,29 @@ def reset_verification_cache() -> None:
     _VERIFIED_DATASET = None
 
 
+def _project_monitor_events(events: Sequence[Mapping[str, Any]]) -> None:
+    """Fold a whole replay batch into the registry with one write.
+
+    Equivalent to calling :func:`_project_monitor_event` once per event — the
+    fold keeps the same merge-don't-replace semantics and insertion order — but
+    it stops re-reading and re-writing all 2029 records per event. That per-event
+    write is what made a cold replay O(events x records) (issue #167).
+    """
+
+    def _mutate(records: Any) -> list[dict[str, Any]]:
+        return event_projection.fold_monitor_records(
+            records if isinstance(records, list) else [], events
+        )
+
+    mutate_json(REGISTRY_FILE, _mutate, default=[])
+
+
 def _recover_registry_projection(events: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return event_projection.replay_events(
         events,
         projectors=[_project_monitor_event],
         checkpoint_file=_checkpoint_file(),
+        batch_projector=_project_monitor_events,
     )
 
 

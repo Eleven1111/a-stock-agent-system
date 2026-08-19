@@ -124,3 +124,120 @@ def test_monitor_reconciliation_fails_closed_after_projection_is_tampered(
         assert "projection" in str(exc)
     else:
         raise AssertionError("tampered monitor projection must fail closed")
+
+
+def _replay_ledger(events, *, registry_path, checkpoint_path, batched):
+    """跑一次重放，返回落盘后的注册表内容。"""
+    import event_projection
+
+    registry_path.write_text(
+        json.dumps([
+            # 账本之外的既有记录（candidate_discovery 写的），折叠必须保住它
+            {"id": "outsider", "kind": "stock", "key": "000001", "label": "场外",
+             "status": "active", "source": "candidate_discovery", "extra": "keep-me"},
+        ], ensure_ascii=False),
+        encoding="utf-8",
+    )
+    kwargs = {}
+    if batched:
+        kwargs["batch_projector"] = registry._project_monitor_events
+    result = event_projection.replay_events(
+        events,
+        projectors=[registry._project_monitor_event],
+        checkpoint_file=str(checkpoint_path),
+        **kwargs,
+    )
+    assert result["status"] == "ok", result
+    return json.loads(registry_path.read_text(encoding="utf-8"))
+
+
+def test_batched_cold_replay_is_byte_identical_to_per_event_replay(tmp_path, monkeypatch):
+    """等价性用差分证明，不拿「测试全绿」当行为不变。
+
+    冷重放从每事件一次落盘改成整批一次落盘（issue #167 的 O(事件 x 记录)）。
+    折叠顺序、merge-don't-replace 语义、账本外既有记录的保留，全部必须逐字节一致
+    —— 校验函数正是按字段比对注册表的，任何偏差都会变成 fail-closed 误报。
+    """
+    events = []
+    sequence = 0
+    for round_index in range(4):
+        for entity in range(25):
+            sequence += 1
+            monitor_id = f"monitor-{entity:03d}"
+            events.append({
+                "schema": "signal_ledger_event_v2",
+                "sequence": sequence,
+                "event_id": f"ev-{sequence}",
+                # 后面的轮次改状态，制造 merge 而不是新增
+                "event_type": "monitor.cancelled" if round_index == 3 and entity % 3 == 0
+                else "monitor.activated",
+                "links": {"monitor_id": monitor_id, "correlation_id": f"c-{entity}"},
+                "payload": {"entry": {
+                    "id": monitor_id, "kind": "stock", "key": f"{600000 + entity:06d}",
+                    "label": f"标的{entity}-r{round_index}",
+                    "status": "cancelled" if round_index == 3 and entity % 3 == 0 else "active",
+                    "source": "bench",
+                }},
+            })
+        # 夹杂非 monitor 事件，两条路径都必须原样跳过
+        sequence += 1
+        events.append({
+            "schema": "signal_ledger_event_v2", "sequence": sequence,
+            "event_id": f"ev-{sequence}", "event_type": "cash.deposited",
+            "links": {"correlation_id": "c-cash"}, "payload": {"amount": 1},
+        })
+
+    monkeypatch.setattr(registry, "REGISTRY_FILE", str(tmp_path / "per_event.json"))
+    per_event = _replay_ledger(
+        events,
+        registry_path=tmp_path / "per_event.json",
+        checkpoint_path=tmp_path / "ckpt_per_event.json",
+        batched=False,
+    )
+
+    monkeypatch.setattr(registry, "REGISTRY_FILE", str(tmp_path / "batched.json"))
+    batched = _replay_ledger(
+        events,
+        registry_path=tmp_path / "batched.json",
+        checkpoint_path=tmp_path / "ckpt_batched.json",
+        batched=True,
+    )
+
+    assert batched == per_event
+    assert json.dumps(batched, sort_keys=False) == json.dumps(per_event, sort_keys=False)
+    # 账本外的记录与其额外字段必须留着
+    assert batched[0]["id"] == "outsider"
+    assert batched[0]["extra"] == "keep-me"
+    # 最后一轮的取消确实落到了投影上
+    assert any(item["status"] == "cancelled" for item in batched)
+
+
+def test_cold_replay_writes_the_registry_once_not_once_per_event(tmp_path, monkeypatch):
+    """成本证据：写次数必须与事件数解耦。"""
+    _wire(tmp_path, monkeypatch)
+    events = [
+        {
+            "schema": "signal_ledger_event_v2", "sequence": seq, "event_id": f"ev-{seq}",
+            "event_type": "monitor.activated",
+            "links": {"monitor_id": f"monitor-{seq:03d}", "correlation_id": f"c-{seq}"},
+            "payload": {"entry": {
+                "id": f"monitor-{seq:03d}", "kind": "stock", "key": f"{600000 + seq:06d}",
+                "label": f"标的{seq}", "status": "active", "source": "bench",
+            }},
+        }
+        for seq in range(1, 51)
+    ]
+    writes = []
+    real_mutate = registry.mutate_json
+    monkeypatch.setattr(
+        registry,
+        "mutate_json",
+        lambda path, *args, **kwargs: (
+            writes.append(str(path)) or real_mutate(path, *args, **kwargs)
+        ),
+    )
+
+    registry._recover_registry_projection(events)
+
+    registry_writes = [path for path in writes if path.endswith("registry.json")]
+    assert len(registry_writes) == 1, f"50 个事件写了 {len(registry_writes)} 次注册表"
