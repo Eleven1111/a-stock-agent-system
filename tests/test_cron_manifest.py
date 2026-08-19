@@ -628,18 +628,20 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     )
     assert jobs["candidate-preopen"]["dependency_policy"]["max_age_minutes"] == 90
     assert jobs["auction-snapshot"]["context_from"] == ["candidate-preopen"]
-    assert jobs["auction-snapshot"]["dependency_policy"].get("optional_jobs") == []
+    assert jobs["auction-snapshot"]["dependency_policy"].get("optional_jobs") == [
+        "candidate-preopen"
+    ]
     from scripts.run_agent_dag import execution_order
 
     assert execution_order(jobs, ["candidate-preopen"]) == [
         "hot-money-context-backfill",
         "candidate-preopen",
     ]
-    assert execution_order(jobs, ["auction-snapshot"])[-3:] == [
-        "hot-money-context-backfill",
-        "candidate-preopen",
-        "auction-snapshot",
-    ]
+    # candidate-preopen 转为 optional 之后不再被拉进竞价快照的同批展开。
+    # 这不是能力损失：candidate-preopen 是 1200s 的 long 档作业，而
+    # auction-snapshot 自己只有 180s，旧的「同批引导」在竞价窗口里必然超时，
+    # 引导从来没成功过。改由隔夜观察池降级（pool_stale → research_only）接手。
+    assert execution_order(jobs, ["auction-snapshot"]) == ["auction-snapshot"]
     assert jobs["open-confirmation"]["context_from"] == ["auction-finalize"]
     assert jobs["candidate-preopen"]["deliver"] == "local"
     # Same-window execution artifacts are now local; the following brief jobs
@@ -729,3 +731,42 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         assert jobs[job_id]["trading_day_policy"] == "calendar_day"
     assert "pulse_engine" not in manifest.get("external_dependencies", {})
     assert "builderpulse" not in manifest.get("external_dependencies", {})
+
+
+def test_auction_snapshot_survives_a_dead_candidate_preopen(tmp_path, monkeypatch):
+    """candidate-preopen 是整条竞价链的单点：它一挂，两个快照作业都无产出。
+
+    降级契约是「用隔夜观察池继续抓今天的真实竞价，但整链标 research_only」，
+    前提是依赖门先放行。这里用真实 manifest 的策略直接问依赖门 —— 断言 manifest
+    字段证明不了运行时会照做（2026-08-18 的教训）。
+    """
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.delenv("A_STOCK_STATE_ID", raising=False)
+    from runtime_context import evaluate_dependencies
+
+    for job_id in ("auction-snapshot", "auction-market-snapshot"):
+        job = _manifest_job(job_id)
+        # 当日一个 artifact 都没有 —— candidate-preopen 压根没跑成
+        gate = evaluate_dependencies(
+            job["context_from"],
+            trading_date="2026-06-12",
+            batch_id="a-share-20260612",
+            policy=job["dependency_policy"],
+        )
+        assert gate["passed"] is True, f"{job_id} 仍被死掉的 candidate-preopen 挡住"
+        preopen = next(
+            item for item in gate["dependencies"] if item["job_id"] == "candidate-preopen"
+        )
+        assert preopen["gate_status"] == "optional_failed"
+        assert preopen["reasons"] == ["missing"]
+
+
+def test_candidate_preopen_keeps_its_own_trigger_so_optional_is_not_a_silent_disable():
+    """把依赖标 optional 等于把它排除出同批展开。
+
+    它必须自己有 cron 触发点，否则「降级」会变成「悄悄停用」。
+    """
+    job = _manifest_job("candidate-preopen")
+
+    assert job["enabled"] is True
+    assert job["schedule"] == "30 8 * * 1-5"
