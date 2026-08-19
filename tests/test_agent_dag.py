@@ -593,6 +593,36 @@ def test_target_output_records_push_telemetry_jsonl(tmp_path):
     ]
 
 
+def test_origin_delivery_stays_silent_when_renderer_returns_empty_text(monkeypatch, tmp_path):
+    telemetry = tmp_path / "push_telemetry.jsonl"
+    monkeypatch.setattr(
+        run_agent_dag.feishu_push,
+        "render_origin_text",
+        lambda artifact, max_chars: "   ",
+    )
+
+    output = run_agent_dag.target_output(
+        {
+            "id": "empty-origin",
+            "deliver": "origin",
+            "silent_when_no_signal": False,
+        },
+        {"trading_date": "2026-08-17", "stdout": "{}", "has_signal": True},
+        record_telemetry=True,
+        telemetry_path=str(telemetry),
+    )
+
+    assert output == "NO_REPLY\n"
+    assert json.loads(telemetry.read_text(encoding="utf-8")) == {
+        "job_id": "empty-origin",
+        "trading_date": "2026-08-17",
+        "delivered": False,
+        "output_chars": 0,
+        "was_compressed": False,
+        "silent_reason": "empty_output",
+    }
+
+
 def test_target_output_pushes_feishu_direct_jobs_without_entering_reply(tmp_path, monkeypatch):
     telemetry = tmp_path / "state" / "cron" / "push_telemetry.jsonl"
     calls = []

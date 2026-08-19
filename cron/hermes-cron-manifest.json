@@ -552,6 +552,45 @@
       "external_note": "15:07 全市场扫描并生成约500只双策略深度观察池；社会关注度仅作可选弱证据"
     },
     {
+      "id": "market-history-cache",
+      "name": "收盘历史日K缓存更新",
+      "schedule": "10 15 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/market_history_cache.py",
+        "--json"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": false,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 4000,
+      "context_from": [],
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/market/history.sqlite3",
+        "$A_STOCK_STATE_HOME/cron/output/market-history-cache/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "scripts/market_history_cache.py",
+          "--json"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 300,
+        "timeout_tier": "standard",
+        "timeout_rationale": "收盘后按缺失日K增量更新；全市场 BaoStock 请求需保留标准档上限，单票失败可局部记录，不阻断既有任务"
+      },
+      "external_note": "15:10 收盘历史日K增量缓存；BaoStock 未安装时输出 blocked，不破坏现有任务"
+    },
+    {
       "id": "auction-snapshot",
       "name": "集合竞价快照采集",
       "schedule": "15-23 9 * * 1-5",
@@ -593,8 +632,9 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 30,
-        "timeout_tier": "short"
+        "timeout_seconds": 180,
+        "timeout_tier": "standard",
+        "timeout_rationale": "500只候选串行抓取 easy_tdx 竞价数据，历史约50-70s，180s 保留余量（2026-08-18 30s 超时事故后上调）"
       },
       "external_note": "09:15-09:23 对深度观察池每分钟采集腾讯五档快照；仅写入 artifact 和竞价状态"
     },
@@ -642,7 +682,7 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 120,
+        "timeout_seconds": 240,
         "timeout_tier": "standard"
       },
       "external_note": "09:24 对全部合格股票做一次轻量竞价扫描；池外结果仅进入研究情报，不进入执行排名"
@@ -678,6 +718,9 @@
           "ok",
           "timeout",
           "failed"
+        ],
+        "optional_jobs": [
+          "auction-market-snapshot"
         ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
@@ -729,7 +772,10 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 15
+        "max_age_minutes": 15,
+        "optional_jobs": [
+          "auction-market-snapshot"
+        ]
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -853,7 +899,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 300,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",

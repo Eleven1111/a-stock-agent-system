@@ -966,6 +966,14 @@ AUCTION_DECAY_PENALTY_CAP = 15.0
 AUCTION_FLAT_OPEN_PENALTY = 12.0   # 涨停次日平开/低开是弱势信号
 AUCTION_DEGRADED_BOOK_SCALE = 0.5  # 数据降级时委比/委买净增只按半权计
 AUCTION_FILL_MIN_SCORE = 55.0      # balanced_fill 兜底通道的入选下限
+AUCTION_SCORE_SEMANTICS = "heuristic_rank_score_not_probability"
+AUCTION_SCORE_LABEL = "竞价启发式排序分（0-100，非涨停概率/收益概率）"
+AUCTION_EXECUTION_VOLUME_FIELDS = (
+    ("auction_volume", "竞价成交量"),
+    ("prev_day_volume", "前一交易日成交量"),
+    ("matched", "竞价已匹配量（股）"),
+    ("unmatched", "竞价未匹配量（股）"),
+)
 
 
 def _auction_degraded(item: Mapping[str, Any]) -> bool:
@@ -992,6 +1000,49 @@ def _auction_quality_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
             "reasons": ["竞价量能或质量状态缺失"],
         }
     return {"status": "unknown", "reasons": ["因子未提供竞价质量报告"]}
+
+
+def _auction_volume_rejection_reasons(factor: Mapping[str, Any] | None) -> List[str]:
+    """Execution gate for the volume fields used by the auction ranking.
+
+    The free Tencent adapter may legally return zero/null volume fields. Keep
+    that source-compatible at collection time, but never turn the missing
+    fields into a tradeable shortlist row or a percentile-derived score.
+    """
+    if not factor:
+        return []
+    missing = []
+    for key, label in AUCTION_EXECUTION_VOLUME_FIELDS:
+        value = factor.get(key)
+        if value is None:
+            missing.append(f"{label}({key})缺失")
+            continue
+        try:
+            # matched must be positive for a possible fill; unmatched=0 is a
+            # valid real auction result and must not be treated as missing.
+            valid = float(value) >= 0.0 if key == "unmatched" else float(value) > 0.0
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            missing.append(f"{label}({key})无效或为0")
+    if not missing:
+        return []
+    return [
+        "竞价量能关键字段缺失，fail-closed，不进入可交易短名单："
+        + "、".join(missing)
+    ]
+
+
+def _lane_rejection_reasons(item: Mapping[str, Any], lane: str) -> List[str]:
+    """Return live-admission failures for a candidate's selected lane."""
+    reasons: List[str] = []
+    if item.get("research_only") is True or item.get("_source_research_only") is True:
+        reasons.append("候选标记为research_only，仅保留研究，不进入可交易候选")
+    if lane == "trend" and item.get("_source_trend_lane_status") == "research_only":
+        reasons.append("趋势策略未通过研究闸门，仅保留研究，不进入可交易候选")
+    if lane == "daban" and item.get("_source_daban_lane_status") == "research_only":
+        reasons.append("打板策略未通过研究闸门，仅保留研究，不进入可交易候选")
+    return reasons
 
 
 def _without_unavailable_microstructure_claims(
@@ -1079,11 +1130,16 @@ def rank_auction_shortlist(
     factor_by_code = _factor_map(factors)
     rows: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
+    critical_volume_rejections = 0
     for raw in pool.get("candidates", []):
         item = dict(raw)
         code = naked_code(item.get("code") or item.get("market_code"))
         factor = factor_by_code.get(code)
         reasons = _auction_rejection_reasons(factor)
+        volume_reasons = _auction_volume_rejection_reasons(factor)
+        if volume_reasons:
+            critical_volume_rejections += 1
+            reasons.extend(volume_reasons)
         if reasons:
             rejected.append({
                 **item,
@@ -1092,7 +1148,13 @@ def rank_auction_shortlist(
             })
             continue
         row = {**item, **factor, "code": market_code(code)}
+        row["_source_research_only"] = item.get("research_only")
+        row["_source_trend_lane_status"] = item.get("trend_lane_status")
+        row["_source_daban_lane_status"] = item.get("daban_lane_status")
         row["auction_quality"] = _auction_quality_payload(row)
+        row["auction_score_semantics"] = AUCTION_SCORE_SEMANTICS
+        row["auction_score_label"] = AUCTION_SCORE_LABEL
+        row["auction_score_is_probability"] = False
         _without_unavailable_microstructure_claims(row, row["auction_quality"])
         rows.append(row)
 
@@ -1184,6 +1246,8 @@ def rank_auction_shortlist(
             )
 
     def _lane_member(item: Mapping[str, Any], lane: str) -> bool:
+        if _lane_rejection_reasons(item, lane):
+            return False
         if lane == "daban" and "hot_money_qualified" in item:
             if not item.get("hot_money_qualified"):
                 return False
@@ -1267,6 +1331,13 @@ def rank_auction_shortlist(
                 if isinstance(selected_by, Mapping) and selected_by.get("trend")
                 else "daban"
             )
+            lane_reasons = _lane_rejection_reasons(item, lane)
+            if lane_reasons:
+                rejected.append({
+                    **item,
+                    "rejection_reasons": lane_reasons,
+                })
+                continue
             delivery_quality = assess_delivery_quality(item, lane=lane, stage="09:25")
             if delivery_quality["status"] != "deliverable_watch":
                 rejected.append({
@@ -1329,13 +1400,25 @@ def rank_auction_shortlist(
             if quality["status"] != "deliverable_watch"
             for reason in quality.get("reasons") or []
         ]
+        lane_reasons = [
+            reason
+            for lane in lanes
+            for reason in _lane_rejection_reasons(item, lane)
+        ]
         rejected.append({
             **item,
             "rejection_reasons": (
-                list(dict.fromkeys(gate_reasons))
+                list(dict.fromkeys(lane_reasons + gate_reasons))
                 or [f"竞价分策略排名未进入前{limit}"]
             ),
         })
+    for item in shortlist + rejected:
+        for key in (
+            "_source_research_only",
+            "_source_trend_lane_status",
+            "_source_daban_lane_status",
+        ):
+            item.pop(key, None)
     return {
         "schema": "auction_shortlist_v1",
         "source_asof": pool.get("asof"),
@@ -1344,19 +1427,22 @@ def rank_auction_shortlist(
         "shortlist_count": len(shortlist),
         "shortlist": shortlist,
         "rejected": rejected,
+        "score_semantics": AUCTION_SCORE_SEMANTICS,
+        "score_label": AUCTION_SCORE_LABEL,
+        "score_is_probability": False,
         "auction_quality": {
-            "status": (
-                "unavailable"
-                if any(
-                    _auction_quality_payload(item).get("status") == "unavailable"
-                    for item in rows
-                )
-                else "ok"
-            ),
+            "status": "unavailable"
+            if critical_volume_rejections
+            or any(
+                _auction_quality_payload(item).get("status") == "unavailable"
+                for item in rows
+            )
+            else "ok",
             "unavailable_count": sum(
                 _auction_quality_payload(item).get("status") == "unavailable"
                 for item in rows
             ),
+            "critical_volume_missing_count": critical_volume_rejections,
             "factor_count": len(rows),
         },
     }

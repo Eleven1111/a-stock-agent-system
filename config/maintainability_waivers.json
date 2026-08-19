@@ -1280,6 +1280,71 @@
       "expires_on": "2026-10-31",
       "reason": "http_client.py request_bytes: push2delay mirror is best-effort by design; any mirror failure must be wrapped into DataSourceError with the primary error, never surface raw (noqa BLE001)",
       "violation_id": "f550321680423a7a7a01"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "2b7f53bf283ffc86dc6f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "93c8390e0c7ad128958a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "2b4abcae09da2c4f7db4"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "1d0e1115f85f775920f8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "d43682ac34feb88644ce"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "eec004136bb8e95f5972"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "b34735953c4c4477c7aa"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "def9992f55397c605ed6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "c7aa94dce0dd4b77bf63"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "cbd9558c313a89143d1e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "e028ac884aff6b9e884b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "c9c4aa5a723819e7660c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "2d8a2e8de0e5f580df81"
     }
   ]
 }

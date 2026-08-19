@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from skills.common import feishu_push
 
 
@@ -15,6 +19,16 @@ def test_empty_text_is_skipped(monkeypatch):
     result = feishu_push.push_text("event-calendar", "   ")
 
     assert result == {"status": "empty", "job_id": "event-calendar"}
+
+
+def test_exact_no_reply_is_skipped(monkeypatch):
+    monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
+    calls = _capture_text(monkeypatch)
+
+    result = feishu_push.push_text("event-calendar", "NO_REPLY")
+
+    assert result == {"status": "empty", "job_id": "event-calendar"}
+    assert calls == []
 
 
 def test_sends_via_lark_cli_when_configured(monkeypatch):
@@ -65,6 +79,54 @@ def test_render_capital_flow_payload_as_summary_instead_of_json():
     assert "换手率异常" in rendered
     assert "capital_flow_v2" not in rendered
     assert "{\"schema\"" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("job_id", "window", "label"),
+    [
+        (
+            "hot-money-morning-checkpoint",
+            "09:50",
+            "09:50主线龙头承接确认",
+        ),
+        (
+            "hot-money-afternoon-checkpoint",
+            "13:15",
+            "13:15主线龙头回流确认",
+        ),
+    ],
+)
+def test_render_hot_money_checkpoint_payload_for_both_windows(
+    job_id, window, label
+):
+    rendered = feishu_push.render_artifact_text(
+        {
+            "job_id": job_id,
+            "stdout": json.dumps(
+                {
+                    "status": "ready",
+                    "profile": "checkpoint",
+                    "window": window,
+                    "research_only": True,
+                    "observation_count": 2,
+                    "confirmed_count": 1,
+                    "confirmed": [
+                        {"code": "600000", "name": "浦发银行"},
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+        },
+        1000,
+    )
+
+    assert label in rendered
+    assert "观察数量：2" in rendered
+    assert "确认数量：1" in rendered
+    assert "浦发银行（600000）" in rendered
+    assert "研究专用" in rendered
+    assert "不可交易" in rendered
+    assert '"confirmed"' not in rendered
 
 
 def test_reports_failure_without_raising(monkeypatch):

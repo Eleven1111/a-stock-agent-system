@@ -48,12 +48,15 @@ metadata:
 竞价短名单对跌停（`is_limit_down`）和指示价自高点回落达阈值的标的一票否决，
 平开/低开与小幅回落转为可审计扣分（`auction_weakness_notes`）。
 
-免费源竞价量能恒为 0、五档委买委卖镜像时 `auction_data_quality` 记为 `degraded`，
-委比与委买净增按半权计入，`balanced_fill` 兜底通道另有入选分数门槛。开盘后
+免费源可能返回 0/null 竞价量能；采集器仍保留原始因子和质量说明以兼容该数据源，
+但 `auction_volume` 或 `prev_day_volume` 缺失/无效时，竞价排名在执行入口
+fail-closed：只保留研究证据，禁止进入可交易短名单、开盘前决策和推荐推送。五档
+委买委卖镜像时委比与委买净增按半权计入，`balanced_fill` 兜底通道另有入选分数门槛。开盘后
 `open_confirmation.py` 用实际开盘价回校 09:25 指示价，偏差超阈值即置
 `auction_indicative_reliable=False`。
 
-这些字段是证据，不是已验证 edge。新增阈值或权重必须先通过
+`auction_score` 是 0-100 启发式排序分，不是涨停概率或收益概率。这些字段是证据，
+不是已验证 edge。新增阈值或权重必须先通过
 `chanlun-backtest/scripts/research_gate.py` 的样本外验证。
 
 ## 过滤顺序

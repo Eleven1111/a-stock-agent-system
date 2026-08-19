@@ -1,8 +1,8 @@
 {
   "baseline_ref": "origin/main",
   "budget": {
-    "broad_exception": 147,
-    "long_function": 65,
+    "broad_exception": 156,
+    "long_function": 68,
     "sys_path_mutation": 39
   },
   "schema": "maintainability_baseline_v1",

@@ -308,6 +308,8 @@ def push_text(job_id: str, text: str, *, timeout_seconds: int = 15) -> dict[str,
         return {"status": "not_configured", "job_id": job_id}
     if not text.strip():
         return {"status": "empty", "job_id": job_id}
+    if text.strip() == "NO_REPLY":
+        return {"status": "empty", "job_id": job_id}
 
     # Keep the egress boundary safe even for callers that bypass
     # render_delivery_text.  Feishu should never receive a raw artifact JSON

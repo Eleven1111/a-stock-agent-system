@@ -170,6 +170,7 @@ def test_auction_finalize_lets_a_failed_snapshot_through_so_it_can_degrade():
     policy = _manifest_job("auction-finalize")["dependency_policy"]
 
     assert set(policy["accepted_statuses"]) == {"ok", "timeout", "failed"}
+    assert policy["optional_jobs"] == ["auction-market-snapshot"]
 
 
 def test_auction_chain_watchdog_is_registered_and_survives_a_broken_chain():
@@ -640,6 +641,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert auction_brief["dependency_policy"] == {
         "trading_date": "same_trading_date",
         "max_age_minutes": 15,
+        "optional_jobs": ["auction-market-snapshot"],
     }
     assert _run_command(auction_brief).endswith("--stage auction")
     assert jobs["hot-money-morning-checkpoint"]["context_from"] == [
