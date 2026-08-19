@@ -13,15 +13,9 @@ from datetime import date, datetime, timedelta
 import json
 import os
 from pathlib import Path
-import sys
 from typing import Any, Iterable, Mapping
 
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from skills.common import local_market_history as history  # noqa: E402
+from skills.common import local_market_history as history
 
 FULL_BACKFILL_START_DATE = "1990-01-01"
 

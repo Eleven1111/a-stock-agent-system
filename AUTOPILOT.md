@@ -15,7 +15,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（65 个作业，当前 51 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（66 个作业，当前 52 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -71,7 +71,7 @@ A_STOCK_EXECUTION_TRACE=off
 | id | `auction-chain-watch`（`enabled: true`） |
 | 调度 | `35 9,10 * * 1-5`（09:35 竞价链应已收口，10:35 复查做双保险） |
 | 执行 | `python scripts/cron_failure_watch.py`（只读 artifact，不写业务状态） |
-| 推送 | `deliver: feishu_direct`；全绿时无输出，`silent_when_no_signal` 直接静默 |
+| 推送 | `deliver: local`（2026-08-19 起飞书推送全仓停用，见下）；全绿时无输出，`silent_when_no_signal` 直接静默 |
 | 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
 
 存在理由：本机调度器 `Popen` fire-and-forget 起作业，**没有任何消费者读退出码**，
@@ -79,13 +79,23 @@ A_STOCK_EXECUTION_TRACE=off
 artifact 的 `status`，并把 `missing`（当日无 artifact，多半是 Mac 睡眠错过 launchd
 心跳）与 `failed/timeout/blocked`（跑了但没跑通）分开报 —— 两者运维动作不同。
 
-未配置 `A_STOCK_FEISHU_CHAT_ID` 时 `feishu_push` 返回 `not_configured`，作业照常
-跑完、trace 记一条 `delivery.failed not_configured`，不报错也不重试。手动跑：
+手动跑：
 
 ```bash
 A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
   .venv/bin/python scripts/cron_failure_watch.py --json
 ```
+
+### 飞书推送全仓停用（2026-08-19）
+
+原先 7 个 `deliver: feishu_direct` 的作业（`auction-chain-watch`、`capital-flow`、
+`event-calendar`、`news-monitor`、`news-monitor-intraday`、`news-monitor-weekend`、
+`official-policy-watch`）已统一改为 `deliver: local`：**manifest 里现在没有任何
+飞书推送作业**，告警只落盘不外发，需要主动看 artifact 或诊断包。
+
+恢复方式：把对应作业的 `deliver` 改回 `feishu_direct` 并配置 `A_STOCK_FEISHU_CHAT_ID`
+（未配置时 `feishu_push` 返回 `not_configured`，作业照常跑完、trace 记一条
+`delivery.failed not_configured`，不报错也不重试）。
 
 ### 每日运行诊断包归档（daily-diagnostics）
 
@@ -170,6 +180,29 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 注意：`coverage_ratio` 衡量的是**投影完整性**（多少源记录成功变成行），
 不是样本是否足够。3 条结算样本同样会得到 1.0。样本量守卫在下游
 （`cross_sectional_direction` 的 `min_pairs_per_cohort = 100`）。
+
+### 收盘历史日K缓存更新（market-history-cache）
+
+给竞价链和回测提供本地日线底仓：akshare 免费源只回溯最近 3~4 周，前收/前一日量额
+缺失会让竞价量比算不出来。本作业收盘后按缺失日增量补齐，落成一张本地 SQLite。
+
+| 项 | 值 |
+|---|---|
+| id | `market-history-cache`（`enabled: true`） |
+| 调度 | `10 15 * * 1-5`（收盘后 10 分钟） |
+| 执行 | `python scripts/market_history_cache.py --json` |
+| 数据源 | BaoStock；**未安装时输出 `status: blocked`**，不报错、不影响其他作业 |
+| 产物 | `$A_STOCK_STATE_HOME/market/history.sqlite3` |
+| 交付 | `local`（只写本地产物，不推送） |
+| 超时 | 300s（`standard` 档；全市场按缺失日增量，单票失败只记 `failed` 不中断批次） |
+| 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
+
+**手动跑（先空跑看范围，再实写）：**
+
+```bash
+A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc \
+  .venv/bin/python scripts/market_history_cache.py --dry-run --json
+```
 
 ### 历史与注意事项
 

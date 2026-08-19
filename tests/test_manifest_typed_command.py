@@ -76,7 +76,7 @@ def test_every_enabled_repo_job_uses_typed_argv():
     # 棘轮：新增启用作业必须同步登记 AUTOPILOT.md 并在此显式改数，
     # 防止后台作业悄悄增殖到没人知道「谁在跑、怎么停」。
     enabled = [job for job in manifest["jobs"] if job.get("enabled")]
-    assert len(enabled) == 51  # +cycle-state-shadow (P1 影子作业, 已登记 AUTOPILOT.md)
+    assert len(enabled) == 52  # +market-history-cache (收盘日K缓存, 已登记 AUTOPILOT.md)
 
     for job in enabled:
         assert isinstance(job.get("command_argv"), list) and job["command_argv"]
