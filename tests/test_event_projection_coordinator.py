@@ -129,3 +129,86 @@ def test_fold_monitor_records_still_rejects_an_event_without_monitor_id():
         event_projection.fold_monitor_records(
             [], [{"event_id": "e", "sequence": 1, "event_type": "monitor.activated", "payload": {}}]
         )
+
+
+def test_batch_projector_replays_once_and_advances_to_the_last_event(tmp_path):
+    """冷重放此前是每个事件一次落盘写。
+
+    monitor 投影每条事件都 mutate_json 整份注册表（2029 条），于是从零
+    checkpoint 重放 12000 条要 O(事件 × 记录) 次文件读写 —— 实测 81s。
+    批投影把折叠放进内存，只写一次。
+    """
+    checkpoint = tmp_path / "checkpoint.json"
+    events = [
+        {"sequence": seq, "event_id": f"e{seq}", "event_type": "monitor.activated"}
+        for seq in range(1, 6)
+    ]
+    batches = []
+
+    result = event_projection.replay_events(
+        events,
+        projectors=[],
+        checkpoint_file=str(checkpoint),
+        batch_projector=lambda pending: batches.append([e["event_id"] for e in pending]),
+    )
+
+    assert result["status"] == "ok"
+    assert result["applied"] == 5
+    assert batches == [["e1", "e2", "e3", "e4", "e5"]]
+    assert json.loads(checkpoint.read_text())["sequence"] == 5
+
+    # 追平之后再来一次：既不该重放，也不该再写 checkpoint。
+    again = event_projection.replay_events(
+        events,
+        projectors=[],
+        checkpoint_file=str(checkpoint),
+        batch_projector=lambda pending: batches.append("must not run"),
+    )
+    assert again["applied"] == 0
+    assert len(batches) == 1
+
+
+def test_batch_projector_only_sees_events_after_the_checkpoint(tmp_path):
+    checkpoint = tmp_path / "checkpoint.json"
+    checkpoint.write_text(
+        json.dumps({"schema": "projection_checkpoint_v1", "sequence": 3, "event_id": "e3"}),
+        encoding="utf-8",
+    )
+    events = [
+        {"sequence": seq, "event_id": f"e{seq}", "event_type": "monitor.activated"}
+        for seq in range(1, 6)
+    ]
+    batches = []
+
+    event_projection.replay_events(
+        events,
+        projectors=[],
+        checkpoint_file=str(checkpoint),
+        batch_projector=lambda pending: batches.append([e["event_id"] for e in pending]),
+    )
+
+    assert batches == [["e4", "e5"]]
+
+
+def test_batch_projector_failure_leaves_the_checkpoint_untouched(tmp_path):
+    """批写失败必须整批不推进 —— 下次从原点重放，投影是幂等的。"""
+    checkpoint = tmp_path / "checkpoint.json"
+    events = [
+        {"sequence": seq, "event_id": f"e{seq}", "event_type": "monitor.activated"}
+        for seq in range(1, 4)
+    ]
+
+    def _boom(pending):
+        raise RuntimeError("registry write failed")
+
+    result = event_projection.replay_events(
+        events,
+        projectors=[],
+        checkpoint_file=str(checkpoint),
+        batch_projector=_boom,
+    )
+
+    assert result["status"] == "replay_required"
+    assert result["allow_new_risk"] is False
+    assert result["failed_sequence"] == 1
+    assert not checkpoint.exists()
