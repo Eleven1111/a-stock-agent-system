@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time
 from math import isfinite
 import threading
+from time import monotonic
 from typing import Any, Iterable, Mapping
 
 from market_adapters import fetch_tencent_kline
@@ -28,6 +29,12 @@ AUCTION_START = time(9, 15)
 AUCTION_END = time(9, 25)
 PREVIOUS_DAY_WORKERS = 12
 _EASY_TDX_KLINE_LOCK = threading.Lock()
+
+
+def _budget_reason(deadline_seconds: float) -> str:
+    return (
+        f"budget_exhausted: 竞价抓取超出 {deadline_seconds:g}s 预算，该标的未取数"
+    )
 
 
 def _bare_code(code: Any) -> str:
@@ -370,11 +377,26 @@ def fetch_real_auction_snapshots(
     asof: date | str | None = None,
     previous_day_metrics: Mapping[str, Mapping[str, Any]] | None = None,
     require_previous_day_metrics: bool = True,
+    deadline_seconds: float | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
-    """Batch real observations with one easy_tdx connection and failure reasons."""
+    """Batch real observations with one easy_tdx connection and failure reasons.
+
+    ``deadline_seconds`` bounds the wall-clock spent going out to the network.
+    Without it the only bound is the cron job's own ``timeout_seconds``: hitting
+    that is a SIGKILL, which loses both the rows already collected and any record
+    of what the remaining symbols were waiting on. The budget only gates *new*
+    fetches — rows already in hand are always returned.
+    """
     unique = list(dict.fromkeys(str(code) for code in codes if code))
     snapshots: dict[str, list[dict[str, Any]]] = {}
     failures: dict[str, str] = {}
+    deadline = (
+        None if deadline_seconds is None else monotonic() + max(0.0, float(deadline_seconds))
+    )
+
+    def _budget_exhausted() -> bool:
+        return deadline is not None and monotonic() >= deadline
+
     try:
         from easy_tdx import MacClient
 
@@ -382,9 +404,15 @@ def fetch_real_auction_snapshots(
             # Historical volume is an independent HTTP fallback per symbol.
             # Keep the single easy_tdx connection above, but do not serialize
             # hundreds of Tencent K-line requests behind one failed mootdx
-            # probe; the cron job has a 30-second outer budget.
+            # probe; the caller passes its remaining budget as deadline_seconds.
             auction_rows: dict[str, list[dict[str, Any]]] = {}
-            for code in unique:
+            for index, code in enumerate(unique):
+                if _budget_exhausted():
+                    for remaining in unique[index:]:
+                        failures.setdefault(
+                            _bare_code(remaining), _budget_reason(deadline_seconds)
+                        )
+                    break
                 rows = _fetch_easy_tdx_with_client(client, code)
                 if not rows:
                     failures[_bare_code(code)] = "easy_tdx 0x123D 无有效 09:15-09:25 竞价数据"
@@ -396,6 +424,8 @@ def fetch_real_auction_snapshots(
                     return _bare_code(code), auction_rows[_bare_code(code)], None
                 previous = dict((previous_day_metrics or {}).get(_bare_code(code)) or {})
                 if not previous or not previous.get("prev_close"):
+                    if _budget_exhausted():
+                        return _bare_code(code), [], _budget_reason(deadline_seconds)
                     enriched = fetch_previous_day_metrics(
                         code, asof=asof, easy_tdx_client=client
                     )

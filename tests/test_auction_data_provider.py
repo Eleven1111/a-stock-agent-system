@@ -331,3 +331,159 @@ def test_missing_easy_tdx_or_previous_volume_is_blocked(monkeypatch):
     blocked = provider.fetch_real_auction_observation("600519", asof="2026-08-17")
     assert blocked["status"] == "blocked"
     assert "prev_day_volume" in blocked["reason"]
+
+
+def _fake_easy_tdx(monkeypatch, *, auction_rows=None):
+    """装一个不触网的 easy_tdx，get_auction 对任何标的都返回一条竞价。"""
+    import sys
+    import types
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get_auction(self, market, code):
+            return auction_rows if auction_rows is not None else [
+                {"time": "09:25:00", "price": 10.0, "matched": 100, "unmatched": 50}
+            ]
+
+    class FakeMacClient:
+        @staticmethod
+        def from_best_host():
+            return FakeClient()
+
+    module = types.ModuleType("easy_tdx")
+    module.MacClient = FakeMacClient
+    monkeypatch.setitem(sys.modules, "easy_tdx", module)
+
+
+def _fake_clock(monkeypatch, readings):
+    """把 provider 的单调时钟换成固定读数序列，用完后停在最后一个值。"""
+    values = list(readings)
+
+    def _monotonic():
+        return values.pop(0) if len(values) > 1 else values[0]
+
+    monkeypatch.setattr(provider, "monotonic", _monotonic)
+
+
+def test_batch_stops_at_the_deadline_instead_of_waiting_for_the_outer_kill(monkeypatch):
+    """超预算必须自己收口并写明原因，而不是等 cron 的 SIGKILL。
+
+    没有预算时唯一的界是外层 timeout_seconds：命中就是 timeout artifact，
+    既拿不到已采到的部分，也没有任何「剩下的怎么了」的记录。
+    """
+    _fake_easy_tdx(monkeypatch)
+    # 起点算 deadline=0+30；第一只之前读 1（未超），第二只之前读 99（已超）。
+    _fake_clock(monkeypatch, [0.0, 1.0, 99.0])
+    metrics = {
+        code: {"prev_day_volume": 1000.0, "prev_day_amount": 2000.0, "prev_close": 9.9}
+        for code in ("600519", "600520", "600521")
+    }
+
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        ["sh600519", "sh600520", "sh600521"],
+        asof="2026-08-18",
+        previous_day_metrics=metrics,
+        deadline_seconds=30,
+    )
+
+    # 预算用完之前采到的那只必须保住，不能因为后面超时被一起丢掉。
+    assert list(snapshots) == ["600519"]
+    assert set(failures) == {"600520", "600521"}
+    assert all("budget_exhausted" in reason for reason in failures.values())
+    assert all("30" in reason for reason in failures.values())
+
+
+def test_budget_only_blocks_new_network_work_not_already_fetched_rows(monkeypatch):
+    """预算到期只拦「还要出去取数」的动作，已经拿到的行不受影响。"""
+    _fake_easy_tdx(monkeypatch)
+    _fake_clock(monkeypatch, [0.0, 1.0, 99.0])
+    monkeypatch.setattr(
+        provider,
+        "fetch_previous_day_metrics",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("超预算后不得再取历史")
+        ),
+    )
+
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        ["sh600519", "sh600520"],
+        asof="2026-08-18",
+        previous_day_metrics={
+            "600519": {
+                "prev_day_volume": 1000.0, "prev_day_amount": 2000.0, "prev_close": 9.9
+            }
+        },
+        deadline_seconds=30,
+    )
+
+    assert snapshots["600519"][0]["prev_day_volume"] == 1000.0
+    assert "budget_exhausted" in failures["600520"]
+
+
+def test_no_deadline_keeps_the_previous_unbounded_behaviour(monkeypatch):
+    """不传预算时行为与改动前一致 —— 时钟一次都不该被读。"""
+    _fake_easy_tdx(monkeypatch)
+
+    def _boom():
+        raise AssertionError("没有预算就不该读时钟")
+
+    monkeypatch.setattr(provider, "monotonic", _boom)
+
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        ["sh600519"],
+        asof="2026-08-18",
+        previous_day_metrics={
+            "600519": {
+                "prev_day_volume": 1000.0, "prev_day_amount": 2000.0, "prev_close": 9.9
+            }
+        },
+    )
+
+    assert not failures
+    assert snapshots["600519"][0]["prev_day_volume"] == 1000.0
+
+
+def test_budget_cuts_off_on_the_real_clock_not_only_a_stubbed_one(monkeypatch):
+    """假时钟能证明分支被走到，不能证明真实耗时被限住 —— 这条用真时钟。"""
+    import time as real_time
+
+    class SlowClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get_auction(self, market, code):
+            real_time.sleep(0.05)
+            return [{"time": "09:20:00", "price": 10.0, "matched": 100, "unmatched": 50}]
+
+    import sys
+    import types
+    module = types.ModuleType("easy_tdx")
+    module.MacClient = types.SimpleNamespace(from_best_host=lambda: SlowClient())
+    monkeypatch.setitem(sys.modules, "easy_tdx", module)
+
+    codes = [f"sh{600000 + index:06d}" for index in range(20)]  # 20 × 50ms = 1.0s
+    metrics = {
+        f"{600000 + index:06d}": {
+            "prev_day_volume": 1.0, "prev_day_amount": 1.0, "prev_close": 9.9
+        }
+        for index in range(20)
+    }
+
+    started = real_time.monotonic()
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        codes, asof="2026-08-18", previous_day_metrics=metrics, deadline_seconds=0.2
+    )
+    elapsed = real_time.monotonic() - started
+
+    assert elapsed < 0.8, f"预算未收口，实际 {elapsed:.2f}s"
+    # 每一只都必须有去向：要么采到，要么写明原因，不能凭空消失。
+    assert len(snapshots) + len(failures) == 20
+    assert any("budget_exhausted" in reason for reason in failures.values())

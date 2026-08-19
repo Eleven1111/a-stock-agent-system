@@ -340,25 +340,94 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     }
 
 
+def take_snapshot_with_failures(
+    codes: List[str],
+    *,
+    asof: str | date | None = None,
+    previous_day_metrics: Mapping[str, Mapping[str, Any]] | None = None,
+    require_previous_day_metrics: bool = True,
+    deadline_seconds: float | None = None,
+) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, str]]:
+    """抓取 easy_tdx 0x123D 竞价序列并附昨日量能快照，同时带回逐股失败原因。
+
+    provider 已经按 09:15-09:25 返回逐时点数据；失败标的不进 series，
+    由 finalize 的空/缺量门禁统一 fail-closed，不回退到免费五档。
+    失败原因必须一路带到 artifact —— 只报「采到几只」没法区分
+    「池子本来就小」和「数据源挂了」。
+    """
+    kwargs: Dict[str, Any] = {"asof": asof or date.today()}
+    if previous_day_metrics is not None:
+        kwargs["previous_day_metrics"] = previous_day_metrics
+    if not require_previous_day_metrics:
+        kwargs["require_previous_day_metrics"] = False
+    if deadline_seconds is not None:
+        kwargs["deadline_seconds"] = deadline_seconds
+    return fetch_real_auction_snapshots(codes, **kwargs)
+
+
 def take_snapshot(
     codes: List[str],
     *,
     asof: str | date | None = None,
     previous_day_metrics: Mapping[str, Mapping[str, Any]] | None = None,
     require_previous_day_metrics: bool = True,
+    deadline_seconds: float | None = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """抓取 easy_tdx 0x123D 竞价序列并附昨日量能快照。
-
-    provider 已经按 09:15-09:25 返回逐时点数据；失败标的被丢弃，
-    由 finalize 的空/缺量门禁统一 fail-closed，不回退到免费五档。
-    """
-    kwargs = {"asof": asof or date.today()}
-    if previous_day_metrics is not None:
-        kwargs["previous_day_metrics"] = previous_day_metrics
-    if not require_previous_day_metrics:
-        kwargs["require_previous_day_metrics"] = False
-    snapshots, _failures = fetch_real_auction_snapshots(codes, **kwargs)
+    """只要 series 的调用方入口（``--once`` 与回放），失败原因不参与返回。"""
+    snapshots, _failures = take_snapshot_with_failures(
+        codes,
+        asof=asof,
+        previous_day_metrics=previous_day_metrics,
+        require_previous_day_metrics=require_previous_day_metrics,
+        deadline_seconds=deadline_seconds,
+    )
     return snapshots
+
+
+# 预算留 20% 给取数之后的活：state 合并、input snapshot 物化、artifact 落盘。
+# 全池 500 只时这段不是零成本，抓满整个 timeout 会把它挤掉。
+FETCH_BUDGET_RATIO = 0.8
+
+
+def fetch_budget_seconds() -> float | None:
+    """本次作业允许用于取数的墙钟预算。
+
+    唯一真源是 manifest 的 ``run.timeout_seconds``，由 job runner 注入
+    ``A_STOCK_JOB_TIMEOUT_SECONDS``；手工跑（无 runner）时不造预算，
+    保持与改动前一致的无界行为。
+    """
+    raw = os.environ.get("A_STOCK_JOB_TIMEOUT_SECONDS")
+    if not raw:
+        return None
+    try:
+        timeout = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return round(timeout * FETCH_BUDGET_RATIO, 3) if timeout > 0 else None
+
+
+def summarize_snapshot_failures(
+    failures: Mapping[str, str],
+    *,
+    sample: int = 3,
+) -> Dict[str, Any]:
+    """按原因聚合失败标的，artifact 里只留计数与少量样本码。
+
+    全池 500 只同时失败是真实场景（easy_tdx 连不上、预算耗尽），
+    逐股展开会直接把 artifact 的 max_output_chars 撑爆。
+    """
+    grouped: Dict[str, List[str]] = {}
+    for code, reason in sorted(failures.items()):
+        grouped.setdefault(str(reason), []).append(str(code))
+    return {
+        "total": len(failures),
+        "by_reason": [
+            {"reason": reason, "count": len(codes), "sample_codes": codes[:sample]}
+            for reason, codes in sorted(
+                grouped.items(), key=lambda item: (-len(item[1]), item[0])
+            )
+        ],
+    }
 
 
 def _previous_day_source_version(quotes: Mapping[str, Any]) -> str:
@@ -557,19 +626,29 @@ def append_snapshot(
         for item in pool.get("candidates", [])
         if (item.get("code") or item.get("market_code")) and item.get("volume")
     }
+    budget = fetch_budget_seconds()
     if full_universe:
         # The 09:24 full-market pass is intelligence-only. It must not fan out
         # one historical K-line request per symbol or block the executable
         # 500-name auction pool when the historical source is slow.
-        raw_quotes = take_snapshot(
-            codes, asof=asof, require_previous_day_metrics=False
+        raw_quotes, fetch_failures = take_snapshot_with_failures(
+            codes,
+            asof=asof,
+            require_previous_day_metrics=False,
+            deadline_seconds=budget,
         )
     elif previous_day_metrics:
-        raw_quotes = take_snapshot(
-            codes, asof=asof, previous_day_metrics=previous_day_metrics
+        raw_quotes, fetch_failures = take_snapshot_with_failures(
+            codes,
+            asof=asof,
+            previous_day_metrics=previous_day_metrics,
+            deadline_seconds=budget,
         )
     else:
-        raw_quotes = take_snapshot(codes, asof=asof)
+        raw_quotes, fetch_failures = take_snapshot_with_failures(
+            codes, asof=asof, deadline_seconds=budget
+        )
+    failure_summary = summarize_snapshot_failures(fetch_failures)
     if full_universe:
         # Intelligence-only annotation; it must never mutate the executable
         # candidate or auction pool.
@@ -607,6 +686,9 @@ def append_snapshot(
         if full_universe:
             state["full_market_snapshot_at"] = datetime.now().isoformat(timespec="seconds")
             state["full_market_snapshot_count"] = len(quotes)
+        # 只保留本次采集的失败画像：它回答的是「这一分钟的窗口发生了什么」，
+        # 跨快照累积会把早已恢复的失败一直挂在 artifact 上。
+        state["snapshot_failures"] = failure_summary
         return state
 
     return mutate_json(_state_path(asof), mutator, default={"asof": asof, "series": {}})
@@ -680,6 +762,9 @@ def _degraded_finalize(result: Dict[str, Any], asof: str, reason: str) -> Dict[s
 def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[str, Any]:
     state = read_json(_state_path(asof), default={"series": {}})
     result = _build_result(state.get("series", {}), asof)
+    # 采集期的失败画像必须跟到收口报告：09:26 看到 shortlist 很短时，
+    # 「池子本来就小」和「数据源挂了/预算耗尽」是两种完全不同的运维动作。
+    result["snapshot_failures"] = state.get("snapshot_failures")
     if not result["factors"]:
         return _degraded_finalize(
             result,
@@ -983,6 +1068,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "research_only": bool(result.get("research_only", False)),
         "degraded_reasons": list(result.get("degraded_reasons") or []),
         "collection_status": result.get("collection_status"),
+        "snapshot_failures": result.get("snapshot_failures"),
         "auction_quality": result.get("auction_quality") or result.get("auction_quality_report"),
         "auction_quality_report": result.get("auction_quality_report"),
         "score_semantics": result.get(
@@ -1074,7 +1160,14 @@ def main() -> None:
             print(json.dumps({"error": str(e)}, ensure_ascii=False))
             sys.exit(1)
         counts = {c: len(s) for c, s in state.get("series", {}).items()}
-        print(json.dumps({"ok": True, "asof": args.asof, "snapshot_counts": counts}, ensure_ascii=False))
+        print(json.dumps({
+            "ok": True,
+            "asof": args.asof,
+            "snapshot_counts": counts,
+            # 「采到几只」必须和「剩下的怎么了」一起出现，否则窗口出问题时
+            # 分不清是池子小还是数据源挂了。
+            "snapshot_failures": state.get("snapshot_failures"),
+        }, ensure_ascii=False))
         return
     elif args.finalize:
         try:

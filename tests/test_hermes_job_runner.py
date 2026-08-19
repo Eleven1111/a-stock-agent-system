@@ -747,3 +747,47 @@ def test_empty_result_lists_outside_the_whitelist_are_not_reported_as_signal():
     parsed = {"schema": "serenity_bus_plan_v1", "scanned": 0, "results": []}
 
     assert output_has_signal(parsed, json.dumps(parsed)) is False
+
+
+def test_runner_exports_the_manifest_timeout_to_the_job_process(tmp_path):
+    """作业要能自己收口，就必须知道自己被给了多少墙钟。
+
+    竞价采集的取数预算是从这个变量推出来的（timeout 的 80%）。之前它只存在于
+    runner 进程里，子进程无从得知，于是唯一的界只有外层 SIGKILL —— 命中就同时
+    丢掉已采到的行和「剩下的怎么了」。
+    """
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import json, os\n"
+        "print(json.dumps({'schema': 'demo_v1',\n"
+        "                  'budget': os.environ.get('A_STOCK_JOB_TIMEOUT_SECONDS')}))\n",
+        encoding="utf-8",
+    )
+    job = _base_job("timeout-env-demo")
+    job["run"]["argv"] = [sys.executable, str(worker)]
+    job["run"]["timeout_seconds"] = 180
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [job]}), encoding="utf-8")
+
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
+    env.pop("A_STOCK_JOB_TIMEOUT_SECONDS", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            os.path.join(ROOT, "scripts", "agent_job_runner.py"),
+            "timeout-env-demo",
+            "--manifest",
+            str(manifest),
+            "--runtime",
+            "openclaw",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["budget"] == "180"

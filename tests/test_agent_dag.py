@@ -38,7 +38,9 @@ def test_job_runner_runtime_env_includes_repo_and_common_paths():
     assert str(Path(hermes_job_runner.ROOT) / "skills" / "common") in paths
 
 
-def _job(job_id, command, dependencies=None, mode="same_trading_date"):
+def _job(job_id, command, dependencies=None, mode="same_trading_date", policy=None):
+    dependency_policy = {"trading_date": mode, "max_age_minutes": 60}
+    dependency_policy.update(policy or {})
     return {
         "id": job_id,
         "name": job_id,
@@ -55,7 +57,7 @@ def _job(job_id, command, dependencies=None, mode="same_trading_date"):
         "deliver": "local",
         "max_output_chars": 2000,
         "context_from": dependencies or [],
-        "dependency_policy": {"trading_date": mode, "max_age_minutes": 60},
+        "dependency_policy": dependency_policy,
         "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
         "allowed_state_writes": [],
         "run": {"argv": shlex.split(command), "cwd": ".", "timeout_seconds": 10},
@@ -329,6 +331,156 @@ def test_dag_blocks_instead_of_rerunning_a_dependency_that_already_failed(
             state_home / "cron" / "output" / "upstream" / "upstream-timeout.json"
         ),
     }]
+
+
+def test_dag_runs_target_when_an_existing_upstream_failure_is_accepted(
+    tmp_path,
+    monkeypatch,
+):
+    """`accepted_statuses` 必须是行为，不是 manifest 里的一句声明。
+
+    生产形状：09:15-09:23 的 auction-snapshot 超时留下 timeout artifact，09:26
+    auction-finalize 由自己的 cron 独立触发。finalize 的 dependency_policy 明写
+    「timeout/failed 也放行、由我自己判空降级」，所以它必须真的跑起来 ——
+    否则 open-confirmation / paper-trading-open 会连锁跳过（2026-08-18 事故形状）。
+    """
+    state_home = tmp_path / "state"
+    day = "2026-06-12"
+    batch = run_agent_dag.make_batch_id(day)
+    _seed_artifact(
+        state_home,
+        "upstream",
+        run_id="upstream-timeout",
+        status="timeout",
+        trading_date=day,
+        batch_id=batch,
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [
+        _job("upstream", "true"),
+        _job(
+            "downstream",
+            "true",
+            ["upstream"],
+            policy={"accepted_statuses": ["ok", "timeout", "failed"]},
+        ),
+    ]}), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(
+        run_agent_dag.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append(args[0][2]) or subprocess.CompletedProcess(
+            args[0], 0, stdout="", stderr=""
+        ),
+    )
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(state_home)
+    env.pop("A_STOCK_STATE_ID", None)
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["downstream"],
+        trading_date=day,
+        batch_id=batch,
+        env=env,
+    )
+
+    # 失败的上游仍然不重跑（#159 的放大问题不能回退），但它不再中断整条 DAG。
+    assert calls == ["downstream"]
+    assert result["status"] == "ok"
+    upstream_run = next(run for run in result["runs"] if run["job_id"] == "upstream")
+    assert upstream_run["status"] == "degraded"
+    assert upstream_run["upstream_status"] == "timeout"
+
+
+def test_dag_runs_target_when_an_in_batch_upstream_failure_is_accepted(
+    tmp_path,
+    monkeypatch,
+):
+    """同批执行里上游当场失败，声明接受该状态的目标同样必须继续执行。"""
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [
+        _job("upstream", "true"),
+        _job(
+            "downstream",
+            "true",
+            ["upstream"],
+            policy={"accepted_statuses": ["ok", "timeout", "failed"]},
+        ),
+    ]}), encoding="utf-8")
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        job_id = args[0][2]
+        calls.append(job_id)
+        code = 1 if job_id == "upstream" else 0
+        return subprocess.CompletedProcess(args[0], code, stdout="", stderr="boom")
+
+    monkeypatch.setattr(run_agent_dag.subprocess, "run", fake_run)
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["downstream"],
+        trading_date="2026-06-12",
+        env=env,
+    )
+
+    # upstream 走完自己的重试次数后仍然失败，downstream 必须照跑且只跑一次。
+    assert set(calls) == {"upstream", "downstream"}
+    assert calls[-1] == "downstream"
+    assert calls.count("downstream") == 1
+    assert result["status"] == "ok"
+    upstream_run = next(run for run in result["runs"] if run["job_id"] == "upstream")
+    assert upstream_run["status"] == "failed"
+    assert upstream_run["tolerated_by"] == ["downstream"]
+
+
+def test_dag_still_blocks_when_the_upstream_failure_is_not_accepted(
+    tmp_path,
+    monkeypatch,
+):
+    """反向用例：没声明接受时短路必须原样保留，不能借修复把闸门整个拆了。"""
+    state_home = tmp_path / "state"
+    day = "2026-06-12"
+    batch = run_agent_dag.make_batch_id(day)
+    _seed_artifact(
+        state_home,
+        "upstream",
+        run_id="upstream-timeout",
+        status="timeout",
+        trading_date=day,
+        batch_id=batch,
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [
+        _job("upstream", "true"),
+        # 只接受 ok —— timeout 不在列内
+        _job("downstream", "true", ["upstream"], policy={"accepted_statuses": ["ok"]}),
+    ]}), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(
+        run_agent_dag.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append(args[0][2]),
+    )
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(state_home)
+    env.pop("A_STOCK_STATE_ID", None)
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["downstream"],
+        trading_date=day,
+        batch_id=batch,
+        env=env,
+    )
+
+    assert calls == []
+    assert result["status"] == "blocked"
+    assert result["runs"][0]["reason"] == "upstream_failed"
 
 
 def test_dag_still_bootstraps_a_dependency_that_never_ran(tmp_path, monkeypatch):
