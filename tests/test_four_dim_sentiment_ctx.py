@@ -34,7 +34,9 @@ def test_sentiment_includes_fresh_market_temperature_as_bounded_environment_delt
         },
         "limitup_total": 50,
     }
-    out = fds.score_sentiment("002156", "通富微电", quote=dict(_QUOTE), signal_ctx=ctx)
+    # asof 与 ladder_asof 同日锁定新鲜度门禁，避免测试随运行日漂移成 stale
+    out = fds.score_sentiment("002156", "通富微电", quote=dict(_QUOTE),
+                              signal_ctx=ctx, asof="2026-08-12")
 
     assert out["market_temperature"]["tier"] == "发酵"
     assert out["market_temperature_delta"] == 0.6

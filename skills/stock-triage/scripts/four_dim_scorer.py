@@ -582,12 +582,15 @@ def score_technical(code: str, name: str, quote: Optional[Dict[str, Any]] = None
     score += chan_delta
     signals.extend(chan_notes)
 
-    # 情绪周期确定性特征（研究信号，display-only，0权重直到过 research_gate）。
-    # 过闸后的 delta 数值本次不实现——TODO(research_gate): 待 emotion_cycle:v1
-    # 通过离线研究闸门并写入 strategy_registry 后，再设计计权规则，不得看实盘回拟合。
+    # 情绪周期确定性特征（display-only，恒 0 权重）。
+    # 负结论已固化（issue #232，2026-08-13/14 小样本探针）：情绪底信号无 edge，
+    # 情绪顶信号方向与假设相反（爆量滞涨后 20 日 pooled +4.52%），反向的
+    # emotion_top_momentum 假设同样不稳健（per-stock 中位数 -4.35%，仅 26% 为正）。
+    # 决策：emotion_cycle:v1 不投入完整 research_gate，特征仅作描述性证据保留，
+    # 不设计任何计权规则。重启前置条件见 config/strategy_packs/emotion_cycle.yaml。
     emotion_features = _compute_emotion_features(klines)
     if not _chan_allowed(_EMOTION_CYCLE_STRATEGY_ID):
-        signals.append("[研究假设]情绪周期(未过闸·0权重)")
+        signals.append("[研究假设]情绪周期(探针未通过#232·0权重)")
 
     score = max(-3, min(10, score))
     if chan_lock is not None:

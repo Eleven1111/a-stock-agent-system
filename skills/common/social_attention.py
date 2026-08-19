@@ -352,6 +352,142 @@ def candidate_attention_overlay(
     }
 
 
+def _empty_theme_evidence() -> dict[str, Any]:
+    return {
+        "available": False,
+        "confirmed": False,
+        "attention_score": 0.0,
+        "confirmed_stock_count": 0,
+        "stock_count": 0,
+        "leaders": [],
+        "alignment": None,
+    }
+
+
+def _exact_theme_evidence(name: str, record: Mapping[str, Any]) -> dict[str, Any]:
+    settings = social_attention_settings()
+    score = _number(record.get("attention_score"))
+    confirmed_stock_count = _int(record.get("confirmed_stock_count"))
+    stock_count = _int(record.get("stock_count"))
+    confirmed = bool(record.get("confirmed"))
+    if not confirmed:
+        confirmed = (
+            confirmed_stock_count >= int(settings["theme_min_confirmed_stocks"])
+            and score >= float(settings["theme_min_attention_score"])
+        )
+    leaders = record.get("leaders") if isinstance(record.get("leaders"), list) else []
+    return {
+        "available": True,
+        "confirmed": confirmed,
+        "attention_score": round(score, 2),
+        "confirmed_stock_count": confirmed_stock_count,
+        "stock_count": stock_count,
+        "leaders": leaders[:5],
+        "alignment": {
+            "method": "exact_sector_name",
+            "target_sector": name,
+            "source_sectors": [
+                {
+                    "sector": name,
+                    "sector_sources": ["social_attention.themes"],
+                    "stock_count": stock_count,
+                    "matched_stock_codes": [],
+                }
+            ],
+            "matched_stock_codes": [],
+            "reason": "social theme name exactly matches the mainline sector",
+        },
+    }
+
+
+def _theme_leaders(matched: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        (
+            {
+                "code": stock["code"],
+                "name": stock.get("name") or stock["code"],
+                "attention_score": round(_number(stock.get("attention_score")), 2),
+                "original_sector": stock["source_sector"],
+                "original_sector_source": stock.get("sector_source"),
+                "industry": stock.get("industry"),
+                "industry_source": stock.get("industry_source"),
+            }
+            for stock in matched
+        ),
+        key=lambda item: (-item["attention_score"], item["code"]),
+    )[:5]
+
+
+def _theme_source_sectors(matched: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for stock in matched:
+        source_sector = stock["source_sector"]
+        group = grouped.setdefault(
+            source_sector,
+            {"sector_sources": set(), "matched_stock_codes": []},
+        )
+        source = str(stock.get("sector_source") or stock.get("industry_source") or "unknown")
+        group["sector_sources"].add(source)
+        group["matched_stock_codes"].append(stock["code"])
+    return [
+        {
+            "sector": source_sector,
+            "sector_sources": sorted(group["sector_sources"]),
+            "stock_count": len(group["matched_stock_codes"]),
+            "matched_stock_codes": sorted(group["matched_stock_codes"]),
+        }
+        for source_sector, group in sorted(grouped.items())
+    ]
+
+
+def _projected_theme_evidence(
+    name: str,
+    payload: Mapping[str, Any] | None,
+    member_codes: Sequence[Any] | None,
+) -> dict[str, Any]:
+    member_set = {_code(code) for code in member_codes or [] if _code(code).strip("0")}
+    stocks = payload.get("stocks") if isinstance(payload, Mapping) else None
+    matched: list[dict[str, Any]] = []
+    if isinstance(stocks, Mapping):
+        for code in sorted(member_set):
+            stock = stocks.get(code)
+            if not isinstance(stock, Mapping):
+                continue
+            source_sector = str(stock.get("sector") or stock.get("industry") or "").strip()
+            if not source_sector or is_broad_sector_label(source_sector):
+                continue
+            matched.append({"code": code, **dict(stock), "source_sector": source_sector})
+
+    if not matched:
+        return _empty_theme_evidence()
+
+    score = round(sum(_number(stock.get("attention_score")) for stock in matched) / len(matched), 2)
+    confirmed_stock_count = sum(bool(stock.get("eligible_for_boost")) for stock in matched)
+    settings = social_attention_settings()
+    confirmed = bool(
+        confirmed_stock_count >= int(settings["theme_min_confirmed_stocks"])
+        and score >= float(settings["theme_min_attention_score"])
+    )
+    return {
+        "available": True,
+        "confirmed": confirmed,
+        "attention_score": score,
+        "confirmed_stock_count": confirmed_stock_count,
+        "stock_count": len(matched),
+        "leaders": _theme_leaders(matched),
+        "alignment": {
+            "method": "stock_membership_projection",
+            "target_sector": name,
+            "source_sectors": _theme_source_sectors(matched),
+            "matched_stock_codes": sorted(stock["code"] for stock in matched),
+            "reason": (
+                "social-attention stocks were re-aggregated by their same-run "
+                "mainline sector membership; no global sector alias was inferred"
+            ),
+        },
+    }
+
+
 def theme_attention_evidence(
     sector: Any,
     context: Mapping[str, Any] | None,
@@ -374,137 +510,13 @@ def theme_attention_evidence(
     """
     name = str(sector or "").strip()
     if not name or is_broad_sector_label(name):
-        return {
-            "available": False,
-            "confirmed": False,
-            "attention_score": 0.0,
-            "confirmed_stock_count": 0,
-            "stock_count": 0,
-            "leaders": [],
-            "alignment": None,
-        }
+        return _empty_theme_evidence()
     payload = _social_payload(context)
     themes = payload.get("themes") if isinstance(payload, Mapping) else None
     record = themes.get(name) if isinstance(themes, Mapping) else None
     if isinstance(record, Mapping):
-        settings = social_attention_settings()
-        score = _number(record.get("attention_score"))
-        confirmed_stock_count = _int(record.get("confirmed_stock_count"))
-        stock_count = _int(record.get("stock_count"))
-        confirmed = bool(record.get("confirmed"))
-        if not confirmed:
-            confirmed = (
-                confirmed_stock_count >= int(settings["theme_min_confirmed_stocks"])
-                and score >= float(settings["theme_min_attention_score"])
-            )
-        leaders = record.get("leaders") if isinstance(record.get("leaders"), list) else []
-        return {
-            "available": True,
-            "confirmed": confirmed,
-            "attention_score": round(score, 2),
-            "confirmed_stock_count": confirmed_stock_count,
-            "stock_count": stock_count,
-            "leaders": leaders[:5],
-            "alignment": {
-                "method": "exact_sector_name",
-                "target_sector": name,
-                "source_sectors": [
-                    {
-                        "sector": name,
-                        "sector_sources": ["social_attention.themes"],
-                        "stock_count": stock_count,
-                        "matched_stock_codes": [],
-                    }
-                ],
-                "matched_stock_codes": [],
-                "reason": "social theme name exactly matches the mainline sector",
-            },
-        }
-
-    member_set = {_code(code) for code in member_codes or [] if _code(code).strip("0")}
-    stocks = payload.get("stocks") if isinstance(payload, Mapping) else None
-    matched: list[dict[str, Any]] = []
-    if isinstance(stocks, Mapping):
-        for code in sorted(member_set):
-            stock = stocks.get(code)
-            if not isinstance(stock, Mapping):
-                continue
-            source_sector = str(stock.get("sector") or stock.get("industry") or "").strip()
-            if not source_sector or is_broad_sector_label(source_sector):
-                continue
-            matched.append({"code": code, **dict(stock), "source_sector": source_sector})
-
-    if not matched:
-        return {
-            "available": False,
-            "confirmed": False,
-            "attention_score": 0.0,
-            "confirmed_stock_count": 0,
-            "stock_count": 0,
-            "leaders": [],
-            "alignment": None,
-        }
-
-    score = round(sum(_number(stock.get("attention_score")) for stock in matched) / len(matched), 2)
-    confirmed_stock_count = sum(bool(stock.get("eligible_for_boost")) for stock in matched)
-    settings = social_attention_settings()
-    confirmed = bool(
-        confirmed_stock_count >= int(settings["theme_min_confirmed_stocks"])
-        and score >= float(settings["theme_min_attention_score"])
-    )
-    leaders = sorted(
-        (
-            {
-                "code": stock["code"],
-                "name": stock.get("name") or stock["code"],
-                "attention_score": round(_number(stock.get("attention_score")), 2),
-                "original_sector": stock["source_sector"],
-                "original_sector_source": stock.get("sector_source"),
-                "industry": stock.get("industry"),
-                "industry_source": stock.get("industry_source"),
-            }
-            for stock in matched
-        ),
-        key=lambda item: (-item["attention_score"], item["code"]),
-    )[:5]
-    grouped: dict[str, dict[str, Any]] = {}
-    for stock in matched:
-        source_sector = stock["source_sector"]
-        group = grouped.setdefault(
-            source_sector,
-            {"sector_sources": set(), "matched_stock_codes": []},
-        )
-        source = str(stock.get("sector_source") or stock.get("industry_source") or "unknown")
-        group["sector_sources"].add(source)
-        group["matched_stock_codes"].append(stock["code"])
-    source_sectors = [
-        {
-            "sector": source_sector,
-            "sector_sources": sorted(group["sector_sources"]),
-            "stock_count": len(group["matched_stock_codes"]),
-            "matched_stock_codes": sorted(group["matched_stock_codes"]),
-        }
-        for source_sector, group in sorted(grouped.items())
-    ]
-    matched_codes = sorted(stock["code"] for stock in matched)
-    return {
-        "available": True,
-        "confirmed": confirmed,
-        "attention_score": score,
-        "confirmed_stock_count": confirmed_stock_count,
-        "stock_count": len(matched),
-        "leaders": leaders,
-        "alignment": {
-            "method": "stock_membership_projection",
-            "target_sector": name,
-            "source_sectors": source_sectors,
-            "matched_stock_codes": matched_codes,
-            "reason": (
-                "social-attention stocks were re-aggregated by their same-run "
-                "mainline sector membership; no global sector alias was inferred"
-            ),
-        },
-    }
+        return _exact_theme_evidence(name, record)
+    return _projected_theme_evidence(name, payload, member_codes)
 
 
 def sentiment_attention_overlay(

@@ -112,11 +112,7 @@ def build_topics(
         ):
             return
         seen.add(identity)
-        result.append({
-            "kind": kind,
-            "key": normalized,
-            "label": normalized_label,
-        })
+        result.append({"kind": kind, "key": normalized, "label": normalized_label})
 
     for entry in registry_items:
         kind = str(entry.get("kind") or "")
