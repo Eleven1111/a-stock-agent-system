@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from typing import Any, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 from zoneinfo import ZoneInfo
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -84,6 +84,38 @@ def _load_artifact(
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def _accepted_dependency_statuses(job: Mapping[str, Any]) -> set[str]:
+    policy = job.get("dependency_policy") or {}
+    return {str(item) for item in (policy.get("accepted_statuses") or ["ok"])}
+
+
+def consumers_tolerating(
+    dependency_id: str,
+    status: str,
+    *,
+    jobs: Mapping[str, Mapping[str, Any]],
+    batch_jobs: Iterable[str],
+) -> list[str]:
+    """Batch jobs that consume ``dependency_id`` and accept its terminal ``status``.
+
+    The DAG short circuit below is only a cost optimisation; the authoritative
+    gate is each job's own ``evaluate_dependencies``. So one tolerant consumer is
+    enough to keep walking the order — an intolerant consumer further down is
+    still stopped by its own gate, with its own ``blocked`` artifact. Without
+    this, ``dependency_policy.accepted_statuses`` was dead configuration: a
+    timed-out auction-snapshot stopped auction-finalize even though finalize
+    explicitly declares that it degrades on its own (2026-08-18 cascade).
+    """
+    tolerating: list[str] = []
+    for job_id in batch_jobs:
+        job = jobs.get(job_id) or {}
+        if dependency_id not in (job.get("context_from") or []):
+            continue
+        if status in _accepted_dependency_statuses(job):
+            tolerating.append(str(job_id))
+    return tolerating
 
 
 def execution_order(
@@ -296,14 +328,25 @@ def execute_dag(
             and existing
             and existing.get("status") in TERMINAL_FAILURE_STATUSES
         ):
-            runs.append({
+            tolerated_by = consumers_tolerating(
+                job_id,
+                str(existing.get("status") or ""),
+                jobs=jobs,
+                batch_jobs=order,
+            )
+            entry: dict[str, Any] = {
                 "job_id": job_id,
-                "status": "blocked",
+                "status": "degraded" if tolerated_by else "blocked",
                 "reason": "upstream_failed",
                 "upstream_status": existing.get("status"),
                 "upstream_run_id": existing.get("run_id"),
                 "artifact_path": existing.get("artifact_path"),
-            })
+            }
+            if tolerated_by:
+                entry["tolerated_by"] = tolerated_by
+            runs.append(entry)
+            if tolerated_by:
+                continue
             result = {
                 "schema": "a_stock_dag_run_v1",
                 "status": "blocked",
@@ -393,6 +436,15 @@ def execute_dag(
             "stderr": (completed.stderr if completed else "")[-1000:],
         })
         if status != "ok":
+            tolerated_by = consumers_tolerating(
+                job_id, status, jobs=jobs, batch_jobs=order
+            )
+            if tolerated_by:
+                # The dependency failed in this batch, but a downstream job
+                # declares it degrades on its own. Keep walking the order; that
+                # job's own gate still re-checks the artifact.
+                runs[-1]["tolerated_by"] = tolerated_by
+                continue
             result = {
                 "schema": "a_stock_dag_run_v1",
                 "status": status,

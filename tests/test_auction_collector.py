@@ -214,8 +214,8 @@ def test_full_universe_single_snapshot_keeps_pool_outsider_for_research(tmp_path
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(
         ac,
-        "take_snapshot",
-        lambda codes, asof=None: {
+        "take_snapshot_with_failures",
+        lambda codes, **kwargs: ({
             code: {
                 "t": "09:24:50",
                 "name": code,
@@ -225,7 +225,7 @@ def test_full_universe_single_snapshot_keeps_pool_outsider_for_research(tmp_path
                 "asks": [],
             }
             for code in codes
-        },
+        }, {}),
     )
 
     state = ac.append_snapshot(["sh600001", "sz000811"], "2026-06-23")
@@ -256,8 +256,8 @@ def test_append_snapshot_consumes_immutable_input_snapshot(tmp_path, monkeypatch
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(
         ac,
-        "take_snapshot",
-        lambda codes, asof=None: {
+        "take_snapshot_with_failures",
+        lambda codes, **kwargs: ({
             codes[0]: {
                 "t": "09:20:00",
                 "name": "测试股票",
@@ -266,7 +266,7 @@ def test_append_snapshot_consumes_immutable_input_snapshot(tmp_path, monkeypatch
                 "bids": [],
                 "asks": [],
             }
-        },
+        }, {}),
     )
 
     state = ac.append_snapshot(["sh600001"], "2026-06-12")
@@ -279,8 +279,8 @@ def test_append_snapshot_marks_local_history_source_version(tmp_path, monkeypatc
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(
         ac,
-        "take_snapshot",
-        lambda codes, asof=None: {
+        "take_snapshot_with_failures",
+        lambda codes, **kwargs: ({
             codes[0]: [{
                 "t": "09:25:00", "price": 10.5, "prev_day_volume": 1000,
                 "prev_day_provider": "local_history",
@@ -290,7 +290,7 @@ def test_append_snapshot_marks_local_history_source_version(tmp_path, monkeypatc
                     "date": "2026-06-11", "source_version": "local-history-v1",
                 },
             }]
-        },
+        }, {}),
     )
 
     state = ac.append_snapshot(["sh600001"], "2026-06-12")
@@ -834,3 +834,97 @@ def test_real_book_is_not_degraded():
     f = ac.compute_auction_factors(snaps, "sh600111", "北方稀土")
     assert f["auction_data_quality"] == "ok"
     assert f["auction_data_quality_notes"] == []
+
+
+def test_snapshot_failures_reach_the_artifact_instead_of_being_dropped(tmp_path, monkeypatch):
+    """provider 逐股记了失败原因，采集器过去用 `_failures` 原地丢掉了。
+
+    结果是 artifact 只有「采到几只」，没有「剩下的怎么了」——竞价窗口出问题时
+    根本无法区分「池子本来就小」和「数据源挂了」。
+    """
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        ac,
+        "take_snapshot_with_failures",
+        lambda codes, **kwargs: (
+            {"600001": [{"t": "09:20:00", "price": 10.0}]},
+            {"000811": "easy_tdx 0x123D 无有效 09:15-09:25 竞价数据"},
+        ),
+    )
+
+    state = ac.append_snapshot(["sh600001", "sz000811"], "2026-06-23")
+
+    summary = state["snapshot_failures"]
+    assert summary["total"] == 1
+    assert summary["by_reason"][0]["count"] == 1
+    assert summary["by_reason"][0]["sample_codes"] == ["000811"]
+    assert "easy_tdx" in summary["by_reason"][0]["reason"]
+
+
+def test_snapshot_failure_summary_stays_bounded_for_a_full_pool():
+    """500 只全挂时 artifact 不能变成 500 行；按原因聚合 + 少量样本码。"""
+    failures = {f"{600000 + i:06d}": "budget_exhausted: 竞价抓取超出 144s 预算" for i in range(500)}
+    failures["000001"] = "easy_tdx 0x123D 无有效 09:15-09:25 竞价数据"
+
+    summary = ac.summarize_snapshot_failures(failures)
+
+    assert summary["total"] == 501
+    assert len(summary["by_reason"]) == 2
+    # 最大的一组排前面，样本码有界
+    assert summary["by_reason"][0]["count"] == 500
+    assert len(summary["by_reason"][0]["sample_codes"]) == 3
+
+
+def test_fetch_budget_is_derived_from_the_job_timeout(tmp_path, monkeypatch):
+    """预算跟着 manifest 的 run.timeout_seconds 走，避免两处数字各自漂移。"""
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("A_STOCK_JOB_TIMEOUT_SECONDS", "180")
+    seen = {}
+
+    def _capture(codes, **kwargs):
+        seen.update(kwargs)
+        return {"600001": [{"t": "09:20:00", "price": 10.0}]}, {}
+
+    monkeypatch.setattr(ac, "take_snapshot_with_failures", _capture)
+
+    ac.append_snapshot(["sh600001"], "2026-06-23")
+
+    assert seen["deadline_seconds"] == 144.0
+
+
+def test_fetch_budget_is_absent_when_the_runner_declares_no_timeout(tmp_path, monkeypatch):
+    """手工跑（没有 runner 注入超时）时不应凭空造一个预算。"""
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.delenv("A_STOCK_JOB_TIMEOUT_SECONDS", raising=False)
+    seen = {}
+
+    def _capture(codes, **kwargs):
+        seen.update(kwargs)
+        return {"600001": [{"t": "09:20:00", "price": 10.0}]}, {}
+
+    monkeypatch.setattr(ac, "take_snapshot_with_failures", _capture)
+
+    ac.append_snapshot(["sh600001"], "2026-06-23")
+
+    assert seen["deadline_seconds"] is None
+
+
+def test_finalize_carries_snapshot_failures_into_the_report(tmp_path, monkeypatch):
+    """09:26 看到 shortlist 很短时，必须能当场区分「池子小」和「数据源挂了」。"""
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        ac,
+        "take_snapshot_with_failures",
+        lambda codes, **kwargs: (
+            {},
+            {"000811": "budget_exhausted: 竞价抓取超出 144s 预算，该标的未取数"},
+        ),
+    )
+    ac.append_snapshot(["sz000811"], "2026-06-23")
+
+    result = ac.finalize("2026-06-23")
+    report = ac.json_report(result)
+
+    assert result["status"] == "degraded"
+    assert report["snapshot_failures"]["total"] == 1
+    assert "budget_exhausted" in report["snapshot_failures"]["by_reason"][0]["reason"]

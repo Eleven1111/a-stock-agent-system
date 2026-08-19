@@ -173,6 +173,33 @@ def test_auction_finalize_lets_a_failed_snapshot_through_so_it_can_degrade():
     assert policy["optional_jobs"] == ["auction-market-snapshot"]
 
 
+def test_auction_finalize_declared_tolerance_actually_reaches_the_dag():
+    """上一条只断言了 manifest 字段 —— 字段写对不等于 DAG 会照做。
+
+    2026-08-18 的级联就是这么漏过去的：`accepted_statuses` 声明了接受
+    timeout/failed，而 run_agent_dag 的短路根本不读这个字段，于是 finalize
+    在快照超时那天压根没启动。这条用真实 manifest 直接问 DAG 的判定函数。
+    """
+    from scripts.run_agent_dag import consumers_tolerating
+
+    with open(MANIFEST_PATH, encoding="utf-8") as handle:
+        jobs = {job["id"]: job for job in json.load(handle)["jobs"]}
+    batch = ["auction-snapshot", "auction-market-snapshot", "auction-finalize"]
+
+    for status in ("timeout", "failed"):
+        assert "auction-finalize" in consumers_tolerating(
+            "auction-snapshot", status, jobs=jobs, batch_jobs=batch
+        ), f"auction-snapshot {status} 时 finalize 必须仍被放行"
+
+    # 反向：open-confirmation 没有声明容忍，finalize 失败必须仍然挡住它。
+    assert consumers_tolerating(
+        "auction-finalize",
+        "failed",
+        jobs=jobs,
+        batch_jobs=["auction-finalize", "open-confirmation"],
+    ) == []
+
+
 def test_auction_chain_watchdog_is_registered_and_survives_a_broken_chain():
     """watchdog 必须在链路挂掉时照跑，所以它不能有任何上游依赖。"""
     job = _manifest_job("auction-chain-watch")

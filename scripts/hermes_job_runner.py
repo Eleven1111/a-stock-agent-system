@@ -469,6 +469,11 @@ def run_job(args: argparse.Namespace) -> int:
         "A_STOCK_RUN_ID": run_id,
         "A_STOCK_BATCH_ID": batch_id,
         "A_STOCK_TRADING_DATE": trading_date,
+        # Jobs that fan out over the network need their own wall-clock budget so
+        # they can close down and report why, instead of being SIGKILLed at the
+        # manifest timeout and losing both the partial result and the reason.
+        # Exporting the runner's timeout keeps one source of truth.
+        "A_STOCK_JOB_TIMEOUT_SECONDS": str(timeout),
         "A_STOCK_AGENT_STATE_PATH": agent_state_path(),
         execution_trace.TRACE_ID_ENV: str(trace_ctx["trace_id"] or ""),
     })
