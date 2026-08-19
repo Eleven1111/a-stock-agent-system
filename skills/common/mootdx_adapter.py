@@ -19,6 +19,7 @@ ambiguous by design — call :func:`mootdx_available` when the caller needs to t
 from __future__ import annotations
 
 import logging
+import threading
 from functools import lru_cache
 from typing import Any
 
@@ -30,7 +31,10 @@ MOOTDX_MISSING_HINT = (
 )
 
 _MOOTDX_CLIENT = None
+_MOOTDX_UNAVAILABLE = False
 _MOOTDX_CLIENT_LOCK = False
+_MOOTDX_CLIENT_INIT_MUTEX = threading.Lock()
+MOOTDX_TIMEOUT_SECONDS = 8
 
 
 @lru_cache(maxsize=1)
@@ -61,25 +65,44 @@ def _normal_code(code: Any) -> str:
 
 def _get_client():
     """Lazy singleton for the mootdx Quotes client (通达信TCP 7709)."""
-    global _MOOTDX_CLIENT, _MOOTDX_CLIENT_LOCK
+    global _MOOTDX_CLIENT, _MOOTDX_UNAVAILABLE, _MOOTDX_CLIENT_LOCK
     if _MOOTDX_CLIENT is not None:
         return _MOOTDX_CLIENT
+    # A failed TCP probe must not be repeated once per stock in a batch.  The
+    # caller has HTTP fallbacks; retrying here only burns the whole cron budget.
+    if _MOOTDX_UNAVAILABLE:
+        return None
     if not mootdx_available():
         return None
-    from mootdx.quotes import Quotes
-    if _MOOTDX_CLIENT_LOCK:
-        return None
-    _MOOTDX_CLIENT_LOCK = True
-    try:
-        client = Quotes.factory()
-        # Quick connectivity probe
-        _ = client.quotes(symbol="000001")
-        _MOOTDX_CLIENT = client
-    except Exception as exc:
-        LOGGER.warning("mootdx 连接失败（通达信 TCP 7709）err=%s", exc)
-        _MOOTDX_CLIENT = None
-    finally:
-        _MOOTDX_CLIENT_LOCK = False
+    # The module bool is retained for compatibility with existing probes; the
+    # mutex makes singleton construction safe when several collectors start at
+    # once.  Waiting for the in-flight constructor is preferable to launching
+    # competing TCP clients, so use a blocking lock here.
+    with _MOOTDX_CLIENT_INIT_MUTEX:
+        if _MOOTDX_CLIENT is not None:
+            return _MOOTDX_CLIENT
+        if _MOOTDX_UNAVAILABLE:
+            return None
+        from mootdx.quotes import Quotes
+        _MOOTDX_CLIENT_LOCK = True
+        try:
+            # bestip asks mootdx to verify/choose the best HQ server before the
+            # TCP connection.  Keep all network calls bounded.
+            client = Quotes.factory(
+                market="std",
+                bestip=True,
+                timeout=MOOTDX_TIMEOUT_SECONDS,
+            )
+            probe = client.quotes(symbol="000001")
+            if probe is None or getattr(probe, "empty", False):
+                raise RuntimeError("mootdx 实时探针为空")
+            _MOOTDX_CLIENT = client
+        except Exception as exc:
+            LOGGER.warning("mootdx 连接失败（通达信 TCP 7709）err=%s", exc)
+            _MOOTDX_CLIENT = None
+            _MOOTDX_UNAVAILABLE = True
+        finally:
+            _MOOTDX_CLIENT_LOCK = False
     return _MOOTDX_CLIENT
 
 
@@ -102,11 +125,18 @@ def fetch_mootdx_bars(code: str, *, days: int = 120) -> list[dict[str, Any]]:
         return []
 
     try:
-        df = client.bars(symbol=symbol, frequency=9, start=0, count=days)
+        # mootdx uses ``offset`` for the number of rows; ``count`` is ignored
+        # by StdQuotes.bars and silently leaves its default 800. Keep the
+        # request explicit so yesterday's bar is actually retrievable.
+        df = client.bars(symbol=symbol, frequency=9, start=0, offset=days)
     except Exception:
         return []
 
     if not hasattr(df, "columns") or df.empty:
+        LOGGER.warning(
+            "mootdx 实时连接可达但历史 bars 为空；不将其判定为历史源可用 code=%s",
+            symbol,
+        )
         return []
 
     bars: list[dict[str, Any]] = []

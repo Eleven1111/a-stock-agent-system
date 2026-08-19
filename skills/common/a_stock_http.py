@@ -13,6 +13,7 @@
 import os
 import threading
 import time
+from datetime import date
 from typing import Dict, Any, List, Optional
 from urllib.parse import urlencode
 
@@ -291,6 +292,39 @@ def fetch_eastmoney_json(path: str, params: Dict = None) -> Dict[str, Any]:
 def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,
                         ktype: str = "day") -> List[Dict[str, Any]]:
     """腾讯历史K线"""
+    if ktype == "day":
+        normalized_code = str(code or "").strip().lower()
+        if normalized_code.startswith(("sh", "sz", "bj")):
+            normalized_code = normalized_code[2:]
+        if "." in normalized_code:
+            normalized_code = normalized_code.split(".", 1)[0]
+        normalized_code = normalized_code.zfill(6)
+        today = date.today().isoformat()
+        try:
+            from local_market_history import get_daily_bars
+
+            local_bars = get_daily_bars(
+                [normalized_code], end_date=today, lookback=days
+            )
+        except Exception:
+            local_bars = []
+        local_bars = [
+            row for row in local_bars
+            if str(row.get("trading_date", row.get("date", ""))) <= today
+        ]
+        if len(local_bars) >= days:
+            return [
+                {
+                    "date": row.get("trading_date", row.get("date")),
+                    "open": float(row["open"]),
+                    "close": float(row["close"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "volume": float(row["volume"]),
+                }
+                for row in local_bars[-days:]
+            ]
+
     url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={market}{code},{ktype},,,{days},qfq"
     try:
         data = http_get_json(url, timeout=10)

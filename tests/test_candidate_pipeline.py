@@ -321,6 +321,10 @@ def test_auction_shortlist_rejects_yiziban_and_limits_to_top_n():
             "code": f"sh60{i:04d}",
             "auction_gap_pct": 2.0,
             "auction_amount": 20_000_000 - i * 100_000,
+            "auction_volume": 20_000 - i * 100,
+            "prev_day_volume": 1_000_000,
+            "matched": 2_000_000,
+            "unmatched": 0,
             "auction_bid_ask_ratio": 2.5,
             "auction_net_bid_delta": 10_000,
             "is_yiziban": i == 0,
@@ -367,6 +371,10 @@ def test_auction_shortlist_preserves_daban_and_trend_lanes():
             "code": item["code"],
             "auction_gap_pct": 2.0,
             "auction_amount": 20_000_000,
+            "auction_volume": 20_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 2_000_000,
+            "unmatched": 0,
             "auction_bid_ask_ratio": 2.0,
             "auction_net_bid_delta": 10_000,
             "is_yiziban": False,
@@ -407,6 +415,10 @@ def test_auction_fill_does_not_revive_non_mainline_daban_candidate():
             "code": item["code"],
             "auction_gap_pct": 2.0,
             "auction_amount": 20_000_000,
+            "auction_volume": 20_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 2_000_000,
+            "unmatched": 0,
             "auction_bid_ask_ratio": 2.0,
             "auction_net_bid_delta": 10_000,
             "is_yiziban": False,
@@ -454,6 +466,10 @@ def test_auction_shortlist_does_not_revive_weak_market_research_only_candidate()
             "code": "sz300001",
             "auction_gap_pct": 2.0,
             "auction_amount": 30_000_000,
+            "auction_volume": 30_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 3_000_000,
+            "unmatched": 0,
             "auction_bid_ask_ratio": 2.0,
             "auction_net_bid_delta": 10_000,
             "is_yiziban": False,
@@ -480,6 +496,10 @@ def test_auction_social_attention_is_current_bounded_tiebreaker():
         "code": "sh600001",
         "auction_gap_pct": 2.0,
         "auction_amount": 20_000_000,
+        "auction_volume": 20_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 2_000_000,
+        "unmatched": 0,
         "auction_bid_ask_ratio": 2.0,
         "auction_net_bid_delta": 10_000,
         "is_yiziban": False,
@@ -553,6 +573,10 @@ def test_ladder_stale_leader_qualified_false_still_delivers_trend_shortlist():
             "code": item["code"],
             "auction_gap_pct": 2.0,
             "auction_amount": 30_000_000,
+            "auction_volume": 30_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 3_000_000,
+            "unmatched": 0,
             "auction_bid_ask_ratio": 2.0,
             "auction_net_bid_delta": 10_000,
             "is_yiziban": False,
@@ -589,6 +613,10 @@ def test_auction_shortlist_rejects_limit_down_candidate():
         "code": "sz002141",
         "auction_gap_pct": -10.0,
         "auction_amount": 5_000_000,
+        "auction_volume": 5_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 500_000,
+        "unmatched": 0,
         "auction_bid_ask_ratio": 0.01,
         "auction_net_bid_delta": 49_621,
         "board_status": "limit_down",
@@ -617,6 +645,8 @@ def test_auction_shortlist_rejects_indicative_price_collapse():
         "auction_price_decay_pct": 10.0,
         "auction_faded_from_limit_up": True,
         "auction_amount": 0,
+        "auction_volume": 0,
+        "prev_day_volume": 1_000_000,
         "auction_bid_ask_ratio": 1.0,
         "auction_net_bid_delta": 0,
         "board_status": "flat_or_low_open",
@@ -627,6 +657,111 @@ def test_auction_shortlist_rejects_indicative_price_collapse():
 
     assert result["shortlist"] == []
     assert any("回落" in reason for reason in result["rejected"][0]["rejection_reasons"])
+
+
+def test_auction_shortlist_requires_matched_and_unmatched_contract():
+    pool = _auction_pool({
+        "code": "sh600519", "name": "量能契约", "daban_score": 90, "trend_score": 20,
+    })
+    common = {
+        "code": "sh600519", "auction_gap_pct": 2.0, "auction_amount": 3000000,
+        "auction_volume": 3000, "prev_day_volume": 1000000,
+        "auction_bid_ask_ratio": 1.2, "auction_net_bid_delta": 100,
+        "is_yiziban": False,
+    }
+
+    missing = cp.rank_auction_shortlist(pool, [common], limit=1)
+    assert missing["shortlist"] == []
+    assert any("matched" in reason for reason in missing["rejected"][0]["rejection_reasons"])
+
+    valid = cp.rank_auction_shortlist(
+        pool,
+        [{**common, "matched": 300000, "unmatched": 0}],
+        limit=1,
+    )
+    assert [item["code"] for item in valid["shortlist"]] == ["sh600519"]
+
+
+def test_auction_shortlist_fail_closes_real_20260817_bad_factor_mix():
+    """2026-08-17 回放：量能缺失和研究车道都不能进入可交易短名单。"""
+    pool = _auction_pool(
+        {
+            "code": "sz002081",
+            "name": "金螳螂",
+            "daban_score": 98.79,
+            "trend_score": 78.79,
+            "selected_by": {"daban": True, "trend": False},
+        },
+        {
+            "code": "sh600001",
+            "name": "研究候选",
+            "daban_score": 96.0,
+            "trend_score": 95.0,
+            "trend_live_weight": 0.0,
+            "trend_lane_status": "research_only",
+            "selected_by": {"daban": False, "trend": True},
+        },
+        {
+            "code": "sh600002",
+            "name": "量能完整候选",
+            "daban_score": 60.0,
+            "trend_score": 65.0,
+            "daban_eligible": True,
+            "hot_money_qualified": True,
+            "selected_by": {"daban": True, "trend": False},
+        },
+    )
+    factors = [
+        {
+            "code": "sz002081",
+            "auction_gap_pct": -0.38,
+            "auction_max_gap_pct": 10.02,
+            "auction_price_decay_pct": 10.4,
+            "auction_volume": 0.0,
+            "prev_day_volume": None,
+            "auction_amount": 0.0,
+            "prev_day_amount": None,
+            "auction_bid_ask_ratio": 0.97,
+            "auction_net_bid_delta": 80662.0,
+            "is_yiziban": False,
+        },
+        {
+            "code": "sh600001",
+            "auction_gap_pct": 2.0,
+            "auction_volume": 30000.0,
+            "prev_day_volume": 1000000.0,
+            "matched": 3000000.0,
+            "unmatched": 0.0,
+            "auction_amount": 30000000.0,
+            "prev_day_amount": 1000000000.0,
+            "auction_bid_ask_ratio": 1.2,
+            "auction_net_bid_delta": 10000.0,
+            "is_yiziban": False,
+        },
+        {
+            "code": "sh600002",
+            "auction_gap_pct": 2.0,
+            "auction_volume": 30000.0,
+            "prev_day_volume": 1000000.0,
+            "matched": 3000000.0,
+            "unmatched": 0.0,
+            "auction_amount": 30000000.0,
+            "prev_day_amount": 1000000000.0,
+            "auction_bid_ask_ratio": 2.0,
+            "auction_net_bid_delta": 10000.0,
+            "is_yiziban": False,
+        },
+    ]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=2)
+
+    shortlisted = {item["code"] for item in result["shortlist"]}
+    assert "sz002081" not in shortlisted
+    assert "sh600001" not in shortlisted
+    assert "sh600002" in shortlisted
+    rejected = {item["code"]: item for item in result["rejected"]}
+    assert any("回落" in reason for reason in rejected["sz002081"]["rejection_reasons"])
+    assert any("研究" in reason for reason in rejected["sh600001"]["rejection_reasons"])
 
 
 def test_auction_prior_daban_alone_cannot_carry_a_weak_auction():
@@ -642,6 +777,10 @@ def test_auction_prior_daban_alone_cannot_carry_a_weak_auction():
             "auction_max_gap_pct": 3.0,
             "auction_price_decay_pct": 3.0,
             "auction_amount": 0,
+            "auction_volume": 1_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 100_000,
+            "unmatched": 0,
             "auction_bid_ask_ratio": 1.0,
             "auction_net_bid_delta": 0,
             "board_status": "flat_or_low_open",
@@ -653,6 +792,10 @@ def test_auction_prior_daban_alone_cannot_carry_a_weak_auction():
             "auction_max_gap_pct": 2.0,
             "auction_price_decay_pct": 0.0,
             "auction_amount": 30_000_000,
+            "auction_volume": 30_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 3_000_000,
+            "unmatched": 0,
             "auction_bid_ask_ratio": 2.0,
             "auction_net_bid_delta": 10_000,
             "board_status": "high_open",
@@ -669,8 +812,8 @@ def test_auction_prior_daban_alone_cannot_carry_a_weak_auction():
     assert by_code["sh600001"]["auction_score"] > by_code["sz002212"]["auction_score"]
 
 
-def test_auction_zero_volume_does_not_earn_median_amount_percentile():
-    """issue #140：竞价量能全为 0（免费源局限）时并列不得换来中位分位。"""
+def test_auction_zero_volume_fails_closed_instead_of_scoring():
+    """竞价量能全为 0 时必须拒绝，不得靠横截面分位数产生可交易分。"""
     pool = _auction_pool(*[
         {"code": f"sh6000{i:02d}", "name": f"零量能{i}", "daban_score": 80, "trend_score": 80}
         for i in range(4)
@@ -680,6 +823,8 @@ def test_auction_zero_volume_does_not_earn_median_amount_percentile():
             "code": f"sh6000{i:02d}",
             "auction_gap_pct": 2.0,
             "auction_amount": 0,
+            "auction_volume": 0,
+            "prev_day_volume": None,
             "auction_bid_ask_ratio": 2.0,
             "auction_net_bid_delta": 10_000,
             "board_status": "high_open",
@@ -688,16 +833,12 @@ def test_auction_zero_volume_does_not_earn_median_amount_percentile():
         for i in range(4)
     ]
 
-    shortlist = cp.rank_auction_shortlist(pool, factors, limit=20)["shortlist"]
-    with_volume = cp.rank_auction_shortlist(
-        pool,
-        [{**factor, "auction_amount": 30_000_000} for factor in factors],
-        limit=20,
-    )["shortlist"]
+    result = cp.rank_auction_shortlist(pool, factors, limit=20)
 
-    assert shortlist[0]["auction_score"] < with_volume[0]["auction_score"]
-    assert all("竞价量能为0" in note for item in shortlist
-               for note in [" ".join(item["auction_weakness_notes"])])
+    assert result["shortlist"] == []
+    assert len(result["rejected"]) == 4
+    assert all("量能关键字段" in reason for item in result["rejected"]
+               for reason in item["rejection_reasons"])
 
 
 def test_auction_degraded_book_halves_bid_and_delta_weight():
@@ -714,6 +855,10 @@ def test_auction_degraded_book_halves_bid_and_delta_weight():
                 "auction_gap_pct": 2.0,
                 "auction_price_decay_pct": 0.0,
                 "auction_amount": amount,
+                    "auction_volume": max(1, int(amount / 1000)),
+                    "prev_day_volume": 1_000_000,
+                    "matched": max(100, int(amount / 10)),
+                    "unmatched": 0,
                 "auction_bid_ask_ratio": ratio,
                 "auction_net_bid_delta": delta,
                 "board_status": "high_open",
@@ -747,6 +892,10 @@ def test_balanced_fill_does_not_revive_low_scoring_auction():
         "auction_gap_pct": 0.5,
         "auction_price_decay_pct": 3.0,
         "auction_amount": 0,
+        "auction_volume": 1_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 100_000,
+        "unmatched": 0,
         "auction_bid_ask_ratio": 1.0,
         "auction_net_bid_delta": 0,
         "board_status": "high_open",
@@ -793,6 +942,10 @@ def test_rejected_records_each_candidate_once(monkeypatch):
             "code": f"sh60{i:04d}",
             "auction_gap_pct": 2.0,
             "auction_amount": 20_000_000 - i * 100_000,
+            "auction_volume": 20_000 - i * 100,
+            "prev_day_volume": 1_000_000,
+            "matched": 2_000_000,
+            "unmatched": 0,
             "auction_bid_ask_ratio": 2.5,
             "auction_net_bid_delta": 10_000,
             "is_yiziban": False,
@@ -836,6 +989,10 @@ def test_rejected_still_records_candidates_that_only_missed_the_top_n():
             "code": f"sh60{i:04d}",
             "auction_gap_pct": 2.0,
             "auction_amount": 20_000_000 - i * 100_000,
+            "auction_volume": 20_000 - i * 100,
+            "prev_day_volume": 1_000_000,
+            "matched": 2_000_000,
+            "unmatched": 0,
             "auction_bid_ask_ratio": 2.5,
             "auction_net_bid_delta": 10_000,
             "is_yiziban": False,

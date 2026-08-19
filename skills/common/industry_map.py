@@ -132,6 +132,38 @@ def _norm_code(code: Any) -> str:
     return text.zfill(6) if text else ""
 
 
+# ── 新浪板块脏数据校正表 ──────────────────────────────────────────
+
+# 新浪行业板块的成分股列表存在历史脏点：000034 神州数码（IT 分销/云服务）
+# 被错误收进「煤炭行业」(new_mthy) 板块 —— 2026-08-17 实测同板块还混有
+# 安通控股/百花医药/退市游久等非煤股；而新浪自身的电子信息/电子器件板块
+# 都没有收录 000034，管线「首个枚举到的板块为主行业」于是把它标成煤炭行业。
+# 真实归属：东财行业板块 = IT服务Ⅱ、东财 EM2016 = 信息技术-计算机软件、
+# 证监会行业 = 批发业（IT 分销本质是批发贸易）。
+# 该表优先级高于任何数据源结果；新增条目必须附验证依据，禁止随手加。
+INDUSTRY_OVERRIDES: Dict[str, str] = {
+    "000034": "电子信息",
+}
+
+
+def apply_industry_overrides(mapping: Mapping[str, str]) -> Dict[str, str]:
+    """把校正表应用到 ``code -> 行业`` 映射（不修改入参）。
+
+    只修正**已存在**的归属（替换错值），不新增键 —— 校正表是纠错不是补全，
+    避免把不在映射里的代码塞进去虚增覆盖率与条数。
+    """
+    result: Dict[str, str] = {}
+    for code, name in mapping.items():
+        norm = _norm_code(code)
+        if norm:
+            result[norm] = str(name)
+    for raw_code, industry in INDUSTRY_OVERRIDES.items():
+        norm = _norm_code(raw_code)
+        if norm in result:
+            result[norm] = industry
+    return result
+
+
 # ── 默认数据源（真实，惰性导入，尊重环境代理）────────────────────
 
 def _fetch_text(
@@ -625,7 +657,7 @@ def refresh(
             f"（{covered}/{universe_count}）",
         )
 
-    merged = {**prior_map, **new_map}
+    merged = apply_industry_overrides({**prior_map, **new_map})
     payload = {
         "schema": SCHEMA,
         "asof": asof,
@@ -719,7 +751,11 @@ def load_cached(
         return {}
     data = read_json(cache_file, {})
     mapping = data.get("industry_by_code") if isinstance(data, Mapping) else {}
-    return {str(code): str(name) for code, name in (mapping or {}).items()}
+    # 读取时再兜底一遍校正表：即使缓存文件里已是脏值（旧版构建落盘的），
+    # 消费端拿到的也一定是修正后的归属，不必等下一个交易日的刷新。
+    return apply_industry_overrides(
+        {str(code): str(name) for code, name in (mapping or {}).items()}
+    )
 
 
 # ── CLI ──────────────────────────────────────────────────────────

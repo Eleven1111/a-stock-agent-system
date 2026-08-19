@@ -27,7 +27,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from a_stock_http import DataSourceError  # noqa: E402
-from market_adapters import fetch_tencent_snapshot  # noqa: E402
+from auction_data_provider import fetch_real_auction_snapshots  # noqa: E402
 from announcement_risk import scan_many  # noqa: E402
 from a_share_rules import add_trading_days  # noqa: E402
 import candidate_lifecycle  # noqa: E402
@@ -307,6 +307,15 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
         "limit_up": limit_up,
         "limit_down": limit_down,
         "auction_volume": round(volume, 1) if raw_volume is not None else None,
+        # easy_tdx 0x123D raw units are shares; retain them for the execution
+        # gate and audit while auction_volume remains lots for legacy formulas.
+        "matched": last.get("matched"),
+        "unmatched": last.get("unmatched"),
+        "auction_matched_shares": last.get("matched"),
+        "auction_unmatched_shares": last.get("unmatched"),
+        "auction_matched_unit": last.get("matched_unit", "share"),
+        "auction_unmatched_unit": last.get("unmatched_unit", "share"),
+        "auction_volume_unit": last.get("volume_unit", "lot"),
         "prev_day_volume": last.get("prev_day_volume"),
         "auction_amount": round(price * volume * 100, 0) if raw_volume is not None else None,
         "prev_day_amount": last.get("prev_day_amount"),
@@ -331,15 +340,65 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     }
 
 
-def take_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
-    """抓一次腾讯实时+五档，打上时间戳。"""
-    quotes: Dict[str, Dict[str, Any]] = {}
-    for index in range(0, len(codes), QUOTE_BATCH_SIZE):
-        quotes.update(fetch_tencent_snapshot(codes[index:index + QUOTE_BATCH_SIZE]))
-    now = datetime.now().strftime("%H:%M:%S")
-    for q in quotes.values():
-        q["t"] = now
-    return quotes
+def take_snapshot(
+    codes: List[str],
+    *,
+    asof: str | date | None = None,
+    previous_day_metrics: Mapping[str, Mapping[str, Any]] | None = None,
+    require_previous_day_metrics: bool = True,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """抓取 easy_tdx 0x123D 竞价序列并附昨日量能快照。
+
+    provider 已经按 09:15-09:25 返回逐时点数据；失败标的被丢弃，
+    由 finalize 的空/缺量门禁统一 fail-closed，不回退到免费五档。
+    """
+    kwargs = {"asof": asof or date.today()}
+    if previous_day_metrics is not None:
+        kwargs["previous_day_metrics"] = previous_day_metrics
+    if not require_previous_day_metrics:
+        kwargs["require_previous_day_metrics"] = False
+    snapshots, _failures = fetch_real_auction_snapshots(codes, **kwargs)
+    return snapshots
+
+
+def _previous_day_source_version(quotes: Mapping[str, Any]) -> str:
+    """Return an auditable version for the previous-day volume source."""
+    for quote in quotes.values():
+        rows = quote if isinstance(quote, list) else [quote]
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            provenance = row.get("prev_day_provenance")
+            if isinstance(provenance, Mapping) and provenance.get("provider") == "local_history":
+                return str(
+                    row.get("prev_day_source_version")
+                    or provenance.get("source_version")
+                    or "local-history-v1"
+                )
+            if row.get("prev_day_provider") == "local_history":
+                return str(row.get("prev_day_source_version") or "local-history-v1")
+    return "candidate-preopen-v1"
+
+
+def _merge_auction_series(
+    existing: Iterable[Mapping[str, Any]],
+    incoming: Iterable[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Merge cumulative provider responses without duplicating timepoints.
+
+    ``easy_tdx`` returns the complete series seen so far on every poll.  A
+    collector poll must therefore upsert by timestamp rather than append the
+    response wholesale; otherwise the repeated early points make the quality
+    coverage ratio collapse as the 09:25 close approaches.
+    """
+    by_time: Dict[str, Dict[str, Any]] = {}
+    for row in existing:
+        if isinstance(row, Mapping) and row.get("t"):
+            by_time[str(row["t"])] = dict(row)
+    for row in incoming:
+        if isinstance(row, Mapping) and row.get("t"):
+            by_time[str(row["t"])] = dict(row)
+    return [by_time[key] for key in sorted(by_time)]
 
 
 
@@ -360,8 +419,15 @@ def annotate_recall_snapshot(
         eligible_codes = _code_set(pool.get("auction_scan_codes") or [])
     annotated: Dict[str, Dict[str, Any]] = {}
     for raw_code, raw_quote in quotes.items():
-        quote = dict(raw_quote)
-        code = candidate_pipeline.naked_code(raw_quote.get("code") or raw_code)
+        if isinstance(raw_quote, list):
+            # The real provider returns a series; full-market recall stores
+            # only the latest point because it is intelligence-only and does
+            # not feed the executable shortlist.
+            quote = dict(raw_quote[-1]) if raw_quote else {}
+            quote["auction_series_count"] = len(raw_quote)
+        else:
+            quote = dict(raw_quote)
+        code = candidate_pipeline.naked_code(quote.get("code") or raw_code)
         quote["code"] = code
         target = is_recall_target_event(quote)
         outside = target and code not in prefilter_codes
@@ -470,7 +536,40 @@ def append_snapshot(
     full_universe: bool = False,
 ) -> Dict[str, Any]:
     """事务式把一次快照追加到当日状态文件（单锁 read-modify-write）。"""
-    raw_quotes = take_snapshot(codes)
+    try:
+        pool = load_watch_pool(asof)
+    except DataSourceError:
+        # Unit/replay callers may provide their own snapshot adapter. Production
+        # cron still has the candidate-preopen pool and uses it when available.
+        pool = {}
+    previous_day_metrics = {
+        candidate_pipeline.naked_code(item.get("code") or item.get("market_code")): {
+            "prev_day_volume": item.get("volume"),
+            "prev_day_amount": item.get("amount"),
+            "prev_day_date": asof,
+            "prev_day_provider": item.get("quote_source") or item.get("provider") or "candidate-preopen",
+            "prev_day_provenance": {
+                "provider": item.get("quote_source") or item.get("provider") or "candidate-preopen",
+                "dataset": "candidate_watch_pool_v1",
+                "date": asof,
+            },
+        }
+        for item in pool.get("candidates", [])
+        if (item.get("code") or item.get("market_code")) and item.get("volume")
+    }
+    if full_universe:
+        # The 09:24 full-market pass is intelligence-only. It must not fan out
+        # one historical K-line request per symbol or block the executable
+        # 500-name auction pool when the historical source is slow.
+        raw_quotes = take_snapshot(
+            codes, asof=asof, require_previous_day_metrics=False
+        )
+    elif previous_day_metrics:
+        raw_quotes = take_snapshot(
+            codes, asof=asof, previous_day_metrics=previous_day_metrics
+        )
+    else:
+        raw_quotes = take_snapshot(codes, asof=asof)
     if full_universe:
         # Intelligence-only annotation; it must never mutate the executable
         # candidate or auction pool.
@@ -484,7 +583,10 @@ def append_snapshot(
         trading_date=asof,
         batch_id=os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}",
         producer="auction-snapshot",
-        source_versions={"tencent": "tencent-adapter-v3"},
+        source_versions={
+            "auction": "easy_tdx_mac_0x123d",
+            "previous_day_volume": _previous_day_source_version(raw_quotes),
+        },
     )
     quotes = dict(input_snapshot["payload"]["quotes"])
     snapshot_ref = compact_ref(input_snapshot)
@@ -496,7 +598,12 @@ def append_snapshot(
         state["input_snapshots"] = refs[-20:]
         series = state.setdefault("series", {})
         for code, q in quotes.items():
-            series.setdefault(code, []).append(q)
+            if isinstance(q, list):
+                series[code] = _merge_auction_series(series.get(code, []), q)
+            else:
+                # Compatibility for old test/replay adapters returning one
+                # Tencent-style snapshot per code.
+                series[code] = _merge_auction_series(series.get(code, []), [q])
         if full_universe:
             state["full_market_snapshot_at"] = datetime.now().isoformat(timespec="seconds")
             state["full_market_snapshot_count"] = len(quotes)
@@ -600,7 +707,14 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     )
     result["schema"] = "auction_finalize_v2"
     result["asof"] = asof
-    result["status"] = "ready"
+    ranking_quality = result.get("auction_quality", {}).get("ranking_summary", {})
+    critical_volume_missing = int(ranking_quality.get("critical_volume_missing_count") or 0)
+    result["status"] = "degraded" if critical_volume_missing else "ready"
+    if critical_volume_missing:
+        result["collection_status"] = "insufficient_quality"
+        result["degraded_reasons"] = [
+            f"{critical_volume_missing} 只候选缺少竞价量能关键字段，拒绝输出可执行结论"
+        ]
     # 空短名单（弱市门禁清零候选池）时不得伪装成可执行结论：
     # research_only=True + decision_count=0 让下游明确区分"无机会"与"无观测"。
     result["research_only"] = len(result["shortlist"]) == 0
@@ -823,7 +937,11 @@ def _build_result(series: Dict[str, List[Dict[str, Any]]], asof: str) -> Dict[st
         "schema": "auction_factors_v1",
         "asof": asof,
         "generated_at": datetime.now().isoformat(),
-        "note": "免费腾讯五档竞价因子；撤单率类信号需 L2；阈值须经 chanlun-backtest 验证后方可实盘",
+        "note": (
+            "免费腾讯五档竞价因子；auction_score 为 0-100 启发式排序分，"
+            "不是涨停概率或收益概率；量能关键字段缺失时拒绝进入可交易短名单；"
+            "撤单率类信号需 L2；阈值须经 chanlun-backtest 验证后方可实盘"
+        ),
         "factors": factors,
         "auction_quality": quality,
         "auction_quality_report": quality,
@@ -867,6 +985,13 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "collection_status": result.get("collection_status"),
         "auction_quality": result.get("auction_quality") or result.get("auction_quality_report"),
         "auction_quality_report": result.get("auction_quality_report"),
+        "score_semantics": result.get(
+            "score_semantics", "heuristic_rank_score_not_probability"
+        ),
+        "score_label": result.get(
+            "score_label", "竞价启发式排序分（0-100，非涨停概率/收益概率）"
+        ),
+        "score_is_probability": False,
         "input_count": result.get("input_count"),
         "shortlist_count": result.get("shortlist_count", len(result.get("shortlist") or [])),
         "decision_count": result.get("decision_count", len(decisions)),
@@ -928,7 +1053,7 @@ def main() -> None:
         if not codes:
             parser.error("--once 需要 --codes")
         try:
-            series = {code: [snap] for code, snap in take_snapshot(codes).items()}
+            series = take_snapshot(codes, asof=args.asof)
         except DataSourceError as e:
             print(json.dumps({"error": str(e)}, ensure_ascii=False))
             sys.exit(1)

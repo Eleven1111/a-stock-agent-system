@@ -41,10 +41,54 @@ def test_orderbook_rejects_short_line():
     assert parse_tencent_orderbook_line('v_sz002156="1~name~002156"') is None
 
 
+def test_take_snapshot_uses_real_auction_provider(monkeypatch):
+    monkeypatch.setattr(
+        ac,
+        "fetch_real_auction_snapshots",
+        lambda codes, asof: (
+            {"600519": [{
+                "t": "09:25:00", "price": 1510.0, "matched": 3500,
+                "unmatched": 0, "volume": 35.0,
+                "prev_day_volume": 100000.0,
+                "provider": "easy_tdx_mac_0x123d",
+            }]},
+            {},
+        ),
+    )
+
+    assert ac.take_snapshot(["sh600519"]) == {
+        "600519": [{
+            "t": "09:25:00", "price": 1510.0, "matched": 3500,
+            "unmatched": 0, "volume": 35.0,
+            "prev_day_volume": 100000.0,
+            "provider": "easy_tdx_mac_0x123d",
+        }]
+    }
+
+
+def test_merge_auction_series_upserts_cumulative_provider_response():
+    existing = [
+        {"t": "09:15:00", "price": 10.0},
+        {"t": "09:20:00", "price": 10.1},
+    ]
+    incoming = [
+        {"t": "09:15:00", "price": 10.2},
+        {"t": "09:20:00", "price": 10.3},
+        {"t": "09:25:00", "price": 10.4},
+    ]
+
+    assert ac._merge_auction_series(existing, incoming) == [
+        {"t": "09:15:00", "price": 10.2},
+        {"t": "09:20:00", "price": 10.3},
+        {"t": "09:25:00", "price": 10.4},
+    ]
+
+
 def test_yiziban_detected_and_seal_ratio():
     snaps = [{
         "t": "09:24:50", "name": "通富微电", "price": 11.0, "prev_close": 10.0,
         "volume": 12000, "market_cap": 80.0,
+        "matched": 1200000, "unmatched": 0,
         "bids": [(11.0, 90000)] + [(None, None)] * 4,
         "asks": [(None, None)] * 5,
     }]
@@ -56,10 +100,25 @@ def test_yiziban_detected_and_seal_ratio():
     assert f["seal_amount_ratio_pct"] == round(90000 * 100 * 11.0 / (80.0e8) * 100, 3)
 
 
+def test_real_matched_unmatched_fields_are_preserved_in_factors():
+    f = ac.compute_auction_factors([{
+        "t": "09:25:00", "name": "真实竞价", "price": 11.0, "prev_close": 10.0,
+        "volume": 35.0, "matched": 3500, "unmatched": 1200,
+        "prev_day_volume": 100000.0,
+        "bids": [(11.0, 90000)], "asks": [(11.01, 1000)],
+    }], "sz002156")
+
+    assert f["matched"] == 3500
+    assert f["unmatched"] == 1200
+    assert f["auction_matched_shares"] == 3500
+    assert f["auction_unmatched_shares"] == 1200
+
+
 def test_high_open_bid_ask_ratio():
     snaps = [{
         "t": "09:20:00", "name": "北方稀土", "price": 21.5, "prev_close": 20.0,
         "volume": 30000, "market_cap": 300.0,
+        "matched": 3000000, "unmatched": 0,
         "bids": [(21.5, 4000), (21.49, 3000), (21.48, 2000), (21.47, 1000), (21.46, 800)],
         "asks": [(21.51, 6000), (21.52, 5000), (21.53, 4000), (21.54, 3000), (21.55, 2000)],
     }]
@@ -95,12 +154,14 @@ def test_build_result_shape():
     series = {"sz002156": [{
         "t": "09:25:00", "name": "通富微电", "price": 11.0, "prev_close": 10.0,
         "volume": 12000, "market_cap": 80.0,
+        "matched": 1200000, "unmatched": 0,
         "bids": [(11.0, 90000)] + [(None, None)] * 4, "asks": [(None, None)] * 5,
     }]}
     r = ac._build_result(series, "2026-06-04")
     assert r["schema"] == "auction_factors_v1"
     assert len(r["factors"]) == 1
     assert "chanlun-backtest" in r["note"]
+    assert "不是涨停概率" in r["note"]
 
 
 def test_load_watch_pool_rejects_stale_state(tmp_path, monkeypatch):
@@ -154,7 +215,7 @@ def test_full_universe_single_snapshot_keeps_pool_outsider_for_research(tmp_path
     monkeypatch.setattr(
         ac,
         "take_snapshot",
-        lambda codes: {
+        lambda codes, asof=None: {
             code: {
                 "t": "09:24:50",
                 "name": code,
@@ -172,13 +233,31 @@ def test_full_universe_single_snapshot_keeps_pool_outsider_for_research(tmp_path
     assert set(state["series"]) == {"sh600001", "sz000811"}
 
 
+def test_full_universe_recall_collapses_real_series_to_latest_point():
+    pool = {
+        "prefilter_codes": [],
+        "full_market_codes": ["600001"],
+    }
+    quotes = {
+        "600001": [
+            {"t": "09:15:00", "price": 10.0},
+            {"t": "09:25:00", "price": 10.2},
+        ],
+    }
+
+    annotated = ac.annotate_recall_snapshot(quotes, pool)
+
+    assert annotated["600001"]["t"] == "09:25:00"
+    assert annotated["600001"]["auction_series_count"] == 2
+
+
 
 def test_append_snapshot_consumes_immutable_input_snapshot(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(
         ac,
         "take_snapshot",
-        lambda codes: {
+        lambda codes, asof=None: {
             codes[0]: {
                 "t": "09:20:00",
                 "name": "测试股票",
@@ -194,6 +273,30 @@ def test_append_snapshot_consumes_immutable_input_snapshot(tmp_path, monkeypatch
 
     assert state["input_snapshots"][-1]["snapshot_id"].startswith("snap-")
     assert state["series"]["sh600001"][0]["price"] == 10.5
+
+
+def test_append_snapshot_marks_local_history_source_version(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        ac,
+        "take_snapshot",
+        lambda codes, asof=None: {
+            codes[0]: [{
+                "t": "09:25:00", "price": 10.5, "prev_day_volume": 1000,
+                "prev_day_provider": "local_history",
+                "prev_day_source_version": "local-history-v1",
+                "prev_day_provenance": {
+                    "provider": "local_history", "dataset": "daily_bars",
+                    "date": "2026-06-11", "source_version": "local-history-v1",
+                },
+            }]
+        },
+    )
+
+    state = ac.append_snapshot(["sh600001"], "2026-06-12")
+    snapshot = state["input_snapshots"][-1]
+
+    assert snapshot["source_versions"]["previous_day_volume"] == "local-history-v1"
 
 
 def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch):
@@ -248,6 +351,9 @@ def test_finalize_persists_dynamic_shortlist_and_lifecycle(tmp_path, monkeypatch
             "price": 10.5,
             "prev_close": 10.0,
             "volume": 20_000 - index * 100,
+            "matched": 2_000_000, "unmatched": 0,
+            "prev_day_volume": 1_000_000,
+            "prev_day_amount": 100_000_000,
             "market_cap": 100.0,
             "bids": [(10.5, 5_000)] * 5,
             "asks": [(10.51, 2_000)] * 5,
@@ -374,6 +480,8 @@ def test_finalize_marks_research_only_when_delivery_gate_clears_the_pool(tmp_pat
         f"sh{item['code']}": [{
             "t": "09:24:50", "name": item["name"], "price": 10.5, "prev_close": 10.0,
             "volume": 20_000 - index * 100, "market_cap": 100.0,
+            "matched": 2_000_000, "unmatched": 0,
+            "prev_day_volume": 1_000_000, "prev_day_amount": 100_000_000,
             "bids": [(10.5, 5_000)] * 5, "asks": [(10.51, 2_000)] * 5,
         }]
         for index, item in enumerate(candidates)
@@ -443,6 +551,8 @@ def test_json_report_passes_through_research_only_instead_of_hardcoding_false():
     assert report["status"] == "degraded"
     assert report["research_only"] is True
     assert report["degraded_reasons"] == degraded["degraded_reasons"]
+    assert report["score_is_probability"] is False
+    assert "非涨停概率" in report["score_label"]
     # 正常结果仍应是 False
     assert ac.json_report({"status": "ready", "shortlist": []})["research_only"] is False
 
@@ -498,6 +608,9 @@ def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch)
                 "price": 10.5,
                 "prev_close": 10.0,
                 "volume": 20_000,
+                "matched": 2_000_000, "unmatched": 0,
+                "prev_day_volume": 1_000_000,
+                "prev_day_amount": 100_000_000,
                 "market_cap": 100.0,
                 "bids": [(10.5, 5_000)] * 5,
                 "asks": [(10.51, 2_000)] * 5,
@@ -573,6 +686,9 @@ def test_finalize_passes_selection_market_risk_to_policy(tmp_path, monkeypatch):
                 "price": 10.5,
                 "prev_close": 10.0,
                 "volume": 20_000,
+                "matched": 2_000_000, "unmatched": 0,
+                "prev_day_volume": 1_000_000,
+                "prev_day_amount": 100_000_000,
                 "market_cap": 100.0,
                 "bids": [(10.5, 5_000)] * 5,
                 "asks": [(10.51, 2_000)] * 5,
@@ -626,6 +742,8 @@ def test_finalize_computes_real_discipline_state_from_ledger(tmp_path, monkeypat
             "sh600002": [{
                 "t": "09:24:50", "name": "候选票", "price": 10.5, "prev_close": 10.0,
                 "volume": 20_000, "market_cap": 100.0,
+                "matched": 2_000_000, "unmatched": 0,
+                "prev_day_volume": 1_000_000, "prev_day_amount": 100_000_000,
                 "bids": [(10.5, 5_000)] * 5, "asks": [(10.51, 2_000)] * 5,
             }],
         },

@@ -1,0 +1,16 @@
+{
+  "provider": "easy_tdx_mac_0x123d",
+  "code": "600519",
+  "unit": {
+    "price": "yuan",
+    "matched": "share",
+    "unmatched": "share"
+  },
+  "rows": [
+    {"time": "09:25:00", "price": 1510.0, "matched": 3500, "unmatched": 0},
+    {"time": "09:24:00", "price": 1509.5, "matched": 2800, "unmatched": 200},
+    {"time": "09:20:00", "price": 1505.0, "matched": 800, "unmatched": 1200},
+    {"time": "09:15:00", "price": 1500.0, "matched": 50, "unmatched": 2500},
+    {"time": "09:26:00", "price": 1511.0, "matched": 3600, "unmatched": 0}
+  ]
+}

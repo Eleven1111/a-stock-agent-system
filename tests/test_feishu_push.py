@@ -21,6 +21,16 @@ def test_empty_text_is_skipped(monkeypatch):
     assert result == {"status": "empty", "job_id": "event-calendar"}
 
 
+def test_exact_no_reply_is_skipped(monkeypatch):
+    monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
+    calls = _capture_text(monkeypatch)
+
+    result = feishu_push.push_text("event-calendar", "NO_REPLY")
+
+    assert result == {"status": "empty", "job_id": "event-calendar"}
+    assert calls == []
+
+
 def test_sends_via_lark_cli_when_configured(monkeypatch):
     monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
     calls = []

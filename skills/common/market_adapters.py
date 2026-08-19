@@ -37,7 +37,7 @@ LOGGER = logging.getLogger(__name__)
 
 ADAPTER_VERSIONS = {
     "resilient_market_data": "multi-source-market-adapter-v1",
-    "akshare_sina": "akshare-sina-adapter-v1",
+    "akshare_sina": "akshare-sina-adapter-v2",
     "akshare_tencent": "akshare-tencent-adapter-v1",
     "akshare_ths": "akshare-ths-adapter-v1",
     "adata": "adata-adapter-v1",
@@ -57,6 +57,24 @@ KNOWN_ADJUSTMENTS = {"qfq", "hfq", "unadjusted", "none"}
 KNOWN_DECISION_MODES = {"live", "replay"}
 
 _AKSHARE_PACE_SECONDS = 0.35
+# 新浪全A实时行情直连（替代 ak.stock_zh_a_spot）。2026-08-17 实测 akshare 封装
+# 有两个问题：① 返回前把原始响应里的 per/mktcap/nmc/turnoverratio 列名映射成
+# "_" 直接丢弃，导致下游 总市值/市盈率-动态 粗筛被跳过；② 内部 requests 无
+# 超时，新浪节流时整链挂死（"接口未返回"）。新浪 num 参数实测上限 100（传 500
+# 会被静默截断成 100 行）。
+_SINA_SPOT_URL = (
+    "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+    "Market_Center.getHQNodeData"
+)
+_SINA_SPOT_PAGE_SIZE = 100
+_SINA_SPOT_MAX_PAGES = 80
+_SINA_SPOT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://finance.sina.com.cn/",
+}
 _CACHE_SCHEMA = "market_adapter_cache_v1"
 # 东财板块代码形如 BK0477。同花顺的行业/概念码是 885xxx / 308xxx，喂给东财无效。
 _EASTMONEY_BOARD_CODE_RE = re.compile(r"^BK\d{4}$")
@@ -561,6 +579,91 @@ def _normalize_flow_records(records: list[dict[str, Any]]) -> list[dict[str, Any
     return output
 
 
+# ── 新浪全A实时行情直连（替代 ak.stock_zh_a_spot）─────────────────
+
+def _sina_spot_row_to_record(raw_row: Mapping[str, Any]) -> dict[str, Any]:
+    """新浪 getHQNodeData 单行 → 标准中文列（含 总市值/市盈率-动态）。
+
+    原始字段：per=市盈率(动态)、pb=市净率、mktcap=总市值(万元)、
+    nmc=流通市值(万元)、turnoverratio=换手率(%)。市值统一转成元，
+    与 eod_anomaly_scanner 的 ``MARKET_CAP_MIN_YI * 1e8`` 口径一致。
+    """
+    def _f(key: str) -> float | None:
+        value = raw_row.get(key)
+        try:
+            return float(value) if value not in (None, "", "-") else None
+        except (TypeError, ValueError):
+            return None
+
+    def _wan_to_yuan(key: str) -> float | None:
+        value = _f(key)
+        return value * 10000.0 if value is not None else None
+
+    return {
+        "代码": raw_row.get("symbol") or raw_row.get("code") or "",
+        "名称": raw_row.get("name") or "",
+        "最新价": _f("trade"),
+        "涨跌额": _f("pricechange"),
+        "涨跌幅": _f("changepercent"),
+        "买入": _f("buy"),
+        "卖出": _f("sell"),
+        "昨收": _f("settlement"),
+        "今开": _f("open"),
+        "最高": _f("high"),
+        "最低": _f("low"),
+        "成交量": _f("volume"),
+        "成交额": _f("amount"),
+        "时间戳": raw_row.get("ticktime") or "",
+        "市盈率-动态": _f("per"),
+        "市净率": _f("pb"),
+        "总市值": _wan_to_yuan("mktcap"),
+        "流通市值": _wan_to_yuan("nmc"),
+        "换手率": _f("turnoverratio"),
+    }
+
+
+def _sina_spot_page_fetcher(page: int, page_size: int) -> list[dict[str, Any]]:
+    """拉一页新浪全A行情（真实网络，带超时与重试）。"""
+    url = (
+        f"{_SINA_SPOT_URL}?page={page}&num={page_size}&sort=symbol&asc=1"
+        "&node=hs_a&symbol=&_s_r_a=page"
+    )
+    result = request_bytes(
+        url,
+        source="sina_spot_direct",
+        timeout=12,
+        max_attempts=2,
+        headers=_SINA_SPOT_HEADERS,
+        min_interval_seconds=_AKSHARE_PACE_SECONDS,
+    )
+    rows = json.loads(result.data or "[]")
+    if not isinstance(rows, list):
+        raise DataSourceError("sina_spot_direct", f"新浪全A行情第 {page} 页响应异常")
+    return [_sina_spot_row_to_record(row) for row in rows if isinstance(row, Mapping)]
+
+
+def _fetch_sina_spot(
+    page_fetcher: Callable[[int, int], Sequence[Mapping[str, Any]]] | None = None,
+    *,
+    page_size: int = _SINA_SPOT_PAGE_SIZE,
+    max_pages: int = _SINA_SPOT_MAX_PAGES,
+) -> list[dict[str, Any]]:
+    """分页拉全A实时行情，任一分页失败即整体失败（fail-closed 交给下一条链路）。
+
+    页返回不足 page_size 视为末页；``max_pages`` 是防御上限，防止新浪改接口后死循环。
+    """
+    fetcher = page_fetcher or _sina_spot_page_fetcher
+    records: list[dict[str, Any]] = []
+    for page in range(1, max_pages + 1):
+        page_records = [dict(row) for row in fetcher(page, page_size)]
+        records.extend(page_records)
+        if len(page_records) < page_size:
+            break
+    if not records:
+        raise DataSourceError("sina_spot_direct", "新浪全A行情为空")
+    return records
+
+
 def fetch_a_share_spot():
     """Fetch full-market A-share spot data without relying on push2 clist/get."""
     cache_key = "all"
@@ -570,10 +673,10 @@ def fetch_a_share_spot():
         return _records_frame(cached)
 
     def akshare_sina() -> list[dict[str, Any]]:
-        import akshare as ak
-
-        # stock_zh_a_spot is the Sina route; stock_zh_a_spot_em paginates push2.
-        records = _frame_records(ak.stock_zh_a_spot())
+        # 直连新浪 getHQNodeData（保留 总市值/市盈率-动态/换手率，带超时重试），
+        # 不再走 ak.stock_zh_a_spot：它会把原始响应里的这些字段改名成 "_" 丢弃，
+        # 且内部 requests 无超时，新浪节流时整链挂死（接口"未返回"）。
+        records = _fetch_sina_spot()
         time.sleep(_AKSHARE_PACE_SECONDS)
         return _normalize_spot_records(records)
 

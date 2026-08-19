@@ -107,6 +107,13 @@ def auction_digest(result: Mapping[str, Any], *, limit: int = 5) -> dict[str, An
     return {
         "schema": "auction_intelligence_v1",
         "research_only": True,
+        "score_semantics": result.get(
+            "score_semantics", "heuristic_rank_score_not_probability"
+        ),
+        "score_label": result.get(
+            "score_label", "竞价启发式排序分（0-100，非涨停概率/收益概率）"
+        ),
+        "score_is_probability": False,
         "full_market_factor_count": len(factors),
         "market_gainers": [mover(row) for row in gainers],
         "market_decliners": [mover(row) for row in decliners],

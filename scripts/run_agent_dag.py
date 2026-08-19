@@ -498,6 +498,18 @@ def _deliver_feishu_direct(
     stdout = str(artifact.get("stdout") or "")
     max_chars = max(200, int(job.get("max_output_chars") or 4000))
     text = feishu_push.render_artifact_text(artifact, max_chars)
+    if not text.strip():
+        if record_telemetry:
+            _record_target_output_telemetry(
+                job,
+                artifact,
+                delivered=False,
+                output_chars=0,
+                was_compressed=False,
+                silent_reason="empty_output",
+                telemetry_path=telemetry_path,
+            )
+        return False
     trace_ctx = {
         "trace_id": execution_trace.resolve_trace_id(create=False),
         "job_id": job_id,
@@ -574,6 +586,21 @@ def target_output(
         # lark-cli is unavailable). Its OpenClaw fallback must preserve the
         # same human-readable contract instead of leaking producer JSON.
         stdout = feishu_push.render_artifact_text(artifact, max_chars)
+    # A renderer may legitimately have nothing to say even when the producer
+    # marked the run as operationally successful. Never turn whitespace into
+    # an OpenClaw announce message: Feishu/Discord display it as a blank push.
+    if not stdout.strip():
+        if record_telemetry:
+            _record_target_output_telemetry(
+                job,
+                artifact,
+                delivered=False,
+                output_chars=0,
+                was_compressed=False,
+                silent_reason="empty_output",
+                telemetry_path=telemetry_path,
+            )
+        return "NO_REPLY\n"
     was_compressed = len(stdout) > max_chars
     if was_compressed:
         stdout = _compress_stdout(job, artifact, len(stdout))[:max_chars]

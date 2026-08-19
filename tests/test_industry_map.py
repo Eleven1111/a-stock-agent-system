@@ -1,5 +1,6 @@
 """全市场行业映射构建 / 缓存 / 注入 —— 纯逻辑单测（不触网）。"""
 
+import json
 import sys
 from datetime import date, timedelta
 
@@ -668,3 +669,69 @@ def test_baidu_fetcher_is_no_longer_the_default():
     """百度源 403 熔断后已降级为备用，默认必须是申万源。"""
     assert im._default_batch_industry_fetcher is not im._baidu_batch_industry_fetcher
     assert "get_industry_sw" in im._default_batch_industry_fetcher.__doc__
+
+
+# ── 新浪板块脏数据校正表 ─────────────────────────────────────────
+
+def test_apply_overrides_corrects_sina_junk_membership():
+    """000034 被新浪错放进煤炭板块时，校正表必须掰回电子信息。"""
+    mapping = {"000034": "煤炭行业", "601088": "煤炭行业", "000021": "电子信息"}
+    corrected = im.apply_industry_overrides(mapping)
+    assert corrected["000034"] == "电子信息"   # 脏归属被覆盖
+    assert corrected["601088"] == "煤炭行业"    # 真煤股不受影响
+    assert corrected["000021"] == "电子信息"    # 其它股票原样保留
+    assert mapping["000034"] == "煤炭行业"       # 入参不被修改
+
+
+def test_apply_overrides_normalizes_prefixed_codes():
+    corrected = im.apply_industry_overrides({"sz000034": "煤炭行业"})
+    assert corrected["000034"] == "电子信息"
+    assert "sz000034" not in corrected
+
+
+def _junk_boards():
+    return [("new_mthy", "煤炭行业"), ("new_dzxx", "电子信息")]
+
+
+def _junk_constituents(board_code):
+    table = {
+        "new_mthy": ["601088", "000034"],   # 000034 即新浪板块成分里的脏点
+        "new_dzxx": ["000021", "000063"],
+    }
+    return table[board_code]
+
+
+def test_refresh_persists_override_even_when_board_is_wrong(tmp_path):
+    """刷新时即使板块枚举把 000034 归进煤炭行业，落盘缓存也必须是修正值。"""
+    cache = tmp_path / "industry_map.json"
+    im.refresh(
+        "2026-08-17",
+        cache_file=str(cache),
+        boards_fetcher=_junk_boards,
+        constituents_fetcher=_junk_constituents,
+        gap_fill=False,
+        pace_seconds=0,
+    )
+    loaded = im.load_cached("2026-08-17", cache_file=str(cache))
+    assert loaded["000034"] == "电子信息"
+    assert loaded["601088"] == "煤炭行业"
+    assert loaded["000021"] == "电子信息"
+
+
+def _write_raw_cache(tmp_path, asof, mapping):
+    cache = tmp_path / "industry_map.json"
+    cache.write_text(
+        json.dumps({"schema": im.SCHEMA, "asof": asof, "industry_by_code": mapping}),
+        encoding="utf-8",
+    )
+    return str(cache)
+
+
+def test_load_cached_corrects_existing_bad_cache(tmp_path):
+    """旧版构建已落盘脏值（煤炭行业）时，读取端也要立刻修正，不必等下次刷新。"""
+    cache = _write_raw_cache(
+        tmp_path, "2026-08-17", {"000034": "煤炭行业", "601088": "煤炭行业"}
+    )
+    loaded = im.load_cached("2026-08-17", cache_file=cache)
+    assert loaded["000034"] == "电子信息"
+    assert loaded["601088"] == "煤炭行业"

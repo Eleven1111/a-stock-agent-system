@@ -31,6 +31,57 @@ def test_missing_package_short_circuits_client(monkeypatch):
     assert mootdx_adapter._MOOTDX_CLIENT_LOCK is False
 
 
+def test_client_factory_uses_best_server_and_bounded_timeout(monkeypatch):
+    import sys
+    import types
+
+    calls = {}
+
+    class FakeClient:
+        def quotes(self, **kwargs):
+            return {"code": kwargs.get("symbol", "000001")}
+
+    class FakeQuotes:
+        @staticmethod
+        def factory(**kwargs):
+            calls.update(kwargs)
+            return FakeClient()
+
+    fake_module = types.ModuleType("mootdx.quotes")
+    fake_module.Quotes = FakeQuotes
+    monkeypatch.setitem(sys.modules, "mootdx.quotes", fake_module)
+    monkeypatch.setattr(mootdx_adapter, "mootdx_available", lambda: True)
+    monkeypatch.setattr(mootdx_adapter, "_MOOTDX_CLIENT", None)
+
+    assert mootdx_adapter._get_client() is not None
+    assert calls["bestip"] is True
+    assert calls["timeout"] > 0
+    assert calls["market"] == "std"
+
+
+def test_failed_client_probe_is_cached_for_process(monkeypatch):
+    import sys
+    import types
+
+    calls = {"factory": 0}
+
+    class FakeQuotes:
+        @staticmethod
+        def factory(**kwargs):
+            calls["factory"] += 1
+            raise RuntimeError("simulated TCP failure")
+
+    fake_module = types.ModuleType("mootdx.quotes")
+    fake_module.Quotes = FakeQuotes
+    monkeypatch.setitem(sys.modules, "mootdx.quotes", fake_module)
+    monkeypatch.setattr(mootdx_adapter, "mootdx_available", lambda: True)
+    monkeypatch.setattr(mootdx_adapter, "_MOOTDX_CLIENT", None)
+
+    assert mootdx_adapter._get_client() is None
+    assert mootdx_adapter._get_client() is None
+    assert calls["factory"] == 1
+
+
 def test_missing_package_is_logged(monkeypatch, caplog):
     import builtins
 
