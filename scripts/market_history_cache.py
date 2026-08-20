@@ -9,15 +9,47 @@ contract's normalize/upsert operations.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack, redirect_stdout
 from datetime import date, datetime, timedelta
 import json
 import os
 from pathlib import Path
+import sys
+from time import monotonic
 from typing import Any, Iterable, Mapping
 
 from skills.common import local_market_history as history
 
 FULL_BACKFILL_START_DATE = "1990-01-01"
+
+#: How far back a never-cached symbol is seeded. The cache is a fallback for
+#: ``fetch_tencent_kline``, which only uses it when it holds at least the
+#: requested lookback; the deepest caller asks for 120 trading days, so ~240
+#: calendar days covers every consumer with margin. Fetching from
+#: ``FULL_BACKFILL_START_DATE`` instead costs ~17s per symbol — 24h for the
+#: whole exchange — which is why that is now an explicit ``--full-backfill``
+#: request rather than something an empty cache triggers by itself.
+BACKFILL_CALENDAR_DAYS = 240
+
+#: Fraction of the cron budget spent fetching. The rest is the margin the
+#: process needs to finish its upserts and print a result instead of being
+#: SIGKILLed with everything it learned still in memory.
+FETCH_BUDGET_RATIO = 0.8
+
+
+def fetch_budget_seconds() -> float | None:
+    """Wall-clock fetch budget, or ``None`` when running outside cron.
+
+    The single source of truth is the job runner's ``A_STOCK_JOB_TIMEOUT_SECONDS``
+    (itself the manifest's ``run.timeout_seconds``), so the budget cannot drift
+    away from the timeout that enforces it. A manual run has no budget.
+    """
+    raw = os.environ.get("A_STOCK_JOB_TIMEOUT_SECONDS")
+    try:
+        timeout = float(raw) if raw else 0.0
+    except (TypeError, ValueError):
+        return None
+    return timeout * FETCH_BUDGET_RATIO if timeout > 0 else None
 
 
 def _state_home() -> Path:
@@ -78,11 +110,31 @@ def _number(value: Any) -> float | None:
 
 
 def _start_date(latest: str | None, asof: str, *, full_backfill: bool = False) -> str:
+    """Where this symbol's fetch starts — decided per symbol, not per run.
+
+    A symbol with no cached bars needs a backfill window even when other
+    symbols are fully cached. Deciding this from a run-wide flag meant that
+    once *any* row existed, every never-fetched symbol started at ``asof`` and
+    could only ever hold a single bar — a gap that never closed and never
+    surfaced.
+    """
     if full_backfill:
         return FULL_BACKFILL_START_DATE
     if not latest:
-        return asof
+        start = datetime.strptime(asof, "%Y-%m-%d") - timedelta(days=BACKFILL_CALENDAR_DAYS)
+        return start.strftime("%Y-%m-%d")
     return (datetime.strptime(latest, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def fetch_order(selected: Iterable[str], latest: Mapping[str, str]) -> list[str]:
+    """Stalest symbols first, so a budget-bound run advances the frontier.
+
+    Iterating the universe in its natural order meant a run that ran out of
+    time always redid the same prefix, and the tail was never fetched at all.
+    Never-cached symbols sort first: a symbol with no bars is useless to the
+    consumers, while a symbol one day behind is nearly as good as current.
+    """
+    return sorted(selected, key=lambda code: (latest.get(code) or "", code))
 
 
 class BaoStockSession:
@@ -94,13 +146,27 @@ class BaoStockSession:
         except ImportError as exc:
             raise RuntimeError("baostock_not_installed") from exc
         self.bs = bs
-        login = bs.login()
-        if str(getattr(login, "error_code", "0")) != "0":
-            raise RuntimeError(f"baostock_login_failed:{getattr(login, 'error_msg', '')}")
+        # BaoStock prints "login success!" / "logout success!" straight to
+        # stdout. This job declares expected_output=json and the runner does
+        # json.loads() on the *whole* stdout, so that chatter meant the parse
+        # always failed and no market snapshot was ever written. Send it to
+        # stderr instead, where the logs still keep it.
+        stack = ExitStack()
+        stack.enter_context(redirect_stdout(sys.stderr))
+        with stack:
+            login = bs.login()
+            if str(getattr(login, "error_code", "0")) != "0":
+                raise RuntimeError(f"baostock_login_failed:{getattr(login, 'error_msg', '')}")
+            # Login succeeded: hand the redirect to the session so it stays in
+            # place for the queries. A failure above unwinds it with the block.
+            self._quiet = stack.pop_all()
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
-        self.bs.logout()
+        try:
+            self.bs.logout()
+        finally:
+            self._quiet.close()
 
     def fetch(self, code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
         """Fetch and normalize one stock; callers isolate errors per stock."""
@@ -164,16 +230,23 @@ def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: boo
     except Exception as exc:
         result.update(status="blocked", reason=f"history_cache_read_failed:{exc}")
         return result
-    if full_backfill is None:
-        full_backfill = result["cache_stats"].get("row_count", 0) == 0
-    result["full_backfill"] = bool(full_backfill)
+    full_backfill = bool(full_backfill)
+    result["full_backfill"] = full_backfill
+    ordered = fetch_order(selected, latest)
+    budget = fetch_budget_seconds()
+    deadline = None if budget is None else monotonic() + budget
+    result.update(budget_seconds=budget, processed=0, remaining=len(ordered),
+                  budget_exhausted=False)
     try:
         with BaoStockSession() as session:
-            for code in selected:
+            for index, code in enumerate(ordered):
+                if deadline is not None and monotonic() >= deadline:
+                    result["budget_exhausted"] = True
+                    break
                 try:
                     rows = fetch_baostock(
                         code,
-                        _start_date(latest.get(code), target_date, full_backfill=bool(full_backfill)),
+                        _start_date(latest.get(code), target_date, full_backfill=full_backfill),
                         target_date,
                         session=session,
                     )
@@ -182,12 +255,18 @@ def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: boo
                         result["upserted"] += history.upsert_daily_bars(rows)
                 except Exception as exc:  # one symbol must not abort the batch
                     result["failed"].append({"code": code, "reason": str(exc)})
+                result["processed"] = index + 1
+                result["remaining"] = len(ordered) - result["processed"]
     except RuntimeError as exc:
         result["failed"].append({"code": "*", "reason": str(exc)})
         result.update(status="blocked", reason=str(exc))
     result["cache_stats"] = history.cache_stats()
-    if result["failed"] and result["status"] == "ok":
+    if result["status"] == "ok" and (result["failed"] or result["budget_exhausted"]):
         result["status"] = "partial"
+    if result["budget_exhausted"]:
+        result["reason"] = (
+            f"budget_exhausted:{result['remaining']} symbols deferred to the next run"
+        )
     return result
 
 
