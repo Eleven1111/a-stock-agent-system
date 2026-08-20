@@ -238,3 +238,123 @@ class TestReport:
         assert report.index("## 1. 环境指纹") < report.index("## 2. Hermes")
         for heading in ("## 3. OpenClaw", "## 4. 作业注册漂移", "## 5. 证据摘录"):
             assert heading in report
+
+
+class TestDriftCharacterization:
+    """`section_drift` 的四条分支逐字定桩。
+
+    抽取结构化的 `collect_drift` 之前先把渲染结果钉死：日报是人读的，
+    换行与措辞变了没人会立刻发现，但排障时的可读性就是它的全部价值。
+    """
+
+    @staticmethod
+    def _manifest(tmp_path, jobs):
+        path = tmp_path / "manifest.json"
+        path.write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
+        return str(path)
+
+    def test_unreadable_manifest(self, tmp_path):
+        path = str(tmp_path / "missing.json")
+        assert dd.section_drift(path, {"available": True, "jobs": []}) == [
+            "## 4. 作业注册漂移",
+            "",
+            f"未能读取 manifest `{path}`。",
+            "",
+        ]
+
+    def test_openclaw_registry_unavailable(self, tmp_path):
+        path = self._manifest(tmp_path, [{"id": "a", "enabled": True}])
+        assert dd.section_drift(path, {"available": False}) == [
+            "## 4. 作业注册漂移",
+            "",
+            "manifest enabled 作业 **1** 个。",
+            "",
+            "未能读取 OpenClaw 注册表，跳过比对。",
+            "",
+        ]
+
+    def test_no_drift(self, tmp_path):
+        path = self._manifest(tmp_path, [
+            {"id": "a", "enabled": True},
+            {"id": "b", "enabled": False},
+        ])
+        openclaw = {"available": True, "jobs": [{"job_id": "A-stock: a"}]}
+        assert dd.section_drift(path, openclaw) == [
+            "## 4. 作业注册漂移",
+            "",
+            "manifest enabled 作业 **1** 个。",
+            "OpenClaw 注册 **1** 个。",
+            "",
+            "两边一致，无漂移。",
+            "",
+        ]
+
+    def test_drift_in_both_directions(self, tmp_path):
+        path = self._manifest(tmp_path, [
+            {"id": "a", "enabled": True},
+            {"id": "z", "enabled": True},
+        ])
+        openclaw = {"available": True, "jobs": [{"name": "A-stock: a"}, {"name": "ghost"}]}
+        assert dd.section_drift(path, openclaw) == [
+            "## 4. 作业注册漂移",
+            "",
+            "manifest enabled 作业 **2** 个。",
+            "OpenClaw 注册 **2** 个。",
+            "",
+            "**manifest 里 enabled 但 OpenClaw 未注册**（改了没同步注册？）：",
+            "",
+            "- `z`",
+            "",
+            "**OpenClaw 注册了但不在 manifest enabled 列表**"
+            "（非仓库作业，或 manifest 已下线）：",
+            "",
+            "- `ghost`",
+            "",
+        ]
+
+
+class TestCollectDrift:
+    """结构化结论：开盘前体检按它判 red/green，所以状态字段必须明确。"""
+
+    @staticmethod
+    def _manifest(tmp_path, jobs):
+        path = tmp_path / "manifest.json"
+        path.write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
+        return str(path)
+
+    def test_drift_is_reported_with_both_directions(self, tmp_path):
+        path = self._manifest(tmp_path, [
+            {"id": "a", "enabled": True},
+            {"id": "z", "enabled": True},
+        ])
+        drift = dd.collect_drift(
+            path, {"available": True, "jobs": [{"name": "A-stock: a"}, {"name": "ghost"}]}
+        )
+
+        assert drift["status"] == "drift"
+        assert drift["enabled_count"] == 2
+        assert drift["registered_count"] == 2
+        assert drift["missing"] == ["z"]
+        assert drift["extra"] == ["ghost"]
+        assert drift["unavailable_at"] is None
+
+    def test_clean_registration_is_ok(self, tmp_path):
+        path = self._manifest(tmp_path, [{"id": "a", "enabled": True}])
+        drift = dd.collect_drift(path, {"available": True, "jobs": [{"job_id": "a"}]})
+
+        assert drift["status"] == "ok"
+        assert drift["missing"] == drift["extra"] == []
+
+    def test_unavailable_says_which_side_could_not_be_read(self, tmp_path):
+        missing_manifest = dd.collect_drift(
+            str(tmp_path / "nope.json"), {"available": True, "jobs": [{"job_id": "a"}]}
+        )
+        assert missing_manifest["status"] == "unavailable"
+        assert missing_manifest["unavailable_at"] == "manifest"
+
+        path = self._manifest(tmp_path, [{"id": "a", "enabled": True}])
+        no_registry = dd.collect_drift(path, {"available": False})
+        assert no_registry["status"] == "unavailable"
+        assert no_registry["unavailable_at"] == "openclaw"
+        # 读不到注册表 != 没有漂移，不能让体检误判成绿
+        assert no_registry["missing"] == []

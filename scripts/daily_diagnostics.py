@@ -361,47 +361,82 @@ def section_openclaw(data: dict[str, Any]) -> list[str]:
 # 4. 注册漂移：manifest 与 OpenClaw 注册表比对
 # --------------------------------------------------------------------------- #
 
-def section_drift(manifest_path: str, openclaw: dict[str, Any]) -> list[str]:
-    """manifest 改了但注册没跟上，只在执行时才炸 —— 这正是 issue #142 的形态。"""
-    lines = ["## 4. 作业注册漂移", ""]
+def collect_drift(manifest_path: str, openclaw: dict[str, Any]) -> dict[str, Any]:
+    """结构化的注册漂移结论。
+
+    manifest 改了但注册没跟上，只在执行时才炸 —— 这正是 issue #142 的形态。
+    本函数只出结论不出版式，因为它有两个消费者：日报（23:10，人读）与开盘前
+    体检（08:05，机器判 red/green）。渲染留在 ``section_drift``。
+    """
+    result: dict[str, Any] = {
+        "schema": "job_registration_drift_v1",
+        "status": "unavailable",
+        "manifest_path": manifest_path,
+        "enabled_count": 0,
+        "registered_count": None,
+        "missing": [],
+        "extra": [],
+        "reason": None,
+        # 哪一步读不到 —— 渲染与体检都按这个分叉，不靠 reason 文案做判断
+        "unavailable_at": None,
+    }
     manifest = read_json(manifest_path, {})
     jobs = manifest.get("jobs") or []
     if not jobs:
-        return lines + [f"未能读取 manifest `{manifest_path}`。", ""]
+        result["unavailable_at"] = "manifest"
+        result["reason"] = f"未能读取 manifest `{manifest_path}`。"
+        return result
 
     enabled = {str(j.get("id")) for j in jobs if j.get("enabled")}
-    lines.append(f"manifest enabled 作业 **{len(enabled)}** 个。")
+    result["enabled_count"] = len(enabled)
 
     if not openclaw.get("available") or not openclaw.get("jobs"):
-        lines += ["", "未能读取 OpenClaw 注册表，跳过比对。", ""]
-        return lines
+        result["unavailable_at"] = "openclaw"
+        result["reason"] = "未能读取 OpenClaw 注册表，跳过比对。"
+        return result
 
     registered = set()
     for row in openclaw["jobs"]:
         name = _pick(row, "job_id", "name", "id")
         if name:
             registered.add(str(name))
-    lines.append(f"OpenClaw 注册 **{len(registered)}** 个。")
-    lines.append("")
+    result["registered_count"] = len(registered)
 
     # OpenClaw 的作业名可能带前缀（如 "A-stock: xxx"），只做包含式匹配，
     # 匹配不上的列出来让人判断，不自作主张认定为漂移。
-    missing = sorted(
+    result["missing"] = sorted(
         job for job in enabled
         if not any(job in reg for reg in registered)
     )
-    extra = sorted(
+    result["extra"] = sorted(
         reg for reg in registered
         if not any(job in reg for job in enabled)
     )
-    if missing:
+    result["status"] = "drift" if (result["missing"] or result["extra"]) else "ok"
+    return result
+
+
+def section_drift(manifest_path: str, openclaw: dict[str, Any]) -> list[str]:
+    """把 :func:`collect_drift` 的结论渲染成日报的一节。"""
+    lines = ["## 4. 作业注册漂移", ""]
+    drift = collect_drift(manifest_path, openclaw)
+    if drift["unavailable_at"] == "manifest":
+        return lines + [str(drift["reason"]), ""]
+    if drift["unavailable_at"] == "openclaw":
+        lines.append(f"manifest enabled 作业 **{drift['enabled_count']}** 个。")
+        return lines + ["", str(drift["reason"]), ""]
+
+    lines.append(f"manifest enabled 作业 **{drift['enabled_count']}** 个。")
+    lines.append(f"OpenClaw 注册 **{drift['registered_count']}** 个。")
+    lines.append("")
+    if drift["missing"]:
         lines += ["**manifest 里 enabled 但 OpenClaw 未注册**（改了没同步注册？）：", ""]
-        lines += [f"- `{job}`" for job in missing] + [""]
-    if extra:
+        lines += [f"- `{job}`" for job in drift["missing"]] + [""]
+    if drift["extra"]:
         lines += ["**OpenClaw 注册了但不在 manifest enabled 列表**"
                   "（非仓库作业，或 manifest 已下线）：", ""]
-        lines += [f"- `{job}`" for job in extra] + [""]
-    if not missing and not extra:
+        lines += [f"- `{job}`" for job in drift["extra"]] + [""]
+    if drift["status"] == "ok":
         lines += ["两边一致，无漂移。", ""]
     return lines
 
