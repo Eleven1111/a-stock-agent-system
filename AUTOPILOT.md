@@ -15,7 +15,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（66 个作业，当前 52 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（67 个作业，当前 53 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -71,7 +71,7 @@ A_STOCK_EXECUTION_TRACE=off
 | id | `auction-chain-watch`（`enabled: true`） |
 | 调度 | `35 9,10 * * 1-5`（09:35 竞价链应已收口，10:35 复查做双保险） |
 | 执行 | `python scripts/cron_failure_watch.py`（只读 artifact，不写业务状态） |
-| 推送 | `deliver: local`（2026-08-19 起飞书推送全仓停用，见下）；全绿时无输出，`silent_when_no_signal` 直接静默 |
+| 推送 | `deliver: feishu_direct`（2026-08-20 起两个故障告警作业放行回飞书，见下）；全绿时无输出，`silent_when_no_signal` 直接静默 |
 | 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
 
 存在理由：本机调度器 `Popen` fire-and-forget 起作业，**没有任何消费者读退出码**，
@@ -86,16 +86,66 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
   .venv/bin/python scripts/cron_failure_watch.py --json
 ```
 
-### 飞书推送全仓停用（2026-08-19）
+### 飞书推送：只放行故障告警（2026-08-19 全关 → 2026-08-20 放行两个）
 
-原先 7 个 `deliver: feishu_direct` 的作业（`auction-chain-watch`、`capital-flow`、
-`event-calendar`、`news-monitor`、`news-monitor-intraday`、`news-monitor-weekend`、
-`official-policy-watch`）已统一改为 `deliver: local`：**manifest 里现在没有任何
-飞书推送作业**，告警只落盘不外发，需要主动看 artifact 或诊断包。
+2026-08-19 把原先 7 个 `deliver: feishu_direct` 的作业全部改成 `local`。
+2026-08-20 放行回两个 **故障告警** 类作业，其余保持 `local`：
 
-恢复方式：把对应作业的 `deliver` 改回 `feishu_direct` 并配置 `A_STOCK_FEISHU_CHAT_ID`
-（未配置时 `feishu_push` 返回 `not_configured`，作业照常跑完、trace 记一条
-`delivery.failed not_configured`，不报错也不重试）。
+| 作业 | 现在 | 理由 |
+|---|---|---|
+| `auction-chain-watch` | `feishu_direct` | 它存在的全部理由就是链路挂掉时有人知道；只落盘等于它自己也不可见 |
+| `preopen-preflight` | `feishu_direct` | 开盘前拦不住人就等于没做（issue #239 验收标准 3） |
+| `capital-flow` / `event-calendar` / `news-monitor` / `news-monitor-intraday` / `news-monitor-weekend` / `official-policy-watch` | `local` | 资讯类，关掉的初衷是太吵，与「系统挂了要有人知道」是两回事 |
+
+两者都是 `silent_when_no_signal: true`：**全绿时一条都不推**。
+
+**必须配 `A_STOCK_FEISHU_CHAT_ID`**，否则 `feishu_push` 返回 `not_configured`，
+作业照常跑完、trace 记一条 `delivery.failed not_configured`，不报错也不重试 ——
+告警生成了却送不出去。`preopen-preflight` 的 `delivery` 检查项专门盯这件事：
+manifest 里有 enabled 的 `feishu_direct` 作业而 chat id 未配置时直接报红。
+
+### 开盘前体检（preopen-preflight）
+
+把仓库里早就有、却一个都没排期的体检脚本聚合成一个开盘前入口。
+issue #239 的验收标准之一：开盘前能自动发现注册漂移、推送未配置、
+模型认证/余额异常和网关端口冲突。
+
+| 项 | 值 |
+|---|---|
+| id | `preopen-preflight`（`enabled: true`） |
+| 调度 | `5 8 * * 1-5`（早于 08:20 的 `hot-money-context-backfill`） |
+| 执行 | `python scripts/preopen_preflight.py --json`（只读，不写业务状态） |
+| 推送 | `deliver: feishu_direct` + `silent_when_no_signal`：**全绿静默**，有红/黄才推 |
+| 超时 | 60s（`short` 档；本机实测含 easy_tdx 建连探测约 1.2s） |
+| 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
+
+六个检查项：
+
+| 项 | 查什么 | 红的条件 |
+|---|---|---|
+| `config` | 所有注册配置文件是否仍合法 | 校验未通过 |
+| `state` | 状态根身份、关键 JSON 可读 | 身份异常或 JSON 损坏（split brain 只报黄） |
+| `registration` | manifest ↔ OpenClaw 注册漂移 | 两边不一致（**读不到注册表报黄，不算绿**） |
+| `delivery` | 有 `feishu_direct` 作业时 chat id 是否已配 | 声明了推送但送不出去 |
+| `auction_sources` | easy_tdx / mootdx 可导入 + easy_tdx 建连 | easy_tdx 未安装（连不上只报黄，开盘可能恢复且链路有兜底） |
+| `gateway` | 网关日志里的 401 / 402 / EADDRINUSE | 出现任一类 |
+
+**返回码恒为 0**：体检发现问题不等于本次运行失败。返回非 0 会让 DAG 把它当失败
+依赖、反而挡住后面的链 —— 一个用来防止链路停摆的作业自己变成停摆的原因，
+是最糟糕的形态。红项通过 artifact 与推送送出去，不通过退出码。
+
+**模型认证/余额与端口冲突为什么只读日志**：本仓库不直接调用任何模型厂商 API
+（模型回合发生在 OpenClaw 网关侧），401/402/EADDRINUSE 只在网关日志里出现。
+凭空造一个厂商客户端来"探活"等于发明一个不存在的依赖。日志默认在 `/tmp/openclaw`，
+**重启即清空**，所以读不到就报黄。
+
+手动跑：
+
+```bash
+A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc \
+  .venv/bin/python scripts/preopen_preflight.py --json           # 完整体检
+.venv/bin/python scripts/preopen_preflight.py --json --no-probe  # 跳过 easy_tdx 建连
+```
 
 ### 每日运行诊断包归档（daily-diagnostics）
 

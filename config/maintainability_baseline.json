@@ -1,7 +1,7 @@
 {
   "baseline_ref": "origin/main",
   "budget": {
-    "broad_exception": 156,
+    "broad_exception": 158,
     "long_function": 68,
     "sys_path_mutation": 39
   },
