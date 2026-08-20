@@ -542,7 +542,13 @@ def load_watch_pool(event_asof: str | None = None) -> Dict[str, Any]:
         raise DataSourceError("candidate_pool", "动态观察池缺失或不可用，请先运行 candidate-discovery")
     # 弱市时 candidates 可能为空（research_only），但 auction_scan_codes 仍有数据
     # 此时不报错，让下游 auction_scan_codes() 自行回退
-    if not pool.get("candidates") and not pool.get("auction_scan_codes"):
+    if not (
+        pool.get("candidates")
+        or pool.get("research_candidates")
+        or pool.get("execution_candidates")
+        or pool.get("auction_scan_universe")
+        or pool.get("auction_scan_codes")
+    ):
         raise DataSourceError("candidate_pool", "动态观察池缺失或不可用，请先运行 candidate-discovery")
     if event_asof:
         try:
@@ -601,9 +607,14 @@ def watch_pool_staleness(pool: Mapping[str, Any], event_asof: str) -> Dict[str, 
 
 
 def watch_pool_codes(pool: Mapping[str, Any]) -> List[str]:
+    candidates = (
+        pool.get("execution_candidates")
+        if "execution_candidates" in pool
+        else pool.get("candidates", [])
+    )
     return [
         candidate_pipeline.market_code(item.get("code") or item.get("market_code"))
-        for item in pool.get("candidates", [])
+        for item in candidates or []
         if item.get("code") or item.get("market_code")
     ]
 
@@ -623,7 +634,9 @@ def auction_scan_codes(
     # The full-market 09:24 observation is separate from the bounded auction
     # pool.  Keep the old field as a fallback for legacy pool artifacts.
     source = (
-        pool.get("full_market_codes") or pool.get("auction_scan_codes")
+        pool.get("full_market_codes")
+        or pool.get("auction_scan_universe")
+        or pool.get("auction_scan_codes")
         if full_universe
         else None
     )
@@ -631,7 +644,7 @@ def auction_scan_codes(
         codes = watch_pool_codes(pool)
         if codes:
             return codes
-        source = pool.get("auction_scan_codes")
+        source = pool.get("auction_scan_universe") or pool.get("auction_scan_codes")
     if not source:
         return []
     return list(dict.fromkeys(
@@ -654,6 +667,11 @@ def append_snapshot(
         # Unit/replay callers may provide their own snapshot adapter. Production
         # cron still has the candidate-preopen pool and uses it when available.
         pool = {}
+    metric_candidates = (
+        pool.get("research_candidates")
+        if "research_candidates" in pool
+        else pool.get("candidates", [])
+    )
     previous_day_metrics = {
         candidate_pipeline.naked_code(item.get("code") or item.get("market_code")): {
             "prev_day_volume": item.get("volume"),
@@ -666,7 +684,7 @@ def append_snapshot(
                 "date": asof,
             },
         }
-        for item in pool.get("candidates", [])
+        for item in metric_candidates or []
         if (item.get("code") or item.get("market_code")) and item.get("volume")
     }
     pool_stale = watch_pool_staleness(pool, asof)
@@ -770,22 +788,46 @@ def _degraded_finalize(result: Dict[str, Any], asof: str, reason: str) -> Dict[s
         pool: Mapping[str, Any] = load_watch_pool(asof)
     except DataSourceError:
         pool = {}
+    research_candidates = list(pool.get("research_candidates") or [])
+    execution_candidates = list(
+        pool.get("execution_candidates")
+        if "execution_candidates" in pool
+        else pool.get("candidates") or []
+    )
+    auction_scan_count = int(
+        (pool.get("counts") or {}).get("auction_scan")
+        or pool.get("auction_scan_count")
+        or len(pool.get("auction_scan_universe") or pool.get("auction_scan_codes") or [])
+    )
+    market_intelligence = optional_market_intelligence_status()
     result.update({
         "schema": "auction_finalize_v2",
         "asof": asof,
         "status": "degraded",
+        "outcome_status": "failed_data",
+        "reason_code": "auction_collection_empty",
         "collection_status": "empty",
         "research_only": True,
         "degraded_reasons": [reason],
         "source_asof": pool.get("asof"),
-        "input_count": len(pool.get("candidates") or []),
+        "input_count": len(research_candidates),
+        "research_count": len(research_candidates),
+        "execution_input_count": len(execution_candidates),
+        "execution_count": 0,
+        "auction_scan_count": auction_scan_count,
         "factor_count": 0,
         "shortlist": [],
+        "research_candidates": [],
+        "execution_candidates": [],
         "shortlist_count": 0,
         "rejected": [],
         "preopen_decisions": [],
         "decision_count": 0,
         "discipline_state": None,
+        "rejection_reason_counts": {},
+        "gate": dict(pool.get("gate") or {}),
+        "market_intelligence": market_intelligence,
+        "market_intelligence_degraded": bool(market_intelligence.get("degraded")),
         "auction_quality": AuctionQuality({
             "status": "unavailable",
             "nonzero_rate": 0.0,
@@ -803,6 +845,39 @@ def _degraded_finalize(result: Dict[str, Any], asof: str, reason: str) -> Dict[s
     })
     _persist_shortlist(result, asof)
     return result
+
+
+def optional_market_intelligence_status() -> Dict[str, Any]:
+    """Describe the optional full-market enhancement without gating finalize."""
+    raw = os.environ.get("HERMES_CONTEXT_FROM") or ""
+    if not raw:
+        return {"status": "not_observed", "degraded": False, "reasons": []}
+    try:
+        entries = json.loads(raw)
+    except json.JSONDecodeError:
+        return {
+            "status": "degraded",
+            "degraded": True,
+            "reasons": ["optional_dependency_context_invalid"],
+        }
+    for entry in entries if isinstance(entries, list) else []:
+        if entry.get("job_id") != "auction-market-snapshot":
+            continue
+        status = str(entry.get("status") or "missing")
+        reasons = [str(item) for item in entry.get("reasons") or []]
+        degraded = status != "ok" or bool(reasons)
+        return {
+            "status": "market_intelligence_degraded" if degraded else "ok",
+            "degraded": degraded,
+            "upstream_status": status,
+            "reasons": reasons or ([f"status_{status}"] if degraded else []),
+        }
+    return {
+        "status": "market_intelligence_degraded",
+        "degraded": True,
+        "upstream_status": "missing",
+        "reasons": ["auction_market_snapshot_missing"],
+    }
 
 
 def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[str, Any]:
@@ -839,6 +914,10 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     )
     result["schema"] = "auction_finalize_v2"
     result["asof"] = asof
+    result["market_intelligence"] = optional_market_intelligence_status()
+    result["market_intelligence_degraded"] = bool(
+        result["market_intelligence"].get("degraded")
+    )
     ranking_quality = result.get("auction_quality", {}).get("ranking_summary", {})
     critical_volume_missing = int(ranking_quality.get("critical_volume_missing_count") or 0)
     result["status"] = "degraded" if critical_volume_missing else "ready"
@@ -862,6 +941,25 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
         if reason not in reasons:
             reasons.append(reason)
         result["degraded_reasons"] = reasons
+    if result["status"] == "degraded":
+        result["outcome_status"] = "failed_data"
+        if stale.get("stale"):
+            result["reason_code"] = "stale_candidate_pool"
+        elif critical_volume_missing:
+            result["reason_code"] = "auction_quality_insufficient"
+        else:
+            result["reason_code"] = "auction_collection_degraded"
+    elif result["shortlist"]:
+        result["outcome_status"] = "ok_with_candidates"
+        result["reason_code"] = "execution_candidates_available"
+    elif result.get("research_candidates"):
+        result["outcome_status"] = "ok_research_only"
+        result["reason_code"] = str(
+            (result.get("gate") or {}).get("status") or "execution_gate_filtered_all"
+        )
+    else:
+        result["outcome_status"] = "ok_no_actionable_candidates"
+        result["reason_code"] = "no_research_or_execution_candidates"
     top_candidates = list(result["shortlist"][:5])
     announcement_map = scan_many(
         candidate_pipeline.naked_code(item.get("code"))
@@ -1120,6 +1218,8 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
     report = {
         "schema": result.get("schema"),
         "status": result.get("status", "ready"),
+        "outcome_status": result.get("outcome_status"),
+        "reason_code": result.get("reason_code"),
         "asof": result.get("asof"),
         "generated_at": result.get("generated_at"),
         "source_asof": result.get("source_asof"),
@@ -1129,6 +1229,8 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "collection_status": result.get("collection_status"),
         "snapshot_failures": result.get("snapshot_failures"),
         "pool_stale": result.get("pool_stale"),
+        "market_intelligence": result.get("market_intelligence"),
+        "market_intelligence_degraded": bool(result.get("market_intelligence_degraded")),
         "auction_quality": result.get("auction_quality") or result.get("auction_quality_report"),
         "auction_quality_report": result.get("auction_quality_report"),
         "score_semantics": result.get(
@@ -1139,9 +1241,15 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         ),
         "score_is_probability": False,
         "input_count": result.get("input_count"),
+        "research_count": result.get("research_count", 0),
+        "execution_input_count": result.get("execution_input_count", 0),
+        "execution_count": result.get("execution_count", len(result.get("shortlist") or [])),
+        "auction_scan_count": result.get("auction_scan_count", 0),
         "shortlist_count": result.get("shortlist_count", len(result.get("shortlist") or [])),
         "decision_count": result.get("decision_count", len(decisions)),
         "discipline_state": result.get("discipline_state"),
+        "rejection_reason_counts": dict(result.get("rejection_reason_counts") or {}),
+        "gate": dict(result.get("gate") or {}),
         "top_candidates": [
             {
                 "code": item.get("code"),

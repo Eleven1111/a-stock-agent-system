@@ -174,7 +174,17 @@ def _auction_lines(result: Mapping[str, Any], asof: str) -> list[str]:
     lines = [
         f"## 集合竞价简报 | {asof}",
         f"全市场有效竞价因子：{digest['full_market_factor_count']}",
+        f"业务结果：{digest.get('outcome_status') or 'unknown'}｜"
+        f"研究{digest.get('research_count', 0)}｜执行{digest.get('execution_count', 0)}｜"
+        f"扫描{digest.get('auction_scan_count', 0)}",
     ]
+    if result.get("market_intelligence_degraded"):
+        reasons = "；".join(
+            str(item) for item in (result.get("market_intelligence") or {}).get("reasons") or []
+        )
+        lines.append("⚠️ 全市场增强情报降级，核心候选竞价收口不受影响")
+        if reasons:
+            lines.append(f"增强链原因：{reasons}")
     lines.extend(_degraded_lines(
         result,
         tail=f"collection_status={result.get('collection_status') or 'unknown'}，"
@@ -195,6 +205,25 @@ def _auction_lines(result: Mapping[str, Any], asof: str) -> list[str]:
             f"{_decision_label(item)}"
             for item in digest["high_daban_candidates"]
         )
+    lines.append("### 研究评分 TOP（research_only）")
+    if digest["research_top"]:
+        lines.extend(
+            f"- {_label(item)}：竞价分{_score(item, 'auction_score')}｜research_only"
+            for item in digest["research_top"]
+        )
+    else:
+        lines.append("- 无可用研究评分")
+    lines.append("### 可执行候选")
+    if digest["execution_candidates"]:
+        lines.extend(
+            f"- {_label(item)}：竞价分{_score(item, 'auction_score')}"
+            for item in digest["execution_candidates"]
+        )
+    else:
+        lines.append("- 无")
+        reasons = list((digest.get("gate") or {}).get("reasons") or [])
+        if reasons:
+            lines.append("- 原因：" + "；".join(str(item) for item in reasons))
     if digest["decisions"]:
         lines.append("### 买卖决策建议")
         for item in digest["decisions"]:
@@ -251,22 +280,35 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
         lines.extend([
             f"## 早盘情报简报 | {asof}",
             f"全市场{digest['scanned_count']}｜合格{digest['eligible_count']}｜"
-            f"深度池{digest['candidate_count']}｜竞价扫描预备{digest['auction_scan_count']}",
+            f"研究池{digest['research_count']}｜执行池{digest['execution_count']}｜"
+            f"竞价扫描预备{digest['auction_scan_count']}",
         ])
         lines.extend(_sector_momentum_lines())
-        lines.append("### 打板评分 TOP")
+        lines.append("### 研究评分 TOP（research_only）")
+        lines.append("#### 打板评分 TOP")
         lines.extend(
-            f"- {_label(item)}：{_score(item, 'daban_score')}"
+            f"- {_label(item)}：{_score(item, 'daban_score')}｜research_only"
             for item in digest["top_daban"]
         )
-        lines.append("### 趋势评分 TOP")
+        lines.append("#### 趋势评分 TOP")
         lines.extend(
-            f"- {_label(item)}：{_score(item, 'trend_score')}"
+            f"- {_label(item)}：{_score(item, 'trend_score')}｜research_only"
             for item in digest["top_trend"]
         )
-        if not digest["top_daban"] and not digest["top_trend"]:
-            lines.append("")
-            lines.append(_preopen_no_candidate_line(result))
+        lines.append("### 可执行候选")
+        if digest["execution_candidates"]:
+            lines.extend(
+                f"- {_label(item)}：打板{_score(item, 'daban_score')}｜"
+                f"趋势{_score(item, 'trend_score')}"
+                for item in digest["execution_candidates"]
+            )
+        else:
+            lines.append("- 无")
+            reasons = list((digest.get("gate") or {}).get("reasons") or [])
+            if reasons:
+                lines.append("- 原因：" + "；".join(str(item) for item in reasons))
+            else:
+                lines.append("- " + _preopen_no_candidate_line(result))
     elif stage == "auction":
         lines.extend(_auction_lines(result, asof))
     elif stage == "open":
@@ -280,7 +322,8 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
 def load_stage(stage: str, *, asof: str) -> dict[str, Any]:
     skill, filename = STAGE_PATHS[stage]
     result = read_json(data_file(skill, filename), {})
-    if not isinstance(result, dict) or result.get("status") != "ready":
+    accepted = {"ready"} if stage == "preopen" else {"ready", "degraded"}
+    if not isinstance(result, dict) or result.get("status") not in accepted:
         return {}
     if stage in {"auction", "open"} and str(result.get("asof") or "") != asof:
         return {}

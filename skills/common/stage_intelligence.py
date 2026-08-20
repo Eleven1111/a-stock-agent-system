@@ -29,6 +29,7 @@ def _compact(item: Mapping[str, Any]) -> dict[str, Any]:
             "auction_daban_score", "auction_trend_score", "auction_gap_pct",
             "open_rank", "open_score", "open_daban_score", "open_trend_score",
             "action", "decision", "board_status", "hot_money_qualified",
+            "research_only", "execution_action", "rejection_reasons",
         )
         if item.get(key) is not None
     }
@@ -61,16 +62,30 @@ def _decision_row(item: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def preopen_digest(result: Mapping[str, Any], *, limit: int = 10) -> dict[str, Any]:
-    candidates = list(result.get("candidates") or [])
+    research_candidates = list(
+        result.get("research_candidates")
+        if "research_candidates" in result
+        else result.get("candidates") or []
+    )
+    execution_candidates = list(
+        result.get("execution_candidates")
+        if "execution_candidates" in result
+        else result.get("candidates") or []
+    )
+    counts = dict(result.get("counts") or {})
     return {
         "schema": "preopen_intelligence_v1",
         "research_only": True,
         "scanned_count": int(result.get("scanned_count") or 0),
         "eligible_count": int(result.get("eligible_count") or 0),
-        "candidate_count": int(result.get("candidate_count") or len(candidates)),
-        "auction_scan_count": int(result.get("auction_scan_count") or 0),
-        "top_daban": _top(candidates, "daban_score", limit=limit),
-        "top_trend": _top(candidates, "trend_score", limit=limit),
+        "candidate_count": len(execution_candidates),
+        "research_count": int(counts.get("research", len(research_candidates))),
+        "execution_count": int(counts.get("execution", len(execution_candidates))),
+        "auction_scan_count": int(counts.get("auction_scan", result.get("auction_scan_count") or 0)),
+        "top_daban": _top(research_candidates, "daban_score", limit=limit),
+        "top_trend": _top(research_candidates, "trend_score", limit=limit),
+        "execution_candidates": [_compact(item) for item in execution_candidates[:limit]],
+        "gate": dict(result.get("gate") or {}),
     }
 
 
@@ -104,6 +119,22 @@ def auction_digest(result: Mapping[str, Any], *, limit: int = 5) -> dict[str, An
         for row in (result.get("shortlist") or [])
         if _num(row.get("daban_score")) >= 90
     ]
+    research_candidates = list(result.get("research_candidates") or [])
+    execution_candidates = list(
+        result.get("execution_candidates")
+        if "execution_candidates" in result
+        else result.get("shortlist") or []
+    )
+    outcome_status = result.get("outcome_status")
+    if not outcome_status:
+        if result.get("status") == "degraded":
+            outcome_status = "failed_data"
+        elif execution_candidates:
+            outcome_status = "ok_with_candidates"
+        elif research_candidates:
+            outcome_status = "ok_research_only"
+        else:
+            outcome_status = "ok_no_actionable_candidates"
     return {
         "schema": "auction_intelligence_v1",
         "research_only": True,
@@ -118,6 +149,14 @@ def auction_digest(result: Mapping[str, Any], *, limit: int = 5) -> dict[str, An
         "market_gainers": [mover(row) for row in gainers],
         "market_decliners": [mover(row) for row in decliners],
         "high_daban_candidates": _top(high_daban, "daban_score", limit=10),
+        "research_top": _top(research_candidates, "auction_score", limit=limit),
+        "execution_candidates": [_compact(item) for item in execution_candidates[:limit]],
+        "research_count": int(result.get("research_count") or len(research_candidates)),
+        "execution_count": int(result.get("execution_count") or len(execution_candidates)),
+        "auction_scan_count": int(result.get("auction_scan_count") or 0),
+        "outcome_status": outcome_status,
+        "reason_code": result.get("reason_code"),
+        "gate": dict(result.get("gate") or {}),
         "decisions": [_decision_row(row) for row in decisions[:10]],
     }
 

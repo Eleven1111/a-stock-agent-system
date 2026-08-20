@@ -1369,6 +1369,72 @@ def run_discovery(
                 "likely stale quotes, broken provider, or universe filter too tight"
             )
 
+    # Candidate contract v2 (additive over candidate_watch_pool_v1): keep the
+    # three meanings that used to be overloaded in ``candidates`` separate.
+    # ``candidates`` remains the execution-compatible alias so older consumers
+    # stay fail-closed while newer research/reporting consumers retain scores.
+    execution_candidates = list(result.get("candidates") or [])
+    execution_by_code = {
+        candidate_pipeline.naked_code(item.get("code")): item
+        for item in execution_candidates
+        if item.get("code")
+    }
+    research_limit = max(int(watch_limit), 200)
+    research_candidates: list[dict[str, Any]] = []
+    seen_research: set[str] = set()
+    for raw in [*execution_candidates, *evaluated]:
+        code = candidate_pipeline.naked_code(raw.get("code"))
+        if not code or code in seen_research:
+            continue
+        item = dict(raw)
+        if code in execution_by_code:
+            item.update(execution_by_code[code])
+        item["research_only"] = True
+        item["execution_action"] = "none"
+        research_candidates.append(item)
+        seen_research.add(code)
+        if len(research_candidates) >= research_limit:
+            break
+
+    auction_scan_universe = list(result.get("auction_scan_codes") or [])
+    weak_regime = bool(
+        (((selection_state or {}).get("market_timing") or {}).get("weak_market") or {}).get("weak_regime")
+    )
+    if weak_regime and not execution_candidates:
+        gate_status = "weak_market"
+    elif len(execution_candidates) < len(research_candidates):
+        gate_status = "filtered"
+    else:
+        gate_status = "ready"
+    gate_reasons = list(selection_state.get("reasons") or [])
+    if gate_status != "ready" and not gate_reasons:
+        gate_reasons = ["candidate_delivery_gate_filtered_research_pool"]
+
+    rejection_reason_counts = _reason_counts(result.get("rejected", {}))
+    for item in research_candidates:
+        code = candidate_pipeline.naked_code(item.get("code"))
+        if code in execution_by_code:
+            continue
+        reasons = list((item.get("delivery_quality") or {}).get("reasons") or gate_reasons)
+        for reason in reasons:
+            rejection_reason_counts[str(reason)] = rejection_reason_counts.get(str(reason), 0) + 1
+
+    result.update({
+        "research_candidates": research_candidates,
+        "execution_candidates": execution_candidates,
+        "auction_scan_universe": auction_scan_universe,
+        "research_count": len(research_candidates),
+        "execution_count": len(execution_candidates),
+        "auction_scan_count": len(auction_scan_universe),
+        "counts": {
+            "research": len(research_candidates),
+            "execution": len(execution_candidates),
+            "auction_scan": len(auction_scan_universe),
+        },
+        "gate": {"status": gate_status, "reasons": gate_reasons},
+        "rejection_reason_counts": rejection_reason_counts,
+    })
+
     _persist_pool(asof, result)
     atomic_write_json(hot_money_selection_file(), selection_state)
     # 候选池与它的 lifecycle 队列是同一个事实的两半，必须挨着落盘。此前
@@ -1499,6 +1565,24 @@ def format_report(result: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _top_candidate_report_rows(result: Mapping[str, Any]) -> list[dict[str, Any]]:
+    candidates = result.get("research_candidates") or result.get("candidates", [])
+    keys = (
+        "code", "name", "daban_rank", "daban_score",
+        "trend_rank", "trend_score", "strategy_id",
+        "sector", "sector_source", "industry", "industry_source",
+        "sector_rank", "sector_state",
+        "sector_evidence_count", "sector_evidence_types",
+        "sector_theme_confirmed", "sector_theme_attention_score",
+        "sector_flow_yi", "leader_rank", "leader_role",
+        "hot_money_qualified", "research_only", "execution_action",
+    )
+    return [
+        {key: item.get(key) for key in keys}
+        for item in candidates[:5]
+    ]
+
+
 def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
     selection = result.get("hot_money_selection") or {}
     timing = selection.get("market_timing") or {}
@@ -1552,23 +1636,16 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
             "reasons": list(selection.get("reasons") or []),
             "snapshot_id": (selection.get("snapshot") or {}).get("snapshot_id"),
         },
-        "rejection_reason_counts": _reason_counts(result.get("rejected", {})),
-        "top_candidates": [
-            {
-                key: item.get(key)
-                for key in (
-                    "code", "name", "daban_rank", "daban_score",
-                    "trend_rank", "trend_score", "strategy_id",
-                    "sector", "sector_source", "industry", "industry_source",
-                    "sector_rank", "sector_state",
-                    "sector_evidence_count", "sector_evidence_types",
-                    "sector_theme_confirmed", "sector_theme_attention_score",
-                    "sector_flow_yi",
-                    "leader_rank", "leader_role", "hot_money_qualified",
-                )
-            }
-            for item in result.get("candidates", [])[:5]
-        ],
+        "research_count": result.get("research_count", 0),
+        "execution_count": result.get("execution_count", result.get("candidate_count", 0)),
+        "auction_scan_count": result.get("auction_scan_count", 0),
+        "counts": dict(result.get("counts") or {}),
+        "gate": dict(result.get("gate") or {}),
+        "rejection_reason_counts": dict(
+            result.get("rejection_reason_counts")
+            or _reason_counts(result.get("rejected", {}))
+        ),
+        "top_candidates": _top_candidate_report_rows(result),
     }
     report["intelligence"] = stage_intelligence.preopen_digest(result)
     return report

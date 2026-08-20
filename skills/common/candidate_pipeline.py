@@ -1128,12 +1128,35 @@ def rank_auction_shortlist(
     configured_trend_weight = pool.get("trend_live_weight")
     live_trend_weight = resolve_trend_live_weight(configured_trend_weight)
     factor_by_code = _factor_map(factors)
+    if "research_candidates" in pool:
+        source_candidates = list(pool.get("research_candidates") or [])
+    else:
+        source_candidates = list(pool.get("candidates") or [])
+    if "execution_candidates" in pool:
+        execution_candidates = list(pool.get("execution_candidates") or [])
+    else:
+        execution_candidates = list(pool.get("candidates") or [])
+    execution_by_code = {
+        naked_code(item.get("code") or item.get("market_code")): dict(item)
+        for item in execution_candidates
+        if item.get("code") or item.get("market_code")
+    }
     rows: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
     critical_volume_rejections = 0
-    for raw in pool.get("candidates", []):
+    for raw in source_candidates:
         item = dict(raw)
         code = naked_code(item.get("code") or item.get("market_code"))
+        if code in execution_by_code:
+            # The research view deliberately labels every row research_only.
+            # Restore the separately admitted execution record only for codes
+            # present in execution_candidates; no research-only row can revive
+            # itself merely by scoring well in the auction.
+            item.update(execution_by_code[code])
+            item["research_only"] = False
+        else:
+            item["research_only"] = True
+            item["execution_action"] = "none"
         factor = factor_by_code.get(code)
         reasons = _auction_rejection_reasons(factor)
         volume_reasons = _auction_volume_rejection_reasons(factor)
@@ -1419,14 +1442,49 @@ def rank_auction_shortlist(
             "_source_daban_lane_status",
         ):
             item.pop(key, None)
+    research_candidates = []
+    for item in sorted(
+        rows,
+        key=lambda row: (-_num(row.get("auction_score")), row["code"]),
+    ):
+        research = {
+            **item,
+            "research_only": True,
+            "execution_action": "none",
+        }
+        for key in (
+            "_source_research_only",
+            "_source_trend_lane_status",
+            "_source_daban_lane_status",
+        ):
+            research.pop(key, None)
+        research_candidates.append(research)
+    rejection_reason_counts: Dict[str, int] = {}
+    for item in rejected:
+        for reason in item.get("rejection_reasons") or []:
+            text = str(reason)
+            rejection_reason_counts[text] = rejection_reason_counts.get(text, 0) + 1
+    auction_scan_count = int(
+        (pool.get("counts") or {}).get("auction_scan")
+        or pool.get("auction_scan_count")
+        or len(pool.get("auction_scan_universe") or pool.get("auction_scan_codes") or [])
+    )
     return {
         "schema": "auction_shortlist_v1",
         "source_asof": pool.get("asof"),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "input_count": len(pool.get("candidates", [])),
+        "input_count": len(source_candidates),
+        "research_count": len(research_candidates),
+        "execution_input_count": len(execution_candidates),
+        "execution_count": len(shortlist),
+        "auction_scan_count": auction_scan_count,
         "shortlist_count": len(shortlist),
         "shortlist": shortlist,
+        "research_candidates": research_candidates,
+        "execution_candidates": shortlist,
         "rejected": rejected,
+        "rejection_reason_counts": rejection_reason_counts,
+        "gate": dict(pool.get("gate") or {}),
         "score_semantics": AUCTION_SCORE_SEMANTICS,
         "score_label": AUCTION_SCORE_LABEL,
         "score_is_probability": False,

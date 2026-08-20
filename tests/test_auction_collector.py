@@ -1,6 +1,7 @@
 """集合竞价采集器 — 五档解析 + 真竞价因子计算（纯函数，不触网）"""
 
 import importlib.util
+import json
 from pathlib import Path
 
 from a_stock_http import parse_tencent_orderbook_line, _TENCENT_BID_BASE, _TENCENT_ASK_BASE
@@ -473,7 +474,15 @@ def test_finalize_marks_research_only_when_delivery_gate_clears_the_pool(tmp_pat
         for i in range(8)
     ]
     atomic_write_json(ac._pool_path(), {
-        "status": "ready", "asof": source_asof, "candidates": candidates,
+        "status": "ready",
+        "asof": source_asof,
+        "candidates": [],
+        "research_candidates": candidates,
+        "execution_candidates": [],
+        "auction_scan_universe": [f"sh{item['code']}" for item in candidates],
+        "auction_scan_codes": [f"sh{item['code']}" for item in candidates],
+        "counts": {"research": 8, "execution": 0, "auction_scan": 8},
+        "gate": {"status": "weak_market", "reasons": ["弱市交付门禁未通过"]},
     })
     candidate_lifecycle.initialize_day(source_asof, candidates)
     atomic_write_json(ac._state_path(event_asof), {"asof": event_asof, "series": {
@@ -491,11 +500,17 @@ def test_finalize_marks_research_only_when_delivery_gate_clears_the_pool(tmp_pat
 
     # 采集是成功的（8 只全部有观测并被逐项判定），但门禁清零了池子
     assert result["status"] == "ready"
+    assert result["outcome_status"] == "ok_research_only"
     assert result["input_count"] == 8
+    assert result["research_count"] == 8
+    assert result["execution_count"] == 0
     # 8 只全部落进 rejected（同一只可能被 fill 循环与末尾扫描各记一次，故按代码去重）
     assert len({str(item["code"])[-6:] for item in result["rejected"]}) == 8
     assert result["shortlist_count"] == 0
     assert result["shortlist"] == []
+    assert len(result["research_candidates"]) == 8
+    assert result["research_candidates"][0]["research_only"] is True
+    assert result["execution_candidates"] == []
     assert result["research_only"] is True
     assert result["preopen_decisions"] == []
     # 没有可交付候选就不得注册监控
@@ -555,6 +570,51 @@ def test_json_report_passes_through_research_only_instead_of_hardcoding_false():
     assert "非涨停概率" in report["score_label"]
     # 正常结果仍应是 False
     assert ac.json_report({"status": "ready", "shortlist": []})["research_only"] is False
+
+
+def test_json_report_exposes_nonordinary_business_outcome_for_zero_input():
+    report = ac.json_report({
+        "schema": "auction_finalize_v2",
+        "status": "ready",
+        "outcome_status": "ok_no_actionable_candidates",
+        "reason_code": "no_research_or_execution_candidates",
+        "input_count": 0,
+        "research_count": 0,
+        "execution_count": 0,
+        "auction_scan_count": 200,
+        "shortlist": [],
+        "research_candidates": [],
+        "execution_candidates": [],
+        "preopen_decisions": [],
+    })
+
+    assert report["outcome_status"] == "ok_no_actionable_candidates"
+    assert report["reason_code"] == "no_research_or_execution_candidates"
+    assert report["input_count"] == 0
+
+
+def test_optional_market_snapshot_failure_is_explicit_but_does_not_block_core_finalize(
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "HERMES_CONTEXT_FROM",
+        json.dumps([
+            {"job_id": "auction-snapshot", "status": "ok", "gate_status": "passed"},
+            {
+                "job_id": "auction-market-snapshot",
+                "status": "timeout",
+                "gate_status": "passed",
+                "reasons": [],
+            },
+        ]),
+    )
+
+    status = ac.optional_market_intelligence_status()
+
+    assert status["status"] == "market_intelligence_degraded"
+    assert status["degraded"] is True
+    assert status["upstream_status"] == "timeout"
+    assert status["reasons"] == ["status_timeout"]
 
 
 def test_finalize_preserves_mainline_strategy_attribution(tmp_path, monkeypatch):
