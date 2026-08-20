@@ -13,10 +13,14 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from data_access_config import storage_settings
+from gc_index import MISS, FactsIndex, index_path as gc_index_path, load_index
 from paths import hermes_home
 
 
 SNAPSHOT_SCHEMA = "market_snapshot_v1"
+
+SNAPSHOT_SECTION = "snapshots"
+REFERENCE_SECTION = "references"
 
 
 @dataclass(frozen=True)
@@ -60,31 +64,62 @@ def _read_json(path: Path) -> Any:
         return json.load(handle)
 
 
-def _scan_snapshots(root: Path) -> tuple[list[SnapshotEntry], list[str]]:
+def _snapshot_facts(path: Path) -> dict[str, str]:
+    """Read the retention-relevant metadata out of one snapshot file.
+
+    Raises for anything that is not a well-formed snapshot; the caller turns
+    that into an ``invalid`` entry, which is reported but never deleted.
+    """
+    record = _read_json(path)
+    if not isinstance(record, dict) or record.get("schema") != SNAPSHOT_SCHEMA:
+        raise ValueError("unsupported snapshot schema")
+    dataset = record.get("dataset")
+    captured_at = record.get("captured_at")
+    if not isinstance(dataset, str) or not dataset or not captured_at:
+        raise ValueError("missing snapshot metadata")
+    return {"dataset": dataset, "captured_at": str(captured_at)}
+
+
+def _scan_snapshots(
+    root: Path, index: FactsIndex | None = None
+) -> tuple[list[SnapshotEntry], list[str]]:
     entries: list[SnapshotEntry] = []
     invalid: list[str] = []
     if not root.exists():
         return entries, invalid
 
     for path in root.rglob("*.json"):
+        key = str(path)
         try:
-            record = _read_json(path)
-            if not isinstance(record, dict) or record.get("schema") != SNAPSHOT_SCHEMA:
-                raise ValueError("unsupported snapshot schema")
-            dataset = record.get("dataset")
-            captured_at = record.get("captured_at")
-            if not isinstance(dataset, str) or not dataset or not captured_at:
-                raise ValueError("missing snapshot metadata")
-            entries.append(
-                SnapshotEntry(
-                    path=path.resolve(strict=False),
-                    dataset=dataset,
-                    captured_at=_parse_datetime(captured_at),
-                    size=path.stat().st_size,
+            stat = path.stat()
+        except OSError:
+            invalid.append(key)
+            continue
+        facts: Any = MISS if index is None else index.get(SNAPSHOT_SECTION, key, stat)
+        if facts is MISS:
+            try:
+                facts = _snapshot_facts(path)
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                facts = None
+        try:
+            if facts is None:
+                invalid.append(key)
+            else:
+                entries.append(
+                    SnapshotEntry(
+                        path=path.resolve(strict=False),
+                        dataset=facts["dataset"],
+                        captured_at=_parse_datetime(facts["captured_at"]),
+                        size=stat.st_size,
+                    )
                 )
-            )
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            invalid.append(str(path))
+        except (KeyError, TypeError, ValueError):
+            # A cached fact that no longer parses is treated exactly like an
+            # unreadable snapshot: reported, never deleted.
+            invalid.append(key)
+            continue
+        if index is not None:
+            index.put(SNAPSHOT_SECTION, key, stat, facts)
     return entries, invalid
 
 
@@ -108,44 +143,71 @@ def _extract_snapshot_paths(
             _extract_snapshot_paths(child, references, state_home=state_home)
 
 
+def _read_references_into(path: Path, found: set[Path], *, state_home: Path) -> None:
+    """Fill ``found`` with the snapshot paths ``path`` references.
+
+    May raise partway through a ``.jsonl`` file, in which case ``found`` holds
+    the references read so far — and the caller keeps them. Dropping a partially
+    read file's references would un-protect snapshots that a corrupt tail of the
+    ledger has nothing to say about.
+    """
+    if path.suffix == ".jsonl":
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    _extract_snapshot_paths(
+                        json.loads(line), found, state_home=state_home
+                    )
+        return
+    _extract_snapshot_paths(_read_json(path), found, state_home=state_home)
+
+
 def _scan_recent_references(
     state_home: Path,
     snapshot_dir: Path,
     *,
     cutoff: datetime,
+    index: FactsIndex | None = None,
 ) -> tuple[set[Path], int]:
     references: set[Path] = set()
     scanned = 0
     if not state_home.exists():
         return references, scanned
 
+    # Skipped whether or not the index is in use, so that ``use_index=False``
+    # stays a true equivalent rather than a run that also scans the cache.
+    index_file = gc_index_path(state_home)
     for path in state_home.rglob("*"):
         if not path.is_file() or path.suffix not in {".json", ".jsonl"}:
             continue
         if _is_within(path, snapshot_dir):
             continue
         try:
-            modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
-            if modified < cutoff:
+            stat = path.stat()
+            if datetime.fromtimestamp(stat.st_mtime, timezone.utc) < cutoff:
                 continue
-            if path.suffix == ".jsonl":
-                with path.open("r", encoding="utf-8") as handle:
-                    for line in handle:
-                        if line.strip():
-                            _extract_snapshot_paths(
-                                json.loads(line),
-                                references,
-                                state_home=state_home,
-                            )
-            else:
-                _extract_snapshot_paths(
-                    _read_json(path),
-                    references,
-                    state_home=state_home,
-                )
-            scanned += 1
-        except (OSError, json.JSONDecodeError):
+        except OSError:
             continue
+        if path == index_file:
+            continue  # the cache never references snapshots; do not parse it
+
+        key = str(path)
+        cached = MISS if index is None else index.get(REFERENCE_SECTION, key, stat)
+        found: set[Path] = set()
+        if isinstance(cached, list):
+            found = {Path(item) for item in cached}
+        else:
+            try:
+                _read_references_into(path, found, state_home=state_home)
+            except (OSError, json.JSONDecodeError):
+                # Partially read: keep what was found, but never cache an
+                # incomplete fact set.
+                references |= found
+                continue
+        references |= found
+        if index is not None:
+            index.put(REFERENCE_SECTION, key, stat, sorted(str(item) for item in found))
+        scanned += 1
     return {
         path for path in references if _is_within(path, snapshot_dir)
     }, scanned
@@ -219,8 +281,14 @@ def cleanup_storage(
     settings: Mapping[str, Any] | None = None,
     now: datetime | None = None,
     apply: bool = False,
+    use_index: bool = True,
 ) -> dict[str, Any]:
-    """Plan or apply bounded storage cleanup without breaking recent lineage."""
+    """Plan or apply bounded storage cleanup without breaking recent lineage.
+
+    ``use_index`` memoises per-file facts across runs (see :mod:`gc_index`); it
+    is a pure cache, so the plan is identical either way and dry runs refresh it
+    too. Pass ``False`` to force a full re-read of every file.
+    """
     home = Path(state_home or hermes_home()).expanduser().resolve(strict=False)
     snapshot_dir = home / "market" / "snapshots"
     cron_dir = home / "cron" / "output"
@@ -230,12 +298,16 @@ def cleanup_storage(
     min_keep = int(policy["snapshot_min_keep_per_dataset"])
     max_snapshot_bytes = int(float(policy["snapshot_max_total_mb"]) * 1024 * 1024)
 
-    entries, invalid_files = _scan_snapshots(snapshot_dir)
+    index = load_index(gc_index_path(home)) if use_index else None
+    entries, invalid_files = _scan_snapshots(snapshot_dir, index)
     references, reference_files_scanned = _scan_recent_references(
         home,
         snapshot_dir,
         cutoff=current - timedelta(days=int(policy["reference_protection_days"])),
+        index=index,
     )
+    index_saved = index.save() if index is not None else False
+    index_stats = index.stats if index is not None else {"hits": 0, "misses": 0}
     counts = Counter(entry.dataset for entry in entries)
     selected: dict[Path, str] = {}
     protected_references = sum(entry.path in references for entry in entries)
@@ -346,6 +418,13 @@ def cleanup_storage(
             "archive_root": str(archive_root),
             "count": archived_count,
             "bytes": archived_bytes if apply else None,
+        },
+        "index": {
+            "enabled": index is not None,
+            "path": str(gc_index_path(home)),
+            "saved": index_saved,
+            "reused_facts": index_stats["hits"],
+            "read_files": index_stats["misses"],
         },
         "reclaimed_bytes": reclaimed,
         "remaining_snapshot_bytes": remaining_snapshot_bytes,

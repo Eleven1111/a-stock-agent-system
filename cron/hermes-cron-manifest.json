@@ -2606,6 +2606,7 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/market/snapshots/",
+        "$A_STOCK_STATE_HOME/market/.gc_index.json",
         "$A_STOCK_STATE_HOME/cron/output/"
       ],
       "run": {
@@ -2617,7 +2618,8 @@
         ],
         "cwd": ".",
         "timeout_seconds": 120,
-        "timeout_tier": "standard"
+        "timeout_tier": "standard",
+        "timeout_rationale": "\u7a33\u6001\u4e0b\u6309\u7f13\u5b58\u7684\u9010\u6587\u4ef6\u4e8b\u5b9e\u8dd1\uff0c2026-08-20 \u5b9e\u6d4b 2.9s\uff1b120s \u662f\u7ed9\u51b7\u542f\u52a8\u7559\u7684\u4f59\u91cf\uff08\u65b0\u673a\u5668/\u72b6\u6001\u91cd\u5efa/\u7d22\u5f15\u635f\u574f\u65f6\u9700\u5168\u91cf\u91cd\u8bfb\uff0c\u540c\u65e5\u5b9e\u6d4b 33.7s\uff09"
       },
       "external_note": "17:20 按中央保留策略清理过期输入快照、输出快照和 cron artifact；近期引用、每数据集最低副本和全局删除上限受保护"
     },

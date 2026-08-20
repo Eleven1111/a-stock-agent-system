@@ -1355,6 +1355,11 @@
       "expires_on": "2026-10-31",
       "reason": "preopen-preflight (PR issue #239 T4): the health-check guard must survive any single probe raising, and the easy_tdx TCP probe cannot enumerate its exception types",
       "violation_id": "1edc58c9bd354baa8fa3"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing 166-line cleanup_storage in a file modified by issue #239 T8 (snapshot-gc fact cache). The PR adds ~10 lines of cache wiring and does not restructure the deletion plan; splitting the function that decides what gets deleted is deferred to its own change so it can be reviewed on its own.",
+      "violation_id": "5d5bff98e8713dc4113a"
     }
   ]
 }
