@@ -1345,6 +1345,16 @@
       "expires_on": "2026-10-31",
       "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
       "violation_id": "2d8a2e8de0e5f580df81"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "preopen-preflight (PR issue #239 T4): the health-check guard must survive any single probe raising, and the easy_tdx TCP probe cannot enumerate its exception types",
+      "violation_id": "f73c7d58d875fe58b821"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "preopen-preflight (PR issue #239 T4): the health-check guard must survive any single probe raising, and the easy_tdx TCP probe cannot enumerate its exception types",
+      "violation_id": "1edc58c9bd354baa8fa3"
     }
   ]
 }
