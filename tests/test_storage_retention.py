@@ -3,10 +3,23 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+import gc_index
 import storage_retention
 
 
 NOW = datetime(2026, 6, 13, 9, 0, tzinfo=timezone.utc)
+
+
+def _backdate(path: Path, when: datetime) -> None:
+    """Give a file a settled mtime.
+
+    The fact cache refuses to memoise anything written within
+    ``gc_index.SETTLE_SECONDS`` of the wall clock, so a file a test just created
+    is deliberately uncacheable. Real snapshots are minutes-to-days old by the
+    time the 17:20 GC sees them; backdating restores that shape.
+    """
+    stamp = when.timestamp()
+    os.utime(path, (stamp, stamp))
 
 
 def _write_snapshot(
@@ -31,6 +44,7 @@ def _write_snapshot(
         }),
         encoding="utf-8",
     )
+    _backdate(path, datetime.fromisoformat(captured_at))
     Path(f"{path}.lock").touch()
     return path
 
@@ -304,3 +318,272 @@ def test_gc_does_not_archive_cron_artifacts(tmp_path):
     assert not artifact.exists()
     assert result["deleted"]["cron_artifacts"] == 1
     assert result["archived"]["count"] == 0
+
+
+# --------------------------------------------------------------------------
+# Fact-cache behaviour.
+#
+# The cache exists to stop the GC re-parsing the whole snapshot corpus every
+# day (2.4 GB / 33.7 s against a 120 s budget on 2026-08-05). Every test below
+# asserts what the GC *does* — files read, snapshots kept, plan produced — not
+# that a cache file appeared. A cache that is written but never consulted, or
+# consulted after the file changed, would pass a config-shaped test and fail
+# every one of these.
+# --------------------------------------------------------------------------
+
+
+def _counting_reader(monkeypatch):
+    """Count real file reads so 'the cache is used' is an observation, not a claim."""
+    reads: list[str] = []
+    original = storage_retention._read_json
+
+    def _spy(path):
+        reads.append(str(path))
+        return original(path)
+
+    monkeypatch.setattr(storage_retention, "_read_json", _spy)
+    return reads
+
+
+def _corpus(root: Path) -> dict[str, Path]:
+    expired = _write_snapshot(
+        root,
+        dataset="candidate-discovery-input",
+        snapshot_id="expired",
+        captured_at="2026-05-01T09:00:00+00:00",
+    )
+    referenced = _write_snapshot(
+        root,
+        dataset="candidate-discovery-input",
+        snapshot_id="referenced",
+        captured_at="2026-05-02T09:00:00+00:00",
+    )
+    recent = _write_snapshot(
+        root,
+        dataset="candidate-discovery-input",
+        snapshot_id="recent",
+        captured_at="2026-06-12T09:00:00+00:00",
+    )
+    broken = root / "market" / "snapshots" / "2026-01-01" / "misc" / "broken.json"
+    broken.parent.mkdir(parents=True, exist_ok=True)
+    broken.write_text("{not-json", encoding="utf-8")
+    _backdate(broken, NOW)
+    state_path = root / "agent_state" / "agent_state_latest.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps({"input_snapshot": {"snapshot_path": str(referenced)}}),
+        encoding="utf-8",
+    )
+    _backdate(state_path, NOW)
+    return {
+        "expired": expired,
+        "referenced": referenced,
+        "recent": recent,
+        "broken": broken,
+        "state": state_path,
+    }
+
+
+def _plan(root: Path, **overrides):
+    return storage_retention.cleanup_storage(
+        state_home=root,
+        settings=_settings(**overrides.pop("settings", {})),
+        now=NOW,
+        apply=False,
+        **overrides,
+    )
+
+
+def _comparable(result):
+    return {key: value for key, value in result.items() if key != "index"}
+
+
+def test_second_run_reuses_facts_instead_of_rereading_the_corpus(tmp_path, monkeypatch):
+    _corpus(tmp_path)
+
+    first = _plan(tmp_path)
+    reads = _counting_reader(monkeypatch)
+    second = _plan(tmp_path)
+
+    assert first["index"]["read_files"] > 0
+    assert second["index"]["read_files"] == 0
+    assert second["index"]["reused_facts"] == first["index"]["read_files"]
+    assert reads == []
+
+
+def test_the_cached_plan_is_identical_to_the_freshly_derived_one(tmp_path):
+    _corpus(tmp_path)
+
+    cold = _plan(tmp_path)
+    warm = _plan(tmp_path)
+    uncached = _plan(tmp_path, use_index=False)
+
+    assert _comparable(warm) == _comparable(cold)
+    assert _comparable(uncached) == _comparable(cold)
+
+
+def test_a_rewrite_of_the_same_length_is_not_served_from_the_cache(tmp_path):
+    """The nastiest staleness case: size unchanged, content different.
+
+    Datasets ending in ``-input`` expire after 7 days here, everything else
+    after 365, so mistaking one for the other flips this file between deleted
+    and kept — while its size on disk never changes.
+    """
+    policy = {"snapshot_min_keep_per_dataset": 0, "snapshot_output_retention_days": 365}
+    path = _write_snapshot(
+        tmp_path,
+        dataset="candidate-discovery-input",
+        snapshot_id="rewritten",
+        captured_at="2026-05-01T09:00:00+00:00",
+    )
+    original_size = path.stat().st_size
+    assert _plan(tmp_path, settings=policy)["deleted"]["expired_snapshots"] == 1
+
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["dataset"] = "candidate-discovery-outpu"  # same length as "-input"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    _backdate(path, NOW)
+    assert path.stat().st_size == original_size, "the test needs a same-size rewrite"
+
+    after = _plan(tmp_path, settings=policy)
+
+    assert after["deleted"]["expired_snapshots"] == 0
+
+
+def test_a_file_written_moments_ago_is_never_memoised(tmp_path, monkeypatch):
+    """mtime granularity is a filesystem promise, not a guarantee.
+
+    A file whose mtime is within the settle window may still be rewritten at the
+    same apparent mtime and size, so its facts must be re-derived every run.
+    """
+    _write_snapshot(
+        tmp_path,
+        dataset="global-preopen",
+        snapshot_id="fresh",
+        captured_at="2026-06-12T09:00:00+00:00",
+    )
+    fresh = tmp_path / "market" / "snapshots" / "2026-01-01" / "global-preopen" / "fresh.json"
+    os.utime(fresh, None)  # now
+
+    _plan(tmp_path)
+    reads = _counting_reader(monkeypatch)
+    second = _plan(tmp_path)
+
+    assert str(fresh) in reads
+    assert second["index"]["read_files"] == 1
+
+
+def test_referenced_snapshot_stays_protected_on_the_cached_run(tmp_path):
+    files = _corpus(tmp_path)
+
+    _plan(tmp_path)
+    warm = storage_retention.cleanup_storage(
+        state_home=tmp_path, settings=_settings(), now=NOW, apply=True
+    )
+
+    assert files["referenced"].exists()
+    assert warm["protected"]["referenced_snapshots"] == 1
+    assert not files["expired"].exists()
+
+
+def test_a_corrupt_index_falls_back_to_reading_every_file(tmp_path, monkeypatch):
+    _corpus(tmp_path)
+    expected = _comparable(_plan(tmp_path))
+    index = gc_index.index_path(tmp_path)
+    index.write_text("{ this is not json", encoding="utf-8")
+
+    reads = _counting_reader(monkeypatch)
+    result = _plan(tmp_path)
+
+    assert _comparable(result) == expected
+    assert reads, "a corrupt index must degrade to slow-and-correct, not to trusting it"
+
+
+def test_an_index_from_a_future_version_is_ignored(tmp_path):
+    _corpus(tmp_path)
+    expected = _comparable(_plan(tmp_path))
+    index = gc_index.index_path(tmp_path)
+    payload = json.loads(index.read_text(encoding="utf-8"))
+    payload["version"] = gc_index.INDEX_VERSION + 1
+    index.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = _plan(tmp_path)
+
+    assert _comparable(result) == expected
+    assert result["index"]["reused_facts"] == 0
+
+
+def test_vanished_files_do_not_accumulate_in_the_index(tmp_path):
+    files = _corpus(tmp_path)
+    storage_retention.cleanup_storage(
+        state_home=tmp_path, settings=_settings(), now=NOW, apply=True
+    )
+    assert not files["expired"].exists()
+
+    _plan(tmp_path)
+    sections = json.loads(
+        gc_index.index_path(tmp_path).read_text(encoding="utf-8")
+    )["sections"]
+
+    assert str(files["expired"]) not in sections["snapshots"]
+    assert str(files["recent"]) in sections["snapshots"]
+
+
+def test_the_index_is_neither_scanned_as_a_snapshot_nor_charged_to_the_size_cap(tmp_path):
+    _corpus(tmp_path)
+    _plan(tmp_path)
+    second = _plan(tmp_path)
+    index = gc_index.index_path(tmp_path)
+
+    assert index.exists()
+    assert not storage_retention._is_within(index, tmp_path / "market" / "snapshots")
+    assert second["scanned"]["invalid_snapshots"] == 1  # only the deliberate broken.json
+    assert second["invalid_snapshot_paths"] == [str(tmp_path / "market" / "snapshots"
+                                                    / "2026-01-01" / "misc" / "broken.json")]
+    assert second["scanned"]["reference_files"] == 1  # the state file, not the index
+
+
+def test_gc_still_runs_when_the_index_cannot_be_written(tmp_path):
+    """Losing the cache costs one slow run. It must never cost the GC itself."""
+    files = _corpus(tmp_path)
+    market = tmp_path / "market"
+    market.chmod(0o555)
+    try:
+        result = storage_retention.cleanup_storage(
+            state_home=tmp_path, settings=_settings(), now=NOW, apply=True
+        )
+    finally:
+        market.chmod(0o755)
+
+    assert result["index"]["saved"] is False
+    assert not gc_index.index_path(tmp_path).exists()
+    assert result["deleted"]["expired_snapshots"] == 1
+    assert files["referenced"].exists()
+    assert not files["expired"].exists()
+
+
+def test_a_truncated_ledger_keeps_the_references_it_did_yield(tmp_path):
+    """A corrupt tail must not silently un-protect what the good lines named."""
+    referenced = _write_snapshot(
+        tmp_path,
+        dataset="candidate-discovery-input",
+        snapshot_id="referenced",
+        captured_at="2026-05-01T09:00:00+00:00",
+    )
+    ledger = tmp_path / "signals" / "signal_ledger.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_text(
+        json.dumps({"snapshot_path": str(referenced)}) + "\n{ truncated",
+        encoding="utf-8",
+    )
+    _backdate(ledger, NOW)
+
+    result = _plan(tmp_path, settings={"snapshot_min_keep_per_dataset": 0})
+
+    assert result["protected"]["referenced_snapshots"] == 1
+    assert result["deleted"]["expired_snapshots"] == 0
+    # A partially read file is never memoised, so the next run tries again.
+    sections = json.loads(
+        gc_index.index_path(tmp_path).read_text(encoding="utf-8")
+    )["sections"]
+    assert str(ledger) not in sections.get("references", {})
