@@ -154,8 +154,8 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc \
 | id | `daily-diagnostics`（`enabled: true`） |
 | 调度 | `10 23 * * *`，`trading_day_policy: calendar_day`（**非交易日也跑**） |
 | 执行 | `python scripts/daily_diagnostics.py --archive`（纯只读聚合） |
-| 产出 | `$A_STOCK_STATE_HOME/diagnostics/<日期>.md`，**滚动保留 30 天** |
-| 推送 | `deliver: local`；回给调度器的只有一行摘要（报告本体在磁盘上） |
+| 产出 | `$A_STOCK_STATE_HOME/diagnostics/<日期>.md` + 同名 `.json`，**滚动保留 30 天** |
+| 推送 | `deliver: origin`；回给调度器的只有一行摘要（报告本体在磁盘上） |
 | 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
 
 存在理由：系统跑在两个互相看不见的 Agent 里（OpenClaw 网关 + Hermes 调度器），
@@ -164,6 +164,19 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc \
 
 **非交易日也跑是刻意的**：调度器整体停摆这种故障，恰恰只能从「非交易日也没有
 报告」看出来；只在交易日跑的话，周末停摆到周一才会暴露。
+
+**Markdown 给人读，`.json` 给聚合读。** 单日报告永远回答不了「问题有没有真的
+收敛」，所以归档时同时落一份结构化诊断，摘要行里带近 5 日的
+新增 / 重复 / 已修 / 待验证四个数：
+
+```bash
+python scripts/daily_diagnostics.py --json                    # 当日结构化诊断
+python scripts/daily_diagnostics.py --rollup --days 5         # 跨天聚合
+```
+
+**「待验证」是刻意留的一栏**：一个问题不再出现，可能是修好了，也可能是那个作业
+当天压根没跑。只有主体在最后一天**确实被观测到**才算 `resolved`，否则记
+`unverified` —— 用空集证明「已修复」是最容易骗过自己的一种假绿。
 
 报告已按规则脱敏（`sk-`/`ghp_`/`xox*`/Bearer/`*key|token|secret|chat_id=`/长十六进制），
 但**传出前请自行再扫一眼**。清理只认 `YYYY-MM-DD.md` 命名，手工另存的事故存档

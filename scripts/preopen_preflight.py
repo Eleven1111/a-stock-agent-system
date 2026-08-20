@@ -46,12 +46,9 @@ MANIFEST_PATH = os.path.join(ROOT, "cron", "hermes-cron-manifest.json")
 #: 严重度从轻到重。汇总取最重的一项。
 SEVERITY = ("ok", "warn", "red")
 
-#: 网关侧的错误类别 → 人话。这些都不是本仓库能修的，但开盘前必须有人知道。
-GATEWAY_PATTERNS = {
-    "model_auth": ("401", "unauthorized"),
-    "model_balance": ("402", "insufficient balance"),
-    "port_conflict": ("eaddrinuse", "address already in use"),
-}
+#: 网关侧的错误类别（认证 / 余额 / 端口）。口径与扫描都归 daily_diagnostics 所有，
+#: 两处各写一份必然漂移；这里只是重新导出，方便调用方引用。
+GATEWAY_PATTERNS = diagnostics.GATEWAY_PATTERNS
 
 #: 证据摘录封顶，artifact 要走推送通道，不能被一条巨大的 traceback 撑爆。
 MAX_SAMPLES = 5
@@ -224,35 +221,14 @@ def check_gateway_log(log_dir: str, day: str) -> dict[str, Any]:
     所以按错误类别数行数，不凭空造探针。日志默认在 ``/tmp/openclaw``，
     重启即清空 —— 读不到就是 ``warn``，不是绿。
     """
-    candidates = [
-        os.path.join(log_dir, f"openclaw-{day}.log"),
-        os.path.join(log_dir, "openclaw.log"),
-    ]
-    path = next((item for item in candidates if os.path.exists(item)), None)
-    if path is None:
+    scan = diagnostics.collect_gateway_errors(log_dir, day)
+    if scan["status"] != "ok":
         return {
             "status": "warn",
-            "reason": f"未找到网关日志（查过 `{log_dir}`），无法判断认证/余额/端口",
-            "detail": {"log_dir": log_dir},
+            "reason": f"{scan.get('reason')}，无法判断认证/余额/端口",
+            "detail": {"log_dir": log_dir, "log_path": scan.get("log_path")},
         }
-    counts = {name: 0 for name in GATEWAY_PATTERNS}
-    samples: dict[str, list[str]] = {name: [] for name in GATEWAY_PATTERNS}
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                low = line.lower()
-                for name, needles in GATEWAY_PATTERNS.items():
-                    if any(needle in low for needle in needles):
-                        counts[name] += 1
-                        if len(samples[name]) < 2:
-                            samples[name].append(diagnostics.redact(line.strip())[:200])
-    except OSError as exc:
-        return {
-            "status": "warn",
-            "reason": f"读取网关日志失败：{exc}",
-            "detail": {"log_path": path},
-        }
-    hit = {name: count for name, count in counts.items() if count}
+    hit = {name: count for name, count in scan["counts"].items() if count}
     return {
         "status": "red" if hit else "ok",
         "reason": (
@@ -260,9 +236,9 @@ def check_gateway_log(log_dir: str, day: str) -> dict[str, Any]:
             if hit else None
         ),
         "detail": {
-            "log_path": path,
-            "counts": counts,
-            "samples": {name: samples[name] for name in hit},
+            "log_path": scan.get("log_path"),
+            "counts": scan["counts"],
+            "samples": scan.get("samples") or {},
         },
     }
 

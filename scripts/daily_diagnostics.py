@@ -57,6 +57,15 @@ STDERR_TAIL_CHARS = 1500
 LOG_TAIL_LINES = 40
 MAX_EVIDENCE_JOBS = 8
 
+#: 网关侧的错误类别。本仓库不直接调用模型厂商 API（模型回合在 OpenClaw 网关侧），
+#: 所以 401/402/EADDRINUSE 只能从网关日志里读；``preopen_preflight`` 复用这一份，
+#: 避免两处口径各自漂移。
+GATEWAY_PATTERNS = {
+    "model_auth": ("401", "unauthorized"),
+    "model_balance": ("402", "insufficient balance"),
+    "port_conflict": ("eaddrinuse", "address already in use"),
+}
+
 #: 脱敏规则。宁可多洗：误洗一个无害字符串只是难读一点，漏洗一个 key 是事故。
 _REDACTIONS = (
     re.compile(r"(sk-[A-Za-z0-9_\-]{8,})"),
@@ -516,10 +525,424 @@ def section_gateway_log(log_dir: str, day: str) -> list[str]:
 
 # --------------------------------------------------------------------------- #
 
-def build_report(day: str, state_home: str, openclaw_db: str, log_dir: str) -> str:
+# --------------------------------------------------------------------------- #
+# 结构化：单日 findings 与跨天聚合
+# --------------------------------------------------------------------------- #
+
+def collect_gateway_errors(log_dir: str, day: str) -> dict[str, Any]:
+    """按类别数网关日志里的认证/余额/端口错误。
+
+    ``preopen_preflight`` 与本模块的第 6 节共用这一份口径。日志默认在
+    ``/tmp/openclaw``，重启即清空 —— 读不到是 ``unavailable``，不是"没有错误"。
+    """
+    candidates = [
+        os.path.join(log_dir, f"openclaw-{day}.log"),
+        os.path.join(log_dir, "openclaw.log"),
+    ]
+    path = next((item for item in candidates if os.path.exists(item)), None)
+    result: dict[str, Any] = {
+        "status": "unavailable",
+        "log_dir": log_dir,
+        "log_path": path,
+        "counts": {name: 0 for name in GATEWAY_PATTERNS},
+        "samples": {},
+        "reason": None,
+    }
+    if path is None:
+        result["reason"] = f"未找到网关日志（查过 `{log_dir}`）"
+        return result
+    samples: dict[str, list[str]] = {name: [] for name in GATEWAY_PATTERNS}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                low = line.lower()
+                for name, needles in GATEWAY_PATTERNS.items():
+                    if any(needle in low for needle in needles):
+                        result["counts"][name] += 1
+                        if len(samples[name]) < 2:
+                            samples[name].append(redact(line.strip())[:200])
+    except OSError as exc:
+        result["reason"] = f"读取 `{path}` 失败：{exc}"
+        return result
+    result["status"] = "ok"
+    result["samples"] = {
+        name: rows for name, rows in samples.items() if result["counts"][name]
+    }
+    return result
+
+
+def required_dependents(manifest_path: str) -> dict[str, list[str]]:
+    """每个作业被哪些 **enabled 且未把它标为 optional** 的作业依赖。
+
+    严重度分级不该靠拍脑袋写死一张作业清单：一个作业有没有下游硬依赖，
+    manifest 里本来就写着。有硬依赖 = 它挂了会连锁，按 P0；没有 = P1。
+    """
+    manifest = read_json(manifest_path, {}) or {}
+    dependents: dict[str, list[str]] = {}
+    for job in manifest.get("jobs") or []:
+        if not job.get("enabled"):
+            continue
+        policy = job.get("dependency_policy") or {}
+        optional = {str(item) for item in (policy.get("optional_jobs") or [])}
+        for upstream in job.get("context_from") or []:
+            if str(upstream) in optional:
+                continue
+            dependents.setdefault(str(upstream), []).append(str(job.get("id")))
+    return {key: sorted(value) for key, value in dependents.items()}
+
+
+def _job_severity(job_id: str, dependents: dict[str, list[str]]) -> str:
+    return "P0" if dependents.get(job_id) else "P1"
+
+
+def _job_findings(
+    rows: list[dict[str, Any]], dependents: dict[str, list[str]]
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for row in rows:
+        job = str(row["job_id"])
+        for status in row["unhealthy"]:
+            findings.append({
+                "key": f"job_unhealthy:{job}:{status}",
+                "kind": "job_unhealthy",
+                "subject": job,
+                "severity": _job_severity(job, dependents),
+                "detail": f"作业 {job} 当日出现 {status}",
+                "count": 1,
+                "downstream": dependents.get(job, []),
+            })
+        if row["never_started"]:
+            findings.append({
+                "key": f"job_never_started:{job}",
+                "kind": "job_never_started",
+                "subject": job,
+                "severity": _job_severity(job, dependents),
+                "detail": f"作业 {job} 被触发 {row['claimed']} 次但从未启动",
+                "count": row["claimed"],
+                "downstream": dependents.get(job, []),
+            })
+    return findings
+
+
+def _delivery_findings(meta: dict[str, Any]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for (etype, status), count in (meta.get("delivery") or {}).items():
+        if not str(etype).endswith("failed"):
+            continue
+        findings.append({
+            "key": f"delivery_failed:{status}",
+            "kind": "delivery_failed",
+            "subject": str(status),
+            # 告警生成了却没送达任何人 —— 与"没有告警"在事后完全无法区分
+            "severity": "P1",
+            "detail": f"{count} 次投递失败（{status}）",
+            "count": int(count),
+        })
+    return findings
+
+
+def _openclaw_findings(openclaw: dict[str, Any]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for row in openclaw.get("runs") or []:
+        status = str(_pick(row, "status", "state", "result") or "?")
+        if status.lower() in HEALTHY:
+            continue
+        job = str(_pick(row, "job_id", "name", "cron_job_id") or "?")
+        findings.append({
+            "key": f"openclaw_run_failed:{job}:{status}",
+            "kind": "openclaw_run_failed",
+            "subject": job,
+            "severity": "P2",
+            "detail": f"OpenClaw run {job} 状态 {status}",
+            "count": 1,
+        })
+    return findings
+
+
+def _drift_findings(drift: dict[str, Any]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for job in drift.get("missing") or []:
+        findings.append({
+            "key": f"registration_missing:{job}",
+            "kind": "registration_missing",
+            "subject": str(job),
+            # manifest 里 enabled 却没注册 = 它每天都在"应该跑"但从来没跑
+            "severity": "P0",
+            "detail": f"{job} 在 manifest 里 enabled，但 OpenClaw 未注册",
+            "count": 1,
+        })
+    for job in drift.get("extra") or []:
+        findings.append({
+            "key": f"registration_extra:{job}",
+            "kind": "registration_extra",
+            "subject": str(job),
+            "severity": "P2",
+            "detail": f"{job} 已注册但不在 manifest enabled 列表",
+            "count": 1,
+        })
+    return findings
+
+
+def _gateway_findings(gateway: dict[str, Any]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for name, count in (gateway.get("counts") or {}).items():
+        if not count:
+            continue
+        findings.append({
+            "key": f"gateway_{name}",
+            "kind": "gateway_error",
+            "subject": name,
+            "severity": "P1",
+            "detail": f"网关日志出现 {name} × {count}",
+            "count": int(count),
+        })
+    return findings
+
+
+def collect_findings(
+    *,
+    rows: list[dict[str, Any]],
+    meta: dict[str, Any],
+    openclaw: dict[str, Any],
+    drift: dict[str, Any],
+    gateway: dict[str, Any],
+    dependents: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """把当天各来源的异常压成一组带稳定 key 的 finding。
+
+    key 必须跨天稳定，否则聚合会把同一个问题算成每天都是新问题。
+    因此 key 只由「类别 + 主体 + 现象」构成，不含日期、run_id、耗时。
+    """
+    findings = [
+        *_job_findings(rows, dependents),
+        *_delivery_findings(meta),
+        *_openclaw_findings(openclaw),
+        *_drift_findings(drift),
+        *_gateway_findings(gateway),
+    ]
+    merged: dict[str, dict[str, Any]] = {}
+    for finding in findings:
+        existing = merged.get(finding["key"])
+        if existing is None:
+            merged[finding["key"]] = finding
+        else:
+            existing["count"] += finding["count"]
+    return sorted(
+        merged.values(), key=lambda item: (item["severity"], item["key"])
+    )
+
+
+def collect_all(
+    day: str, state_home: str, openclaw_db: str, log_dir: str
+) -> dict[str, Any]:
+    """一次采集，Markdown 与结构化两份产物共用。
+
+    归档模式两份都要出。分别采集会把 6.5MB 的 execution_trace 与 OpenClaw sqlite
+    各读两遍，而这个作业只有 60s 的 short 档预算。
+    """
+    manifest_path = os.path.join(ROOT, "cron", "hermes-cron-manifest.json")
     rows, meta = collect_hermes(state_home, day)
     openclaw = collect_openclaw(openclaw_db, day)
-    manifest_path = os.path.join(ROOT, "cron", "hermes-cron-manifest.json")
+    return {
+        "day": day,
+        "state_home": state_home,
+        "log_dir": log_dir,
+        "manifest_path": manifest_path,
+        "rows": rows,
+        "meta": meta,
+        "openclaw": openclaw,
+        "drift": collect_drift(manifest_path, openclaw),
+        "gateway": collect_gateway_errors(log_dir, day),
+        "dependents": required_dependents(manifest_path),
+    }
+
+
+def build_structured_report(
+    day: str,
+    state_home: str,
+    openclaw_db: str,
+    log_dir: str,
+    collected: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """当天的机器可读诊断结论。跨天聚合读的就是这一份。"""
+    bundle = collected or collect_all(day, state_home, openclaw_db, log_dir)
+    rows, meta = bundle["rows"], bundle["meta"]
+    openclaw, drift = bundle["openclaw"], bundle["drift"]
+    gateway, dependents = bundle["gateway"], bundle["dependents"]
+    findings = collect_findings(
+        rows=rows, meta=meta, openclaw=openclaw,
+        drift=drift, gateway=gateway, dependents=dependents,
+    )
+    severity_counts = collections.Counter(item["severity"] for item in findings)
+    return {
+        "schema": "a_stock_diagnostics_daily_v1",
+        "date": day,
+        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "state_home": state_home,
+        # 「这一天到底观测到了哪些作业」—— 聚合判定「已修复」时必须用它兜底：
+        # 一个问题消失，可能是修好了，也可能是那个作业当天压根没跑。
+        "observed_subjects": sorted({str(row["job_id"]) for row in rows}),
+        "trace_events": int(meta.get("events") or 0),
+        "openclaw_available": bool(openclaw.get("available")),
+        "drift_status": drift.get("status"),
+        "gateway_status": gateway.get("status"),
+        "severity_counts": {
+            level: severity_counts.get(level, 0) for level in ("P0", "P1", "P2")
+        },
+        "finding_count": len(findings),
+        "findings": findings,
+    }
+
+
+_DAILY_JSON_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.json$")
+
+
+def load_daily_reports(out_dir: str, days: int, today: str) -> list[dict[str, Any]]:
+    """读归档目录里最近 *days* 天的结构化日报，按日期升序。"""
+    if not os.path.isdir(out_dir):
+        return []
+    try:
+        cutoff = dt.date.fromisoformat(today) - dt.timedelta(days=days - 1)
+    except ValueError:
+        return []
+    reports = []
+    for name in sorted(os.listdir(out_dir)):
+        match = _DAILY_JSON_RE.match(name)
+        if not match:
+            continue
+        try:
+            stamp = dt.date.fromisoformat(match.group(1))
+        except ValueError:
+            continue
+        if not (cutoff <= stamp <= dt.date.fromisoformat(today)):
+            continue
+        value = read_json(os.path.join(out_dir, name), None)
+        if isinstance(value, dict) and value.get("findings") is not None:
+            reports.append(value)
+    return sorted(reports, key=lambda item: str(item.get("date") or ""))
+
+
+def _index_findings(reports: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """按 key 把多天的 finding 折叠成一条，带 first_seen / last_seen / occurrences。"""
+    seen: dict[str, dict[str, Any]] = {}
+    for report in reports:
+        date = str(report.get("date") or "")
+        for finding in report.get("findings") or []:
+            key = str(finding.get("key"))
+            entry = seen.setdefault(key, {
+                "key": key,
+                "kind": finding.get("kind"),
+                "subject": finding.get("subject"),
+                "severity": finding.get("severity"),
+                "detail": finding.get("detail"),
+                "first_seen": date,
+                "last_seen": date,
+                "occurrences": 0,
+                "days": [],
+            })
+            entry["last_seen"] = date
+            entry["severity"] = finding.get("severity") or entry["severity"]
+            entry["detail"] = finding.get("detail") or entry["detail"]
+            entry["occurrences"] += 1
+            entry["days"].append(date)
+    return seen
+
+
+def _classify(
+    entry: dict[str, Any],
+    *,
+    latest_keys: set[str],
+    observed: set[str],
+    latest_date: str,
+) -> str:
+    """把一条 finding 归入 new / recurring / resolved / unverified。
+
+    **「消失」不等于「修好」**：不再出现可能是修好了，也可能是那个作业当天压根
+    没跑。只有主体在最后一天确实被观测到，才算 ``resolved``。
+    """
+    if entry["key"] in latest_keys:
+        return "new" if entry["occurrences"] == 1 else "recurring"
+    if not entry["subject"] or str(entry["subject"]) in observed:
+        return "resolved"
+    entry["unverified_reason"] = (
+        f"{entry['subject']} 在 {latest_date} 未被观测到，消失可能只是因为它没运行"
+    )
+    return "unverified"
+
+
+def build_rollup(reports: list[dict[str, Any]], *, days: int) -> dict[str, Any]:
+    """跨天聚合：区分新问题 / 重复问题 / 已验证修复。
+
+    issue #239 的验收标准里，「已验证修复」这四个字是关键 —— 分类口径见
+    :func:`_classify`，空集不得被当成通过。
+    """
+    if not reports:
+        return {
+            "schema": "a_stock_diagnostics_rollup_v1",
+            "status": "insufficient_data",
+            "reason": "归档目录里没有结构化日报，无法聚合",
+            "window": {"days": days, "reports_found": 0},
+            "counts": {"new": 0, "recurring": 0, "resolved": 0, "unverified": 0},
+            "new": [], "recurring": [], "resolved": [], "unverified": [],
+        }
+
+    latest = reports[-1]
+    latest_keys = {str(item["key"]) for item in latest.get("findings") or []}
+    observed = set(latest.get("observed_subjects") or [])
+    seen = _index_findings(reports)
+
+    buckets: dict[str, list[dict[str, Any]]] = {
+        "new": [], "recurring": [], "resolved": [], "unverified": []
+    }
+    for entry in seen.values():
+        bucket = _classify(
+            entry,
+            latest_keys=latest_keys,
+            observed=observed,
+            latest_date=str(latest.get("date") or ""),
+        )
+        entry["fix_status"] = bucket
+        buckets[bucket].append(entry)
+
+    for name in buckets:
+        buckets[name].sort(key=lambda item: (item["severity"], item["key"]))
+
+    return {
+        "schema": "a_stock_diagnostics_rollup_v1",
+        # 样本不足要显式说出来，不能让 5 天的标准被 1 份报告糊过去
+        "status": "ok" if len(reports) >= days else "partial",
+        "reason": None if len(reports) >= days else (
+            f"窗口要求 {days} 天，实际只有 {len(reports)} 份结构化日报"
+        ),
+        "window": {
+            "days": days,
+            "reports_found": len(reports),
+            "from": reports[0].get("date"),
+            "to": latest.get("date"),
+        },
+        "severity_counts": {
+            level: sum(
+                1 for entry in seen.values()
+                if entry["severity"] == level and entry["fix_status"] != "resolved"
+            )
+            for level in ("P0", "P1", "P2")
+        },
+        "counts": {name: len(rows) for name, rows in buckets.items()},
+        **buckets,
+    }
+
+
+def build_report(
+    day: str,
+    state_home: str,
+    openclaw_db: str,
+    log_dir: str,
+    collected: dict[str, Any] | None = None,
+) -> str:
+    bundle = collected or collect_all(day, state_home, openclaw_db, log_dir)
+    rows, meta = bundle["rows"], bundle["meta"]
+    openclaw = bundle["openclaw"]
+    manifest_path = bundle["manifest_path"]
 
     out: list[str] = [f"# A股系统每日运行诊断 · {day}", ""]
     out += section_environment(state_home, day)
@@ -537,15 +960,15 @@ def build_report(day: str, state_home: str, openclaw_db: str, log_dir: str) -> s
     return "\n".join(out) + "\n"
 
 
-_REPORT_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.md$")
+_REPORT_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.(?:md|json)$")
 
 
 def prune_reports(out_dir: str, retention_days: int, today: str) -> list[str]:
     """删掉超出保留窗口的历史报告，返回被删的文件名。
 
-    只认 ``YYYY-MM-DD.md`` 这一种命名，且只按文件名里的日期判断——不看 mtime。
-    手工另存的报告（如 `2026-08-06-incident.md`）因此不会被误删；重跑历史某天
-    也不会因为 mtime 是今天就躲过清理。
+    只认 ``YYYY-MM-DD.md`` / ``YYYY-MM-DD.json`` 两种命名，且只按文件名里的日期
+    判断——不看 mtime。手工另存的报告（如 `2026-08-06-incident.md`）因此不会被
+    误删；重跑历史某天也不会因为 mtime 是今天就躲过清理。
     """
     removed: list[str] = []
     if retention_days <= 0 or not os.path.isdir(out_dir):
@@ -576,7 +999,59 @@ def count_alerts(report: str) -> int:
     return int(matched.group(1)) if matched else 0
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def _archive(
+    args: argparse.Namespace,
+    *,
+    report: str,
+    collected: dict[str, Any],
+    out_dir: str,
+) -> str:
+    """定时归档：报告本体落盘，回给调度器的只有一行摘要。
+
+    事故当天再去翻证据往往已经没了（OpenClaw 主日志在 /tmp，重启即清空），
+    所以每天先存一份，是这个模式存在的全部理由。
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    target = os.path.join(out_dir, f"{args.date}.md")
+    with open(target, "w", encoding="utf-8") as handle:
+        handle.write(report)
+    # 同时落一份结构化的：跨天聚合读它，Markdown 那份是给人看的。
+    # 「连续 5 个交易日的结构化摘要」这条验收标准，缺了这一步就无从谈起。
+    structured = build_structured_report(
+        args.date,
+        os.path.expanduser(args.state_home),
+        os.path.expanduser(args.openclaw_db),
+        os.path.expanduser(args.openclaw_log_dir),
+        collected=collected,
+    )
+    with open(os.path.join(out_dir, f"{args.date}.json"), "w", encoding="utf-8") as handle:
+        json.dump(structured, handle, ensure_ascii=False, indent=2)
+    removed = prune_reports(out_dir, args.retention_days, args.date)
+    counts = structured["severity_counts"]
+    summary = (
+        f"诊断报告 {args.date}：异常 {count_alerts(report)} 项"
+        f"（P0 {counts['P0']} / P1 {counts['P1']} / P2 {counts['P2']}），"
+        f"{os.path.getsize(target) / 1024:.1f} KB → {target}"
+    )
+    # 每天回一行「近 N 日新增/重复/已修」——「问题有没有真的收敛」只能跨天看，
+    # 单日报告永远回答不了。跑完就有，不必再单开一个作业。
+    rollup = build_rollup(
+        load_daily_reports(out_dir, args.days, args.date), days=args.days
+    )
+    if rollup["status"] != "insufficient_data":
+        rc = rollup["counts"]
+        summary += (
+            f"；近 {rollup['window']['reports_found']} 日 新增 {rc['new']} /"
+            f" 重复 {rc['recurring']} / 已修 {rc['resolved']}"
+        )
+        if rc["unverified"]:
+            summary += f" / 待验证 {rc['unverified']}"
+    if removed:
+        summary += f"；清理过期报告 {len(removed)} 份"
+    return summary
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="每日运行诊断包（跨 OpenClaw / Hermes）")
     parser.add_argument("--date", default=dt.date.today().isoformat(), help="默认今天")
     parser.add_argument(
@@ -597,32 +1072,63 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("--out-dir", help="配合 --archive；默认 <state_home>/diagnostics")
     parser.add_argument("--retention-days", type=int, default=30)
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="输出当日结构化诊断（机器可读），而不是 Markdown 报告",
+    )
+    parser.add_argument(
+        "--rollup",
+        action="store_true",
+        help="读归档目录里最近 --days 天的结构化日报，输出"
+             "新问题/重复问题/已验证修复的聚合摘要",
+    )
+    parser.add_argument("--days", type=int, default=5, help="配合 --rollup，默认 5 个自然日")
+    return parser
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
 
     state_home = os.path.expanduser(args.state_home)
-    report = build_report(
+    out_dir = os.path.expanduser(args.out_dir or os.path.join(state_home, "diagnostics"))
+
+    if args.rollup:
+        rollup = build_rollup(
+            load_daily_reports(out_dir, args.days, args.date), days=args.days
+        )
+        print(json.dumps(rollup, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.json:
+        print(json.dumps(
+            build_structured_report(
+                args.date,
+                state_home,
+                os.path.expanduser(args.openclaw_db),
+                os.path.expanduser(args.openclaw_log_dir),
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    collected = collect_all(
         args.date,
         state_home,
         os.path.expanduser(args.openclaw_db),
         os.path.expanduser(args.openclaw_log_dir),
     )
+    report = build_report(
+        args.date,
+        state_home,
+        os.path.expanduser(args.openclaw_db),
+        os.path.expanduser(args.openclaw_log_dir),
+        collected=collected,
+    )
 
     if args.archive:
-        # 定时归档：报告本体落盘，回给调度器的只有一行摘要。
-        # 事故当天再去翻证据往往已经没了（OpenClaw 主日志在 /tmp，重启即清空），
-        # 所以每天先存一份，是这个模式存在的全部理由。
-        out_dir = os.path.expanduser(args.out_dir or os.path.join(state_home, "diagnostics"))
-        os.makedirs(out_dir, exist_ok=True)
-        target = os.path.join(out_dir, f"{args.date}.md")
-        with open(target, "w", encoding="utf-8") as handle:
-            handle.write(report)
-        removed = prune_reports(out_dir, args.retention_days, args.date)
-        size_kb = os.path.getsize(target) / 1024
-        alerts = count_alerts(report)
-        summary = f"诊断报告 {args.date}：异常 {alerts} 项，{size_kb:.1f} KB → {target}"
-        if removed:
-            summary += f"；清理过期报告 {len(removed)} 份"
-        print(summary)
+        print(_archive(args, report=report, collected=collected, out_dir=out_dir))
         return 0
 
     if args.out:

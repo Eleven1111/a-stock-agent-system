@@ -358,3 +358,236 @@ class TestCollectDrift:
         assert no_registry["unavailable_at"] == "openclaw"
         # 读不到注册表 != 没有漂移，不能让体检误判成绿
         assert no_registry["missing"] == []
+
+
+class TestSeverityFromManifest:
+    """严重度不该靠拍脑袋写死一张作业清单 —— manifest 里本来就写着谁被谁依赖。"""
+
+    @staticmethod
+    def _manifest(tmp_path, jobs):
+        path = tmp_path / "manifest.json"
+        path.write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
+        return str(path)
+
+    def test_required_dependents_ignores_optional_and_disabled(self, tmp_path):
+        path = self._manifest(tmp_path, [
+            {"id": "up", "enabled": True, "context_from": []},
+            {"id": "hard", "enabled": True, "context_from": ["up"]},
+            {
+                "id": "soft", "enabled": True, "context_from": ["up"],
+                "dependency_policy": {"optional_jobs": ["up"]},
+            },
+            {"id": "off", "enabled": False, "context_from": ["up"]},
+        ])
+
+        assert dd.required_dependents(path) == {"up": ["hard"]}
+
+    def test_a_job_with_hard_dependents_is_p0(self):
+        assert dd._job_severity("up", {"up": ["hard"]}) == "P0"
+        assert dd._job_severity("leaf", {"up": ["hard"]}) == "P1"
+
+
+class TestCollectFindings:
+    @staticmethod
+    def _rows(**overrides):
+        row = {
+            "job_id": "auction-snapshot", "claimed": 3, "started": 3, "finished": 3,
+            "statuses": ["timeout"], "unhealthy": ["timeout"],
+            "max_duration": 180.0, "never_started": False,
+        }
+        row.update(overrides)
+        return [row]
+
+    def test_finding_keys_are_stable_across_days(self):
+        """key 里不能带日期/run_id/耗时，否则聚合会把同一个问题算成天天都是新的。"""
+        first = dd.collect_findings(
+            rows=self._rows(max_duration=180.0), meta={"delivery": {}},
+            openclaw={}, drift={}, gateway={}, dependents={},
+        )
+        second = dd.collect_findings(
+            rows=self._rows(max_duration=42.0, claimed=9), meta={"delivery": {}},
+            openclaw={}, drift={}, gateway={}, dependents={},
+        )
+
+        assert [item["key"] for item in first] == [item["key"] for item in second]
+        assert first[0]["key"] == "job_unhealthy:auction-snapshot:timeout"
+
+    def test_chain_job_failure_is_p0_and_carries_its_downstream(self):
+        findings = dd.collect_findings(
+            rows=self._rows(), meta={"delivery": {}}, openclaw={}, drift={}, gateway={},
+            dependents={"auction-snapshot": ["auction-finalize"]},
+        )
+
+        assert findings[0]["severity"] == "P0"
+        assert findings[0]["downstream"] == ["auction-finalize"]
+
+    def test_unregistered_enabled_job_is_p0(self):
+        findings = dd.collect_findings(
+            rows=[], meta={"delivery": {}}, openclaw={},
+            drift={"missing": ["ghost-job"], "extra": ["stray"]}, gateway={}, dependents={},
+        )
+        by_kind = {item["kind"]: item for item in findings}
+
+        assert by_kind["registration_missing"]["severity"] == "P0"
+        assert by_kind["registration_extra"]["severity"] == "P2"
+
+    def test_undelivered_alerts_are_reported(self):
+        findings = dd.collect_findings(
+            rows=[], meta={"delivery": {("delivery.failed", "not_configured"): 4}},
+            openclaw={}, drift={}, gateway={}, dependents={},
+        )
+
+        assert findings[0]["key"] == "delivery_failed:not_configured"
+        assert findings[0]["count"] == 4
+
+
+def _daily(date, findings, observed):
+    return {
+        "schema": "a_stock_diagnostics_daily_v1",
+        "date": date,
+        "observed_subjects": observed,
+        "findings": findings,
+    }
+
+
+def _finding(key, subject="auction-snapshot", severity="P0"):
+    return {
+        "key": key, "kind": "job_unhealthy", "subject": subject,
+        "severity": severity, "detail": key, "count": 1,
+    }
+
+
+class TestRollup:
+    def test_new_recurring_and_resolved_are_separated(self):
+        reports = [
+            _daily("2026-06-01", [_finding("a"), _finding("gone")], ["auction-snapshot"]),
+            _daily("2026-06-02", [_finding("a"), _finding("b")], ["auction-snapshot"]),
+        ]
+
+        rollup = dd.build_rollup(reports, days=2)
+
+        assert [item["key"] for item in rollup["recurring"]] == ["a"]
+        assert [item["key"] for item in rollup["new"]] == ["b"]
+        assert [item["key"] for item in rollup["resolved"]] == ["gone"]
+        assert rollup["status"] == "ok"
+
+    def test_first_seen_last_seen_and_occurrences_are_tracked(self):
+        reports = [
+            _daily("2026-06-01", [_finding("a")], ["auction-snapshot"]),
+            _daily("2026-06-02", [], ["auction-snapshot"]),
+            _daily("2026-06-03", [_finding("a")], ["auction-snapshot"]),
+        ]
+
+        entry = dd.build_rollup(reports, days=3)["recurring"][0]
+
+        assert entry["first_seen"] == "2026-06-01"
+        assert entry["last_seen"] == "2026-06-03"
+        assert entry["occurrences"] == 2
+
+    def test_a_finding_that_vanished_because_the_job_never_ran_is_not_resolved(self):
+        """「消失」不等于「修好」—— 这是「已验证修复」四个字的全部重量。
+
+        作业当天压根没跑，它的异常自然不会再出现；把这当成修复，就是用空集
+        证明通过。
+        """
+        reports = [
+            _daily("2026-06-01", [_finding("a")], ["auction-snapshot"]),
+            _daily("2026-06-02", [], []),   # 当天没观测到任何作业
+        ]
+
+        rollup = dd.build_rollup(reports, days=2)
+
+        assert rollup["resolved"] == []
+        assert [item["key"] for item in rollup["unverified"]] == ["a"]
+        assert "未被观测到" in rollup["unverified"][0]["unverified_reason"]
+        assert rollup["unverified"][0]["fix_status"] == "unverified"
+
+    def test_short_window_is_reported_as_partial_not_silently_ok(self):
+        """5 个交易日的标准不能被 1 份报告糊过去。"""
+        rollup = dd.build_rollup(
+            [_daily("2026-06-01", [_finding("a")], ["auction-snapshot"])], days=5
+        )
+
+        assert rollup["status"] == "partial"
+        assert "只有 1 份" in rollup["reason"]
+
+    def test_no_reports_at_all_is_insufficient_data(self):
+        rollup = dd.build_rollup([], days=5)
+
+        assert rollup["status"] == "insufficient_data"
+        assert rollup["counts"] if "counts" in rollup else True
+        assert rollup["new"] == rollup["recurring"] == []
+
+    def test_severity_counts_exclude_resolved(self):
+        reports = [
+            _daily("2026-06-01", [_finding("a"), _finding("gone")], ["auction-snapshot"]),
+            _daily("2026-06-02", [_finding("a")], ["auction-snapshot"]),
+        ]
+
+        assert dd.build_rollup(reports, days=2)["severity_counts"]["P0"] == 1
+
+
+class TestArchiveWritesBothFormats:
+    def test_archive_emits_markdown_and_structured_json(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(dd, "build_report", lambda *a, **k: "# 报告\n\n**异常 0 个**\n")
+        monkeypatch.setattr(
+            dd, "build_structured_report",
+            lambda *a, **k: {
+                "schema": "a_stock_diagnostics_daily_v1", "date": "2026-06-23",
+                "severity_counts": {"P0": 1, "P1": 0, "P2": 2}, "findings": [],
+            },
+        )
+        out_dir = tmp_path / "diagnostics"
+
+        code = dd.main([
+            "--archive", "--date", "2026-06-23",
+            "--state-home", str(tmp_path), "--out-dir", str(out_dir),
+        ])
+
+        assert code == 0
+        assert (out_dir / "2026-06-23.md").exists()
+        payload = json.loads((out_dir / "2026-06-23.json").read_text(encoding="utf-8"))
+        assert payload["schema"] == "a_stock_diagnostics_daily_v1"
+
+    def test_pruning_covers_the_json_twin(self, tmp_path):
+        out_dir = tmp_path / "diagnostics"
+        out_dir.mkdir()
+        for name in ("2026-05-01.md", "2026-05-01.json", "2026-06-23.md", "2026-06-23.json"):
+            (out_dir / name).write_text("x", encoding="utf-8")
+        (out_dir / "2026-05-01-incident.md").write_text("keep", encoding="utf-8")
+
+        removed = dd.prune_reports(str(out_dir), 30, "2026-06-23")
+
+        assert sorted(removed) == ["2026-05-01.json", "2026-05-01.md"]
+        # 手工另存的存档不按日期命名，绝不能被顺手删掉
+        assert (out_dir / "2026-05-01-incident.md").exists()
+
+
+def test_archive_collects_once_for_both_outputs(tmp_path, monkeypatch):
+    """归档要出两份产物，但 6.5MB 的 trace 与 sqlite 只能读一遍。
+
+    这个作业是 60s 的 short 档，分别采集会把预算直接翻倍。
+    """
+    calls = []
+
+    def _collect_all(day, state_home, openclaw_db, log_dir):
+        calls.append(day)
+        return {
+            "day": day, "state_home": state_home, "log_dir": log_dir,
+            "manifest_path": "m", "rows": [], "meta": {"events": 0, "delivery": {}},
+            "openclaw": {"available": False, "path": "x", "runs": [], "jobs": []},
+            "drift": {"status": "unavailable"}, "gateway": {"status": "unavailable", "counts": {}},
+            "dependents": {},
+        }
+
+    monkeypatch.setattr(dd, "collect_all", _collect_all)
+    out_dir = tmp_path / "diagnostics"
+
+    dd.main([
+        "--archive", "--date", "2026-06-23",
+        "--state-home", str(tmp_path), "--out-dir", str(out_dir),
+    ])
+
+    assert calls == ["2026-06-23"]
+    assert (out_dir / "2026-06-23.md").exists()
+    assert (out_dir / "2026-06-23.json").exists()
