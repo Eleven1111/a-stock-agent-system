@@ -622,9 +622,9 @@
           "--json"
         ],
         "cwd": ".",
-        "timeout_seconds": 300,
-        "timeout_tier": "standard",
-        "timeout_rationale": "收盘后按缺失日K增量更新；全市场 BaoStock 请求需保留标准档上限，单票失败可局部记录，不阻断既有任务"
+        "timeout_seconds": 1200,
+        "timeout_tier": "long",
+        "timeout_rationale": "5206 只全市场增量日K，2026-08-20 实测 0.125s/只（40 只跨市场抽样）→ 单次全量约 649s；300s 标准档只够覆盖 37%，每次必被 SIGKILL，1200s 长档留约 1.5 倍余量。脚本内另有 80% 墙钟预算（A_STOCK_JOB_TIMEOUT_SECONDS），超预算按 partial 收口并报 remaining，下次从最陈旧的标的续跑，不再被硬杀。空缓存首轮按 240 天播种成本更高，允许一次 partial 后收敛。"
       },
       "external_note": "15:10 收盘历史日K增量缓存；BaoStock 未安装时输出 blocked，不破坏现有任务"
     },
