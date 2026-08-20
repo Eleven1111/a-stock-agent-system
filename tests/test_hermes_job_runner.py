@@ -544,7 +544,9 @@ def test_runner_crash_still_writes_a_terminal_artifact(tmp_path, monkeypatch):
     def _boom(*args, **kwargs):
         raise RuntimeError("simulated runner defect")
 
-    monkeypatch.setattr(job_runner.subprocess, "run", _boom)
+    # The job is spawned through run_isolated (own process group) rather than
+    # subprocess.run, so that is where a runner-internal defect now originates.
+    monkeypatch.setattr(job_runner, "run_isolated", _boom)
 
     result = job_runner.run_job(
         job_runner.build_parser().parse_args(["crashy", "--manifest", str(manifest)])

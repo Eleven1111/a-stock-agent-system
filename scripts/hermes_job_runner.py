@@ -10,11 +10,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
 import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 try:
@@ -149,6 +150,80 @@ def _subprocess_text(value: Any) -> str:
     if value is None:
         return ""
     return value if isinstance(value, str) else str(value)
+
+
+#: How long a timed-out job is given to stop on its own before it is killed.
+#: SIGKILL mid-write is how orphaned ``.lock`` files and half-written sqlite
+#: pages are made, so a job that handles SIGTERM gets to close its handles.
+TERM_GRACE_SECONDS = 3.0
+
+
+class IsolatedResult(NamedTuple):
+    returncode: int
+    stdout: str
+    stderr: str
+    timed_out: bool
+
+
+def _terminate_group(process: "subprocess.Popen[str]") -> None:
+    """Signal the job's whole process group, escalating SIGTERM to SIGKILL."""
+    try:
+        pgid = os.getpgid(process.pid)
+    except OSError:
+        return  # already reaped
+    for sig, grace in ((signal.SIGTERM, TERM_GRACE_SECONDS), (signal.SIGKILL, 0.0)):
+        try:
+            os.killpg(pgid, sig)
+        except OSError:
+            return  # the group went away between the check and the signal
+        if grace <= 0:
+            return
+        try:
+            process.wait(timeout=grace)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def run_isolated(
+    argv: List[str], *, cwd: Optional[str], env: Dict[str, str], timeout: float
+) -> IsolatedResult:
+    """Run a job in its own process group so a timeout reaches its descendants.
+
+    ``subprocess.run(timeout=...)`` kills only the direct child; whatever that
+    child spawned keeps running — verified against a real process tree on
+    2026-08-20. Jobs that were being SIGKILLed on *every* run
+    (``market-history-cache``, ``snapshot-gc``) therefore left a residue that
+    competed for the next window's CPU and network, and nobody was looking for
+    it because a timeout looks the same either way (issue #245).
+
+    Killing the group also guarantees no orphan is left holding the output
+    pipes, so the drain below cannot stall.
+    """
+    process = subprocess.Popen(
+        argv,
+        shell=False,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_group(process)
+        stdout, stderr = process.communicate()
+        return IsolatedResult(
+            124,
+            _subprocess_text(stdout),
+            _subprocess_text(stderr) + f"\nTIMEOUT after {timeout}s",
+            True,
+        )
+    return IsolatedResult(
+        process.returncode, _subprocess_text(stdout), _subprocess_text(stderr), False
+    )
 
 
 def _dependency_reason_codes(dependency_gate: Optional[Dict[str, Any]]) -> List[str]:
@@ -510,24 +585,11 @@ def run_job(args: argparse.Namespace) -> int:
                 )
                 finish_state["emitted"] = True
                 return 76
-            try:
-                completed = subprocess.run(
-                    argv,
-                    shell=False,
-                    cwd=cwd,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
-                returncode = completed.returncode
-                stdout = completed.stdout
-                stderr = completed.stderr
-            except subprocess.TimeoutExpired as exc:
-                timed_out = True
-                returncode = 124
-                stdout = _subprocess_text(exc.stdout)
-                stderr = _subprocess_text(exc.stderr) + f"\nTIMEOUT after {timeout}s"
+            completed = run_isolated(argv, cwd=cwd, env=env, timeout=timeout)
+            returncode = completed.returncode
+            stdout = completed.stdout
+            stderr = completed.stderr
+            timed_out = completed.timed_out
 
         finished_at = now_iso()
         duration = time.monotonic() - start
