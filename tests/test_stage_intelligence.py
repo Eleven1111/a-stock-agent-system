@@ -16,6 +16,33 @@ def test_preopen_digest_keeps_strategy_lanes_separate():
     assert [item["code"] for item in digest["top_trend"][:2]] == ["600002", "600003"]
 
 
+def test_preopen_digest_keeps_research_top_when_execution_gate_clears_pool():
+    research = [
+        {
+            "code": "600001",
+            "name": "弱市研究一",
+            "daban_score": 96,
+            "trend_score": 82,
+            "research_only": True,
+            "execution_action": "none",
+        }
+    ]
+
+    digest = si.preopen_digest({
+        "research_candidates": research,
+        "execution_candidates": [],
+        "candidates": [],
+        "counts": {"research": 1, "execution": 0, "auction_scan": 1},
+        "gate": {"status": "weak_market", "reasons": ["弱市交付门禁未通过"]},
+    })
+
+    assert digest["research_count"] == 1
+    assert digest["execution_count"] == 0
+    assert digest["top_daban"][0]["code"] == "600001"
+    assert digest["top_daban"][0]["research_only"] is True
+    assert digest["gate"]["status"] == "weak_market"
+
+
 def test_auction_digest_surfaces_full_market_movers_without_promoting_them():
     result = {
         "factors": [

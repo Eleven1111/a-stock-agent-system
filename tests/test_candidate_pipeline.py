@@ -482,6 +482,56 @@ def test_auction_shortlist_does_not_revive_weak_market_research_only_candidate()
     assert any("弱市" in reason for reason in result["rejected"][0]["rejection_reasons"])
 
 
+def test_separate_research_pool_cannot_revive_into_execution_even_if_gate_reports_deliverable(
+    monkeypatch,
+):
+    """Adversarial fence: pool membership, not a later score, owns execution admission."""
+    monkeypatch.setattr(
+        cp,
+        "assess_delivery_quality",
+        lambda *_args, **_kwargs: {"status": "deliverable_watch", "reasons": []},
+    )
+    research = {
+        "code": "sh600001",
+        "name": "研究高分票",
+        "daban_score": 100,
+        "trend_score": 100,
+        "selected_by": {"daban": True, "trend": True},
+        "research_only": True,
+        "execution_action": "none",
+    }
+    pool = {
+        "asof": "2026-08-20",
+        "candidates": [],
+        "research_candidates": [research],
+        "execution_candidates": [],
+        "gate": {"status": "weak_market", "reasons": ["弱市门禁"]},
+    }
+    factors = [{
+        "code": research["code"],
+        "auction_gap_pct": 2.0,
+        "auction_amount": 50_000_000,
+        "auction_volume": 50_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 5_000_000,
+        "unmatched": 0,
+        "auction_bid_ask_ratio": 3.0,
+        "auction_net_bid_delta": 20_000,
+        "is_yiziban": False,
+    }]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=1)
+
+    assert result["research_count"] == 1
+    assert result["research_candidates"][0]["auction_score"] > 0
+    assert result["execution_count"] == 0
+    assert result["shortlist"] == []
+    assert any(
+        "仅保留研究" in reason
+        for reason in result["rejected"][0]["rejection_reasons"]
+    )
+
+
 def test_auction_social_attention_is_current_bounded_tiebreaker():
     pool = {
         "asof": "2026-06-10",

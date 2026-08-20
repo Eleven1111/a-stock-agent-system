@@ -712,6 +712,25 @@ def test_summary_keeps_counters_from_payloads_outside_the_whitelist():
     assert summary["results_count"] == 2
 
 
+def test_summary_exposes_auction_business_outcome_instead_of_only_transport_ok():
+    parsed = {
+        "schema": "auction_finalize_v2",
+        "status": "ready",
+        "outcome_status": "ok_research_only",
+        "reason_code": "weak_market",
+        "input_count": 8,
+        "research_count": 8,
+        "execution_count": 0,
+    }
+
+    summary = summarize_output(parsed, json.dumps(parsed))
+
+    assert summary["status"] == "ready"
+    assert summary["outcome_status"] == "ok_research_only"
+    assert summary["reason_code"] == "weak_market"
+    assert summary["execution_count"] == 0
+
+
 def test_summary_still_reports_whitelisted_counts_and_drops_bulk_payload():
     parsed = {
         "schema": "open_confirmation_v1",

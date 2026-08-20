@@ -734,7 +734,20 @@ def test_extreme_weak_market_keeps_research_only_candidates_out_of_live_targets(
     assert result["candidate_count"] == 0
     assert result["candidates"] == []
     assert result["research_only"] is True
+    assert [item["code"] for item in result["research_candidates"]] == ["600001"]
+    assert result["research_candidates"][0]["research_only"] is True
+    assert result["research_candidates"][0]["execution_action"] == "none"
+    assert result["execution_candidates"] == []
     assert result["auction_scan_codes"] == ["sh600001"]
+    assert result["auction_scan_universe"] == ["sh600001"]
+    assert result["counts"] == {
+        "research": 1,
+        "execution": 0,
+        "auction_scan": 1,
+    }
+    assert result["research_count"] == 1
+    assert result["execution_count"] == 0
+    assert result["gate"]["status"] == "weak_market"
     # 测试环境没有行业映射缓存，会额外带一条退化告警，故只断言包含关系。
     assert "candidate_count=0_after_weak_market_delivery_gate" in result["warnings"]
     assert captured["targets"] == []

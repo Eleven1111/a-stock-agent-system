@@ -159,7 +159,14 @@ SUMMARY_LIST_KEYS = (
     "candidates",
     "confirmations",
 )
-SUMMARY_BASE_KEYS = {"schema", "status", "message", "summary"}
+SUMMARY_BASE_KEYS = {
+    "schema",
+    "status",
+    "outcome_status",
+    "reason_code",
+    "message",
+    "summary",
+}
 SUMMARY_MAX_KEYS = 32
 
 
@@ -192,6 +199,8 @@ def summarize_output(parsed: Any, stdout: str) -> Dict[str, Any]:
     summary = {
         "schema": parsed.get("schema"),
         "status": parsed.get("status"),
+        "outcome_status": parsed.get("outcome_status"),
+        "reason_code": parsed.get("reason_code"),
         "message": parsed.get("message") or parsed.get("summary"),
     }
     summary = {key: value for key, value in summary.items() if value is not None}

@@ -24,6 +24,40 @@ def test_preopen_brief_contains_both_score_lanes():
     assert "3634" in text
 
 
+def test_preopen_weak_market_shows_research_top_and_no_execution_candidates():
+    text = brief.format_brief(
+        "preopen",
+        {
+            "asof": "2026-08-20",
+            "scanned_count": 5211,
+            "eligible_count": 3332,
+            "candidate_count": 0,
+            "auction_scan_count": 200,
+            "candidates": [],
+            "research_candidates": [
+                {
+                    "code": "600001",
+                    "name": "研究候选",
+                    "daban_score": 96,
+                    "trend_score": 82,
+                    "research_only": True,
+                    "execution_action": "none",
+                }
+            ],
+            "execution_candidates": [],
+            "counts": {"research": 1, "execution": 0, "auction_scan": 200},
+            "gate": {"status": "weak_market", "reasons": ["缺少主线/涨停集群/多源共振"]},
+        },
+    )
+
+    assert "研究评分 TOP" in text
+    assert "研究候选(600001)" in text
+    assert "research_only" in text
+    assert "可执行候选" in text
+    assert "无" in text
+    assert "缺少主线/涨停集群/多源共振" in text
+
+
 def test_preopen_missing_timing_is_not_reported_as_extreme_weak_market():
     text = brief.format_brief(
         "preopen",
@@ -131,6 +165,40 @@ def test_auction_brief_marks_pool_outsider_as_research_only():
 
     assert "冰轮环境" in text
     assert "池外研究情报" in text
+
+
+def test_auction_brief_separates_research_scores_from_execution_candidates():
+    text = brief.format_brief(
+        "auction",
+        {
+            "asof": "2026-08-20",
+            "status": "ready",
+            "outcome_status": "ok_research_only",
+            "reason_code": "weak_market",
+            "research_count": 1,
+            "execution_count": 0,
+            "auction_scan_count": 200,
+            "factors": [],
+            "shortlist": [],
+            "research_candidates": [
+                {
+                    "code": "sh600001",
+                    "name": "竞价研究候选",
+                    "auction_score": 88,
+                    "research_only": True,
+                }
+            ],
+            "execution_candidates": [],
+            "gate": {"status": "weak_market", "reasons": ["弱市交付门禁未通过"]},
+            "preopen_decisions": [],
+        },
+    )
+
+    assert "业务结果：ok_research_only" in text
+    assert "研究评分 TOP（research_only）" in text
+    assert "竞价研究候选(sh600001)" in text
+    assert "### 可执行候选" in text
+    assert "弱市交付门禁未通过" in text
 
 
 def test_auction_brief_renders_buy_sell_decisions_with_reasons():
