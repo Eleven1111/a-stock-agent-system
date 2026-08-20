@@ -1565,6 +1565,24 @@ def format_report(result: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _top_candidate_report_rows(result: Mapping[str, Any]) -> list[dict[str, Any]]:
+    candidates = result.get("research_candidates") or result.get("candidates", [])
+    keys = (
+        "code", "name", "daban_rank", "daban_score",
+        "trend_rank", "trend_score", "strategy_id",
+        "sector", "sector_source", "industry", "industry_source",
+        "sector_rank", "sector_state",
+        "sector_evidence_count", "sector_evidence_types",
+        "sector_theme_confirmed", "sector_theme_attention_score",
+        "sector_flow_yi", "leader_rank", "leader_role",
+        "hot_money_qualified", "research_only", "execution_action",
+    )
+    return [
+        {key: item.get(key) for key in keys}
+        for item in candidates[:5]
+    ]
+
+
 def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
     selection = result.get("hot_money_selection") or {}
     timing = selection.get("market_timing") or {}
@@ -1627,26 +1645,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
             result.get("rejection_reason_counts")
             or _reason_counts(result.get("rejected", {}))
         ),
-        "top_candidates": [
-            {
-                key: item.get(key)
-                for key in (
-                    "code", "name", "daban_rank", "daban_score",
-                    "trend_rank", "trend_score", "strategy_id",
-                    "sector", "sector_source", "industry", "industry_source",
-                    "sector_rank", "sector_state",
-                    "sector_evidence_count", "sector_evidence_types",
-                    "sector_theme_confirmed", "sector_theme_attention_score",
-                    "sector_flow_yi",
-                    "leader_rank", "leader_role", "hot_money_qualified",
-                    "research_only", "execution_action",
-                )
-            }
-            for item in (
-                result.get("research_candidates")
-                or result.get("candidates", [])
-            )[:5]
-        ],
+        "top_candidates": _top_candidate_report_rows(result),
     }
     report["intelligence"] = stage_intelligence.preopen_digest(result)
     return report
