@@ -591,3 +591,102 @@ def test_archive_collects_once_for_both_outputs(tmp_path, monkeypatch):
     assert calls == ["2026-06-23"]
     assert (out_dir / "2026-06-23.md").exists()
     assert (out_dir / "2026-06-23.json").exists()
+
+
+class TestDriftIdentityMatching:
+    """比对键选错时，不能把「量错了」报成「52 个作业没注册」。
+
+    2026-08-19 的部署机报告是 52 enabled 全部 missing + 61 注册全部 extra
+    （issue #245 第 3 条）。`_pick(row, "job_id", ...)` 取到 UUID 主键就不再
+    往下看 name/command，于是每一条注册都对不上 —— 这是检查工具的缺陷，
+    不是被检查系统的状态。
+    """
+
+    @staticmethod
+    def _manifest(tmp_path, jobs):
+        path = tmp_path / "manifest.json"
+        path.write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
+        return str(path)
+
+    def test_job_id_column_holding_a_uuid_does_not_hide_the_name(self, tmp_path):
+        path = self._manifest(tmp_path, [{"id": "auction-finalize", "enabled": True}])
+        openclaw = {"available": True, "jobs": [{
+            "job_id": "8f14e45f-ceea-467a-9d3f-5b2c3a1e9d77",
+            "name": "A-stock: auction-finalize",
+        }]}
+
+        drift = dd.collect_drift(path, openclaw)
+
+        assert drift["status"] == "ok"
+        assert drift["missing"] == drift["extra"] == []
+
+    def test_the_command_column_alone_is_enough_to_match(self, tmp_path):
+        """注册项跑的是 run_agent_dag.py <job-id>，命令行是最可靠的锚点。"""
+        path = self._manifest(tmp_path, [{"id": "snapshot-gc", "enabled": True}])
+        openclaw = {"available": True, "jobs": [{
+            "job_id": "0e5f-uuid",
+            "name": "nightly maintenance",
+            "command": "python scripts/run_agent_dag.py snapshot-gc --emit-target",
+        }]}
+
+        drift = dd.collect_drift(path, openclaw)
+
+        assert drift["status"] == "ok"
+        assert drift["missing"] == []
+
+    def test_total_mismatch_is_reported_as_unmeasurable_not_as_total_drift(self, tmp_path):
+        path = self._manifest(
+            tmp_path, [{"id": f"job-{i}", "enabled": True} for i in range(52)]
+        )
+        openclaw = {"available": True, "jobs": [{"job_id": f"uuid-{i}"} for i in range(61)]}
+
+        drift = dd.collect_drift(path, openclaw)
+
+        assert drift["status"] == "unavailable"
+        assert drift["unavailable_at"] == "key_mismatch"
+        assert drift["missing"] == []      # 不拿空集去支撑一个强结论
+        assert drift["registered_count"] == 61
+        assert "UUID" in str(drift["reason"])
+
+    def test_a_partial_mismatch_is_still_real_drift(self, tmp_path):
+        """只有全量对不上才可疑；对上一部分说明键是对的，剩下的就是真漂移。"""
+        path = self._manifest(tmp_path, [
+            {"id": "a", "enabled": True},
+            {"id": "z", "enabled": True},
+        ])
+        openclaw = {"available": True, "jobs": [
+            {"job_id": "uuid-1", "name": "A-stock: a"},
+            {"job_id": "uuid-2", "name": "ghost"},
+        ]}
+
+        drift = dd.collect_drift(path, openclaw)
+
+        assert drift["status"] == "drift"
+        assert drift["missing"] == ["z"]
+        assert drift["extra"] == ["ghost"]
+        assert drift["unavailable_at"] is None
+
+    def test_extra_registrations_are_labelled_readably_not_by_uuid(self, tmp_path):
+        path = self._manifest(tmp_path, [{"id": "a", "enabled": True}])
+        openclaw = {"available": True, "jobs": [
+            {"job_id": "uuid-1", "name": "A-stock: a"},
+            {"job_id": "9c1e-uuid", "name": "someone else's job"},
+        ]}
+
+        drift = dd.collect_drift(path, openclaw)
+
+        assert drift["extra"] == ["someone else's job"]
+
+    def test_an_unmeasurable_comparison_still_prints_its_reason(self, tmp_path):
+        """否则日报会渲染出计数、空的 missing/extra，然后什么都不说。"""
+        path = self._manifest(
+            tmp_path, [{"id": f"job-{i}", "enabled": True} for i in range(3)]
+        )
+        openclaw = {"available": True, "jobs": [{"job_id": f"uuid-{i}"} for i in range(4)]}
+
+        rendered = dd.section_drift(path, openclaw)
+
+        assert rendered[:2] == ["## 4. 作业注册漂移", ""]
+        assert "manifest enabled 作业 **3** 个。" in rendered
+        assert "OpenClaw 注册 **4** 个。" in rendered
+        assert any("疑似比对键" in line for line in rendered)
