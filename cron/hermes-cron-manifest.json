@@ -942,7 +942,7 @@
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
       "deliver": "origin",
-      "max_output_chars": 300,
+      "max_output_chars": 600,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
@@ -960,7 +960,7 @@
         "timeout_seconds": 60,
         "timeout_tier": "short"
       },
-      "external_note": "23:10 归档当日诊断报告到 $A_STOCK_STATE_HOME/diagnostics/<日期>.md，滚动保留 30 天。calendar_day：非交易日也要跑，调度器整体停摆恰恰只能从「非交易日也没有报告」看出来。只读聚合，不得有 context_from —— 出事时它必须照跑"
+      "external_note": "23:10 归档当日诊断（Markdown + 结构化 JSON），回一行摘要含 P0/P1/P2 与近 5 日新增/重复/已修/待验证"
     },
     {
       "id": "cycle-state-shadow",
