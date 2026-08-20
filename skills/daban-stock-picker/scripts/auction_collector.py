@@ -557,6 +557,49 @@ def load_watch_pool(event_asof: str | None = None) -> Dict[str, Any]:
     return pool
 
 
+def watch_pool_staleness(pool: Mapping[str, Any], event_asof: str) -> Dict[str, Any]:
+    """观察池相对当日的新鲜度画像。
+
+    ``candidate_pool_latest.json`` 是一个 latest 文件：candidate-preopen（08:30）
+    挂掉时它会停在上一交易日，而 ``load_watch_pool`` 本来就容忍
+    ``MAX_POOL_AGE_DAYS`` 天 —— 也就是说隔夜池此前会被当成正常池静默使用。
+    抓隔夜池的竞价是可以的（竞价数据是今天的真实数据），但它不能进执行面：
+    今天新出现的标的一个都不在池子里。所以这里把 stale 显式记下来，
+    由 ``finalize`` 转成 ``research_only``。
+    """
+    pool_asof = str((pool or {}).get("asof") or "").strip()
+    if not pool_asof:
+        return {
+            "stale": True,
+            "pool_asof": None,
+            "age_days": None,
+            "reason": "观察池不可用（candidate-preopen 无产出）",
+        }
+    try:
+        age = (
+            datetime.fromisoformat(event_asof).date()
+            - datetime.fromisoformat(pool_asof).date()
+        ).days
+    except ValueError:
+        return {
+            "stale": True,
+            "pool_asof": pool_asof,
+            "age_days": None,
+            "reason": f"观察池日期无法解析: {pool_asof}",
+        }
+    if age <= 0:
+        return {"stale": False, "pool_asof": pool_asof, "age_days": age, "reason": None}
+    return {
+        "stale": True,
+        "pool_asof": pool_asof,
+        "age_days": age,
+        "reason": (
+            f"使用隔夜观察池（source={pool_asof}，落后 {age} 天）："
+            "竞价为当日真实数据，但候选集合不含今日新标的，仅作研究观测"
+        ),
+    }
+
+
 def watch_pool_codes(pool: Mapping[str, Any]) -> List[str]:
     return [
         candidate_pipeline.market_code(item.get("code") or item.get("market_code"))
@@ -626,6 +669,7 @@ def append_snapshot(
         for item in pool.get("candidates", [])
         if (item.get("code") or item.get("market_code")) and item.get("volume")
     }
+    pool_stale = watch_pool_staleness(pool, asof)
     budget = fetch_budget_seconds()
     if full_universe:
         # The 09:24 full-market pass is intelligence-only. It must not fan out
@@ -689,6 +733,8 @@ def append_snapshot(
         # 只保留本次采集的失败画像：它回答的是「这一分钟的窗口发生了什么」，
         # 跨快照累积会把早已恢复的失败一直挂在 artifact 上。
         state["snapshot_failures"] = failure_summary
+        # 池子新鲜度是「今天这一轮」的属性，同样只留最新一次。
+        state["pool_stale"] = pool_stale
         return state
 
     return mutate_json(_state_path(asof), mutator, default={"asof": asof, "series": {}})
@@ -765,6 +811,7 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     # 采集期的失败画像必须跟到收口报告：09:26 看到 shortlist 很短时，
     # 「池子本来就小」和「数据源挂了/预算耗尽」是两种完全不同的运维动作。
     result["snapshot_failures"] = state.get("snapshot_failures")
+    result["pool_stale"] = state.get("pool_stale")
     if not result["factors"]:
         return _degraded_finalize(
             result,
@@ -803,6 +850,18 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     # 空短名单（弱市门禁清零候选池）时不得伪装成可执行结论：
     # research_only=True + decision_count=0 让下游明确区分"无机会"与"无观测"。
     result["research_only"] = len(result["shortlist"]) == 0
+    # 隔夜观察池：竞价是今天的真实数据，可以观测，但候选集合不含今日新标的，
+    # 不能进执行面。open_confirmation 对 research_only 有清零信号的 fail-closed
+    # 安全网，这里把开关拨到位并写明原因。
+    stale = result.get("pool_stale") or {}
+    if stale.get("stale"):
+        result["research_only"] = True
+        result["status"] = "degraded"
+        reasons = list(result.get("degraded_reasons") or [])
+        reason = str(stale.get("reason") or "观察池已过期")
+        if reason not in reasons:
+            reasons.append(reason)
+        result["degraded_reasons"] = reasons
     top_candidates = list(result["shortlist"][:5])
     announcement_map = scan_many(
         candidate_pipeline.naked_code(item.get("code"))
@@ -1069,6 +1128,7 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "degraded_reasons": list(result.get("degraded_reasons") or []),
         "collection_status": result.get("collection_status"),
         "snapshot_failures": result.get("snapshot_failures"),
+        "pool_stale": result.get("pool_stale"),
         "auction_quality": result.get("auction_quality") or result.get("auction_quality_report"),
         "auction_quality_report": result.get("auction_quality_report"),
         "score_semantics": result.get(

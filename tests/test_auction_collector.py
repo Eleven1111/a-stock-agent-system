@@ -928,3 +928,79 @@ def test_finalize_carries_snapshot_failures_into_the_report(tmp_path, monkeypatc
     assert result["status"] == "degraded"
     assert report["snapshot_failures"]["total"] == 1
     assert "budget_exhausted" in report["snapshot_failures"]["by_reason"][0]["reason"]
+
+
+def _seed_pool(tmp_path, monkeypatch, *, pool_asof, codes=("sh600001",)):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    atomic_write_json(ac._pool_path(), {
+        "status": "ready",
+        "asof": pool_asof,
+        "candidates": [
+            {"code": code, "name": code, "volume": 1000, "amount": 20000}
+            for code in codes
+        ],
+    })
+
+
+def test_stale_watch_pool_is_marked_on_the_snapshot(tmp_path, monkeypatch):
+    """candidate-preopen 挂掉时观察池会停在昨天，但此前没有任何地方记下这件事。
+
+    candidate_pool_latest.json 是一个 latest 文件，load_watch_pool 本来就容忍
+    MAX_POOL_AGE_DAYS 天 —— 也就是说隔夜池会被当成正常池静默使用。
+    """
+    _seed_pool(tmp_path, monkeypatch, pool_asof="2026-06-22")
+    monkeypatch.setattr(
+        ac,
+        "take_snapshot_with_failures",
+        lambda codes, **kwargs: ({"600001": [{"t": "09:20:00", "price": 10.0}]}, {}),
+    )
+
+    state = ac.append_snapshot(["sh600001"], "2026-06-23")
+
+    assert state["pool_stale"]["stale"] is True
+    assert state["pool_stale"]["pool_asof"] == "2026-06-22"
+    assert state["pool_stale"]["age_days"] == 1
+
+
+def test_fresh_watch_pool_is_not_marked_stale(tmp_path, monkeypatch):
+    _seed_pool(tmp_path, monkeypatch, pool_asof="2026-06-23")
+    monkeypatch.setattr(
+        ac,
+        "take_snapshot_with_failures",
+        lambda codes, **kwargs: ({"600001": [{"t": "09:20:00", "price": 10.0}]}, {}),
+    )
+
+    state = ac.append_snapshot(["sh600001"], "2026-06-23")
+
+    assert state["pool_stale"]["stale"] is False
+    assert state["pool_stale"]["age_days"] == 0
+
+
+def test_stale_pool_forces_research_only_so_it_never_reaches_execution(tmp_path, monkeypatch):
+    """隔夜池可以用来观测，但不能用来下单。
+
+    open_confirmation 已有 fail-closed 安全网：shortlist_result.research_only 为真
+    时信号一律清零。所以这里只需保证 stale 会把它置真，并写明原因。
+    """
+    _seed_pool(tmp_path, monkeypatch, pool_asof="2026-06-22")
+    monkeypatch.setattr(
+        ac,
+        "take_snapshot_with_failures",
+        lambda codes, **kwargs: ({"600001": [{
+            "t": "09:25:00", "name": "示例", "price": 11.0, "prev_close": 10.0,
+            "volume": 12000, "market_cap": 80.0,
+            "matched": 1200000, "unmatched": 0,
+            "prev_day_volume": 100000.0,
+            "bids": [(11.0, 90000)] + [(None, None)] * 4,
+            "asks": [(None, None)] * 5,
+        }]}, {}),
+    )
+    ac.append_snapshot(["sh600001"], "2026-06-23")
+
+    result = ac.finalize("2026-06-23")
+    report = ac.json_report(result)
+
+    assert result["research_only"] is True
+    assert report["research_only"] is True
+    assert report["pool_stale"]["stale"] is True
+    assert any("隔夜" in reason or "过期" in reason for reason in report["degraded_reasons"])
