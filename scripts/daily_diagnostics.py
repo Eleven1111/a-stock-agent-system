@@ -370,6 +370,31 @@ def section_openclaw(data: dict[str, Any]) -> list[str]:
 # 4. 注册漂移：manifest 与 OpenClaw 注册表比对
 # --------------------------------------------------------------------------- #
 
+#: 一条注册记录里，作业 id 可能藏在哪些列。只取第一个非空字段是不够的：
+#: OpenClaw 的 ``cron_jobs`` 用 UUID 做主键，人类可读的名字和真正的命令行在
+#: 别的列里，于是每一条注册都被判成对不上 —— 2026-08-19 报告里
+#: 「52 enabled 全部 missing / 61 注册全部 extra」就是这个形态（issue #245）。
+#: ``command`` 尤其可靠：注册项跑的是 ``run_agent_dag.py <job-id>``。
+IDENTITY_FIELDS = (
+    "job_id", "name", "id", "title", "slug", "task",
+    "command", "command_argv", "argv", "script",
+)
+
+
+def _identity_values(row: dict[str, Any]) -> list[str]:
+    """这条注册记录里所有可能写着作业 id 的字符串。"""
+    return [
+        str(row[field])
+        for field in IDENTITY_FIELDS
+        if field in row and row[field] not in (None, "")
+    ]
+
+
+def _registration_label(row: dict[str, Any]) -> str:
+    """报告里怎么称呼这条注册 —— 优先人类可读的名字，UUID 兜底。"""
+    return str(_pick(row, "name", "title", "job_id", "id") or "<unnamed>")
+
+
 def collect_drift(manifest_path: str, openclaw: dict[str, Any]) -> dict[str, Any]:
     """结构化的注册漂移结论。
 
@@ -404,23 +429,35 @@ def collect_drift(manifest_path: str, openclaw: dict[str, Any]) -> dict[str, Any
         result["reason"] = "未能读取 OpenClaw 注册表，跳过比对。"
         return result
 
-    registered = set()
-    for row in openclaw["jobs"]:
-        name = _pick(row, "job_id", "name", "id")
-        if name:
-            registered.add(str(name))
-    result["registered_count"] = len(registered)
+    rows = openclaw["jobs"]
+    result["registered_count"] = len(rows)
 
     # OpenClaw 的作业名可能带前缀（如 "A-stock: xxx"），只做包含式匹配，
     # 匹配不上的列出来让人判断，不自作主张认定为漂移。
-    result["missing"] = sorted(
-        job for job in enabled
-        if not any(job in reg for reg in registered)
-    )
-    result["extra"] = sorted(
-        reg for reg in registered
-        if not any(job in reg for job in enabled)
-    )
+    matched: set[str] = set()
+    unmatched: list[str] = []
+    for row in rows:
+        haystacks = _identity_values(row)
+        hits = {job for job in enabled if any(job in text for text in haystacks)}
+        if hits:
+            matched |= hits
+        else:
+            unmatched.append(_registration_label(row))
+
+    if rows and enabled and not matched:
+        # 全量对不上：与其说 52 个作业真的都没注册，不如说这一列根本不是
+        # 作业名（OpenClaw 主键是 UUID 时就是这个形态）。用空集去支撑一个
+        # 强结论，是这套诊断最该避免的错法 —— 所以报「测不准」而不是报漂移。
+        result["unavailable_at"] = "key_mismatch"
+        result["reason"] = (
+            f"{len(rows)} 条注册记录没有一条能对上 manifest 的作业 id，"
+            f"疑似比对键不是作业名（如注册表主键为 UUID），"
+            f"而不是 {len(enabled)} 个作业都未注册。请核对 cron_jobs 的列名。"
+        )
+        return result
+
+    result["missing"] = sorted(enabled - matched)
+    result["extra"] = sorted(set(unmatched))
     result["status"] = "drift" if (result["missing"] or result["extra"]) else "ok"
     return result
 
@@ -431,12 +468,15 @@ def section_drift(manifest_path: str, openclaw: dict[str, Any]) -> list[str]:
     drift = collect_drift(manifest_path, openclaw)
     if drift["unavailable_at"] == "manifest":
         return lines + [str(drift["reason"]), ""]
+    lines.append(f"manifest enabled 作业 **{drift['enabled_count']}** 个。")
     if drift["unavailable_at"] == "openclaw":
-        lines.append(f"manifest enabled 作业 **{drift['enabled_count']}** 个。")
         return lines + ["", str(drift["reason"]), ""]
 
-    lines.append(f"manifest enabled 作业 **{drift['enabled_count']}** 个。")
     lines.append(f"OpenClaw 注册 **{drift['registered_count']}** 个。")
+    if drift["unavailable_at"]:
+        # 任何「测不准」都必须把理由印出来。落到下面的漂移版式会渲染出
+        # 空的 missing/extra 再什么都不说 —— 那比报错还糟。
+        return lines + ["", str(drift["reason"]), ""]
     lines.append("")
     if drift["missing"]:
         lines += ["**manifest 里 enabled 但 OpenClaw 未注册**（改了没同步注册？）：", ""]
