@@ -32,6 +32,10 @@ from state_store import atomic_write_json, read_json  # noqa: E402
 from tradeability import assess_tradeability  # noqa: E402
 
 
+class InsufficientCandidateData(DataSourceError):
+    """上游任务正常运行但当日候选为零（弱市常态），不是基础设施故障。"""
+
+
 MAX_CANDIDATES = 20
 PROFILE_RULES = {
     "morning_confirm": {
@@ -100,7 +104,7 @@ def load_checkpoint_source(asof: str) -> dict[str, Any]:
         )
     candidates = shortlist.get("shortlist")
     if not isinstance(candidates, list) or not candidates:
-        raise DataSourceError("checkpoint_source", f"{asof} 无可恢复候选")
+        raise InsufficientCandidateData("checkpoint_source", f"{asof} 无可恢复候选")
     return {
         **shortlist,
         "status": "auction_fallback",
@@ -710,6 +714,20 @@ def main() -> int:
     try:
         _require_same_day_live(args.asof)
         result = run_checkpoint(args.profile, args.asof)
+    except InsufficientCandidateData as exc:
+        no_candidate = {
+            "schema": "hot_money_checkpoint_v1",
+            "status": "insufficient_data",
+            "profile": args.profile,
+            "asof": args.asof,
+            "error": str(exc),
+            "research_only": True,
+            "confirmed_count": 0,
+        }
+        print(
+            json.dumps(no_candidate, ensure_ascii=False) if args.json else no_candidate
+        )
+        return 0
     except DataSourceError as exc:
         failure = {
             "schema": "hot_money_checkpoint_v1",
