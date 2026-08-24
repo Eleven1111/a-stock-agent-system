@@ -27,6 +27,7 @@ from signal_context import read_signal_context
 from catalyst_context import read_catalyst_events
 import monitor_registry
 import runtime_targets
+import sector_series
 
 # 兼容测试/显式注入；生产默认观察集由持仓和 monitor_registry 动态生成。
 TRACKED_CODES = []
@@ -329,6 +330,30 @@ def detect_sector_acceleration(
     return alerts, state
 
 
+def _record_sector_series(
+    asof: str,
+    now: datetime,
+    sector_state: Mapping[str, Mapping[str, Any]],
+    *,
+    degraded_reason: str,
+) -> Dict[str, Any]:
+    """把本 tick 的板块强度帧落盘为当日时序，返回可进 artifact 的有界摘要。
+
+    落盘失败不得压制告警——涨跌停与持仓退出信号才是本作业的主职责，时序是
+    附加观测。因此这里 fail-open，但把失败原因显式带回返回值，不静默吞掉。
+    """
+    try:
+        day = sector_series.record_slot(
+            asof,
+            sector_series.slot_of(now),
+            sector_state,
+            degraded_reason=degraded_reason or None,
+        )
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        return {"status": "write_failed", "error": str(exc)}
+    return sector_series.summarize_day(day)
+
+
 def check_intraday() -> Dict:
     """检测盘中异动（阈值触发）"""
     alerts = []
@@ -401,7 +426,12 @@ def check_intraday() -> Dict:
         min_acceleration_pct=SECTOR_MIN_ACCELERATION_PCT,
     )
     alerts.extend(sector_alerts)
+    # 这份缓存仍是"相对上一 tick 的加速度"判定所需的前一帧，不能撤；
+    # 下面的时序落盘是新增的持久化，两者职责不同。
     cache["_sector_state"] = sector_state
+    series_summary = _record_sector_series(
+        today_iso, now, sector_state, degraded_reason=sector_degradation,
+    )
 
     # 持仓退出信号检测
     portfolio = read_json(PORTFOLIO_FILE, {})
@@ -493,6 +523,7 @@ def check_intraday() -> Dict:
         "sector_member_count": len(sector_members),
         "sector_monitor_status": "degraded" if sector_degradation else "ok",
         "sector_alerts": sector_alerts,
+        "sector_series": series_summary,
         "alerts": alerts,
         "exit_signals": exit_alerts,
         "has_alerts": len(alerts) > 0,
