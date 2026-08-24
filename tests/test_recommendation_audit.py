@@ -370,6 +370,79 @@ def test_unregistered_strategy_is_recorded_as_watch_without_trade_or_signal(
     assert [event["event_type"] for event in events] == ["recommendation.created"]
 
 
+def test_conditional_buy_never_creates_trade_or_settleable_signal(tmp_path, monkeypatch):
+    """issue #260 §4.C.4：conditional_buy 是合法推荐动作，但绝不创建成交/结算事实
+    (即使局部试验预算非零、仓位可执行)。"""
+    _wire(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        ra, "_local_theme_resonance_config",
+        lambda: {"local_theme_position_cap": 0.05, "local_trial_budget": 0.05},
+    )
+
+    result = ra.record_recommendation(
+        **_passed_buy(
+            action="conditional_buy",
+            source_id="conditional-local-theme",
+            participation_scope="local_theme_only",
+        )
+    )
+
+    record = result["record"]
+    assert record["action"] == "conditional_buy"
+    assert record["participation_scope"] == "local_theme_only"
+    assert record["settleable_signal"] is False
+    assert record["position_sizing"]["recommended_position_pct"] > 0.0
+    assert record.get("trade_id") is None
+    events = ra.signal_ledger.read_events(ra.LEDGER_FILE)
+    assert all(event["event_type"] not in ("trade.proposed", "trade.executed") for event in events)
+    assert ra.signal_ledger.project_signals(events) == []
+
+
+def test_conditional_buy_default_zero_trial_budget_blocks_execution_quantity(tmp_path, monkeypatch):
+    """默认 local_trial_budget=0：仓位归零 → 执行数量为0 → 最终落地动作降为 hold，
+    但 policy_decision 仍如实记录"若开启会是 conditional_buy"，供审计追溯。"""
+    _wire(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        ra, "_local_theme_resonance_config",
+        lambda: {"local_theme_position_cap": 0.0, "local_trial_budget": 0.0},
+    )
+
+    result = ra.record_recommendation(
+        **_passed_buy(
+            action="conditional_buy",
+            source_id="conditional-shadow",
+            participation_scope="local_theme_only",
+        )
+    )
+
+    record = result["record"]
+    assert record["position_sizing"]["recommended_position_pct"] == 0.0
+    assert record["policy_decision"]["decision"] == "conditional_buy"
+    assert record["action"] == "hold"
+    assert record["settleable_signal"] is False
+    assert record.get("trade_id") is None
+    events = ra.signal_ledger.read_events(ra.LEDGER_FILE)
+    assert all(event["event_type"] not in ("trade.proposed", "trade.executed") for event in events)
+
+
+def test_conditional_buy_downgraded_to_watch_still_carries_no_trade(tmp_path, monkeypatch):
+    """局部路径任一既有门禁失败，动作归零到 watch，不因为已是 conditional_buy 就豁免。"""
+    _wire(tmp_path, monkeypatch)
+    monkeypatch.setattr(ra, "market_regime", lambda _ctx: {"regime": "risk_off", "reason": "test", "score": -10})
+
+    result = ra.record_recommendation(
+        **_passed_buy(
+            action="conditional_buy",
+            source_id="conditional-risk-off",
+            participation_scope="local_theme_only",
+        )
+    )
+
+    record = result["record"]
+    assert record["action"] == "hold"
+    assert "market_risk_off" in record["policy_decision"]["reasons"]
+
+
 def test_position_guidance_uses_startup_default_when_history_insufficient(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch, history=[])
 
@@ -462,6 +535,73 @@ def test_position_guidance_blocks_new_daban_when_temperature_disallows(monkeypat
     assert sizing["recommended_position_pct"] == 0.0
     assert sizing["recommended_amount"] == 0.0
     assert sizing["temperature"]["allow_new_daban"] is False
+
+
+# ---------------------------------------------------------------------------
+# issue #260 §3.3.4: local_theme_only participation_scope caps position size
+# to min(local_theme_position_cap, local_trial_budget) — default 0 (shadow
+# only), independent of the (possibly nonzero) daban temperature multiplier.
+# ---------------------------------------------------------------------------
+
+
+def test_local_theme_scope_defaults_to_shadow_zero_position(tmp_path, monkeypatch):
+    """默认配置 local_trial_budget=0：即使正常仓位测算非零，也必须归零仅留 shadow 结论。"""
+    _wire(tmp_path, monkeypatch, history=[])
+    monkeypatch.setattr(
+        ra, "_local_theme_resonance_config",
+        lambda: {"local_theme_position_cap": 0.05, "local_trial_budget": 0.0},
+    )
+
+    sizing = ra.position_guidance(
+        "trend_pullback", 10.0, 12.0, 9.0, total_asset=100000,
+        participation_scope="local_theme_only",
+    )
+
+    assert sizing["recommended_position_pct"] == 0.0
+    assert sizing["recommended_amount"] == 0.0
+    assert sizing["participation_scope"] == "local_theme_only"
+    assert "shadow" in sizing["reason"]
+
+
+def test_local_theme_scope_caps_at_minimum_of_cap_and_budget(tmp_path, monkeypatch):
+    history = [
+        {"strategy_id": "trend_pullback", "pnl": 100} for _ in range(7)
+    ] + [
+        {"strategy_id": "trend_pullback", "pnl": -100} for _ in range(3)
+    ]
+    _wire(tmp_path, monkeypatch, history=history)
+    monkeypatch.setattr(
+        ra, "_local_theme_resonance_config",
+        lambda: {"local_theme_position_cap": 0.02, "local_trial_budget": 0.05},
+    )
+
+    sizing = ra.position_guidance(
+        "trend_pullback", 10.0, 12.0, 9.0, total_asset=100000,
+        participation_scope="local_theme_only",
+    )
+
+    # kelly_quarter 正常会给 13.75%，但局部路径上限 = min(2%, 5%) = 2%；
+    # 预算非零时金额应与封顶后的 pct 一致，不是恒零（恒零只发生在预算为 0）。
+    assert sizing["method"] == "kelly_quarter"
+    assert sizing["recommended_position_pct"] == 2.0
+    assert sizing["recommended_amount"] == 2000.0
+    assert sizing["local_theme_position_cap_pct"] == 2.0
+
+
+def test_local_theme_scope_does_not_affect_normal_participation(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, history=[])
+    monkeypatch.setattr(
+        ra, "_local_theme_resonance_config",
+        lambda: {"local_theme_position_cap": 0.0, "local_trial_budget": 0.0},
+    )
+
+    sizing = ra.position_guidance(
+        "daban:first_board_reseal", 11.0, 12.1, 10.45, total_asset=100000,
+        participation_scope=None,
+    )
+
+    assert sizing["recommended_position_pct"] == 2.0
+    assert "participation_scope" not in sizing
 
 
 def test_guardrail_recorded_when_concentration_downgrades_buy_to_avoid(tmp_path, monkeypatch):

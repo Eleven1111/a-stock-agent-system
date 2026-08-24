@@ -73,6 +73,7 @@ def preopen_digest(result: Mapping[str, Any], *, limit: int = 10) -> dict[str, A
         else result.get("candidates") or []
     )
     counts = dict(result.get("counts") or {})
+    local_theme_candidates = list(result.get("local_theme_candidates") or [])
     return {
         "schema": "preopen_intelligence_v1",
         "research_only": True,
@@ -81,10 +82,13 @@ def preopen_digest(result: Mapping[str, Any], *, limit: int = 10) -> dict[str, A
         "candidate_count": len(execution_candidates),
         "research_count": int(counts.get("research", len(research_candidates))),
         "execution_count": int(counts.get("execution", len(execution_candidates))),
+        "local_theme_count": int(counts.get("local_theme", len(local_theme_candidates))),
         "auction_scan_count": int(counts.get("auction_scan", result.get("auction_scan_count") or 0)),
         "top_daban": _top(research_candidates, "daban_score", limit=limit),
         "top_trend": _top(research_candidates, "trend_score", limit=limit),
         "execution_candidates": [_compact(item) for item in execution_candidates[:limit]],
+        "local_theme_candidates": [_compact(item) for item in local_theme_candidates[:limit]],
+        "market_gate": dict(result.get("market_gate") or {}),
         "gate": dict(result.get("gate") or {}),
     }
 

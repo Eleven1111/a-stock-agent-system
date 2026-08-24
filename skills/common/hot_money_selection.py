@@ -12,6 +12,8 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from a_share_rules import previous_trading_day
 from crowding_fragility import build_market_crowding_fragility, sector_crowding_fragility
+from local_theme_resonance import DEFAULT_CONFIG as LOCAL_THEME_DEFAULT_CONFIG
+from local_theme_resonance import build_local_theme_gate
 from market_temperature import classify_market_state, temperature_from_context
 from reflexivity import assess_candidate
 from sector_taxonomy import resolve_sector
@@ -351,6 +353,48 @@ def allowed_ladder_age_days(event_asof: str) -> int | None:
         return None
 
 
+def _data_readiness_reasons(
+    temperature: Mapping[str, Any],
+    *,
+    context_asof: str,
+    event_asof: str,
+    quote_count: int,
+    min_quote_count: int,
+    allowed_age_days: int | None,
+) -> list[str]:
+    """Reasons the underlying data itself is not trustworthy (issue #260 §3.1
+    ``data_ready``). Excludes intraday retreat/observation-missing degradation
+    and excludes "market tier forbids new risk" — those are separate axes."""
+    reasons: list[str] = []
+    if temperature.get("context_status") not in ("fresh", "degraded"):
+        reasons.extend(str(note) for note in temperature.get("notes") or [])
+    if context_asof and event_asof:
+        if allowed_age_days is None:
+            reasons.append(f"交易日历未覆盖事件日 {event_asof}，梯队新鲜度无法判定")
+        elif _ladder_age_days(context_asof, event_asof) > allowed_age_days:
+            reasons.append(f"梯队日期与事件日不一致或已过期: {context_asof} != {event_asof}")
+    if quote_count < min_quote_count:
+        reasons.append(f"全市场有效行情不足: {quote_count} < {min_quote_count}")
+    return reasons
+
+
+def _retreat_degraded_reasons(temperature: Mapping[str, Any]) -> list[str]:
+    """盘中退潮/观测缺失：数据本身可信，但盘中修正不可信或触发了退潮硬信号。"""
+    reasons: list[str] = []
+    if temperature.get("context_status") == "degraded":
+        reasons.append("盘中观测缺失（竞价快照为空），退潮检查未执行，按无证据处理")
+    if temperature.get("retreat_signal"):
+        reasons.append(str(temperature["retreat_signal"]))
+    return reasons
+
+
+def _market_new_risk_reasons(temperature: Mapping[str, Any]) -> list[str]:
+    """市场温度档位本身不允许新开风险仓（含冰点杀跌、极热等）。"""
+    if temperature.get("allow_new_daban"):
+        return []
+    return [f"市场温度{temperature.get('tier')}不允许新开打板仓"]
+
+
 def _timing_reasons(
     temperature: Mapping[str, Any],
     *,
@@ -360,20 +404,70 @@ def _timing_reasons(
     min_quote_count: int,
     allowed_age_days: int | None,
 ) -> list[str]:
-    """Blocking reasons for the hot-money clock; empty means ready."""
-    reasons: list[str] = []
-    if not temperature.get("context_fresh"):
-        reasons.extend(str(note) for note in temperature.get("notes") or [])
-    if context_asof and event_asof:
-        if allowed_age_days is None:
-            reasons.append(f"交易日历未覆盖事件日 {event_asof}，梯队新鲜度无法判定")
-        elif _ladder_age_days(context_asof, event_asof) > allowed_age_days:
-            reasons.append(f"梯队日期与事件日不一致或已过期: {context_asof} != {event_asof}")
-    if quote_count < min_quote_count:
-        reasons.append(f"全市场有效行情不足: {quote_count} < {min_quote_count}")
-    if not temperature.get("allow_new_daban"):
-        reasons.append(f"市场温度{temperature.get('tier')}不允许新开打板仓")
-    return reasons
+    """Blocking reasons for the hot-money clock; empty means ready.
+
+    Aggregates the three independent axes (data readiness, retreat/observation
+    degradation, market-tier new-risk permission) for legacy consumers of
+    ``daban_ready``/``reasons``; see ``build_market_gate`` for the split view.
+    """
+    data_reasons = _data_readiness_reasons(
+        temperature,
+        context_asof=context_asof,
+        event_asof=event_asof,
+        quote_count=quote_count,
+        min_quote_count=min_quote_count,
+        allowed_age_days=allowed_age_days,
+    )
+    return [
+        *data_reasons,
+        *_retreat_degraded_reasons(temperature),
+        *_market_new_risk_reasons(temperature),
+    ]
+
+
+def build_market_gate(
+    temperature: Mapping[str, Any],
+    *,
+    data_ready: bool,
+    retreat_or_degraded: bool,
+    weak_regime: bool,
+) -> dict[str, Any]:
+    """市场门禁 ``market_gate_v2``（issue #260 §3.1）。
+
+    ``open``：数据可信且全局路径未因有效的冰点风险规则关闭；``restricted``：
+    数据可信、无退潮/观测降级，且全局路径**仅因**冰点杀跌关闭，可继续评估局部
+    主题（默认只观察）；``blocked``：数据不可信、退潮/观测缺失，或其他非
+    #260 范围的全局战略禁入（如极热只卖不买）——局部主题不得豁免这些关闭。
+    """
+    tier = temperature.get("tier")
+    ice_substate = temperature.get("ice_substate")
+    allow_new_daban = bool(temperature.get("allow_new_daban"))
+    reason_codes: list[str] = []
+    if not data_ready:
+        status = "blocked"
+        reason_codes.append("data_not_ready")
+    elif retreat_or_degraded:
+        status = "blocked"
+        reason_codes.append("retreat_or_observation_missing")
+    elif not allow_new_daban:
+        if tier == "冰点" and ice_substate == "冰点杀跌":
+            status = "restricted"
+            reason_codes.append("temperature_new_risk_blocked")
+        else:
+            status = "blocked"
+            reason_codes.append("global_strategic_block")
+    else:
+        status = "open"
+    return {
+        "schema": "market_gate_v2",
+        "status": status,
+        "data_ready": bool(data_ready),
+        "global_new_risk_allowed": allow_new_daban,
+        "temperature_tier": tier,
+        "temperature_substate": ice_substate,
+        "weak_regime": bool(weak_regime),
+        "reason_codes": reason_codes,
+    }
 
 
 def build_market_timing(
@@ -421,7 +515,7 @@ def build_market_timing(
         context=context,
     )
     context_asof = str(context.get("ladder_asof") or "")
-    reasons = _timing_reasons(
+    data_reasons = _data_readiness_reasons(
         temperature,
         context_asof=context_asof,
         event_asof=event_asof,
@@ -429,6 +523,8 @@ def build_market_timing(
         min_quote_count=int(cfg["min_quote_count"]),
         allowed_age_days=allowed_age_days,
     )
+    retreat_reasons = _retreat_degraded_reasons(temperature)
+    reasons = [*data_reasons, *retreat_reasons, *_market_new_risk_reasons(temperature)]
 
     ready = not reasons
     result = {
@@ -446,6 +542,12 @@ def build_market_timing(
         "reasons": reasons,
     }
     result["weak_market"] = derive_weak_market_regime(result)
+    result["market_gate"] = build_market_gate(
+        temperature,
+        data_ready=not data_reasons,
+        retreat_or_degraded=bool(retreat_reasons),
+        weak_regime=bool(result["weak_market"].get("weak_regime")),
+    )
     return result
 
 
@@ -459,6 +561,11 @@ def build_sector_leadership(
 ) -> dict[str, Any]:
     """Rank sectors cross-sectionally and expose persistence as research evidence."""
     cfg = _config(config)
+    local_theme_cfg = {
+        **LOCAL_THEME_DEFAULT_CONFIG,
+        **dict((config or {}).get("local_theme_resonance") or {}),
+    }
+    min_strong_members = int(local_theme_cfg["min_strong_members"])
     context = filter_sector_flows_for_asof(
         signal_context, market_timing.get("event_asof")
     )
@@ -481,10 +588,17 @@ def build_sector_leadership(
     rows: list[dict[str, Any]] = []
     for sector, members in sector_rows.items():
         calculated_limitups = 0
+        strong_members_detail: list[tuple[float, str]] = []
         for member in members:
             threshold = limit_pct(_code(member.get("code")), str(member.get("name") or ""))
             if _num(member.get("change_pct")) >= threshold - 0.2:
                 calculated_limitups += 1
+                strong_members_detail.append(
+                    (_num(member.get("change_pct")), _code(member.get("code")))
+                )
+        # 按涨幅降序排列，index 0 近似板块内龙头——真实龙头身位以
+        # apply_leader_identity 的连板梯队排序为准，这里只是 D0 粗筛代理。
+        strong_member_codes = [code for _pct, code in sorted(strong_members_detail, reverse=True)]
         top_changes = sorted(
             (_num(member.get("change_pct")) for member in members), reverse=True
         )[:10]
@@ -512,6 +626,7 @@ def build_sector_leadership(
             int(declared_limitups.get(sector) or 0),
         )
         flow_yi = _sector_flow_yi(sector, context)
+        confirmed_stock_count = int(theme_evidence.get("confirmed_stock_count") or 0)
         evidence_types: list[str] = []
         if limitup_count >= int(cfg["min_sector_limitups"]):
             evidence_types.append("limitup_cluster")
@@ -519,11 +634,23 @@ def build_sector_leadership(
             evidence_types.append("social_theme")
         if flow_yi is not None and flow_yi >= float(cfg["sector_flow_confirm_yi"]):
             evidence_types.append("sector_flow")
+        # local_theme_evidence_types 是 issue #260 局部共振专用的证据口径，
+        # 与上面 evidence_types(游资打板 qualified_for_daban 的既有口径)分离——
+        # 后者被 evidence_count/min_sector_evidence_types_weak 消费，不能被
+        # breadth/theme_member_confirmed 这些新类型稀释或加严既有语义。
+        local_theme_evidence_types = list(evidence_types)
+        if theme_evidence.get("confirmed") and confirmed_stock_count >= 2:
+            # 多票同源主题确认才算独立扩散证据；单票命中仍只计入 social_theme。
+            local_theme_evidence_types.append("theme_member_confirmed")
+        if len(strong_member_codes) >= min_strong_members:
+            local_theme_evidence_types.append("breadth")
         sector_cf = sector_crowding_fragility(members)
         rows.append({
             "sector": sector,
             "stock_count": len(members),
             "limitup_count": limitup_count,
+            "strong_member_codes": strong_member_codes,
+            "local_theme_evidence_types": local_theme_evidence_types,
             "amount": round(sum(_num(member.get("amount")) for member in members), 2),
             "top10_change": round(mean(top_changes), 4) if top_changes else 0.0,
             "attention": round(attention, 4),
@@ -583,6 +710,27 @@ def build_sector_leadership(
             and in_current_top
             and row["limitup_count"] >= int(cfg["min_sector_limitups"])
             and row["evidence_count"] >= min_evidence_count
+        )
+        data_quality_ok = bool(
+            (market_timing.get("market_gate") or {}).get("data_ready")
+        ) and coverage_ready
+        strong_codes = row.get("strong_member_codes") or []
+        row["local_theme_gate"] = build_local_theme_gate(
+            row["sector"],
+            confirmation_level="preopen",
+            strong_member_codes=strong_codes,
+            observed_member_count=row.get("stock_count") or 0,
+            # D0 粗筛：涨幅最高的强势成员近似板块核心；真实龙头身位（连板梯队）
+            # 由 apply_leader_identity 用 apply_leader_identity 的排序重新判定。
+            core_code=strong_codes[0] if strong_codes else None,
+            core_sector_rank=1 if strong_codes else None,
+            core_decayed=False,
+            evidence_types=row.get("local_theme_evidence_types") or [],
+            data_quality_ok=data_quality_ok,
+            data_quality_reason=None if data_quality_ok else "market_or_sector_coverage_not_ready",
+            risk_reviewed=False,
+            risk_hard_block=False,
+            config=local_theme_cfg,
         )
 
     qualified = any(row["qualified_for_daban"] for row in rows)
@@ -723,6 +871,7 @@ def apply_leader_identity(
                 "theme_attention_score"
             )
             item["sector_flow_yi"] = sector_state.get("sector_flow_yi")
+            item["local_theme_gate"] = sector_state.get("local_theme_gate")
             item["leader_rank"] = rank
             item["leader_role"] = (
                 "sector_leader" if rank == 1
@@ -787,6 +936,7 @@ def selection_context_for(
             "status": market.get("status"),
             "tier": temperature.get("tier"),
             "daban_ready": market.get("daban_ready", False),
+            "market_gate": dict(market.get("market_gate") or {}),
             "breadth": dict(market.get("breadth") or {}),
             "previous_ladder_premium": market.get("previous_ladder_premium"),
             "height_counts": dict(market.get("height_counts") or {}),

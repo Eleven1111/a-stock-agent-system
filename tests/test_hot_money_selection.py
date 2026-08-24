@@ -639,3 +639,117 @@ def test_advance_selection_context_carries_board_height_forward():
 
     assert auction_context["leader"]["board_height"] == 2
     assert auction_context["leader"]["is_mid_position"] is True
+
+
+# ---------------------------------------------------------------------------
+# market_gate_v2 (issue #260): data readiness vs market new-risk permission
+# must be independently derivable, and 冰点杀跌 is the only closure reason
+# that yields "restricted" rather than "blocked".
+# ---------------------------------------------------------------------------
+
+
+def _temperature(**overrides):
+    base = {
+        "tier": "发酵",
+        "ice_substate": None,
+        "allow_new_daban": True,
+        "context_status": "fresh",
+        "retreat_signal": None,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_market_gate_open_when_data_ready_and_new_risk_allowed():
+    gate = hms.build_market_gate(
+        _temperature(), data_ready=True, retreat_or_degraded=False, weak_regime=False
+    )
+    assert gate["status"] == "open"
+    assert gate["data_ready"] is True
+    assert gate["reason_codes"] == []
+
+
+def test_market_gate_open_for_plain_weak_regime_without_ice_kill():
+    """弱市但未冰点杀跌仍走旧路径（不新启用局部路径）。"""
+    gate = hms.build_market_gate(
+        _temperature(tier="冰点", allow_new_daban=True),
+        data_ready=True,
+        retreat_or_degraded=False,
+        weak_regime=True,
+    )
+    assert gate["status"] == "open"
+    assert gate["weak_regime"] is True
+
+
+def test_market_gate_restricted_only_for_ice_selloff_closure():
+    gate = hms.build_market_gate(
+        _temperature(tier="冰点", ice_substate="冰点杀跌", allow_new_daban=False),
+        data_ready=True,
+        retreat_or_degraded=False,
+        weak_regime=True,
+    )
+    assert gate["status"] == "restricted"
+    assert gate["reason_codes"] == ["temperature_new_risk_blocked"]
+
+
+def test_market_gate_blocked_when_data_not_ready_regardless_of_other_axes():
+    gate = hms.build_market_gate(
+        _temperature(tier="冰点", ice_substate="冰点杀跌", allow_new_daban=False),
+        data_ready=False,
+        retreat_or_degraded=False,
+        weak_regime=True,
+    )
+    assert gate["status"] == "blocked"
+    assert gate["reason_codes"] == ["data_not_ready"]
+
+
+def test_market_gate_blocked_on_retreat_or_degraded_even_if_data_ready():
+    gate = hms.build_market_gate(
+        _temperature(), data_ready=True, retreat_or_degraded=True, weak_regime=False
+    )
+    assert gate["status"] == "blocked"
+    assert gate["reason_codes"] == ["retreat_or_observation_missing"]
+
+
+def test_market_gate_blocked_for_non_ice_strategic_closure_like_overheat():
+    """极热只卖不买属于 #260 范围外的全局战略禁入，不得给局部路径开口子。"""
+    gate = hms.build_market_gate(
+        _temperature(tier="极热", ice_substate=None, allow_new_daban=False),
+        data_ready=True,
+        retreat_or_degraded=False,
+        weak_regime=False,
+    )
+    assert gate["status"] == "blocked"
+    assert gate["reason_codes"] == ["global_strategic_block"]
+
+
+def test_build_market_timing_attaches_market_gate_open_on_ready_data():
+    timing = hms.build_market_timing(
+        _quotes(), _context(), event_asof="2026-06-22", config=_config()
+    )
+    assert timing["market_gate"]["schema"] == "market_gate_v2"
+    assert timing["market_gate"]["status"] == "open"
+    assert timing["market_gate"]["data_ready"] is True
+
+
+def test_build_market_timing_market_gate_blocked_on_stale_context():
+    timing = hms.build_market_timing(
+        _quotes(),
+        _context("2026-06-18"),
+        event_asof="2026-06-23",
+        config=_config(),
+    )
+    assert timing["market_gate"]["status"] == "blocked"
+    assert timing["market_gate"]["data_ready"] is False
+    assert timing["market_gate"]["reason_codes"] == ["data_not_ready"]
+
+
+def test_build_market_timing_market_gate_blocked_on_uncovered_calendar():
+    timing = hms.build_market_timing(
+        _quotes(),
+        _context("2031-06-22"),
+        event_asof="2031-06-23",
+        config=_config(),
+    )
+    assert timing["market_gate"]["status"] == "blocked"
+    assert timing["market_gate"]["data_ready"] is False

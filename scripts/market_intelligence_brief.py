@@ -85,26 +85,54 @@ def _shanghai_time_label(generated_at: Any) -> str:
 
 
 def _preopen_no_candidate_line(result: Mapping[str, Any]) -> str:
-    """Explain an empty pre-open pool without turning missing data into a regime."""
+    """Explain an empty pre-open pool without turning missing data into a regime.
+
+    issue #260 §2.8：tier/context_fresh 实际位于 ``market_timing.temperature``
+    之下，不在 ``market_timing`` 顶层——此前直接读顶层字段恒为空，导致这条
+    分支恒判定为"证据未就绪"，双门禁落地后会继续误报。
+    """
     selection = result.get("hot_money_selection") or {}
     timing = selection.get("market_timing") or {}
+    temperature = timing.get("temperature") or {}
     # status 是选股就绪状态（ready / insufficient_data），tier 是温度档位——
     # 两者不同源。温度不可用时 _unavailable_temperature 会把 tier 直接设成
     # 状态字符串，故 tier 侧必须同时排除 stale 与 unknown，否则「选股就绪但
     # 温度未知」会掉进弱市分支，又把缺数据说成 regime。
     status = str(timing.get("status") or "")
-    tier = str(timing.get("tier") or "")
-    fresh = timing.get("context_fresh")
+    tier = str(temperature.get("tier") or "")
+    fresh = temperature.get("context_fresh")
     if (
         status in {"insufficient_data", "unknown"}
         or tier in {"", "stale", "unknown"}
         or fresh is False
     ):
         return "⚠️ 盘前择时证据未就绪，暂不判定市场强弱；等待开盘确认"
+    market_gate = dict(timing.get("market_gate") or {})
+    local_theme_count = len(result.get("local_theme_candidates") or [])
+    if market_gate.get("status") == "restricted" and local_theme_count:
+        return (
+            f"⚠️ 全局新增风险受限（{market_gate.get('temperature_substate') or tier}），"
+            f"但发现 {local_theme_count} 只局部板块共振观察标的；等待竞价/开盘确认"
+        )
     weak = (timing.get("weak_market") or {}).get("weak_regime")
     if weak:
         return "⚠️ 盘前弱市门禁生效，候选暂降级为 research_only；等待开盘确认"
     return "⚠️ 盘前暂无可交付候选，等待开盘确认"
+
+
+def _market_gate_line(market_gate: Mapping[str, Any]) -> str:
+    """issue #260 §4.5：区分"全局无机会"/"全局受限但有局部强势"/"数据不足无法判断"。"""
+    status = market_gate.get("status")
+    if status == "open":
+        return "市场门禁：open（全局新增风险未受限，走现有门禁）"
+    if status == "restricted":
+        return (
+            f"市场门禁：restricted（{market_gate.get('temperature_substate') or '冰点杀跌'}，"
+            "全局新增仓关闭，可评估局部板块共振）"
+        )
+    if status == "blocked":
+        return "市场门禁：blocked（数据不可信或全局战略禁入，局部主题不豁免）"
+    return "市场门禁：未知（数据不足，无法判断全局强弱）"
 
 
 def _degraded_lines(result: Mapping[str, Any], *, tail: str) -> list[str]:
@@ -281,7 +309,9 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
             f"## 早盘情报简报 | {asof}",
             f"全市场{digest['scanned_count']}｜合格{digest['eligible_count']}｜"
             f"研究池{digest['research_count']}｜执行池{digest['execution_count']}｜"
+            f"局部主题观察池{digest['local_theme_count']}｜"
             f"竞价扫描预备{digest['auction_scan_count']}",
+            _market_gate_line(digest.get("market_gate") or {}),
         ])
         lines.extend(_sector_momentum_lines())
         lines.append("### 研究评分 TOP（research_only）")
@@ -309,6 +339,12 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
                 lines.append("- 原因：" + "；".join(str(item) for item in reasons))
             else:
                 lines.append("- " + _preopen_no_candidate_line(result))
+        if digest.get("local_theme_candidates"):
+            lines.append("### 局部主题观察（research_only，不可执行）")
+            lines.extend(
+                f"- {_label(item)}：{item.get('sector') or '-'}"
+                for item in digest["local_theme_candidates"]
+            )
     elif stage == "auction":
         lines.extend(_auction_lines(result, asof))
     elif stage == "open":

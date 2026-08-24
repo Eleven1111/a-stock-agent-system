@@ -72,5 +72,14 @@
   },
   "nl_screening_recall": {
     "enabled": true
+  },
+  "local_theme_resonance": {
+    "enabled": true,
+    "local_theme_conditional_trade_enabled": false,
+    "min_strong_members": 3,
+    "min_strong_members_after_core": 2,
+    "leader_top_n": 2,
+    "local_theme_position_cap": 0.0,
+    "local_trial_budget": 0.0
   }
 }

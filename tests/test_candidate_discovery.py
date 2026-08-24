@@ -743,6 +743,7 @@ def test_extreme_weak_market_keeps_research_only_candidates_out_of_live_targets(
     assert result["counts"] == {
         "research": 1,
         "execution": 0,
+        "local_theme": 0,
         "auction_scan": 1,
     }
     assert result["research_count"] == 1

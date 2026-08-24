@@ -211,6 +211,37 @@ def test_auction_scan_codes_empty_pool_returns_empty():
     assert ac.auction_scan_codes({}, full_universe=True) == []
 
 
+def test_watch_pool_codes_includes_local_theme_members():
+    """issue #260 B.1：D0 局部观察成员也要进 09:15-09:25 深池抓取，否则 09:25
+    二次确认永远没有新鲜竞价证据。"""
+    pool = {
+        "execution_candidates": [{"code": "sh600001"}],
+        "local_theme_candidates": [{"code": "sh600002"}, {"code": "sz000003"}],
+    }
+
+    assert ac.watch_pool_codes(pool) == ["sh600001", "sh600002", "sz000003"]
+
+
+def test_watch_pool_codes_deduplicates_overlap_with_execution_candidates():
+    pool = {
+        "execution_candidates": [{"code": "sh600001"}],
+        "local_theme_candidates": [{"code": "sh600001"}, {"code": "sh600002"}],
+    }
+
+    assert ac.watch_pool_codes(pool) == ["sh600001", "sh600002"]
+
+
+def test_watch_pool_codes_ignores_plain_research_candidates():
+    """普通 research_candidates 不在这条路径——只有 local_theme_candidates
+    才能让研究票获得深池竞价抓取。"""
+    pool = {
+        "execution_candidates": [{"code": "sh600001"}],
+        "research_candidates": [{"code": "sh600001"}, {"code": "sh699999"}],
+    }
+
+    assert ac.watch_pool_codes(pool) == ["sh600001"]
+
+
 def test_full_universe_single_snapshot_keeps_pool_outsider_for_research(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(

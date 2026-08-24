@@ -65,6 +65,7 @@ import trading_discipline  # noqa: E402
 from signal_context import read_signal_context  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 from tradeability import assess_tradeability  # noqa: E402
+from local_theme_resonance import build_local_theme_gate  # noqa: E402
 
 QUOTE_BATCH_SIZE = 80
 POSITIVE_ACTIONS = {"buy", "add", "conditional_buy"}
@@ -595,6 +596,7 @@ def _apply_policy(
     portfolio: Mapping[str, Any] | None = None,
     regime: Mapping[str, Any] | None = None,
     discipline_state: Mapping[str, Any] | None = None,
+    participation_scope: str | None = None,
 ) -> Dict[str, Any]:
     result = dict(item)
     selected_by = result.get("open_selected_by") or {}
@@ -626,6 +628,7 @@ def _apply_policy(
         strategy_lane=lane,
         market_crowding=selection_market,
         discipline_state=discipline_state,
+        participation_scope=participation_scope,
     )
     result["strategy_id"] = strategy_id
     _record_strategy_migration(result, strategy_id)
@@ -648,6 +651,16 @@ def _apply_policy(
         plan = dict(result.get("execution_plan") or {})
         plan["decision"] = policy["decision"]
         plan["position_pct"] = 0.0
+        result["execution_plan"] = plan
+        result["decision"] = policy["decision"]
+    elif policy["decision"] != result.get("decision"):
+        # issue #260：participation_scope 把 buy/add 封顶为 conditional_buy 时
+        # policy["decision"] 与预先算好的 execution_plan.decision 不再相等——
+        # 必须同步，否则最终落地动作会悄悄穿透成未封顶的 buy。仓位上限由
+        # recommendation_audit.position_guidance() 的 participation_scope 分支
+        # 兜底，这里不重复归零。
+        plan = dict(result.get("execution_plan") or {})
+        plan["decision"] = policy["decision"]
         result["execution_plan"] = plan
         result["decision"] = policy["decision"]
     return result
@@ -1244,6 +1257,207 @@ def _fetch_snapshots(
     return quotes
 
 
+# ---------------------------------------------------------------------------
+# issue #260 §4.C: 09:35 third confirmation for D0/09:25-approved local theme
+# resonance candidates. Fully separate from the competitive rank_confirmations
+# quota path — every reconfirmed conditional candidate becomes a signal, it
+# does not compete for the top-N lane slots.
+# ---------------------------------------------------------------------------
+
+_OPEN_STRONG_TRADEABILITY_STATUSES = ("limit_up", "limit_up_sealed")
+
+
+def _local_theme_config() -> Dict[str, Any]:
+    return dict(load_registered("candidate_selection").get("local_theme_resonance") or {})
+
+
+def _open_local_theme_evidence(
+    members: Sequence[Mapping[str, Any]],
+    *,
+    min_strong_members: int,
+) -> Tuple[List[str], List[str]]:
+    """用 09:35 真实开盘 tradeability 重算强势成员，不沿用 09:25 board_status。"""
+    strong_codes = [
+        str(member["code"]) for member in members
+        if member.get("quote_available")
+        and member.get("tradeability_status") in _OPEN_STRONG_TRADEABILITY_STATUSES
+    ]
+    evidence_types = ["breadth", "limitup_cluster"] if len(strong_codes) >= min_strong_members else []
+    return strong_codes, evidence_types
+
+
+def _reconfirm_open_sector_gate(
+    sector: str,
+    members: Sequence[Mapping[str, Any]],
+    *,
+    config: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """09:35 第三次确认：真实开盘价 + 完整风险复核（公告/可成交性）。"""
+    min_strong_members = int(config.get("min_strong_members", 3))
+    available = [m for m in members if m.get("quote_available")]
+    strong_codes, fresh_evidence = _open_local_theme_evidence(
+        available, min_strong_members=min_strong_members,
+    )
+    d0_gate = next(
+        (m.get("local_theme_gate") for m in members if m.get("local_theme_gate")), {},
+    ) or {}
+    carried_evidence = [
+        e for e in d0_gate.get("evidence_types") or ()
+        if e in ("sector_flow", "theme_member_confirmed")
+    ]
+    core_code = strong_codes[0] if strong_codes else None
+    core_row = next((m for m in available if str(m["code"]) == core_code), None)
+    risk_hard_block = any(m.get("risk_hard_block") for m in members)
+    return build_local_theme_gate(
+        sector,
+        confirmation_level="open",
+        strong_member_codes=strong_codes,
+        observed_member_count=len(available),
+        core_code=core_code,
+        core_sector_rank=core_row.get("auction_sector_rank") if core_row else None,
+        core_decayed=False,
+        evidence_types=[*fresh_evidence, *carried_evidence],
+        data_quality_ok=bool(available),
+        data_quality_reason=None if available else "open_no_fresh_quote",
+        risk_reviewed=True,
+        risk_hard_block=risk_hard_block,
+        config=config,
+    )
+
+
+def _local_theme_member_evidence(
+    item: Mapping[str, Any],
+    *,
+    quote: Mapping[str, Any],
+    announcements: Sequence[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    code = candidate_pipeline.naked_code(item.get("code"))
+    tradeability = assess_tradeability(quote, code, str(item.get("name") or ""))
+    hard_risk = bool(announcements) or tradeability.get("tradeable") is False
+    return {
+        "code": code,
+        "quote_available": bool(quote),
+        "tradeability_status": tradeability.get("status"),
+        "risk_hard_block": hard_risk,
+        "local_theme_gate": item.get("local_theme_gate"),
+        "auction_sector_rank": item.get("auction_sector_rank"),
+        "tradeability": tradeability,
+    }
+
+
+def _local_theme_sector(item: Mapping[str, Any]) -> str:
+    return str((item.get("local_theme_gate") or {}).get("sector") or item.get("sector") or "").strip()
+
+
+def build_local_theme_signals(
+    conditional_candidates: Sequence[Mapping[str, Any]],
+    *,
+    quotes: Mapping[str, Any],
+    asof: str,
+    portfolio: Mapping[str, Any] | None,
+    regime: Mapping[str, Any] | None,
+    discipline_state: Mapping[str, Any] | None,
+    config: Mapping[str, Any] | None = None,
+) -> List[Dict[str, Any]]:
+    """issue #260 §4.C：09:25 conditional_candidates 的第三次(09:35)确认。
+
+    只有开关开启且 resonance 重新确认为 confirmed、执行风险复核为 clear，
+    才尝试 conditional_buy(经 decision_policy 的 participation_scope 集中封顶)；
+    否则强制 watch，不得用盘前/竞价结论直接穿透。任一现有门禁（公告/PIT/
+    可成交性/价格计划/质量报告/策略 registry/组合风险/交易纪律/市场情报/
+    退出协议）失败仍归零，局部路径不豁免。
+    """
+    if not conditional_candidates:
+        return []
+    cfg = dict(config or _local_theme_config())
+    trade_enabled = bool(cfg.get("enabled", True)) and bool(
+        cfg.get("local_theme_conditional_trade_enabled", False)
+    )
+    codes = [candidate_pipeline.naked_code(item.get("code")) for item in conditional_candidates]
+    announcement_map = scan_many(codes)
+
+    sector_members: Dict[str, List[Dict[str, Any]]] = {}
+    for item in conditional_candidates:
+        code = candidate_pipeline.naked_code(item.get("code"))
+        quote = quotes.get(item.get("code")) or {}
+        member = _local_theme_member_evidence(
+            item, quote=quote, announcements=announcement_map.get(code) or [],
+        )
+        sector_members.setdefault(_local_theme_sector(item), []).append(member)
+
+    signals: List[Dict[str, Any]] = []
+    for item in conditional_candidates:
+        sector = _local_theme_sector(item)
+        if not sector:
+            continue
+        members = sector_members[sector]
+        gate = _reconfirm_open_sector_gate(sector, members, config=cfg)
+        code = candidate_pipeline.naked_code(item.get("code"))
+        member = next((m for m in members if m["code"] == code), {})
+        ready = (
+            trade_enabled
+            and gate["resonance_status"] == "confirmed"
+            and gate["execution_risk_status"] == "clear"
+            and not member.get("risk_hard_block")
+        )
+        signals.append(_build_local_theme_signal(
+            item, quote=quotes.get(item.get("code")) or {},
+            tradeability=member.get("tradeability") or {},
+            announcements=announcement_map.get(code) or [],
+            gate=gate, ready=ready, sector=sector, asof=asof,
+            portfolio=portfolio, regime=regime, discipline_state=discipline_state,
+        ))
+    return signals
+
+
+def _build_local_theme_signal(
+    item: Mapping[str, Any],
+    *,
+    quote: Mapping[str, Any],
+    tradeability: Mapping[str, Any],
+    announcements: Sequence[Mapping[str, Any]],
+    gate: Mapping[str, Any],
+    ready: bool,
+    sector: str,
+    asof: str,
+    portfolio: Mapping[str, Any] | None,
+    regime: Mapping[str, Any] | None,
+    discipline_state: Mapping[str, Any] | None,
+) -> Dict[str, Any]:
+    candidate = dict(item)
+    candidate["sector"] = sector
+    candidate["price"] = quote.get("price")
+    candidate["volume"] = quote.get("volume")
+    candidate["change_pct"] = quote.get("change_pct")
+    candidate["tradeability"] = tradeability
+    candidate["directional_eligible"] = quote.get("directional_eligible")
+    candidate["action"] = "trend_watch" if ready else "watch"
+    candidate["strict_execution"] = True
+    enriched = _enrich_decision(candidate, announcements, asof)
+    controls = _open_execution_controls(enriched, quote, tradeability, asof)
+    enriched["execution_controls"] = controls
+    if not ready or controls["status"] == "blocked":
+        plan = dict(enriched.get("execution_plan") or {})
+        plan.update({"decision": "watch", "position_pct": 0.0})
+        enriched["execution_plan"] = plan
+        enriched["decision"] = "watch"
+        if controls["status"] == "blocked":
+            enriched.setdefault("reasons", []).append(str(controls["reason"]))
+    result = _apply_policy(
+        enriched, asof=asof, portfolio=portfolio, regime=regime,
+        discipline_state=discipline_state, participation_scope="local_theme_only",
+    )
+    result.update({
+        "local_theme_gate": gate,
+        "participation_scope": "local_theme_only",
+        "admission_state": "conditional_ready" if ready else "local_observed",
+        "open_score": result.get("open_score") or result.get("auction_score") or 0,
+        "open_rank": None,
+        "open_sector_rank": result.get("auction_sector_rank"),
+    })
+    return result
+
+
 def build_confirmation(
     codes: List[str],
     asof: str,
@@ -1264,11 +1478,26 @@ def build_confirmation(
             factor for factor in factors
             if candidate_pipeline.naked_code(factor.get("code")) in wanted
         ]
+    conditional_candidates = []
+    for raw_item in shortlist_result.get("conditional_candidates") or []:
+        item = dict(raw_item)
+        code = candidate_pipeline.naked_code(item.get("code"))
+        if code in risk_evidence_by_code:
+            item["portfolio_risk_evidence"] = risk_evidence_by_code[code]
+        conditional_candidates.append(item)
+    if codes:
+        conditional_candidates = [
+            item for item in conditional_candidates
+            if candidate_pipeline.naked_code(item.get("code")) in wanted
+        ]
     quote_codes = [
         factor["code"]
         for factor in factors
         if factor.get("code") and not factor.get("error")
     ]
+    quote_codes.extend(
+        item["code"] for item in conditional_candidates if item.get("code")
+    )
     signal_ctx = read_signal_context(max_age_hours=4 * 24) or {}
     temperature = temperature_from_context(
         signal_ctx,
@@ -1372,6 +1601,18 @@ def build_confirmation(
         ), asof=asof, portfolio=portfolio, regime=regime, discipline_state=discipline_state)
         for item in signals
     ]
+    # issue #260 §4.C.8：顶层 research_only=True（弱市门禁清零执行池）只清空普通
+    # shortlist 信号；已验证 lineage 合法的 conditional_candidates 不因此被清零——
+    # 它们走的是独立的局部观察/条件路径，不是被清零的全局执行池。
+    local_theme_signals = build_local_theme_signals(
+        conditional_candidates,
+        quotes=quotes,
+        asof=asof,
+        portfolio=portfolio,
+        regime=regime,
+        discipline_state=discipline_state,
+    )
+    signals = signals + local_theme_signals
 
     monitor_expiry = add_trading_days(asof, 2)
     batch_id = os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}"
@@ -1469,6 +1710,7 @@ def build_confirmation(
                 "directional_eligible": item.get("directional_eligible"),
                 "corporate_action_status": item.get("corporate_action_status") or "unknown",
             },
+            participation_scope=item.get("participation_scope"),
         )
     monitor_registry.reconcile_automatic(
         "stock",
@@ -1505,6 +1747,12 @@ def build_confirmation(
         "signals": signals,
         "signal_count": len(signals),
         "research_only": bool(shortlist_result.get("research_only")),
+        "local_theme_signals": local_theme_signals,
+        "local_theme_count": len(local_theme_signals),
+        "conditional_ready_count": sum(
+            1 for item in local_theme_signals
+            if item.get("admission_state") == "conditional_ready"
+        ),
     }
     research_snapshot = record_open_confirmation(result)
     result["portfolio_research_snapshot"] = {

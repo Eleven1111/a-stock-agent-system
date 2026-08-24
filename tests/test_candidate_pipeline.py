@@ -1058,3 +1058,160 @@ def test_rejected_still_records_candidates_that_only_missed_the_top_n():
     # 落选的 4 只都在册且各只一次，与入选的互不重叠
     assert len(rejected_codes) == len(set(rejected_codes))
     assert set(rejected_codes) == {cp.naked_code(f"sh60{i:04d}") for i in range(6)} - shortlisted
+
+
+# ---------------------------------------------------------------------------
+# issue #260 B: 09:25 local_theme_candidates -> conditional_candidates
+# ---------------------------------------------------------------------------
+
+
+def _local_theme_member(code, sector, *, core=False):
+    gate = {
+        "schema": "local_theme_gate_v1",
+        "sector": sector,
+        "resonance_status": "observed",
+        "execution_risk_status": "pending",
+        "participation_scope": "local_theme_only",
+        "confirmation_level": "preopen",
+        "strong_member_count": 4,
+        "observed_member_count": 6,
+        "leader_isolated": False,
+        "evidence_types": ["breadth", "limitup_cluster", "sector_flow"],
+        "data_quality": "ok",
+        "reason_codes": ["preopen_cannot_confirm"],
+    }
+    return {
+        "code": code,
+        "name": f"{sector}{code}",
+        "sector": sector,
+        "daban_score": 60,
+        "trend_score": 30,
+        "research_only": True,
+        "execution_action": "none",
+        "participation_scope": "local_theme_only",
+        "admission_state": "local_observed",
+        "local_theme_gate": gate,
+    }
+
+
+def _local_theme_factor(code, *, board_status, matched=2_000_000):
+    return {
+        "code": code,
+        "auction_gap_pct": 9.9,
+        "auction_amount": 20_000_000,
+        "auction_volume": 20_000,
+        "prev_day_volume": 1_000_000,
+        "matched": matched,
+        "unmatched": 0,
+        "auction_bid_ask_ratio": 3.0,
+        "auction_net_bid_delta": 5_000,
+        "board_status": board_status,
+        "is_yiziban": False,
+        "is_limit_down": False,
+    }
+
+
+def test_local_theme_multi_member_confirms_into_conditional_candidates():
+    members = [_local_theme_member(f"sh60{i:04d}", "贵金属") for i in range(4)]
+    pool = {
+        "asof": "2026-08-24",
+        "research_candidates": members,
+        "execution_candidates": [],
+        "local_theme_candidates": members,
+    }
+    factors = [
+        _local_theme_factor(m["code"], board_status="limit_up_with_ask") for m in members
+    ]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=20)
+
+    assert result["conditional_count"] == 4
+    codes = {cp.naked_code(item["code"]) for item in result["conditional_candidates"]}
+    assert codes == {cp.naked_code(m["code"]) for m in members}
+    for item in result["conditional_candidates"]:
+        assert item["admission_state"] == "conditional_pending"
+        assert item["local_theme_gate"]["resonance_status"] == "confirmed"
+        assert item["local_theme_gate"]["execution_risk_status"] == "pending"
+        assert item["research_only"] is True
+        assert item["execution_action"] == "none"
+    # 互斥：不得同时出现在可交易短名单/execution_candidates
+    shortlist_codes = {cp.naked_code(item["code"]) for item in result["shortlist"]}
+    assert not (codes & shortlist_codes)
+    assert result["local_theme_count"] == 0
+
+
+def test_local_theme_sector_stays_observed_when_auction_breadth_collapses():
+    """9:25 只剩 1 只强势成员：龙头孤立/结构瓦解，不能升级为 conditional。"""
+    members = [_local_theme_member(f"sh61{i:04d}", "电子") for i in range(4)]
+    pool = {
+        "asof": "2026-08-24",
+        "research_candidates": members,
+        "execution_candidates": [],
+        "local_theme_candidates": members,
+    }
+    factors = [
+        _local_theme_factor(members[0]["code"], board_status="limit_up_with_ask"),
+        *(
+            _local_theme_factor(m["code"], board_status="flat_or_low_open")
+            for m in members[1:]
+        ),
+    ]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=20)
+
+    assert result["conditional_count"] == 0
+    assert result["local_theme_count"] == 4
+    for item in result["local_theme_candidates"]:
+        assert item["local_theme_gate"]["resonance_status"] in ("observed", "none")
+        assert item["admission_state"] == "local_observed"
+
+
+def test_local_theme_degraded_auction_quality_blocks_conditional_confirmation():
+    """镜像盘口/降级快照不得计入强势成员判定，确认结果必须是 blocked。"""
+    members = [_local_theme_member(f"sh62{i:04d}", "通信") for i in range(4)]
+    pool = {
+        "asof": "2026-08-24",
+        "research_candidates": members,
+        "execution_candidates": [],
+        "local_theme_candidates": members,
+    }
+    factors = []
+    for member in members:
+        factor = _local_theme_factor(member["code"], board_status="limit_up_with_ask")
+        factor["auction_data_quality"] = {"status": "unavailable", "reasons": ["镜像盘口"]}
+        factors.append(factor)
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=20)
+
+    assert result["conditional_count"] == 0
+    for item in result["local_theme_candidates"]:
+        assert item["local_theme_gate"]["resonance_status"] == "blocked"
+
+
+def test_ordinary_research_candidate_cannot_bypass_into_conditional_candidates():
+    """普通研究票即使竞价评分很高，也不经过 local_theme 路径，不能获得局部准入。"""
+    members = [_local_theme_member(f"sh63{i:04d}", "贵金属") for i in range(4)]
+    plain_research = {
+        "code": "sh640000",
+        "name": "普通研究票",
+        "sector": "贵金属",
+        "daban_score": 99,
+        "trend_score": 99,
+        "research_only": True,
+        "execution_action": "none",
+    }
+    pool = {
+        "asof": "2026-08-24",
+        "research_candidates": [*members, plain_research],
+        "execution_candidates": [],
+        "local_theme_candidates": members,
+    }
+    factors = [
+        _local_theme_factor(m["code"], board_status="limit_up_with_ask") for m in members
+    ] + [_local_theme_factor(plain_research["code"], board_status="limit_up_with_ask")]
+
+    result = cp.rank_auction_shortlist(pool, factors, limit=20)
+
+    conditional_codes = {cp.naked_code(item["code"]) for item in result["conditional_candidates"]}
+    assert cp.naked_code(plain_research["code"]) not in conditional_codes
+    assert conditional_codes == {cp.naked_code(m["code"]) for m in members}

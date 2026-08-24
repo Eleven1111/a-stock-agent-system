@@ -71,7 +71,14 @@ GUARDRAIL_REASON_CODES: dict[str, str] = {
     "quality_not_passed": "strategy_gate",
     "strategy_unverified": "strategy_gate",
     "strategy_not_allowed": "strategy_gate",
+    # issue #260：局部板块共振路径的动作上限
+    "local_theme_scope_capped_to_conditional": "participation_scope_gate",
 }
+
+# issue #260 §4.C.2：局部主题路径（market_gate=restricted 派生）的动作上限
+# 恒为 conditional_buy，不得生成无条件 buy/add——集中在这里保证，不依赖调用方
+# 每处都记得只请求 conditional_buy。
+LOCAL_THEME_PARTICIPATION_SCOPE = "local_theme_only"
 
 
 def _guardrail_reason_code(reason: str) -> str:
@@ -157,10 +164,18 @@ def evaluate_decision(
     market_crowding: Optional[Mapping[str, Any]] = None,
     discipline_state: Optional[Mapping[str, Any]] = None,
     raw_score: Optional[float] = None,
+    participation_scope: Optional[str] = None,
 ) -> dict[str, Any]:
-    action = str(requested_action or "watch").lower()
+    original_requested_action = str(requested_action or "watch").lower()
+    action = original_requested_action
     quality_status = str(quality_report.get("status") or "conditional")
     reasons: list[str] = []
+    if participation_scope == LOCAL_THEME_PARTICIPATION_SCOPE and action in {"buy", "add"}:
+        # 局部共振路径任何字段缺失都按旧逻辑归零（不额外放宽），但一旦满足
+        # 全部现有门禁，动作上限也只能停在 conditional_buy——不能借局部路径
+        # 产出无条件 buy/add。
+        action = "conditional_buy"
+        reasons.append("local_theme_scope_capped_to_conditional")
     decision = action
     multiplier = 1.0
 
@@ -319,12 +334,13 @@ def evaluate_decision(
 
     return {
         "schema": "a_share_decision_policy_v1",
-        "requested_action": action,
+        "requested_action": original_requested_action,
         "decision": decision,
         "position_multiplier": multiplier,
         "quality_status": quality_status,
         "reasons": reasons,
         "strategy_lane": strategy_lane,
+        "participation_scope": participation_scope,
         "portfolio_risk": dict(portfolio_risk or {}),
         "discipline_state": dict(discipline_state or {}),
         "research_evidence": dict(research_evidence or {}),
@@ -334,7 +350,7 @@ def evaluate_decision(
         "expected_paths_calibrated": False,
         "abstain": decision == "watch",
         "guardrail": _build_guardrail(
-            requested_action=action,
+            requested_action=original_requested_action,
             decision=decision,
             reasons=reasons,
             raw_score=raw_score,

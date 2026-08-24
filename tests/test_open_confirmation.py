@@ -1226,3 +1226,437 @@ def test_research_only_shortlist_emits_no_signals_even_when_candidates_present(
     assert result["research_only"] is True
     assert result["signals"] == []
     assert result["signal_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# issue #260 §4.C: 09:35 third confirmation for local_theme conditional path.
+# ---------------------------------------------------------------------------
+
+
+def _oc_local_theme_member(code, *, tradeable_status="limit_up", auction_sector_rank=1):
+    return {
+        "code": code,
+        "quote_available": True,
+        "tradeability_status": tradeable_status,
+        "risk_hard_block": False,
+        "local_theme_gate": {
+            "sector": "贵金属",
+            "evidence_types": ["breadth", "limitup_cluster", "sector_flow"],
+        },
+        "auction_sector_rank": auction_sector_rank,
+    }
+
+
+def test_open_local_theme_evidence_counts_limit_up_and_sealed_as_strong():
+    members = [
+        _oc_local_theme_member("600001", tradeable_status="limit_up"),
+        _oc_local_theme_member("600002", tradeable_status="limit_up_sealed"),
+        _oc_local_theme_member("600003", tradeable_status="limit_up"),
+        _oc_local_theme_member("600004", tradeable_status="flat_or_low_open"),
+    ]
+
+    strong_codes, evidence_types = oc._open_local_theme_evidence(members, min_strong_members=3)
+
+    assert strong_codes == ["600001", "600002", "600003"]
+    assert evidence_types == ["breadth", "limitup_cluster"]
+
+
+def test_open_local_theme_evidence_below_threshold_has_no_breadth_evidence():
+    members = [
+        _oc_local_theme_member("600001", tradeable_status="limit_up"),
+        _oc_local_theme_member("600002", tradeable_status="flat_or_low_open"),
+    ]
+
+    strong_codes, evidence_types = oc._open_local_theme_evidence(members, min_strong_members=3)
+
+    assert strong_codes == ["600001"]
+    assert evidence_types == []
+
+
+def test_reconfirm_open_sector_gate_confirms_with_fresh_strong_members():
+    members = [_oc_local_theme_member(f"60000{i}") for i in range(1, 5)]
+
+    gate = oc._reconfirm_open_sector_gate("贵金属", members, config={})
+
+    assert gate["resonance_status"] == "confirmed"
+    assert gate["execution_risk_status"] == "clear"
+    assert gate["confirmation_level"] == "open"
+
+
+def test_reconfirm_open_sector_gate_blocks_on_hard_risk():
+    members = [_oc_local_theme_member(f"60000{i}") for i in range(1, 5)]
+    members[0]["risk_hard_block"] = True
+
+    gate = oc._reconfirm_open_sector_gate("贵金属", members, config={})
+
+    assert gate["resonance_status"] == "confirmed"
+    assert gate["execution_risk_status"] == "blocked"
+
+
+def test_reconfirm_open_sector_gate_single_survivor_is_pulse_not_observed():
+    """9:35 只剩 1 只强势成员：单票脉冲固定为 none，不是 observed。"""
+    members = [
+        _oc_local_theme_member("600001", tradeable_status="limit_up"),
+        *[_oc_local_theme_member(f"60000{i}", tradeable_status="flat_or_low_open") for i in range(2, 5)],
+    ]
+
+    gate = oc._reconfirm_open_sector_gate("贵金属", members, config={})
+
+    assert gate["resonance_status"] == "none"
+
+
+def _local_theme_conditional_candidate(code, *, auction_sector_rank=1, asof="2026-08-24"):
+    return {
+        "code": code,
+        "name": f"股票{code}",
+        "sector": "贵金属",
+        "daban_score": 60,
+        "trend_score": 30,
+        "auction_score": 70,
+        "auction_sector_rank": auction_sector_rank,
+        "research_only": True,
+        "execution_action": "none",
+        "participation_scope": "local_theme_only",
+        "admission_state": "conditional_pending",
+        "decision_mode": "live",
+        "listing_date": "2020-01-01",
+        "listing_stage": "normal",
+        "is_st": False,
+        "portfolio_risk_evidence": {
+            "schema": "portfolio_risk_evidence_v2",
+            "asof": asof,
+            "data_cutoff": "2026-08-21",
+            "proposed_position_pct": 25.0,
+            "source": "risk-engine-fixture",
+            "coverage": 1.0,
+            "correlation": 0.35,
+            "beta": 1.05,
+            "style_exposure_pct": 22.0,
+            "adv_participation_pct": 3.0,
+            "portfolio_volatility_pct": 18.0,
+        },
+        "point_in_time": {
+            "schema": "pit_stage_contract_v1",
+            "decision_mode": "live",
+            "event_asof": asof,
+            "evidence_time": f"{asof}T09:34:00+08:00",
+            "captured_at": f"{asof}T09:35:00+08:00",
+            "stage_policy": {
+                "schema": "pit_stage_contract_v1",
+                "stage": "open_confirmation",
+                "cutoff_time": "09:35:00",
+                "timezone": "Asia/Shanghai",
+                "publication_delay_seconds": 0,
+            },
+        },
+        "local_theme_gate": {
+            "schema": "local_theme_gate_v1",
+            "sector": "贵金属",
+            "resonance_status": "confirmed",
+            "execution_risk_status": "pending",
+            "evidence_types": ["breadth", "limitup_cluster", "sector_flow"],
+        },
+    }
+
+
+def _local_theme_limit_up_quote():
+    return {
+        "price": 11.0, "prev_close": 10.0, "open": 10.8, "high": 11.0, "low": 10.7,
+        "volume": 500_000, "change_pct": 10.0, "directional_eligible": True,
+    }
+
+
+def _wire_local_theme_policy(monkeypatch):
+    monkeypatch.setattr(
+        oc.strategy_registry,
+        "live_record",
+        lambda strategy_id: {
+            "strategy_id": strategy_id,
+            "allowed_in_live_agent": True,
+            "gating_status": "enabled",
+            "runtime_allowed": True,
+        },
+    )
+    monkeypatch.setattr(
+        oc,
+        "build_research_evidence",
+        lambda code, strategy_id, asof: {
+            "schema": "research_evidence_v1",
+            "chanlun": {"live_bullish_signals": [], "live_bearish_signals": []},
+            "market_intelligence": {
+                "available": True, "stale": False, "directional_ready": True,
+                "hard_risks": [], "warnings": [],
+            },
+        },
+    )
+    monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code): [] for code in codes})
+
+
+def test_build_local_theme_signals_confirms_conditional_buy_when_enabled(monkeypatch):
+    _wire_local_theme_policy(monkeypatch)
+    members = [_local_theme_conditional_candidate(f"sh60000{i}") for i in range(1, 5)]
+    quotes = {item["code"]: _local_theme_limit_up_quote() for item in members}
+
+    signals = oc.build_local_theme_signals(
+        members,
+        quotes=quotes,
+        asof="2026-08-24",
+        portfolio={"cash": 200000, "positions": []},
+        regime={"regime": "neutral"},
+        discipline_state={"blocked": False, "reasons": []},
+        config={"enabled": True, "local_theme_conditional_trade_enabled": True},
+    )
+
+    assert len(signals) == 4
+    for item in signals:
+        assert item["participation_scope"] == "local_theme_only"
+        assert item["admission_state"] == "conditional_ready"
+        assert item["decision"] == "conditional_buy"
+        assert item["local_theme_gate"]["resonance_status"] == "confirmed"
+
+
+def test_build_local_theme_signals_stays_watch_when_trade_flag_disabled(monkeypatch):
+    """local_theme_conditional_trade_enabled=false：三次确认通过也只能 watch。"""
+    _wire_local_theme_policy(monkeypatch)
+    members = [_local_theme_conditional_candidate(f"sh60001{i}") for i in range(1, 5)]
+    quotes = {item["code"]: _local_theme_limit_up_quote() for item in members}
+
+    signals = oc.build_local_theme_signals(
+        members,
+        quotes=quotes,
+        asof="2026-08-24",
+        portfolio={"cash": 200000, "positions": []},
+        regime={"regime": "neutral"},
+        discipline_state={"blocked": False, "reasons": []},
+        config={"enabled": True, "local_theme_conditional_trade_enabled": False},
+    )
+
+    assert len(signals) == 4
+    for item in signals:
+        assert item["decision"] == "watch"
+        assert item["admission_state"] == "local_observed"
+
+
+def test_build_local_theme_signals_stays_watch_when_breadth_collapses_at_open(monkeypatch):
+    """9:25 观察过，但 9:35 只剩一只强势成员：结构瓦解，不得直接穿透为 conditional_buy。"""
+    _wire_local_theme_policy(monkeypatch)
+    members = [_local_theme_conditional_candidate(f"sh60002{i}") for i in range(1, 5)]
+    quotes = {
+        members[0]["code"]: _local_theme_limit_up_quote(),
+        **{
+            item["code"]: {
+                "price": 10.0, "prev_close": 10.0, "open": 10.0, "high": 10.1, "low": 9.9,
+                "volume": 100_000, "change_pct": 0.0, "directional_eligible": True,
+            }
+            for item in members[1:]
+        },
+    }
+
+    signals = oc.build_local_theme_signals(
+        members,
+        quotes=quotes,
+        asof="2026-08-24",
+        portfolio={"cash": 200000, "positions": []},
+        regime={"regime": "neutral"},
+        discipline_state={"blocked": False, "reasons": []},
+        config={"enabled": True, "local_theme_conditional_trade_enabled": True},
+    )
+
+    assert all(item["decision"] == "watch" for item in signals)
+    assert all(item["local_theme_gate"]["resonance_status"] == "none" for item in signals)
+    assert all(item["admission_state"] == "local_observed" for item in signals)
+
+
+def test_build_local_theme_signals_downgrades_on_market_risk_off(monkeypatch):
+    """局部路径不豁免既有 market_regime 门禁：risk_off 仍归零。"""
+    _wire_local_theme_policy(monkeypatch)
+    members = [_local_theme_conditional_candidate(f"sh60003{i}") for i in range(1, 5)]
+    quotes = {item["code"]: _local_theme_limit_up_quote() for item in members}
+
+    signals = oc.build_local_theme_signals(
+        members,
+        quotes=quotes,
+        asof="2026-08-24",
+        portfolio={"cash": 200000, "positions": []},
+        regime={"regime": "risk_off"},
+        discipline_state={"blocked": False, "reasons": []},
+        config={"enabled": True, "local_theme_conditional_trade_enabled": True},
+    )
+
+    assert all(item["decision"] == "watch" for item in signals)
+    assert all("market_risk_off" in item["policy_decision"]["reasons"] for item in signals)
+
+
+def test_build_local_theme_signals_empty_when_no_conditional_candidates(monkeypatch):
+    assert oc.build_local_theme_signals(
+        [], quotes={}, asof="2026-08-24", portfolio={}, regime={}, discipline_state={},
+    ) == []
+
+
+def test_build_confirmation_produces_conditional_signals_when_research_only(tmp_path, monkeypatch):
+    """issue #260 §4.C.8：顶层 research_only=True 清空普通 shortlist 信号，
+    但不清空已验证 lineage 合法的 conditional_candidates。"""
+    monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(oc.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(oc.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    monkeypatch.setattr(oc.monitor_registry, "MIRROR_LEDGER_FILE", str(tmp_path / "monitor_ledger.jsonl"))
+    monkeypatch.setattr(oc.recommendation_audit, "RECOMMENDATIONS_FILE", str(tmp_path / "recommendations.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "HISTORY_FILE", str(tmp_path / "trade_history.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(oc.recommendation_audit, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        oc.recommendation_audit.PORTFOLIO_FILE,
+        {"cash": 200000, "positions": [], "cash_reconciled": True},
+    )
+    atomic_write_json(
+        str(tmp_path / "skills" / "stock-triage" / "data" / "portfolio.json"),
+        {"cash": 200000, "positions": [], "cash_reconciled": True},
+    )
+    monkeypatch.setattr(
+        oc.strategy_registry,
+        "live_record",
+        lambda strategy_id: {
+            "strategy_id": strategy_id,
+            "allowed_in_live_agent": True,
+            "gating_status": "enabled",
+            "runtime_allowed": True,
+        },
+    )
+    monkeypatch.setattr(
+        oc,
+        "build_research_evidence",
+        lambda code, strategy_id, asof: {
+            "schema": "research_evidence_v1",
+            "chanlun": {"live_bullish_signals": [], "live_bearish_signals": []},
+            "market_intelligence": {
+                "available": True, "stale": False, "directional_ready": True,
+                "hard_risks": [], "warnings": [],
+            },
+        },
+    )
+    monkeypatch.setattr(oc, "scan_many", lambda codes: {str(code)[-6:]: [] for code in codes})
+    monkeypatch.setattr(
+        oc,
+        "read_market_context",
+        lambda: {
+            "status": "ok", "context_status": "fresh", "context_fresh": True,
+            "sector_impact": {}, "alerts": [],
+        },
+    )
+    monkeypatch.setattr(oc.recommendation_audit, "read_market_context", oc.read_market_context)
+    monkeypatch.setattr(
+        oc, "_local_theme_config",
+        lambda: {"enabled": True, "local_theme_conditional_trade_enabled": True, "min_strong_members": 3},
+    )
+    monkeypatch.setattr(
+        oc.recommendation_audit,
+        "_local_theme_resonance_config",
+        lambda: {"local_theme_position_cap": 0.02, "local_trial_budget": 0.02},
+    )
+
+    source_asof = "2026-06-10"
+    event_asof = "2026-06-11"
+    conditional_candidates = [
+        {
+            "code": f"sh60000{i}",
+            "name": f"贵金属{i}",
+            "sector": "贵金属",
+            "daban_score": 60,
+            "trend_score": 30,
+            "auction_score": 70,
+            "auction_sector_rank": 1,
+            "research_only": True,
+            "execution_action": "none",
+            "participation_scope": "local_theme_only",
+            "admission_state": "conditional_pending",
+            "decision_mode": "live",
+            "listing_date": "2020-01-01",
+            "listing_stage": "normal",
+            "is_st": False,
+            "portfolio_risk_evidence": {
+                "schema": "portfolio_risk_evidence_v2",
+                "asof": event_asof,
+                "data_cutoff": source_asof,
+                "proposed_position_pct": 25.0,
+                "source": "risk-engine-fixture",
+                "coverage": 1.0,
+                "correlation": 0.35,
+                "beta": 1.05,
+                "style_exposure_pct": 22.0,
+                "adv_participation_pct": 3.0,
+                "portfolio_volatility_pct": 18.0,
+            },
+            "point_in_time": {
+                "schema": "pit_stage_contract_v1",
+                "decision_mode": "live",
+                "event_asof": event_asof,
+                "evidence_time": f"{event_asof}T09:34:00+08:00",
+                "captured_at": f"{event_asof}T09:35:00+08:00",
+                "stage_policy": {
+                    "schema": "pit_stage_contract_v1",
+                    "stage": "open_confirmation",
+                    "cutoff_time": "09:35:00",
+                    "timezone": "Asia/Shanghai",
+                    "publication_delay_seconds": 0,
+                },
+            },
+            "local_theme_gate": {
+                "schema": "local_theme_gate_v1",
+                "sector": "贵金属",
+                "resonance_status": "confirmed",
+                "execution_risk_status": "pending",
+                "evidence_types": ["breadth", "limitup_cluster", "sector_flow"],
+            },
+        }
+        for i in range(1, 5)
+    ]
+    atomic_write_json(
+        oc._shortlist_path(event_asof),
+        {
+            "schema": "auction_finalize_v2",
+            "asof": event_asof,
+            "source_asof": source_asof,
+            "status": "ready",
+            "research_only": True,
+            "shortlist": [],
+            "conditional_candidates": conditional_candidates,
+        },
+    )
+    monkeypatch.setattr(
+        oc,
+        "read_signal_context",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        oc,
+        "fetch_tencent_snapshot",
+        lambda codes: {
+            code: {
+                "name": code, "price": 11.0, "prev_close": 10.0, "open": 10.8,
+                "high": 11.0, "low": 10.7, "volume": 500_000,
+                "change_pct": 10.0, "directional_eligible": True,
+            }
+            for code in codes
+        },
+    )
+
+    result = oc.build_confirmation([], event_asof, limit=2)
+
+    assert result["research_only"] is True
+    assert result["local_theme_count"] == 4
+    assert result["conditional_ready_count"] == 4
+    local_theme_codes = {item["code"] for item in result["local_theme_signals"]}
+    assert local_theme_codes == {item["code"] for item in conditional_candidates}
+    for item in result["local_theme_signals"]:
+        assert item["decision"] == "conditional_buy"
+        assert item["participation_scope"] == "local_theme_only"
+    signal_codes = {item["code"] for item in result["signals"]}
+    assert local_theme_codes <= signal_codes
+
+    records = oc.recommendation_audit.load_recommendations()
+    conditional_records = [r for r in records if r["action"] == "conditional_buy"]
+    assert len(conditional_records) == 4
+    for record in conditional_records:
+        assert record["settleable_signal"] is False
+        assert record.get("trade_id") is None

@@ -9,6 +9,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from indicators import calc_atr
 from hot_money_selection import apply_leader_identity
+from local_theme_resonance import DEFAULT_CONFIG as LOCAL_THEME_DEFAULT_CONFIG
+from local_theme_resonance import build_local_theme_gate
 from sector_taxonomy import resolve_sector
 from social_attention import candidate_attention_overlay
 from weak_market_delivery import assess_delivery_quality
@@ -1118,6 +1120,140 @@ def _auction_rejection_reasons(factor: Mapping[str, Any] | None) -> List[str]:
     return []
 
 
+_AUCTION_STRONG_BOARD_STATUSES = ("yizi_seal", "limit_up_with_ask")
+
+
+def _auction_local_theme_evidence(
+    sector_rows: Sequence[Mapping[str, Any]],
+    *,
+    min_strong_members: int,
+) -> tuple[list[str], list[str]]:
+    """issue #260 B：用 09:25 新鲜竞价盘口重算强势成员与结构证据，不沿用 D0 快照。"""
+    strong_codes = [
+        naked_code(item["code"]) for item in sector_rows
+        if item.get("board_status") in _AUCTION_STRONG_BOARD_STATUSES
+    ]
+    evidence_types = ["breadth", "limitup_cluster"] if len(strong_codes) >= min_strong_members else []
+    return strong_codes, evidence_types
+
+
+def _group_local_theme_by_sector(
+    rows_by_code: Mapping[str, Mapping[str, Any]],
+    local_theme_by_code: Mapping[str, Mapping[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    sector_members: dict[str, list[dict[str, Any]]] = {}
+    for code, d0_item in local_theme_by_code.items():
+        sector = str(
+            (d0_item.get("local_theme_gate") or {}).get("sector") or d0_item.get("sector") or ""
+        ).strip()
+        if not sector:
+            continue
+        sector_members.setdefault(sector, []).append({
+            "code": code, "d0": d0_item, "row": rows_by_code.get(code),
+        })
+    return sector_members
+
+
+def _reconfirm_sector_gate(
+    sector: str,
+    members: Sequence[Mapping[str, Any]],
+    rows_by_code: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """用 09:25 新鲜竞价盘口重算一个板块的 local_theme_gate。"""
+    min_strong_members = int(LOCAL_THEME_DEFAULT_CONFIG["min_strong_members"])
+    available_rows = [
+        m["row"] for m in members
+        if m["row"] is not None
+        and _auction_quality_payload(m["row"]).get("status") != "unavailable"
+    ]
+    strong_codes, fresh_evidence = _auction_local_theme_evidence(
+        available_rows, min_strong_members=min_strong_members,
+    )
+    d0_gate = next(
+        (m["d0"].get("local_theme_gate") for m in members if m["d0"].get("local_theme_gate")),
+        {},
+    ) or {}
+    # 资金流/多票主题确认没有分钟级竞价更新源，沿用同交易日 D0 结论；
+    # breadth/limitup_cluster 必须用新鲜盘口重算，不得沿用 D0 快照。
+    carried_evidence = [
+        e for e in d0_gate.get("evidence_types") or ()
+        if e in ("sector_flow", "theme_member_confirmed")
+    ]
+    core_code = strong_codes[0] if strong_codes else None
+    core_row = rows_by_code.get(core_code) if core_code else None
+    return build_local_theme_gate(
+        sector,
+        confirmation_level="auction",
+        strong_member_codes=strong_codes,
+        observed_member_count=len(available_rows),
+        core_code=core_code,
+        core_sector_rank=core_row.get("auction_sector_rank") if core_row else None,
+        core_decayed=False,
+        evidence_types=[*fresh_evidence, *carried_evidence],
+        data_quality_ok=bool(available_rows),
+        data_quality_reason=None if available_rows else "auction_no_fresh_factor",
+        risk_reviewed=False,
+        risk_hard_block=False,
+    )
+
+
+def _classify_local_theme_members(
+    members: Sequence[Mapping[str, Any]],
+    gate: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    confirmed: list[dict[str, Any]] = []
+    downgraded: dict[str, dict[str, Any]] = {}
+    for member in members:
+        code = member["code"]
+        row = member["row"]
+        if gate["resonance_status"] == "confirmed" and row is not None:
+            item = dict(row)
+            item.update({
+                "research_only": True,
+                "execution_action": "none",
+                "participation_scope": "local_theme_only",
+                "admission_state": "conditional_pending",
+                "local_theme_gate": gate,
+            })
+            confirmed.append(item)
+        else:
+            fallback = dict(row) if row is not None else dict(member["d0"])
+            fallback.update({
+                "research_only": True,
+                "execution_action": "none",
+                "participation_scope": "local_theme_only",
+                "admission_state": "local_observed",
+                "local_theme_gate": gate,
+            })
+            downgraded[code] = fallback
+    return confirmed, downgraded
+
+
+def _build_conditional_candidates(
+    rows: Sequence[Mapping[str, Any]],
+    local_theme_by_code: Mapping[str, Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """issue #260 §4.B：09:25 二次确认 D0 局部观察板块。
+
+    只处理 D0 已批准的 ``local_theme_candidates``（lineage 白名单驱动），
+    普通研究票不经过这条路径，不能获得局部准入。确认通过写入
+    ``conditional_candidates``（``admission_state=conditional_pending``，
+    执行风险仍 pending）；未通过的留在返回的 downgraded 映射里，调用方据此
+    重建下一阶段的 ``local_theme_candidates``。
+    """
+    rows_by_code = {naked_code(item["code"]): item for item in rows}
+    sector_members = _group_local_theme_by_sector(rows_by_code, local_theme_by_code)
+
+    conditional_candidates: list[dict[str, Any]] = []
+    downgraded: dict[str, dict[str, Any]] = {}
+    for sector, members in sector_members.items():
+        gate = _reconfirm_sector_gate(sector, members, rows_by_code)
+        confirmed, sector_downgraded = _classify_local_theme_members(members, gate)
+        conditional_candidates.extend(confirmed)
+        downgraded.update(sector_downgraded)
+    return conditional_candidates, downgraded
+
+
 def rank_auction_shortlist(
     pool: Mapping[str, Any],
     factors: Sequence[Mapping[str, Any]],
@@ -1267,6 +1403,16 @@ def rank_auction_shortlist(
                 _num(item.get("auction_daban_score")) - leader_score,
                 2,
             )
+
+    local_theme_by_code = {
+        naked_code(item.get("code") or item.get("market_code")): dict(item)
+        for item in (pool.get("local_theme_candidates") or [])
+        if item.get("code") or item.get("market_code")
+    }
+    conditional_candidates, downgraded_local_theme = (
+        _build_conditional_candidates(rows, local_theme_by_code)
+        if local_theme_by_code else ([], {})
+    )
 
     def _lane_member(item: Mapping[str, Any], lane: str) -> bool:
         if _lane_rejection_reasons(item, lane):
@@ -1469,6 +1615,7 @@ def rank_auction_shortlist(
         or pool.get("auction_scan_count")
         or len(pool.get("auction_scan_universe") or pool.get("auction_scan_codes") or [])
     )
+    local_theme_candidates = list(downgraded_local_theme.values())
     return {
         "schema": "auction_shortlist_v1",
         "source_asof": pool.get("asof"),
@@ -1477,11 +1624,15 @@ def rank_auction_shortlist(
         "research_count": len(research_candidates),
         "execution_input_count": len(execution_candidates),
         "execution_count": len(shortlist),
+        "local_theme_count": len(local_theme_candidates),
+        "conditional_count": len(conditional_candidates),
         "auction_scan_count": auction_scan_count,
         "shortlist_count": len(shortlist),
         "shortlist": shortlist,
         "research_candidates": research_candidates,
         "execution_candidates": shortlist,
+        "local_theme_candidates": local_theme_candidates,
+        "conditional_candidates": conditional_candidates,
         "rejected": rejected,
         "rejection_reason_counts": rejection_reason_counts,
         "gate": dict(pool.get("gate") or {}),

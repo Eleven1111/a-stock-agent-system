@@ -71,8 +71,7 @@ def test_preopen_missing_timing_is_not_reported_as_extreme_weak_market():
             "hot_money_selection": {
                 "market_timing": {
                     "status": "insufficient_data",
-                    "tier": "stale",
-                    "context_fresh": False,
+                    "temperature": {"tier": "stale", "context_fresh": False},
                 }
             },
         },
@@ -80,6 +79,78 @@ def test_preopen_missing_timing_is_not_reported_as_extreme_weak_market():
 
     assert "择时证据未就绪" in text
     assert "极端弱市" not in text
+
+
+def test_preopen_stale_nested_temperature_is_still_reported_as_not_ready():
+    """issue #260 §2.8 回归：tier/context_fresh 必须从 temperature 子字段读取，
+    不能从 market_timing 顶层读取(此前恒为空导致这条分支永远命中)。"""
+    text = brief.format_brief(
+        "preopen",
+        {
+            "asof": "2026-08-20",
+            "candidate_count": 0,
+            "candidates": [],
+            "hot_money_selection": {
+                "market_timing": {
+                    "status": "ready",
+                    "temperature": {"tier": "发酵", "context_fresh": True},
+                    "weak_market": {"weak_regime": False},
+                }
+            },
+        },
+    )
+
+    assert "择时证据未就绪" not in text
+    assert "暂无可交付候选" in text
+
+
+def test_preopen_restricted_market_gate_with_local_theme_is_distinguished():
+    text = brief.format_brief(
+        "preopen",
+        {
+            "asof": "2026-08-20",
+            "candidate_count": 0,
+            "candidates": [],
+            "local_theme_candidates": [
+                {"code": "600001", "name": "贵金属龙头", "sector": "贵金属"},
+            ],
+            "counts": {"research": 0, "execution": 0, "local_theme": 1, "auction_scan": 0},
+            "market_gate": {
+                "status": "restricted",
+                "temperature_substate": "冰点杀跌",
+            },
+            "hot_money_selection": {
+                "market_timing": {
+                    "status": "ready",
+                    "temperature": {"tier": "冰点", "context_fresh": True},
+                    "weak_market": {"weak_regime": True},
+                    "market_gate": {
+                        "status": "restricted",
+                        "temperature_substate": "冰点杀跌",
+                    },
+                }
+            },
+        },
+    )
+
+    assert "市场门禁：restricted" in text
+    assert "局部主题观察" in text
+    assert "贵金属龙头(600001)" in text
+    assert "全局新增风险受限" in text
+
+
+def test_preopen_blocked_market_gate_shown_when_no_data():
+    text = brief.format_brief(
+        "preopen",
+        {
+            "asof": "2026-08-20",
+            "candidate_count": 0,
+            "candidates": [],
+            "market_gate": {"status": "blocked"},
+        },
+    )
+
+    assert "市场门禁：blocked" in text
 
 
 def test_open_brief_labels_the_judgement_time():
@@ -109,7 +180,7 @@ def test_preopen_unknown_temperature_tier_is_not_reported_as_weak_market():
             "hot_money_selection": {
                 "market_timing": {
                     "status": "ready",
-                    "tier": "unknown",
+                    "temperature": {"tier": "unknown"},
                     "weak_market": {"weak_regime": True},
                 }
             },
