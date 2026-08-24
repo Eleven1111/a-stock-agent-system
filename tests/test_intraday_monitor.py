@@ -556,3 +556,109 @@ def test_intraday_check_alerts_pure_local_theme_sector_as_watch_only(tmp_path, m
     assert result["sector_alerts"][0]["sector"] == "贵金属"
     assert result["sector_alerts"][0]["action"] == "watch"
     assert result["sector_alerts"][0]["participation_scope"] == "local_theme_only"
+
+
+# ---------------------------------------------------------------------------
+# 板块强度盘中时序落盘（宿主机建议第3条）：check_intraday 每 tick 追加一槽，
+# 且只把有界摘要放进 artifact。
+# ---------------------------------------------------------------------------
+
+
+def _wire_series_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setattr(im, "TRACKED_CODES", [])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {})
+    monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im, "SHORTLIST_FILE", str(tmp_path / "auction_shortlist_latest.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(im.PORTFOLIO_FILE, {"positions": []})
+
+
+def test_check_intraday_persists_a_sector_series_slot(tmp_path, monkeypatch):
+    today = date.today().isoformat()
+    _wire_series_env(tmp_path, monkeypatch)
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {
+            "asof": today,
+            "shortlist": [
+                {"code": f"60000{i}", "name": f"股票{i}", "sector": "半导体"}
+                for i in range(1, 4)
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        im,
+        "fetch_realtime_many",
+        lambda codes: {
+            str(code)[-6:]: {"price": 10.0, "change_pct": 4.0, "turnover": 2.0}
+            for code in codes
+        },
+    )
+
+    result = im.check_intraday()
+
+    day = im.sector_series.load_day(today)
+    assert day["sectors"]["半导体"], "板块强度帧必须真的落盘，不能只算不存"
+    assert len(day["slots"]) == 1
+    # artifact 只拿到计数摘要，时序本体不进 stdout（max_output_chars=2500）
+    assert result["sector_series"]["tracked_sector_count"] == 1
+    assert "sectors" not in result["sector_series"]
+
+
+def test_check_intraday_records_degraded_slot_instead_of_skipping(tmp_path, monkeypatch):
+    """短名单降级时仍要留下"这一槽跑过了"的证据，否则与作业挂掉无法区分。"""
+    today = date.today().isoformat()
+    _wire_series_env(tmp_path, monkeypatch)
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {
+            "asof": today,
+            "status": "degraded",
+            "collection_status": "empty",
+            "degraded_reasons": ["竞价采集为空（0 只标的）"],
+            "shortlist": [],
+        },
+    )
+    monkeypatch.setattr(im, "fetch_realtime_many", lambda codes: {})
+
+    result = im.check_intraday()
+
+    day = im.sector_series.load_day(today)
+    assert len(day["slots"]) == 1
+    assert len(day["degraded_slots"]) == 1
+    assert "竞价采集为空" in day["degraded_slots"][0]["reason"]
+    assert result["sector_series"]["degraded_slot_count"] == 1
+
+
+def test_series_write_failure_does_not_suppress_alerts(tmp_path, monkeypatch):
+    """时序落盘是附加观测；写失败绝不能压制涨跌停/退出告警。"""
+    today = date.today().isoformat()
+    _wire_series_env(tmp_path, monkeypatch)
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {"asof": today, "shortlist": [{"code": "600001", "name": "涨停票", "sector": "半导体"}]},
+    )
+    monkeypatch.setattr(im, "TRACKED_CODES", ["600001"])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {"600001": "涨停票"})
+    monkeypatch.setattr(
+        im,
+        "fetch_realtime_many",
+        lambda codes: {
+            str(code)[-6:]: {"price": 11.0, "change_pct": 10.0, "turnover": 12.0, "amount": 5e8}
+            for code in codes
+        },
+    )
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(im.sector_series, "record_slot", _boom)
+
+    result = im.check_intraday()
+
+    assert result["sector_series"]["status"] == "write_failed"
+    assert "disk full" in result["sector_series"]["error"]
+    assert any(a["type"] == "涨停" for a in result["alerts"]), "落盘失败不得吞掉涨停告警"
