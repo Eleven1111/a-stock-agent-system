@@ -26,7 +26,7 @@
   - [x] C.4 `recommendation_audit.VALID_ACTIONS` 加入 `conditional_buy`；`record_recommendation`/`position_guidance` 新增 `participation_scope` 透传；`_cap_local_theme_position()`：仓位=min(局部配置上限,局部试验预算)，金额与封顶后 pct 一致（不是恒零——只有预算为0才是shadow）；`signal_ledger.TRADE_ACTIONS/SETTLEABLE_ACTIONS` 确认不含 conditional_buy，已加回归锁定测试
   - [x] C.1 `open_confirmation.py`：新增 `build_local_theme_signals()`/`_reconfirm_open_sector_gate()`/`_open_local_theme_evidence()`，从 `shortlist_result.conditional_candidates` 用 09:35 真实开盘 tradeability(limit_up/limit_up_sealed 视为强势) 重算 breadth/limitup_cluster，risk_reviewed=True + 公告硬风险/可成交性作为 risk_hard_block；复用 `evaluate_open_confirmation` 同款 `_open_execution_controls`(PIT契约)；接入 `_apply_policy(participation_scope="local_theme_only")`；结果并入 `signals` 走既有 ledger/monitor/recommendation_audit/candidate_lifecycle 循环
   - [x] C.3 局部路径动作上限固定 conditional_buy — 发现并修复 `_apply_policy` 原有 bug：只在 decision∈{avoid,watch} 时才同步 result.decision，导致 policy 内部已封顶为 conditional_buy 但顶层 decision 仍显示未封顶的 buy；已加 elif 分支同步
-  - [x] C.6 `local_theme_conditional_trade_enabled=false` 时只输出 watch（已测试）；shadow artifact（"若开启会怎样"的旁路记录）未实现，属于可观测性增强而非安全性缺口——已在 policy_decision.reasons 里留痕
+  - [x] C.6 `local_theme_conditional_trade_enabled=false` 时只输出 watch；已补 shadow_decision：结构+风险已就绪但开关关闭时，`_build_local_theme_signal` 额外算一次"若开启会怎样"的 counterfactual（decision/reasons/would_be_position_pct），挂在同一 signal 的 `shadow_decision` 字段，不影响真实输出；结构未就绪或开关已开时 `shadow_decision=None`
   - [x] C.8 顶层 `research_only=True` 只清空普通 shortlist 信号，不清空 conditional_candidates——端到端测试验证
   - [x] C.9 审计调用链闭合验证：open_confirmation→recommendation_audit→position_guidance→signal_ledger 全程 participation_scope 透传，端到端测试验证 settleable_signal=False、trade_id 缺失
   - [x] C.10 风险顺序：sector 级重算强势成员时已剔除 quality-unavailable/mirror 行（auction 阶段）与 tradeability/announcement 硬风险（open 阶段）后再判定 confirmed
@@ -53,7 +53,6 @@
 - `intraday_monitor.py`：盘中告警识别局部主题来源
 
 **已知未做（超出本次范围，非安全缺口）**：
-- C.6 的完整 shadow artifact（"若开启会怎样"独立记录）——目前只在 policy_decision.reasons 留痕，未单列 artifact
 - capital_concentration 证据类型（成交额/换手扩散）——代码库无现成信号源，local_theme_resonance.py 文档中已声明未实现
 - 场景矩阵表格（§5）与 CI 3.10 远端矩阵尚未逐项验收
 

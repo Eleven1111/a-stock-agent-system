@@ -1394,17 +1394,18 @@ def build_local_theme_signals(
         gate = _reconfirm_open_sector_gate(sector, members, config=cfg)
         code = candidate_pipeline.naked_code(item.get("code"))
         member = next((m for m in members if m["code"] == code), {})
-        ready = (
-            trade_enabled
-            and gate["resonance_status"] == "confirmed"
+        structurally_ready = (
+            gate["resonance_status"] == "confirmed"
             and gate["execution_risk_status"] == "clear"
             and not member.get("risk_hard_block")
         )
+        ready = trade_enabled and structurally_ready
         signals.append(_build_local_theme_signal(
             item, quote=quotes.get(item.get("code")) or {},
             tradeability=member.get("tradeability") or {},
             announcements=announcement_map.get(code) or [],
-            gate=gate, ready=ready, sector=sector, asof=asof,
+            gate=gate, ready=ready, structurally_ready=structurally_ready,
+            trade_enabled=trade_enabled, sector=sector, asof=asof,
             portfolio=portfolio, regime=regime, discipline_state=discipline_state,
         ))
     return signals
@@ -1418,35 +1419,55 @@ def _build_local_theme_signal(
     announcements: Sequence[Mapping[str, Any]],
     gate: Mapping[str, Any],
     ready: bool,
+    structurally_ready: bool = False,
+    trade_enabled: bool = False,
     sector: str,
     asof: str,
     portfolio: Mapping[str, Any] | None,
     regime: Mapping[str, Any] | None,
     discipline_state: Mapping[str, Any] | None,
 ) -> Dict[str, Any]:
-    candidate = dict(item)
-    candidate["sector"] = sector
-    candidate["price"] = quote.get("price")
-    candidate["volume"] = quote.get("volume")
-    candidate["change_pct"] = quote.get("change_pct")
-    candidate["tradeability"] = tradeability
-    candidate["directional_eligible"] = quote.get("directional_eligible")
-    candidate["action"] = "trend_watch" if ready else "watch"
-    candidate["strict_execution"] = True
-    enriched = _enrich_decision(candidate, announcements, asof)
-    controls = _open_execution_controls(enriched, quote, tradeability, asof)
-    enriched["execution_controls"] = controls
-    if not ready or controls["status"] == "blocked":
-        plan = dict(enriched.get("execution_plan") or {})
-        plan.update({"decision": "watch", "position_pct": 0.0})
-        enriched["execution_plan"] = plan
-        enriched["decision"] = "watch"
-        if controls["status"] == "blocked":
-            enriched.setdefault("reasons", []).append(str(controls["reason"]))
-    result = _apply_policy(
-        enriched, asof=asof, portfolio=portfolio, regime=regime,
-        discipline_state=discipline_state, participation_scope="local_theme_only",
-    )
+    def _candidate(action: str) -> Dict[str, Any]:
+        base = dict(item)
+        base.update({
+            "sector": sector,
+            "price": quote.get("price"),
+            "volume": quote.get("volume"),
+            "change_pct": quote.get("change_pct"),
+            "tradeability": tradeability,
+            "directional_eligible": quote.get("directional_eligible"),
+            "action": action,
+            "strict_execution": True,
+        })
+        return base
+
+    def _decide(action: str, *, force_watch: bool) -> Dict[str, Any]:
+        enriched = _enrich_decision(_candidate(action), announcements, asof)
+        controls = _open_execution_controls(enriched, quote, tradeability, asof)
+        enriched["execution_controls"] = controls
+        if force_watch or controls["status"] == "blocked":
+            plan = dict(enriched.get("execution_plan") or {})
+            plan.update({"decision": "watch", "position_pct": 0.0})
+            enriched["execution_plan"] = plan
+            enriched["decision"] = "watch"
+            if controls["status"] == "blocked":
+                enriched.setdefault("reasons", []).append(str(controls["reason"]))
+        return _apply_policy(
+            enriched, asof=asof, portfolio=portfolio, regime=regime,
+            discipline_state=discipline_state, participation_scope="local_theme_only",
+        )
+
+    result = _decide("trend_watch" if ready else "watch", force_watch=not ready)
+    # issue #260 §4.C.6：开关关闭但结构/风险已就绪时，记录"若开启会怎样"的
+    # shadow 结论，不影响真实输出（真实 decision 仍是上面算出的 watch）。
+    shadow_decision = None
+    if structurally_ready and not trade_enabled:
+        shadow = _decide("trend_watch", force_watch=False)
+        shadow_decision = {
+            "decision": shadow["decision"],
+            "reasons": shadow["policy_decision"]["reasons"],
+            "would_be_position_pct": (shadow.get("execution_plan") or {}).get("position_pct"),
+        }
     result.update({
         "local_theme_gate": gate,
         "participation_scope": "local_theme_only",
@@ -1454,6 +1475,7 @@ def _build_local_theme_signal(
         "open_score": result.get("open_score") or result.get("auction_score") or 0,
         "open_rank": None,
         "open_sector_rank": result.get("auction_sector_rank"),
+        "shadow_decision": shadow_decision,
     })
     return result
 

@@ -1435,6 +1435,56 @@ def test_build_local_theme_signals_stays_watch_when_trade_flag_disabled(monkeypa
     for item in signals:
         assert item["decision"] == "watch"
         assert item["admission_state"] == "local_observed"
+        # issue #260 §4.C.6：结构/风险已就绪但开关关闭——shadow 结论记下
+        # "若开启会是 conditional_buy"，但不影响真实输出。
+        assert item["shadow_decision"]["decision"] == "conditional_buy"
+
+
+def test_build_local_theme_signals_no_shadow_when_trade_enabled(monkeypatch):
+    """开关本来就打开时不需要 shadow——真实结论已经是最终答案。"""
+    _wire_local_theme_policy(monkeypatch)
+    members = [_local_theme_conditional_candidate(f"sh60005{i}") for i in range(1, 5)]
+    quotes = {item["code"]: _local_theme_limit_up_quote() for item in members}
+
+    signals = oc.build_local_theme_signals(
+        members,
+        quotes=quotes,
+        asof="2026-08-24",
+        portfolio={"cash": 200000, "positions": []},
+        regime={"regime": "neutral"},
+        discipline_state={"blocked": False, "reasons": []},
+        config={"enabled": True, "local_theme_conditional_trade_enabled": True},
+    )
+
+    assert all(item["shadow_decision"] is None for item in signals)
+
+
+def test_build_local_theme_signals_no_shadow_when_structurally_not_ready(monkeypatch):
+    """开关关闭且结构本来就没确认——没有"若开启会怎样"可言，shadow 应为 None。"""
+    _wire_local_theme_policy(monkeypatch)
+    members = [_local_theme_conditional_candidate(f"sh60006{i}") for i in range(1, 5)]
+    quotes = {
+        members[0]["code"]: _local_theme_limit_up_quote(),
+        **{
+            item["code"]: {
+                "price": 10.0, "prev_close": 10.0, "open": 10.0, "high": 10.1, "low": 9.9,
+                "volume": 100_000, "change_pct": 0.0, "directional_eligible": True,
+            }
+            for item in members[1:]
+        },
+    }
+
+    signals = oc.build_local_theme_signals(
+        members,
+        quotes=quotes,
+        asof="2026-08-24",
+        portfolio={"cash": 200000, "positions": []},
+        regime={"regime": "neutral"},
+        discipline_state={"blocked": False, "reasons": []},
+        config={"enabled": True, "local_theme_conditional_trade_enabled": False},
+    )
+
+    assert all(item["shadow_decision"] is None for item in signals)
 
 
 def test_build_local_theme_signals_stays_watch_when_breadth_collapses_at_open(monkeypatch):
