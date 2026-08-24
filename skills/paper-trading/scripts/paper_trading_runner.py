@@ -391,6 +391,21 @@ def _zero_signal_open_day(surface: Mapping[str, Any], asof: str) -> bool:
     )
 
 
+def _emit_open_no_op(asof: str, *, as_json: bool) -> None:
+    """弱市零信号日的 no_op 结论：照常打印，由调用方以 0 退出。"""
+    output = {
+        "schema": "paper_trading_run_v1",
+        "status": "no_op",
+        "phase": "open",
+        "asof": asof,
+        "reason": "open_confirmation_zero_signals",
+        "signal_count": 0,
+        "research_only": True,
+        "live_order_sent": False,
+    }
+    print(json.dumps(output, ensure_ascii=False, indent=2 if as_json else None))
+
+
 def _locked_call(function, *args, **kwargs):
     with store.account_transaction():
         return function(*args, **kwargs)
@@ -411,19 +426,7 @@ def main() -> int:
         if args.phase == "open":
             surface = _open_surface(asof)
             if _zero_signal_open_day(surface, asof):
-                output = {
-                    "schema": "paper_trading_run_v1",
-                    "status": "no_op",
-                    "phase": "open",
-                    "asof": asof,
-                    "reason": "open_confirmation_zero_signals",
-                    "signal_count": 0,
-                    "research_only": True,
-                    "live_order_sent": False,
-                }
-                print(
-                    json.dumps(output, ensure_ascii=False, indent=2 if args.json else None)
-                )
+                _emit_open_no_op(asof, as_json=args.json)
                 return 0
             allowed_codes = [
                 _code(item.get("code"))
