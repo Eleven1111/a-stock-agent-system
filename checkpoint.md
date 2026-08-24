@@ -44,7 +44,13 @@
   - Row6 公告/可成交性失败→watch+仓位0：`test_build_local_theme_signals_blocks_member_with_announcement_hard_risk`(open_confirmation，本次新增，过程中挖出并修复了 C.10 的真实 bug)
   - Row7 open+板块共振→旧路径：`test_open_market_does_not_use_local_theme_path`(candidate_discovery) + `test_blocked_market_never_produces_local_theme_candidates`
   - 额外新增 `checkpoint.md` 之外的测试：tests/test_candidate_discovery.py +4、tests/test_open_confirmation.py +4（含 2 个修正后的单元测试）
-- [x] F. 最终验证门槛（方案第6节命令全跑）— 本地 3.13 全绿：聚焦测试 368 passed / 全量 pytest 3048 passed(+3 与本次无关的既有环境失败) / validate_cron_manifest OK(67 jobs) / ruff 全绿 / compileall 全绿 / maintainability budget 全绿 / git diff --check 全绿。**CI 3.10 矩阵尚未跑**——本地 3.13 全绿只代表矩阵一半，按方案第6节要求仍需等远端 3.10/3.13 CI 与 CodeQL 全绿才算最终验收通过。
+- [x] F. 最终验证门槛（方案第6节命令全跑，含 E 阶段新增测试后复跑）— 本地 3.13 全绿：全量 pytest 3056 passed(+3 与本次无关的既有环境失败，已用 git stash 核实) / validate_cron_manifest OK(67 jobs) / ruff 全绿 / compileall 全绿 / maintainability budget 全绿 / git diff --check 全绿。**CI 3.10 矩阵尚未跑**——本地 3.13 全绿只代表矩阵一半，按方案第6节要求仍需等远端 3.10/3.13 CI 与 CodeQL 全绿才算最终验收通过。
+
+## 提交记录
+
+- `b36a9b8` feat(daban): 市场冰点与局部板块共振解耦（issue #260）—— A/B/C/D 四阶段主体
+- `1e1e9e0` feat(daban): 补齐 local_theme_only 的 shadow_decision（issue #260 C.6）
+- `ba3ef21` fix(daban): 单票公告硬风险不再阻断整个局部板块（issue #260 C.10）—— 场景矩阵验收时发现的真实 bug
 
 ## 四阶段总结（供下一次继续时快速定位）
 
