@@ -1241,6 +1241,7 @@ def run_discovery(
         observe_recent_candidates(asof, quote_map)
     quotes = list(quote_map.values())
     selection_config = dict(config.get("hot_money_selection") or {})
+    selection_config["local_theme_resonance"] = dict(config.get("local_theme_resonance") or {})
     if max_ladder_age_days is not None:
         selection_config["max_ladder_age_days"] = int(max_ladder_age_days)
     prior_selection = read_json(hot_money_selection_file(), {})
@@ -1396,6 +1397,33 @@ def run_discovery(
         if len(research_candidates) >= research_limit:
             break
 
+    # issue #260：局部板块共振观察层。market_gate=blocked 时局部主题不豁免
+    # （见 hot_money_selection.build_market_gate 的 blocked/restricted 区分）；
+    # 只有 restricted（仅因冰点杀跌关闭全局新增风险）才允许局部观察，且盘前
+    # 阶段的 local_theme_gate 已在 build_local_theme_gate 内被强制封顶为
+    # observed，不可能是 confirmed —— 这里不需要重复裁剪。
+    market_gate = dict(
+        ((selection_state or {}).get("market_timing") or {}).get("market_gate") or {}
+    )
+    local_theme_config = dict(config.get("local_theme_resonance") or {})
+    local_theme_candidates: list[dict[str, Any]] = []
+    if local_theme_config.get("enabled", True) and market_gate.get("status") == "restricted":
+        for raw in research_candidates:
+            code = candidate_pipeline.naked_code(raw.get("code"))
+            if not code or code in execution_by_code:
+                continue
+            gate = raw.get("local_theme_gate") or {}
+            if gate.get("resonance_status") not in ("observed", "confirmed"):
+                continue
+            item = dict(raw)
+            item.update({
+                "research_only": True,
+                "execution_action": "none",
+                "participation_scope": "local_theme_only",
+                "admission_state": "local_observed",
+            })
+            local_theme_candidates.append(item)
+
     auction_scan_universe = list(result.get("auction_scan_codes") or [])
     weak_regime = bool(
         (((selection_state or {}).get("market_timing") or {}).get("weak_market") or {}).get("weak_regime")
@@ -1422,13 +1450,17 @@ def run_discovery(
     result.update({
         "research_candidates": research_candidates,
         "execution_candidates": execution_candidates,
+        "local_theme_candidates": local_theme_candidates,
         "auction_scan_universe": auction_scan_universe,
         "research_count": len(research_candidates),
         "execution_count": len(execution_candidates),
+        "local_theme_count": len(local_theme_candidates),
         "auction_scan_count": len(auction_scan_universe),
+        "market_gate": market_gate,
         "counts": {
             "research": len(research_candidates),
             "execution": len(execution_candidates),
+            "local_theme": len(local_theme_candidates),
             "auction_scan": len(auction_scan_universe),
         },
         "gate": {"status": gate_status, "reasons": gate_reasons},

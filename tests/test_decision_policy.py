@@ -614,3 +614,75 @@ def test_missing_serenity_reason_is_grouped_not_other():
     assert decision_policy._guardrail_reason_code(
         "serenity_evidence_missing"
     ) != "other"
+
+
+# ---------------------------------------------------------------------------
+# issue #260 §4.C.2: local_theme_only participation_scope caps the action
+# ceiling at conditional_buy regardless of what the caller requested.
+# ---------------------------------------------------------------------------
+
+
+def test_local_theme_scope_caps_unconditional_buy_to_conditional_buy():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        participation_scope="local_theme_only",
+    )
+
+    assert result["decision"] == "conditional_buy"
+    assert result["requested_action"] == "buy"
+    assert "local_theme_scope_capped_to_conditional" in result["reasons"]
+    assert result["guardrail"]["raw_action"] == "buy"
+    assert result["guardrail"]["final_action"] == "conditional_buy"
+
+
+def test_local_theme_scope_caps_add_to_conditional_buy_too():
+    result = decision_policy.evaluate_decision(
+        requested_action="add",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        participation_scope="local_theme_only",
+    )
+
+    assert result["decision"] == "conditional_buy"
+
+
+def test_local_theme_scope_still_zeroes_on_existing_gate_failure():
+    """局部路径不豁免任何既有门禁：市场 risk_off 依旧归零，不因为已封顶而放行。"""
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        market_regime={"regime": "risk_off"},
+        participation_scope="local_theme_only",
+    )
+
+    assert result["decision"] == "watch"
+    assert result["position_multiplier"] == 0.0
+    assert "market_risk_off" in result["reasons"]
+
+
+def test_normal_participation_scope_is_unaffected_by_cap():
+    result = decision_policy.evaluate_decision(
+        requested_action="buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        participation_scope=None,
+    )
+
+    assert result["decision"] == "buy"
+    assert "local_theme_scope_capped_to_conditional" not in result["reasons"]
+
+
+def test_local_theme_scope_does_not_touch_requests_already_conditional_buy():
+    result = decision_policy.evaluate_decision(
+        requested_action="conditional_buy",
+        quality_report={"status": "passed"},
+        strategy_record=ALLOWED_STRATEGY,
+        participation_scope="local_theme_only",
+    )
+
+    assert result["decision"] == "conditional_buy"
+    assert "local_theme_scope_capped_to_conditional" not in result["reasons"]
+    assert result["guardrail"] is None

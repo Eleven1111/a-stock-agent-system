@@ -677,3 +677,20 @@ def test_tail_close_projection_reports_missing_and_mismatched_reconciliation():
     manual_mismatch = ledger.project_tail_close_lifecycle(with_manual)[0]
     assert manual_mismatch["complete"] is False
     assert manual_mismatch["violations"] == ["fill_hash_mismatch", "manual_fill_hash_mismatch"]
+
+
+# ---------------------------------------------------------------------------
+# issue #260 §4.C.4: conditional_buy is a legal recommendation action but must
+# never create a trade or settlement fact — it stays outside both sets.
+# ---------------------------------------------------------------------------
+
+
+def test_conditional_buy_is_not_a_trade_or_settleable_action():
+    assert "conditional_buy" not in ledger.TRADE_ACTIONS
+    assert "conditional_buy" not in ledger.SETTLEABLE_ACTIONS
+
+
+def test_trade_and_settleable_actions_stay_confined_to_buy_and_add():
+    """锁住既有口径，防止未来有人往里加 conditional_buy 或其它非成交动作。"""
+    assert ledger.TRADE_ACTIONS == {"buy", "add"}
+    assert ledger.SETTLEABLE_ACTIONS == {"buy", "add"}

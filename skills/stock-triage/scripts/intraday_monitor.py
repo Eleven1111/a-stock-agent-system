@@ -220,15 +220,32 @@ def _sector_degradation_alerts(
 
 
 def load_sector_watchlist(asof: str) -> Dict[str, Dict[str, str]]:
+    """issue #260 §4.D.1：同时读取同日 shortlist 与局部主题观察/条件候选。
+
+    只用 artifact 里已固化的成员（同一份同日快照），不猜测、不回退历史日。
+    手工取消的 tombstone codes 一律排除——local_theme 路径拉入更宽的成员集合，
+    不能因此让已被人工停用的自动监控重新复活。
+    """
     payload = _same_day_shortlist(asof)
+    cancelled = runtime_targets.cancelled_stock_codes(monitor_registry.load_registry())
     members: Dict[str, Dict[str, str]] = {}
-    for item in payload.get("shortlist") or []:
-        code = runtime_targets.normalize_stock_code(item.get("code"))
-        sector = str(item.get("sector") or "").strip()
-        if code and sector:
+    for source, key in (
+        ("execution", "shortlist"),
+        ("local_theme", "local_theme_candidates"),
+        ("local_theme", "conditional_candidates"),
+    ):
+        for item in payload.get(key) or []:
+            code = runtime_targets.normalize_stock_code(item.get("code"))
+            sector = str(item.get("sector") or "").strip()
+            if not code or not sector or code in cancelled:
+                continue
+            existing = members.get(code)
+            if existing and existing.get("source") == "execution":
+                continue  # execution 成员身份优先，不被 local_theme 覆盖
             members[code] = {
                 "name": str(item.get("name") or code),
                 "sector": sector,
+                "source": source,
             }
     return members
 
@@ -243,8 +260,15 @@ def detect_sector_acceleration(
     min_average_pct: float,
     min_acceleration_pct: float,
 ) -> tuple[list[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
-    """Detect broad sector momentum without converting it into a buy signal."""
-    grouped: Dict[str, list[tuple[str, str, float]]] = {}
+    """Detect broad sector momentum without converting it into a buy signal.
+
+    issue #260 §4.D.2：成员可能来自 execution shortlist 或 local_theme 观察/
+    条件候选(见 load_sector_watchlist)。一个板块的成员若全部来自 local_theme
+    路径，输出 participation_scope=local_theme_only 供简报/审计区分；只要还有
+    execution 成员，就仍是旧的全局观察语义。无论哪种来源，action 恒为
+    watch——盘中告警本身永不升级为买入信号。
+    """
+    grouped: Dict[str, list[tuple[str, str, float, str]]] = {}
     for code, metadata in members.items():
         sector = str(metadata.get("sector") or "").strip()
         quote = quotes.get(code) or {}
@@ -254,6 +278,7 @@ def detect_sector_acceleration(
             code,
             str(metadata.get("name") or code),
             float(quote.get("change_pct") or 0.0),
+            str(metadata.get("source") or "execution"),
         ))
 
     alerts: list[Dict[str, Any]] = []
@@ -262,6 +287,11 @@ def detect_sector_acceleration(
         average = sum(row[2] for row in rows) / len(rows)
         positive = sum(row[2] > 0 for row in rows)
         positive_ratio = positive / len(rows)
+        participation_scope = (
+            "local_theme_only"
+            if all(row[3] == "local_theme" for row in rows)
+            else None
+        )
         prior = previous.get(sector) or {}
         prior_average = float(prior.get("average_pct") or 0.0)
         qualifies = (
@@ -278,19 +308,22 @@ def detect_sector_acceleration(
             "positive_ratio": round(positive_ratio, 4),
             "member_count": len(rows),
             "alerted": qualifies,
+            "participation_scope": participation_scope,
         }
         if not should_alert:
             continue
         leaders = sorted(rows, key=lambda row: (-row[2], row[0]))[:3]
-        leader_text = "、".join(f"{name}{pct:+.1f}%" for _, name, pct in leaders)
+        leader_text = "、".join(f"{name}{pct:+.1f}%" for _, name, pct, _source in leaders)
         alerts.append({
             "level": "🟡",
             "type": "板块加速",
             "sector": sector,
             "action": "watch",
+            "participation_scope": participation_scope,
             "msg": (
                 f"{sector}候选集体走强：{positive}/{len(rows)}上涨，"
                 f"均涨{average:.1f}%；领先 {leader_text}。仅升级关注，不构成买入信号"
+                + ("（局部主题观察，非执行池）" if participation_scope == "local_theme_only" else "")
             ),
         })
     return alerts, state

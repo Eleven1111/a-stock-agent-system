@@ -45,7 +45,7 @@ HISTORY_FILE = data_file("stock-triage", "trade_history.json")
 PORTFOLIO_FILE = data_file("stock-triage", "portfolio.json")
 LEDGER_FILE = signal_ledger.LEDGER_FILE
 
-VALID_ACTIONS = {"buy", "sell", "add", "reduce", "hold", "avoid"}
+VALID_ACTIONS = {"buy", "sell", "add", "reduce", "hold", "avoid", "conditional_buy"}
 VALID_OUTCOMES = {"pending", "profit", "loss", "breakeven", "invalidated"}
 
 DEFAULT_POSITION_RANGES = {
@@ -180,12 +180,57 @@ def strategy_stats(strategy_id: Optional[str], history: Optional[List[Dict[str, 
     }
 
 
+def _local_theme_resonance_config() -> Dict[str, Any]:
+    from config_registry import ConfigError, load_registered
+
+    try:
+        return dict(load_registered("candidate_selection").get("local_theme_resonance") or {})
+    except ConfigError:
+        # 配置读取失败按最保守处理：局部主题上限/预算默认为 0（仅 shadow）。
+        return {}
+
+
+def _cap_local_theme_position(
+    guidance: Dict[str, Any],
+    *,
+    participation_scope: Optional[str],
+    total_asset: float,
+) -> None:
+    """issue #260 §3.3.4：局部主题仓位上限 = min(局部配置上限, 局部试验预算,
+    组合风险上限)，默认试验预算为 0，只产生 shadow 结论。就地修改 ``guidance``。
+
+    不复用打板温度倍率，避免"表面可买、审计仓位为 0"的自相矛盾——局部路径的
+    仓位上限独立计算，不与已被冰点杀跌归零的全局温度倍率混用。封顶后的
+    ``recommended_amount`` 与封顶后的 pct 保持一致（不是恒零）：预算非零时
+    仍应产生一个可执行的真实小仓位，只有预算为 0 才是纯 shadow。
+    """
+    if participation_scope != "local_theme_only":
+        return
+    cfg = _local_theme_resonance_config()
+    position_cap = float(cfg.get("local_theme_position_cap", 0.0) or 0.0)
+    trial_budget = float(cfg.get("local_trial_budget", 0.0) or 0.0)
+    cap_pct = max(0.0, min(position_cap, trial_budget)) * 100
+    current_pct = float(guidance.get("recommended_position_pct") or 0.0)
+    capped_pct = min(current_pct, cap_pct)
+    guidance["participation_scope"] = participation_scope
+    guidance["local_theme_position_cap_pct"] = round(cap_pct, 4)
+    if capped_pct != current_pct:
+        guidance["recommended_position_pct"] = round(capped_pct, 2)
+        guidance["recommended_amount"] = round(total_asset * capped_pct / 100, 2)
+        guidance["reason"] = (
+            "局部板块共振路径：试验预算为0，仅产生 shadow 结论"
+            if cap_pct <= 0.0
+            else "局部板块共振路径：仓位已按局部配置上限/试验预算封顶"
+        )
+
+
 def position_guidance(
     strategy_id: Optional[str],
     entry_price: Optional[float],
     target_price: Optional[float],
     stop_price: Optional[float],
     total_asset: float = 100000.0,
+    participation_scope: Optional[str] = None,
 ) -> Dict[str, Any]:
     odds = calculate_odds(entry_price, target_price, stop_price)
     stats = strategy_stats(strategy_id)
@@ -224,6 +269,7 @@ def position_guidance(
                 else f"策略 {sid} 尚无可复验的组合级 OOS 证据，仅供研究观察"
             ),
         })
+        _cap_local_theme_position(guidance, participation_scope=participation_scope, total_asset=total_asset)
         return guidance
 
     # 情绪温度倍率：打板范式仓位随市场温度缩放（冰点0.3/发酵1.0/极热0，退潮信号归零）。
@@ -274,6 +320,7 @@ def position_guidance(
             }
             if not temp_allow_new:
                 guidance["reason"] = f"{temp_tier}阶段禁止新开打板仓"
+        _cap_local_theme_position(guidance, participation_scope=participation_scope, total_asset=total_asset)
         return guidance
 
     lo, hi = DEFAULT_POSITION_RANGES.get(sid, DEFAULT_POSITION_RANGES.get(sid.split(":", 1)[0], (3.0, 5.0)))
@@ -292,6 +339,7 @@ def position_guidance(
         }
         if not temp_allow_new:
             guidance["reason"] = f"{temp_tier}阶段禁止新开打板仓"
+    _cap_local_theme_position(guidance, participation_scope=participation_scope, total_asset=total_asset)
     return guidance
 
 
@@ -420,6 +468,7 @@ def record_recommendation(
     raw_score: Optional[float] = None,
     sector: Optional[str] = None,
     execution_context: Optional[Dict[str, Any]] = None,
+    participation_scope: Optional[str] = None,
 ) -> Dict[str, Any]:
     code = str(code).zfill(6)
     action = action.lower().strip()
@@ -445,6 +494,7 @@ def record_recommendation(
         target_price,
         stop_price,
         account_value,
+        participation_scope=participation_scope,
     )
     sizing["account_value"] = round(account_value, 2)
     sizing["capital_source"] = (
@@ -510,6 +560,7 @@ def record_recommendation(
         strategy_lane=lane,
         discipline_state=discipline,
         raw_score=raw_score,
+        participation_scope=participation_scope,
     )
     execution_analysis = _execution_analysis(
         code=code,
@@ -574,6 +625,7 @@ def record_recommendation(
         "code": code,
         "name": name,
         "sector": str(sector or "").strip() or None,
+        "participation_scope": participation_scope,
         "date": record_date,
         "created_at": datetime.now().isoformat(),
         "requested_action": action,

@@ -35,7 +35,7 @@ def _recommendation_dependencies(tmp_path, monkeypatch):
     monkeypatch.setattr(
         recommendation_audit,
         "position_guidance",
-        lambda *args: {
+        lambda *args, **kwargs: {
             "recommended_position_pct": 10.0,
             "recommended_amount": 10_000.0,
         },

@@ -607,16 +607,26 @@ def watch_pool_staleness(pool: Mapping[str, Any], event_asof: str) -> Dict[str, 
 
 
 def watch_pool_codes(pool: Mapping[str, Any]) -> List[str]:
+    """issue #260 B.1：D0 已批准的 execution_candidates 与 local_theme_candidates
+    的全部必要成员都要获得 09:15-09:25 因子，否则 09:25 二次确认永远没有新鲜
+    竞价证据可用。普通 research_candidates 不在这条路径——它们只属于研究扫描，
+    不能因此获得局部准入。"""
     candidates = (
         pool.get("execution_candidates")
         if "execution_candidates" in pool
         else pool.get("candidates", [])
     )
-    return [
+    codes = [
         candidate_pipeline.market_code(item.get("code") or item.get("market_code"))
         for item in candidates or []
         if item.get("code") or item.get("market_code")
     ]
+    local_theme_codes = [
+        candidate_pipeline.market_code(item.get("code") or item.get("market_code"))
+        for item in pool.get("local_theme_candidates") or []
+        if item.get("code") or item.get("market_code")
+    ]
+    return list(dict.fromkeys([*codes, *local_theme_codes]))
 
 
 def auction_scan_codes(
@@ -819,6 +829,10 @@ def _degraded_finalize(result: Dict[str, Any], asof: str, reason: str) -> Dict[s
         "shortlist": [],
         "research_candidates": [],
         "execution_candidates": [],
+        "local_theme_candidates": [],
+        "conditional_candidates": [],
+        "local_theme_count": 0,
+        "conditional_count": 0,
         "shortlist_count": 0,
         "rejected": [],
         "preopen_decisions": [],

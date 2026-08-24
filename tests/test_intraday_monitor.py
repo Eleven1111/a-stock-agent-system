@@ -402,3 +402,157 @@ def test_critical_exit_alert_realerts_hourly_not_once_per_day(tmp_path, monkeypa
         if key.startswith("exit_002842_stop_loss_") and key.rsplit("_", 1)[-1].isdigit()
     ]
     assert hourly_keys, f"critical 退出信号缓存键必须带小时后缀: {list(cache)}"
+
+
+# ---------------------------------------------------------------------------
+# issue #260 §4.D: sector watchlist must also see local_theme_candidates /
+# conditional_candidates, tagged distinctly, and never upgrade to a buy signal.
+# ---------------------------------------------------------------------------
+
+
+def test_load_sector_watchlist_merges_local_theme_candidates(tmp_path, monkeypatch):
+    today = date.today().isoformat()
+    monkeypatch.setattr(im, "SHORTLIST_FILE", str(tmp_path / "auction_shortlist_latest.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {
+            "asof": today,
+            "shortlist": [{"code": "600001", "name": "执行池票", "sector": "半导体"}],
+            "local_theme_candidates": [
+                {"code": "600002", "name": "局部观察票", "sector": "贵金属"},
+            ],
+            "conditional_candidates": [
+                {"code": "600003", "name": "条件候选票", "sector": "贵金属"},
+            ],
+        },
+    )
+
+    members = im.load_sector_watchlist(today)
+
+    assert members["600001"]["source"] == "execution"
+    assert members["600002"]["source"] == "local_theme"
+    assert members["600003"]["source"] == "local_theme"
+    assert members["600002"]["sector"] == "贵金属"
+
+
+def test_load_sector_watchlist_execution_membership_wins_over_local_theme(tmp_path, monkeypatch):
+    """同一只票若同时出现在 execution shortlist 和 local_theme 名单，
+    execution 身份优先（互斥语义不应在盘中监控层被局部路径覆盖）。"""
+    today = date.today().isoformat()
+    monkeypatch.setattr(im, "SHORTLIST_FILE", str(tmp_path / "auction_shortlist_latest.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {
+            "asof": today,
+            "shortlist": [{"code": "600001", "name": "双重出现", "sector": "半导体"}],
+            "local_theme_candidates": [
+                {"code": "600001", "name": "双重出现", "sector": "半导体"},
+            ],
+        },
+    )
+
+    members = im.load_sector_watchlist(today)
+
+    assert members["600001"]["source"] == "execution"
+
+
+def test_load_sector_watchlist_excludes_manually_cancelled_tombstone(tmp_path, monkeypatch):
+    """issue #260 §4.D.3：手工取消的 tombstone 不得被 local_theme 发现重新激活。"""
+    today = date.today().isoformat()
+    monkeypatch.setattr(im, "SHORTLIST_FILE", str(tmp_path / "auction_shortlist_latest.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {
+            "asof": today,
+            "shortlist": [],
+            "local_theme_candidates": [
+                {"code": "600009", "name": "已被取消票", "sector": "贵金属"},
+            ],
+        },
+    )
+    im.monitor_registry.cancel("stock", "600009", reason="user_cancelled", manual=True)
+
+    members = im.load_sector_watchlist(today)
+
+    assert "600009" not in members
+
+
+def test_detect_sector_acceleration_tags_pure_local_theme_sector():
+    quotes = {
+        f"60000{i}": {"change_pct": 6.0 + i} for i in range(1, 4)
+    }
+    members = {
+        f"60000{i}": {"name": f"贵金属{i}", "sector": "贵金属", "source": "local_theme"}
+        for i in range(1, 4)
+    }
+
+    alerts, state = im.detect_sector_acceleration(
+        quotes, members, previous={},
+        min_members=3, min_positive_ratio=0.6, min_average_pct=3.0, min_acceleration_pct=1.0,
+    )
+
+    assert len(alerts) == 1
+    assert alerts[0]["action"] == "watch"
+    assert alerts[0]["participation_scope"] == "local_theme_only"
+    assert "局部主题观察" in alerts[0]["msg"]
+    assert state["贵金属"]["participation_scope"] == "local_theme_only"
+
+
+def test_detect_sector_acceleration_mixed_sources_is_not_local_theme_only():
+    quotes = {f"60000{i}": {"change_pct": 6.0 + i} for i in range(1, 4)}
+    members = {
+        "600001": {"name": "执行池", "sector": "半导体", "source": "execution"},
+        "600002": {"name": "局部票A", "sector": "半导体", "source": "local_theme"},
+        "600003": {"name": "局部票B", "sector": "半导体", "source": "local_theme"},
+    }
+
+    alerts, state = im.detect_sector_acceleration(
+        quotes, members, previous={},
+        min_members=3, min_positive_ratio=0.6, min_average_pct=3.0, min_acceleration_pct=1.0,
+    )
+
+    assert alerts[0]["participation_scope"] is None
+    assert alerts[0]["action"] == "watch"
+
+
+def test_intraday_check_alerts_pure_local_theme_sector_as_watch_only(tmp_path, monkeypatch):
+    today = date.today().isoformat()
+    monkeypatch.setattr(im, "TRACKED_CODES", [])
+    monkeypatch.setattr(im, "TRACKED_NAMES", {})
+    monkeypatch.setattr(im, "ALERT_CACHE", str(tmp_path / "intraday_alerts.json"))
+    monkeypatch.setattr(im, "PORTFOLIO_FILE", str(tmp_path / "portfolio.json"))
+    monkeypatch.setattr(im.monitor_registry, "REGISTRY_FILE", str(tmp_path / "monitor_registry.json"))
+    monkeypatch.setattr(im.monitor_registry, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    atomic_write_json(im.PORTFOLIO_FILE, {"positions": []})
+    atomic_write_json(
+        im.SHORTLIST_FILE,
+        {
+            "asof": today,
+            "shortlist": [],
+            "local_theme_candidates": [
+                {"code": f"60000{i}", "name": f"贵金属{i}", "sector": "贵金属"}
+                for i in range(1, 4)
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        im,
+        "fetch_realtime_many",
+        lambda codes: {
+            str(code)[-6:]: {"price": 10.0, "change_pct": 5.0, "turnover": 2.0}
+            for code in codes
+        },
+    )
+
+    result = im.check_intraday()
+
+    assert result["sector_member_count"] == 3
+    assert result["sector_alerts"][0]["sector"] == "贵金属"
+    assert result["sector_alerts"][0]["action"] == "watch"
+    assert result["sector_alerts"][0]["participation_scope"] == "local_theme_only"
