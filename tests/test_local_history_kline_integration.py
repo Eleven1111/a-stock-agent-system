@@ -128,3 +128,79 @@ def test_market_adapter_tencent_wrapper_remains_transparent(monkeypatch):
         "600519", market="sh", days=2, ktype="day"
     ) == expected
     assert received == {"code": "600519", "market": "sh", "days": 2, "ktype": "day"}
+
+
+def test_daily_kline_skips_local_bar_with_null_volume(monkeypatch):
+    """缓存里单行 volume 为 NULL 时剔除该行，其余照常返回，不崩、不联网。"""
+    calls = []
+    today = date.today()
+    monkeypatch.setattr(
+        local_market_history,
+        "get_daily_bars",
+        lambda codes, end_date, lookback: [
+            _local_bar((today - timedelta(days=2)).isoformat()),
+            {**_local_bar((today - timedelta(days=1)).isoformat()), "volume": None},
+            _local_bar(today.isoformat(), 10.2),
+        ],
+    )
+    monkeypatch.setattr(
+        a_stock_http, "http_get_json", lambda *args, **kwargs: calls.append(args)
+    )
+
+    bars = a_stock_http.fetch_tencent_kline("sh600519", "sh", 2)
+
+    assert [bar["date"] for bar in bars] == [
+        (today - timedelta(days=2)).isoformat(),
+        today.isoformat(),
+    ]
+    assert calls == []
+
+
+def test_daily_kline_falls_back_to_network_when_null_field_shortens_history(monkeypatch):
+    """剔除坏行后本地不足 days 时，回退网络取数。"""
+    calls = []
+    monkeypatch.setattr(
+        local_market_history,
+        "get_daily_bars",
+        lambda codes, end_date, lookback: [
+            _local_bar("2026-08-18"),
+            {**_local_bar("2026-08-19"), "close": None},
+        ],
+    )
+    monkeypatch.setattr(
+        a_stock_http,
+        "http_get_json",
+        lambda url, **kwargs: calls.append(url) or _tencent_response(),
+    )
+
+    bars = a_stock_http.fetch_tencent_kline("600519", "sh", 2)
+
+    assert len(bars) == 2
+    assert calls and "sh600519,day" in calls[0]
+
+
+def test_network_kline_skips_malformed_row(monkeypatch):
+    """网络路径单行字段缺失/非数值时跳过该行，不拖垮整个取数。"""
+    response = {
+        "data": {
+            "sh600519": {
+                "qfqday": [
+                    ["2026-08-17", "10", "10.2", "10.3", "9.9", "100"],
+                    ["2026-08-18", "10.2", "10.4", "10.5", "10.1", None],
+                    ["2026-08-19", "10.4", "10.6", "10.7", "10.3", "120"],
+                ]
+            }
+        }
+    }
+    monkeypatch.setattr(
+        local_market_history,
+        "get_daily_bars",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        a_stock_http, "http_get_json", lambda url, **kwargs: response
+    )
+
+    bars = a_stock_http.fetch_tencent_kline("600519", "sh", 3)
+
+    assert [bar["date"] for bar in bars] == ["2026-08-17", "2026-08-19"]

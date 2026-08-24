@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import sys
+from datetime import datetime
 from pathlib import Path
 
 import paper_trading
+from state_store import atomic_write_json
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -377,3 +381,89 @@ def test_every_pushed_close_report_carries_the_simulated_account_label(monkeypat
 
     assert result["message"].startswith("[模拟盘·研究专用]")
     assert result["research_only"] is True
+
+
+def test_zero_signal_open_day_truth_table():
+    """只有“状态可识别 + 同日 + 零信号”才算合法空仓日。"""
+    base = {"schema": "open_confirmation_v3", "asof": "2026-07-13", "signals": []}
+
+    assert runner._zero_signal_open_day({**base, "status": "degraded"}, "2026-07-13")
+    assert runner._zero_signal_open_day(
+        {**base, "status": "insufficient_data"}, "2026-07-13"
+    )
+    # ready 表面走原有完整校验，不短路
+    assert not runner._zero_signal_open_day({**base, "status": "ready"}, "2026-07-13")
+    # 有信号的 degraded 依旧 fail-closed
+    assert not runner._zero_signal_open_day(
+        {**base, "status": "degraded", "signals": [{"code": "600001"}]}, "2026-07-13"
+    )
+    # 日期不符 / schema 不对 / 空对象
+    assert not runner._zero_signal_open_day({**base, "status": "degraded"}, "2026-07-14")
+    assert not runner._zero_signal_open_day(
+        {"schema": "other", "asof": "2026-07-13", "status": "degraded", "signals": []},
+        "2026-07-13",
+    )
+    assert not runner._zero_signal_open_day({}, "2026-07-13")
+
+
+def _write_open_confirmation(asof: str, payload: dict) -> None:
+    atomic_write_json(
+        runner.data_file("daban-stock-picker", f"open_confirmation_{asof}.json"),
+        payload,
+    )
+
+
+def _stub_load_registered(monkeypatch):
+    def fake_load_registered(name):
+        if name == "paper_trading":
+            return _config()
+        if name == "data_access":
+            return {"risk": {}}
+        if name == "daban_thresholds":
+            return {"market_gate": {"position_time_stop_trading_days": 3}}
+        raise AssertionError(f"unexpected registry: {name}")
+
+    monkeypatch.setattr(runner, "load_registered", fake_load_registered)
+
+
+def test_main_open_phase_no_op_on_zero_signal_degraded_day(tmp_path, monkeypatch, capsys):
+    """零信号弱市日：exit 0 且输出 no_op，monitor/close 不再被 upstream_failed 拖垮。"""
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _stub_load_registered(monkeypatch)
+    asof = datetime.now(runner.SHANGHAI).date().isoformat()
+    _write_open_confirmation(
+        asof,
+        {
+            "schema": "open_confirmation_v3",
+            "asof": asof,
+            "status": "degraded",
+            "generated_at": f"{asof}T09:35:20+08:00",
+            "input_snapshot": {"snapshot_id": "snap", "source_versions": {}},
+            "signals": [],
+        },
+    )
+    monkeypatch.setattr(sys, "argv", ["paper_trading_runner.py", "--phase", "open"])
+
+    assert runner.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "no_op"
+    assert payload["reason"] == "open_confirmation_zero_signals"
+    assert payload["live_order_sent"] is False
+
+
+def test_main_open_phase_still_blocked_when_surface_file_missing(
+    tmp_path, monkeypatch, capsys
+):
+    """确认文件缺失 = 真故障，保持 blocked / exit 1 的 fail-closed 行为。"""
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _stub_load_registered(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["paper_trading_runner.py", "--phase", "open"])
+
+    assert runner.main() == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "blocked"
+    assert payload["reason"] == "open_confirmation_missing"

@@ -289,6 +289,43 @@ def fetch_eastmoney_json(path: str, params: Dict = None) -> Dict[str, Any]:
     return eastmoney_json(url, required_path=("data",), required_type=dict)
 
 
+def _numeric_or_none(value: Any) -> Optional[float]:
+    """把缓存行字段转成 float；缺失或非数值时返回 None。"""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _clean_local_daily_bar(
+    row: Dict[str, Any], today: str
+) -> Optional[Dict[str, Any]]:
+    """把一行本地历史归一化为输出 K 线；不完整或未来日期的行返回 None。
+
+    单行缓存数据损坏（如 volume 为 NULL）不应让整个取数崩溃：
+    被剔除的行走既有的“本地不足则回退网络”路径。
+    """
+    trading_date = row.get("trading_date", row.get("date", ""))
+    if str(trading_date) > today:
+        return None
+    values = [
+        _numeric_or_none(row.get(field))
+        for field in ("open", "close", "high", "low", "volume")
+    ]
+    if any(value is None for value in values):
+        return None
+    return {
+        "date": trading_date,
+        "open": values[0],
+        "close": values[1],
+        "high": values[2],
+        "low": values[3],
+        "volume": values[4],
+    }
+
+
 def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,
                         ktype: str = "day") -> List[Dict[str, Any]]:
     """腾讯历史K线"""
@@ -309,21 +346,13 @@ def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,
         except Exception:
             local_bars = []
         local_bars = [
-            row for row in local_bars
-            if str(row.get("trading_date", row.get("date", ""))) <= today
+            bar for bar in (
+                _clean_local_daily_bar(row, today) for row in local_bars
+            )
+            if bar is not None
         ]
         if len(local_bars) >= days:
-            return [
-                {
-                    "date": row.get("trading_date", row.get("date")),
-                    "open": float(row["open"]),
-                    "close": float(row["close"]),
-                    "high": float(row["high"]),
-                    "low": float(row["low"]),
-                    "volume": float(row["volume"]),
-                }
-                for row in local_bars[-days:]
-            ]
+            return local_bars[-days:]
 
     url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={market}{code},{ktype},,,{days},qfq"
     try:
@@ -341,10 +370,13 @@ def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,
 
     result = []
     for k in klines[-days:]:
-        result.append({
-            "date": k[0], "open": float(k[1]), "close": float(k[2]),
-            "high": float(k[3]), "low": float(k[4]), "volume": float(k[5]),
-        })
+        try:
+            result.append({
+                "date": k[0], "open": float(k[1]), "close": float(k[2]),
+                "high": float(k[3]), "low": float(k[4]), "volume": float(k[5]),
+            })
+        except (TypeError, ValueError, IndexError):
+            continue
     return result
 
 

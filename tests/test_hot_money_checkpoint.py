@@ -1,6 +1,9 @@
 """Bounded 09:50/13:15 hot-money research checkpoint tests."""
 
 import importlib.util
+import json
+import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -283,3 +286,44 @@ def test_load_open_confirmation_rejects_wrong_day(tmp_path, monkeypatch):
 
     with pytest.raises(checkpoint.DataSourceError, match="日期"):
         checkpoint.load_open_confirmation("2026-06-22")
+
+
+def _run_main(monkeypatch, capsys, asof):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["hot_money_checkpoint.py", "--profile", "morning_confirm", "--asof", asof, "--json"],
+    )
+    code = checkpoint.main()
+    payload = json.loads(capsys.readouterr().out)
+    return code, payload
+
+
+def test_main_exits_zero_when_same_day_shortlist_is_empty(tmp_path, monkeypatch, capsys):
+    """同日短名单存在但为空 = 弱市零候选常态，exit 0，不再触发调度器错误退避。"""
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    asof = date.today().isoformat()
+    atomic_write_json(
+        checkpoint.auction_shortlist_path(asof),
+        {"schema": "auction_shortlist_v1", "asof": asof, "shortlist": []},
+    )
+
+    code, payload = _run_main(monkeypatch, capsys, asof)
+
+    assert code == 0
+    assert payload["status"] == "insufficient_data"
+    assert payload["confirmed_count"] == 0
+    assert payload["research_only"] is True
+
+
+def test_main_exits_one_when_shortlist_file_is_missing(tmp_path, monkeypatch, capsys):
+    """短名单文件整体缺失（上游可能没跑/崩了）仍保持大声失败 exit 1。"""
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    asof = date.today().isoformat()
+
+    code, payload = _run_main(monkeypatch, capsys, asof)
+
+    assert code == 1
+    assert payload["status"] == "insufficient_data"

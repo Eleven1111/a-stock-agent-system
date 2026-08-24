@@ -376,6 +376,36 @@ def _open_surface(asof: str) -> dict[str, Any]:
     return dict(payload)
 
 
+def _zero_signal_open_day(surface: Mapping[str, Any], asof: str) -> bool:
+    """同日、schema 正确、状态可识别且零信号 = 弱市合法空仓日，不是故障。
+
+    仅覆盖 degraded/insufficient_data：ready 表面仍走原有完整校验路径，
+    缺文件/日期不符/状态非法依旧抛错 fail-closed。
+    """
+    return (
+        isinstance(surface, Mapping)
+        and surface.get("schema") == "open_confirmation_v3"
+        and str(surface.get("asof") or "") == asof
+        and str(surface.get("status") or "") in {"degraded", "insufficient_data"}
+        and not (surface.get("signals") or [])
+    )
+
+
+def _emit_open_no_op(asof: str, *, as_json: bool) -> None:
+    """弱市零信号日的 no_op 结论：照常打印，由调用方以 0 退出。"""
+    output = {
+        "schema": "paper_trading_run_v1",
+        "status": "no_op",
+        "phase": "open",
+        "asof": asof,
+        "reason": "open_confirmation_zero_signals",
+        "signal_count": 0,
+        "research_only": True,
+        "live_order_sent": False,
+    }
+    print(json.dumps(output, ensure_ascii=False, indent=2 if as_json else None))
+
+
 def _locked_call(function, *args, **kwargs):
     with store.account_transaction():
         return function(*args, **kwargs)
@@ -395,6 +425,9 @@ def main() -> int:
     try:
         if args.phase == "open":
             surface = _open_surface(asof)
+            if _zero_signal_open_day(surface, asof):
+                _emit_open_no_op(asof, as_json=args.json)
+                return 0
             allowed_codes = [
                 _code(item.get("code"))
                 for item in surface.get("signals") or []
