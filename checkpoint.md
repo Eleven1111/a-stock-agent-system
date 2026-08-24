@@ -29,14 +29,21 @@
   - [x] C.6 `local_theme_conditional_trade_enabled=false` 时只输出 watch；已补 shadow_decision：结构+风险已就绪但开关关闭时，`_build_local_theme_signal` 额外算一次"若开启会怎样"的 counterfactual（decision/reasons/would_be_position_pct），挂在同一 signal 的 `shadow_decision` 字段，不影响真实输出；结构未就绪或开关已开时 `shadow_decision=None`
   - [x] C.8 顶层 `research_only=True` 只清空普通 shortlist 信号，不清空 conditional_candidates——端到端测试验证
   - [x] C.9 审计调用链闭合验证：open_confirmation→recommendation_audit→position_guidance→signal_ledger 全程 participation_scope 透传，端到端测试验证 settleable_signal=False、trade_id 缺失
-  - [x] C.10 风险顺序：sector 级重算强势成员时已剔除 quality-unavailable/mirror 行（auction 阶段）与 tradeability/announcement 硬风险（open 阶段）后再判定 confirmed
+  - [x] C.10 风险顺序：sector 级重算强势成员时已剔除 quality-unavailable/mirror 行（auction 阶段）与 tradeability/announcement 硬风险（open 阶段）后再判定 confirmed；**场景矩阵验收时发现并修复真实 bug**——`_reconfirm_open_sector_gate` 原先把任一成员的 `risk_hard_block` 直接 OR 进板块级 `execution_risk_status`，导致单票公告硬风险会把整个板块的其他 3 只无风险成员一起阻断成 watch；已改为先剔除风险成员再计算结构，板块级 `execution_risk_status` 不再被单票风险污染，个体风险仍由 `structurally_ready` 单独挡住该票自己
   - 验证：ruff 全绿；maintainability budget 全绿；受影响 11 个测试文件共 348 个测试全绿（含新增约 30 个 local_theme 专项测试）；调试中发现并修复 3 个真实设计缺陷：(1)`_apply_policy` decision 同步遗漏 (2)`_cap_local_theme_position` 金额恒零错误 (3)local theme 候选缺 directional_eligible/PIT 字段导致 transport_lower_trust 误判；全量 pytest 3042 passed（3 个既有环境失败无关）
 - [x] D. 盘中异动语义一致 — 已完成并测试通过
   - [x] D.1 `load_sector_watchlist()` 同时读取同日 `shortlist`/`local_theme_candidates`/`conditional_candidates`，标注 `source`；execution 身份优先于 local_theme（同票双重出现时不被覆盖）；手工 tombstone 通过 `runtime_targets.cancelled_stock_codes()` 排除，不被 local_theme 发现重新激活
   - [x] D.2 `detect_sector_acceleration()` 新增 `participation_scope`：板块成员全部来自 local_theme 时标 `local_theme_only`，混合来源仍是旧语义；`action` 恒为 `watch`，不因来源改变
   - [x] D.3 数据降级/成员不足仍走既有停发+显式告警路径（未改动，仍绿）
   - 验证：ruff 全绿；maintainability budget 全绿；tests/test_intraday_monitor.py 19 个测试全绿（新增 6 个）；全量 pytest 3048 passed
-- [ ] E. 场景矩阵验收（方案§5 表格 7 行，逐场景走查已实现代码路径）
+- [x] E. 场景矩阵验收（方案§5 表格 7 行）— 已逐行补充端到端测试
+  - Row1 restricted+无共振：隐含由"无 observed/confirmed 板块 → local_theme_candidates 为空"覆盖，无需额外造数据
+  - Row2/3 restricted+多票共振→confirmed 条件候选：`test_restricted_market_with_observed_sector_produces_local_theme_candidates`(candidate_discovery) + `test_build_local_theme_signals_confirms_conditional_buy_when_enabled`(open_confirmation)
+  - Row4 单票脉冲→不升级：`test_single_stock_pulse_never_enters_local_theme_candidates`(candidate_discovery)
+  - Row5 stale/degraded→blocked：`test_local_theme_degraded_auction_quality_blocks_conditional_confirmation`(candidate_pipeline) + market_gate blocked 系列(hot_money_selection/brief)
+  - Row6 公告/可成交性失败→watch+仓位0：`test_build_local_theme_signals_blocks_member_with_announcement_hard_risk`(open_confirmation，本次新增，过程中挖出并修复了 C.10 的真实 bug)
+  - Row7 open+板块共振→旧路径：`test_open_market_does_not_use_local_theme_path`(candidate_discovery) + `test_blocked_market_never_produces_local_theme_candidates`
+  - 额外新增 `checkpoint.md` 之外的测试：tests/test_candidate_discovery.py +4、tests/test_open_confirmation.py +4（含 2 个修正后的单元测试）
 - [x] F. 最终验证门槛（方案第6节命令全跑）— 本地 3.13 全绿：聚焦测试 368 passed / 全量 pytest 3048 passed(+3 与本次无关的既有环境失败) / validate_cron_manifest OK(67 jobs) / ruff 全绿 / compileall 全绿 / maintainability budget 全绿 / git diff --check 全绿。**CI 3.10 矩阵尚未跑**——本地 3.13 全绿只代表矩阵一半，按方案第6节要求仍需等远端 3.10/3.13 CI 与 CodeQL 全绿才算最终验收通过。
 
 ## 四阶段总结（供下一次继续时快速定位）

@@ -1283,14 +1283,30 @@ def test_reconfirm_open_sector_gate_confirms_with_fresh_strong_members():
     assert gate["confirmation_level"] == "open"
 
 
-def test_reconfirm_open_sector_gate_blocks_on_hard_risk():
+def test_reconfirm_open_sector_gate_single_hard_risk_member_does_not_block_sector():
+    """issue #260 §4.C.10：单只硬风险只阻断该候选自己，剔除后剩 3 只仍够，
+    板块级 execution_risk_status 不因这一只票而整体 blocked。"""
     members = [_oc_local_theme_member(f"60000{i}") for i in range(1, 5)]
     members[0]["risk_hard_block"] = True
 
     gate = oc._reconfirm_open_sector_gate("贵金属", members, config={})
 
     assert gate["resonance_status"] == "confirmed"
-    assert gate["execution_risk_status"] == "blocked"
+    assert gate["execution_risk_status"] == "clear"
+    # 风险成员自身被剔除，强势成员数只统计剩余 3 只。
+    assert gate["strong_member_count"] == 3
+
+
+def test_reconfirm_open_sector_gate_degrades_when_risk_removal_breaks_minimum():
+    """风险成员剔除后剩余不足 min_strong_members：板块结构本身随之降级，
+    而不是靠一个单独的"板块级风险"字段来表达。"""
+    members = [_oc_local_theme_member(f"60000{i}") for i in range(1, 5)]
+    members[0]["risk_hard_block"] = True
+    members[1]["risk_hard_block"] = True
+
+    gate = oc._reconfirm_open_sector_gate("贵金属", members, config={})
+
+    assert gate["resonance_status"] != "confirmed"
 
 
 def test_reconfirm_open_sector_gate_single_survivor_is_pulse_not_observed():
@@ -1535,6 +1551,41 @@ def test_build_local_theme_signals_downgrades_on_market_risk_off(monkeypatch):
 
     assert all(item["decision"] == "watch" for item in signals)
     assert all("market_risk_off" in item["policy_decision"]["reasons"] for item in signals)
+
+
+def test_build_local_theme_signals_blocks_member_with_announcement_hard_risk(monkeypatch):
+    """issue #260 §5 场景矩阵：多票共振 + 公告硬风险 → 该票 watch，仓位归零，
+    不得因板块整体共振而穿透执行；其余无风险成员不受牵连。"""
+    _wire_local_theme_policy(monkeypatch)
+    members = [_local_theme_conditional_candidate(f"sh60004{i}") for i in range(1, 5)]
+    quotes = {item["code"]: _local_theme_limit_up_quote() for item in members}
+    risky_code = oc.candidate_pipeline.naked_code(members[0]["code"])
+    monkeypatch.setattr(
+        oc,
+        "scan_many",
+        lambda codes: {
+            str(code): ([{"severity": "hard", "reason": "重大违规立案调查"}] if str(code) == risky_code else [])
+            for code in codes
+        },
+    )
+
+    signals = oc.build_local_theme_signals(
+        members,
+        quotes=quotes,
+        asof="2026-08-24",
+        portfolio={"cash": 200000, "positions": []},
+        regime={"regime": "neutral"},
+        discipline_state={"blocked": False, "reasons": []},
+        config={"enabled": True, "local_theme_conditional_trade_enabled": True},
+    )
+
+    by_code = {oc.candidate_pipeline.naked_code(item["code"]): item for item in signals}
+    risky_item = by_code[risky_code]
+    assert risky_item["decision"] == "watch"
+    assert (risky_item.get("execution_plan") or {}).get("position_pct") == 0.0
+    # 板块整体仍可能 confirmed（3 只无风险成员足够），但该票个体风险独立阻断。
+    others = [item for code, item in by_code.items() if code != risky_code]
+    assert any(item["decision"] == "conditional_buy" for item in others)
 
 
 def test_build_local_theme_signals_empty_when_no_conditional_candidates(monkeypatch):

@@ -1064,3 +1064,150 @@ def test_lifecycle_cohort_survives_a_crash_in_monitor_registry_reconcile(tmp_pat
     cohort = read_json(discovery.candidate_lifecycle.lifecycle_file("2026-07-21"), {})
     assert cohort.get("records"), "reconcile 崩溃时 lifecycle 队列必须已经落盘"
     assert cohort["metadata"]["scanned_count"] == len(universe)
+
+
+# ---------------------------------------------------------------------------
+# issue #260 §5 场景矩阵：restricted/blocked/open 三种 market_gate 下
+# local_theme_candidates 的产出边界。
+# ---------------------------------------------------------------------------
+
+
+def _local_theme_discovery_fixture(tmp_path, monkeypatch, *, market_gate_status, resonance_status):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    listed_date = (date.today() - timedelta(days=500)).isoformat()
+    codes = [f"60000{i}" for i in range(1, 5)]
+    universe = [{"code": code, "name": f"贵金属{code}", "listed_date": listed_date} for code in codes]
+    quote_map = {
+        code: {
+            "code": code, "name": f"贵金属{code}", "price": 11.0, "prev_close": 10.0,
+            "change_pct": 10.0, "amount": 200_000_000, "turnover": 8.0, "volume": 1_000_000,
+        }
+        for code in codes
+    }
+    market_gate = {
+        "schema": "market_gate_v2",
+        "status": market_gate_status,
+        "data_ready": True,
+        "global_new_risk_allowed": False,
+        "temperature_tier": "冰点",
+        "temperature_substate": "冰点杀跌" if market_gate_status == "restricted" else None,
+        "weak_regime": True,
+        "reason_codes": [],
+    }
+    market_timing = {
+        "status": "ready",
+        "daban_ready": False,
+        "weak_market": {"weak_regime": True, "extreme_weak": False},
+        "temperature": {"tier": "冰点", "context_fresh": True},
+        "market_gate": market_gate,
+    }
+    local_theme_gate = {
+        "schema": "local_theme_gate_v1",
+        "sector": "贵金属",
+        "resonance_status": resonance_status,
+        "execution_risk_status": "pending",
+        "evidence_types": ["breadth", "limitup_cluster", "sector_flow"],
+    }
+    selection_state = {
+        "schema": "hot_money_selection_state_v1",
+        "status": "insufficient_data",
+        "research_only": True,
+        "daban_ready": False,
+        "sector_coverage": 1.0,
+        "market_timing": market_timing,
+        "sectors": [{"sector": "贵金属", "local_theme_gate": local_theme_gate}],
+        "reasons": ["市场择时证据未通过"],
+    }
+    evaluated = [
+        {
+            "code": code,
+            "name": f"贵金属{code}",
+            "sector": "贵金属",
+            "daban_score": 60.0,
+            "trend_score": 30.0,
+            "selected_by": {"daban": False, "trend": False},
+            "local_theme_gate": local_theme_gate,
+            "delivery_quality": {"status": "research_only", "reasons": ["弱市门禁"]},
+        }
+        for code in codes
+    ]
+    monkeypatch.setattr(
+        discovery.hot_money_selection, "build_market_timing",
+        lambda *_a, **_k: market_timing,
+    )
+    monkeypatch.setattr(
+        discovery.hot_money_selection, "build_sector_leadership",
+        lambda *_a, **_k: selection_state,
+    )
+    monkeypatch.setattr(
+        discovery.candidate_pipeline, "build_watch_pool",
+        lambda *_a, **_k: {
+            "schema": "candidate_watch_pool_v1",
+            "scanned_count": len(codes), "eligible_count": len(codes),
+            "rejected_count": 0, "rejected": {},
+            "candidate_count": 0, "candidates": [],
+            "evaluated_candidates": evaluated,
+        },
+    )
+    monkeypatch.setattr(
+        discovery.monitor_registry, "reconcile_automatic",
+        lambda kind, targets, **kwargs: {"activated": [], "deactivated": [], "skipped": {}},
+    )
+    return discovery.run_discovery(
+        "2026-06-10",
+        universe_fetcher=lambda: universe,
+        quote_fetcher=lambda _u: quote_map,
+        kline_fetcher=lambda _c: {code: _bars(8) for code in codes},
+        settle_previous=False,
+    )
+
+
+def test_restricted_market_with_observed_sector_produces_local_theme_candidates(
+    tmp_path, monkeypatch,
+):
+    result = _local_theme_discovery_fixture(
+        tmp_path, monkeypatch, market_gate_status="restricted", resonance_status="observed",
+    )
+
+    assert result["market_gate"]["status"] == "restricted"
+    assert result["execution_candidates"] == []
+    assert len(result["local_theme_candidates"]) == 4
+    for item in result["local_theme_candidates"]:
+        assert item["research_only"] is True
+        assert item["execution_action"] == "none"
+        assert item["participation_scope"] == "local_theme_only"
+        assert item["admission_state"] == "local_observed"
+    assert result["local_theme_count"] == 4
+    assert result["counts"]["local_theme"] == 4
+
+
+def test_blocked_market_never_produces_local_theme_candidates(tmp_path, monkeypatch):
+    """market_gate=blocked：即使板块 resonance 已 confirmed，局部路径也不豁免。"""
+    result = _local_theme_discovery_fixture(
+        tmp_path, monkeypatch, market_gate_status="blocked", resonance_status="confirmed",
+    )
+
+    assert result["market_gate"]["status"] == "blocked"
+    assert result["local_theme_candidates"] == []
+    assert result["local_theme_count"] == 0
+
+
+def test_open_market_does_not_use_local_theme_path(tmp_path, monkeypatch):
+    """market_gate=open：走旧正常门禁，不触发局部主题路径（即使有共振证据）。"""
+    result = _local_theme_discovery_fixture(
+        tmp_path, monkeypatch, market_gate_status="open", resonance_status="confirmed",
+    )
+
+    assert result["market_gate"]["status"] == "open"
+    assert result["local_theme_candidates"] == []
+    assert result["local_theme_count"] == 0
+
+
+def test_single_stock_pulse_never_enters_local_theme_candidates(tmp_path, monkeypatch):
+    """单票脉冲的 resonance_status 恒为 none，不满足 observed/confirmed 门槛。"""
+    result = _local_theme_discovery_fixture(
+        tmp_path, monkeypatch, market_gate_status="restricted", resonance_status="none",
+    )
+
+    assert result["local_theme_candidates"] == []
+    assert result["local_theme_count"] == 0

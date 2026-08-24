@@ -1292,9 +1292,18 @@ def _reconfirm_open_sector_gate(
     *,
     config: Mapping[str, Any],
 ) -> Dict[str, Any]:
-    """09:35 第三次确认：真实开盘价 + 完整风险复核（公告/可成交性）。"""
+    """09:35 第三次确认：真实开盘价 + 完整风险复核（公告/可成交性）。
+
+    issue #260 §4.C.10 风险检查顺序：先剔除硬风险/不可成交候选，再用剩余
+    成员重新判定板块结构是否仍然 confirmed。单只硬风险默认只阻断该候选
+    自己（由调用方 ``structurally_ready`` 里的 ``risk_hard_block`` 检查），
+    不得让板块级 ``execution_risk_status`` 因为一只票的风险而整体 blocked；
+    只有剔除风险成员后不足最小成员阈值，板块结构本身才会降级。
+    """
     min_strong_members = int(config.get("min_strong_members", 3))
-    available = [m for m in members if m.get("quote_available")]
+    available = [
+        m for m in members if m.get("quote_available") and not m.get("risk_hard_block")
+    ]
     strong_codes, fresh_evidence = _open_local_theme_evidence(
         available, min_strong_members=min_strong_members,
     )
@@ -1307,7 +1316,7 @@ def _reconfirm_open_sector_gate(
     ]
     core_code = strong_codes[0] if strong_codes else None
     core_row = next((m for m in available if str(m["code"]) == core_code), None)
-    risk_hard_block = any(m.get("risk_hard_block") for m in members)
+    has_fresh_quotes = any(m.get("quote_available") for m in members)
     return build_local_theme_gate(
         sector,
         confirmation_level="open",
@@ -1317,10 +1326,10 @@ def _reconfirm_open_sector_gate(
         core_sector_rank=core_row.get("auction_sector_rank") if core_row else None,
         core_decayed=False,
         evidence_types=[*fresh_evidence, *carried_evidence],
-        data_quality_ok=bool(available),
-        data_quality_reason=None if available else "open_no_fresh_quote",
+        data_quality_ok=has_fresh_quotes,
+        data_quality_reason=None if has_fresh_quotes else "open_no_fresh_quote",
         risk_reviewed=True,
-        risk_hard_block=risk_hard_block,
+        risk_hard_block=False,
         config=config,
     )
 
