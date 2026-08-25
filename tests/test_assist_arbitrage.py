@@ -290,6 +290,21 @@ def test_mainline_rotation_alone_forces_exit():
     assert result["mainline_rotation"]["triggered"] is True
 
 
+def test_leader_weak_alone_without_breadth_decline_does_not_exit():
+    """路径A是"龙头走弱 ∧ 题材广度下降"的合取，不是析取——龙头走弱但题材广度
+    没有下降时，不能单凭龙头走弱就退出（否则会在题材依然健康时误杀）。"""
+    record = {
+        "code": "600000", "date": "2026-06-03",
+        "leader_board_broken": True,
+        "sector_breadth_count": 5.0, "sector_breadth_count_prior": 5.0,  # 未下降
+        "original_mainline_direction_score": 60.0, "new_mainline_direction_score": 61.0,
+    }
+    result = aa.exit_signal(record)
+    assert result["status"] == aa.STATUS_HOLD
+    assert result["leader_weakening"]["weak"] is True
+    assert result["breadth_declining"]["declining"] is False
+
+
 def test_exit_reports_hold_only_when_both_paths_ruled_out():
     record = {
         "code": "600000", "date": "2026-06-03",
