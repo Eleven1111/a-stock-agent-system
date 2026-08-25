@@ -445,11 +445,14 @@ def _section(
     # ``conclusive`` 只说覆盖口径够不够格，不代表真有结论：full 覆盖但零样本时
     # 若还留 True，下游一句 ``if section["conclusive"]`` 就会把空矩阵当成已校准
     # 结果放行（仓内「空集恒真」那类假绿）。因此再与「至少一格达到样本门槛」求与。
+    # 矩阵是 {scheme: {outcome: {regime: {label: cell}}}} 四层，少迭代一层会让
+    # has_conclusion 恒 False —— 那样零样本时看着对，真出结论时反而误报无结论。
     has_conclusion = any(
         cell.get("status") == "ok"
         for by_outcome in state_pnl.values()
         for matrix in by_outcome.values()
-        for cell in matrix.values()
+        for by_label in matrix.values()
+        for cell in by_label.values()
     )
     return {
         "conclusive": bool(conclusive) and has_conclusion,

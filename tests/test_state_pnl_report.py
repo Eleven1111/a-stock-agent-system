@@ -244,3 +244,46 @@ def test_full_coverage_but_empty_sample_is_not_marked_conclusive(spr):
     assert section["conclusion_eligible_scope"] is True   # 口径本身够格
     assert section["has_conclusion"] is False             # 但没有任何一格达门槛
     assert section["conclusive"] is False                 # 合取后不得放行
+
+
+def test_full_coverage_with_only_below_threshold_cells_is_not_conclusive(spr):
+    """full 覆盖但每格样本都不到门槛时同样不得放行。
+
+    比零样本更隐蔽：矩阵非空、格子都在，只是每格都是 UNVERIFIED。若把
+    UNVERIFIED 也算作「有结论」，下游拿到的就是一堆被扣住均值的空壳。
+    """
+    report = spr.build_report(alternating_series(20, coverage="full"))
+    section = report["conclusive"]
+    cells = [
+        cell
+        for by_outcome in section["state_pnl"].values()
+        for matrix in by_outcome.values()
+        for by_label in matrix.values()
+        for cell in by_label.values()
+    ]
+    assert cells, "本用例必须产出非空矩阵，否则退化成零样本用例"
+    assert all(cell["status"] != "ok" for cell in cells)
+    assert section["sample_count"] > 0
+    assert section["conclusion_eligible_scope"] is True
+    assert section["has_conclusion"] is False
+    assert section["conclusive"] is False
+
+
+def test_has_conclusion_becomes_true_once_a_cell_reaches_the_threshold(spr):
+    """正向对照：真出现达标格子时 has_conclusion 必须翻 True。
+
+    没有这条，has_conclusion 恒 False 也能让上面两条保守用例全绿——那会把
+    「永远不给结论」伪装成「守得住」。
+    """
+    report = spr.build_report(alternating_series(900, coverage="full"))
+    section = report["conclusive"]
+    cells = [
+        cell
+        for by_outcome in section["state_pnl"].values()
+        for matrix in by_outcome.values()
+        for by_label in matrix.values()
+        for cell in by_label.values()
+    ]
+    assert any(cell["status"] == "ok" for cell in cells), "样本量应足以让至少一格达标"
+    assert section["has_conclusion"] is True
+    assert section["conclusive"] is True
