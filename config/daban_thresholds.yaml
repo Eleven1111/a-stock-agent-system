@@ -69,3 +69,19 @@ index_trend:
   defend_below_ma: 20             # 收盘跌破20日线→防守（手册 T-02）
   reduce_below_ma: 5              # 收盘跌破5日线→减仓（手册 T-02）
   min_bars: 21                    # 不足则 fail-closed
+
+# ── P5(a) 回测成交约束模型（升级方案 §8.1）───────────────────────────────────
+# 只影响回测的可成交性判定与滑点，不含任何入场/过滤阈值——上面的入场阈值一条未动。
+# 实现见 skills/common/execution_constraints.py；缺数据一律 fail-closed 拒绝成交。
+execution_constraints:
+  enabled: true                     # 一字禁买/回封参与率/跌停顺延，默认启用
+  order_amount: 200000.0            # 单笔委托金额（元），参与率上限的分母基准
+  volume_lot_shares: 100.0          # 日线 volume 单位为「手」，1手=100股；缺 amount 时按此折算
+  max_participation_rate: 0.01      # 单笔参与率上限 = 当日成交额 1%（方案给 1%-2%）
+  reseal_participation_rate: 0.01   # 回封买入参与率上限（板上换手更薄，不高于常态）
+  reseal_min_amount: 20000000.0     # 回封日成交额下限2000万，不足=板上无换手→买不进
+  limit_down_min_amount: 10000000.0 # 跌停日承接量下限1000万，不足→拒卖顺延
+  slippage_bps_normal: 20.0         # 常态档 5-20bp，保守取上沿
+  slippage_bps_volatile: 50.0       # 高波动档 20-50bp，保守取上沿
+  volatile_range_pct: 6.0           # 当日振幅(高-低)/昨收 ≥ 此值 → 高波动档
+  slippage_tiering: false           # 默认关闭：开启会重定价全部历史回测，须走 research_gate

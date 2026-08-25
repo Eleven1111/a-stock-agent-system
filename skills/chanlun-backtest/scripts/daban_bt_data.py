@@ -20,13 +20,16 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
+import execution_constraints as xc  # noqa: E402
 from a_stock_http import fetch_tencent_kline, DataSourceError  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
 from paths import data_file  # noqa: E402
-from tradeability import limit_pct, round_limit  # noqa: E402
 
 
-EVENT_SCHEMA = "daban_bt_event_table_v2"
+# v3 相对 v2 增补 T 日 OHLCV/成交额与 t_prev_close/t1_amount —— P5(a) 成交约束模型
+# 判「一字禁买 / 回封参与率 / 跌停承接量」必需的字段。schema 提级同时让 v2 旧缓存
+# 自动失效重建（引擎对缺字段是 fail-closed 拒绝成交，静默复用 v2 会让样本清零）。
+EVENT_SCHEMA = "daban_bt_event_table_v3"
 
 
 def market_prefix(code: str) -> str:
@@ -41,6 +44,20 @@ def _norm_date(value: Any) -> str:
     if len(text) == 8 and text.isdigit():
         return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
     return str(value)
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bar_amount(bar: Dict[str, Any]) -> Optional[float]:
+    """日线自带的成交额（元）。腾讯 ifzq 日线不带 amount → None，
+    由 execution_constraints 用 volume×close×每手股数单口径折算，避免两处各折算一次。"""
+    direct = _float_or_none(bar.get("amount"))
+    return direct if direct is not None and direct > 0 else None
 
 
 def kline_lookup(kline: List[Dict[str, Any]], date: str
@@ -79,8 +96,14 @@ def first_sellable_exit(
     name: str,
     minimum_holding_sessions: int = 1,
 ) -> Optional[Tuple[Dict[str, Any], int]]:
-    """Find the first close that can be sold after the A-share T+1 boundary."""
+    """Find the first close that can be sold after the A-share T+1 boundary.
+
+    P5(a) 3：跌停日不是只有「一字跌停」才卖不掉——跌停价上没有承接量同样成交不了，
+    一律顺延到次一可成交时点（与 T+1 叠加）。判定走 execution_constraints，
+    涨跌停价按事件日期取制度（P5(b)），停牌/缺量同样顺延。
+    """
     start = entry_index + minimum_holding_sessions
+    is_st = "ST" in str(name or "").upper()
     for index in range(start, len(kline)):
         bar = kline[index]
         if float(bar.get("volume", 0) or 0) <= 0:
@@ -88,12 +111,14 @@ def first_sellable_exit(
         previous_close = float(kline[index - 1].get("close", 0) or 0)
         if previous_close <= 0:
             continue
-        down = round_limit(previous_close, limit_pct(str(code).zfill(6), name), up=False)
-        one_price_limit_down = all(
-            abs(float(bar.get(field, 0) or 0) - down) < 0.01
-            for field in ("open", "high", "low", "close")
+        verdict = xc.assess_sell_fill(
+            dict(bar),
+            code=str(code).zfill(6),
+            asof=_norm_date(bar.get("date")),
+            prev_close=previous_close,
+            is_st=is_st,
         )
-        if one_price_limit_down:
+        if not verdict["filled"]:
             continue
         return dict(bar), index - entry_index
     return None
@@ -137,6 +162,13 @@ def assemble_events(raw_events: List[Dict[str, Any]],
         t_close = float(current["close"])
         t1_open = float(nxt["open"])
         t1_close = float(nxt["close"])
+        # T 日的前一根（昨收）——算 T 日涨跌停价必需；缺则留 None 由引擎 fail-closed。
+        prev_index = entry_index - 2
+        t_prev_close = (
+            float(kline[prev_index].get("close"))
+            if prev_index >= 0 and kline[prev_index].get("close")
+            else None
+        )
         out.append({
             "code": code,
             "name": ev.get("name", code),
@@ -145,9 +177,17 @@ def assemble_events(raw_events: List[Dict[str, Any]],
             "t1_open": t1_open,
             "t1_close": t1_close,
             "entry_date": _norm_date(nxt.get("date")),
+            # v3：T 日成交约束字段（一字禁买 / 回封参与率）
+            "t_prev_close": t_prev_close,
+            "t_open": _float_or_none(current.get("open")),
+            "t_high": _float_or_none(current.get("high")),
+            "t_low": _float_or_none(current.get("low")),
+            "t_volume": _float_or_none(current.get("volume")),
+            "t_amount": _bar_amount(current),
             "t1_high": float(nxt.get("high", max(t1_open, t1_close))),
             "t1_low": float(nxt.get("low", min(t1_open, t1_close))),
             "t1_volume": float(nxt.get("volume", 0) or 0),
+            "t1_amount": _bar_amount(nxt),
             "exit_date": _norm_date(exit_bar.get("date")),
             "exit_close": float(exit_bar["close"]),
             "holding_sessions": holding_sessions,

@@ -129,11 +129,18 @@ def test_star_and_chinext_st_risk_warning_limit_is_twenty_percent():
             direction="buy",
         )
         assert rule["limit_pct"] == 20.0
+    # 沪主板风险警示股票 2026-07-06 起 5% → 10%（P5(b) 断点，见 a_share_rules）。
+    # 原用例把 2026-07-10 断言成 5%，那是拿旧制度评今天，随断点一起改正。
+    main_before = a_share_rules.resolve_price_limit_rule(
+        code="600001", asof="2026-07-03", listing_date="2020-01-01",
+        listing_stage="normal", is_st=True, direction="buy",
+    )
+    assert main_before["limit_pct"] == 5.0
     main = a_share_rules.resolve_price_limit_rule(
         code="600001", asof="2026-07-10", listing_date="2020-01-01",
         listing_stage="normal", is_st=True, direction="buy",
     )
-    assert main["limit_pct"] == 5.0
+    assert main["limit_pct"] == 10.0
 
 
 @pytest.mark.parametrize("adjustment", ["qfq", "hfq", "QFQ", "HFQ"])

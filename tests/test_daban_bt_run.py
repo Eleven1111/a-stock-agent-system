@@ -23,14 +23,18 @@ def _table():
             "code": f"60020{i:01d}" if i < 10 else f"6002{i:02d}",
             "name": f"票{i}", "date": date,
             "t_close": 10.0, "t1_open": gap_open, "t1_close": 10.8,
+            # v3 成交约束字段：T 日为盘中封板的 10cm 涨停（昨收 9.09 → 涨停 10.00），
+            # 当日成交额 1e5 手 × 10 元 × 100 股 = 1 亿，回封换手充足 → 板上买得进。
+            "t_prev_close": 9.09, "t_open": 9.3, "t_high": 10.0, "t_low": 9.2,
+            "t_volume": 100000, "t_amount": None,
             "t1_high": max(gap_open, 10.8), "t1_low": min(gap_open, 10.8),
-            "t1_volume": 100000,
+            "t1_volume": 100000, "t1_amount": None,
             "exit_date": "2026-04-13" if i < 6 else "2026-05-12",
             "exit_close": 11.0, "holding_sessions": 1,
             "first_seal": seal, "is_st": False,
         })
     return {
-        "schema": "daban_bt_event_table_v2",
+        "schema": "daban_bt_event_table_v3",
         "start": "20260401", "end": "20260531",
         "raw_count": 12, "event_count": 12, "dropped": {"no_kline": 0, "no_next_day": 0},
         "events": events,
@@ -149,7 +153,7 @@ def test_persist_evidence_rejects_legacy_event_schema(tmp_path):
     input_path.write_text(json.dumps(table), encoding="utf-8")
     result = run.analyze(table, split_date="20260501", n_perm=100, oos_validation=True)
 
-    with pytest.raises(ValueError, match="daban_bt_event_table_v2"):
+    with pytest.raises(ValueError, match="daban_bt_event_table_v3"):
         run.persist_evidence(
             result,
             event_table=table,

@@ -24,13 +24,14 @@ from typing import Any, Dict, List
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "chanlun-backtest", "scripts"))
 import daban_bt_engine as eng  # noqa: E402
+import execution_constraints as xc  # noqa: E402
 import daban_bt_stats as st  # noqa: E402
 import research_gate  # noqa: E402
 from research_artifact import write_artifact  # noqa: E402
 from state_store import atomic_write_json  # noqa: E402
 
 STRATEGY_ID = "daban_auction_factors_mvp"
-EVENT_TABLE_SCHEMA = "daban_bt_event_table_v2"
+EVENT_TABLE_SCHEMA = "daban_bt_event_table_v3"
 
 
 def _norm_date(value: str) -> str:
@@ -108,7 +109,8 @@ def _oos_h1_validation(oos_events: List[Dict[str, Any]], index_benchmark: float,
 
 def analyze(event_table: Dict[str, Any], split_date: str,
             benchmark_alpha: float = 0.0, n_perm: int = 5000,
-            oos_validation: bool = False) -> Dict[str, Any]:
+            oos_validation: bool = False,
+            slippage_tiering: bool = False) -> Dict[str, Any]:
     """纯计算：事件表 → 两假设统计 + FDR + research_gate 判定。不触网。
     oos_validation=True：在 oos_events 上跑 H1 一次性 OOS 验证，填 research_state 交闸门判上线。"""
     events = event_table.get("events", [])
@@ -118,7 +120,8 @@ def analyze(event_table: Dict[str, Any], split_date: str,
     # 两个持有窗口变体并排（report-all-variants）。board_overnight=真打板(含隔夜跳空)为主检验。
     variants: Dict[str, Dict[str, Any]] = {}
     for mode in eng.HOLD_MODES:
-        ret = eng.split_returns(events, hold_mode=mode)
+        ret = eng.split_returns(events, hold_mode=mode,
+                                slippage_tiering=slippage_tiering)
         h1 = _two_group("H1_gap_filter", ret["h1"]["signal"], ret["h1"]["control"],
                         "signal", "control", n_perm)
         h1["t_test_signal"] = dict(zip(("t", "p"), st.t_test_vs_zero(ret["h1"]["signal"])))
@@ -175,6 +178,10 @@ def analyze(event_table: Dict[str, Any], split_date: str,
                 "random_entry": st.summarize(pools.get("random_entry", [])),
                 "simple_breakout": st.summarize(pools.get("simple_breakout", [])),
             },
+        },
+        "execution_constraints": {
+            **xc.constraints_config(),
+            "slippage_tiering_applied": slippage_tiering,
         },
         "research_state": research_state,
         "gate_result": gate,
@@ -284,6 +291,9 @@ def main() -> None:
                         help="正式 OOS 一次性验证(phase=oos_complete)；跑后禁止看结果改规则")
     parser.add_argument("--artifact", help="OOS 研究产物输出路径；--oos 时必需")
     parser.add_argument("--benchmark-alpha", type=float, default=0.0)
+    parser.add_argument("--slippage-tiering", action="store_true",
+                        help="用滑点分档(常态/高波动)替代固定滑点；会重定价全部收益，"
+                             "只用于对照，结论上线仍须走 research_gate")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     if args.oos and not args.artifact:
@@ -308,7 +318,8 @@ def main() -> None:
         benchmark = fetch_index_benchmark(_norm_date(args.split), _norm_date(bench_end))
 
     result = analyze(table, split_date=args.split, benchmark_alpha=benchmark,
-                     oos_validation=args.oos)
+                     oos_validation=args.oos,
+                     slippage_tiering=args.slippage_tiering)
     if args.oos:
         input_path = args.table
         if not input_path:
