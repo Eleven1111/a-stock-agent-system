@@ -222,6 +222,21 @@ def test_turnover_ratio_helper_never_degrades_missing_to_zero():
     assert ratio["value"] is None
 
 
+def test_reseal_rank_uses_time_order_not_input_order():
+    """输入顺序与回封时刻顺序故意错开：排名必须按 reseal_time，不能按输入下标。
+
+    只用 _group()（其构造恰好让下标与时间同向递增）测不出"按下标排序"这类
+    退化实现——必须单独构造一个二者不一致的样本。"""
+    peers = [
+        _record("A", reseal_time="094500"),  # 输入第0个，但回封最晚
+        _record("B", reseal_time="093000"),  # 输入第1个，但回封最早
+        _record("C", reseal_time="094000"),  # 输入第2个，回封次晚
+        _record("D", reseal_time="093500"),  # 输入第3个，回封次早
+    ]
+    ranks = {p["code"]: r for p, r in zip(peers, dr.reseal_rank(peers))}
+    assert ranks == {"B": 1, "D": 2, "C": 3, "A": 4}
+
+
 def test_reseal_rank_ignores_unknown_extra_fields_and_uses_time_order_only():
     peers = _group(n=4)
     # 打乱输入顺序、附加各种"结果性"字段，排名必须只由 reseal_time 决定。
