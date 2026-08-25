@@ -73,6 +73,12 @@ partial 子集 配对样本=638（子集口径，不可作结论）
 ## 4. E[R|state] 矩阵
 
 **结论集（full 覆盖）为空矩阵 `{}`** —— 按空集规则返回 `unavailable`，不输出任何数字。
+
+> 字段语义（验收时收紧）：`conclusion_eligible_scope` 只说覆盖口径够不够格，
+> `has_conclusion` 说是否真有格子达到 n≥30，`conclusive` 是两者的合取。零样本或
+> 全部 UNVERIFIED 时 `conclusive=false`，下游 `if section["conclusive"]` 不会把空
+> 矩阵当成已校准结果放行。
+
 这是本阶段的正确结局：没有可用样本时，矩阵应当是空的，而不是一串 0.0。
 
 下表是 **partial 子集**的样本分布，**仅用于证明管道跑得通，不构成任何结论**
