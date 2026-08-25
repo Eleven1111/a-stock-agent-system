@@ -121,6 +121,8 @@ _HOT_MONEY_CHECKPOINT_LABELS = {
     "hot-money-afternoon-checkpoint": "13:15主线龙头回流确认",
 }
 
+_ORIGIN_SUMMARY_JOBS = {"paper-trading-close"}
+
 
 def _render_hot_money_checkpoint(
     job_id: str, parsed: Mapping[str, Any], max_chars: int
@@ -281,17 +283,25 @@ def render_origin_text(artifact: Mapping[str, Any], max_chars: int) -> str:
     """Render structured JSON for an external origin channel.
 
     Producer stdout remains the machine-facing artifact. Only the two
-    hot-money checkpoint JSON payloads crossing the origin/Discord boundary
-    are rendered; other origin jobs keep their existing output contract.
+    hot-money checkpoint JSON payloads and explicitly allowlisted summary jobs
+    crossing the origin/Discord boundary are rendered; other origin jobs keep
+    their existing output contract.
     """
+    job_id = str(artifact.get("job_id") or "")
     stdout = str(artifact.get("stdout") or "")
+    if job_id in _ORIGIN_SUMMARY_JOBS:
+        summary = artifact.get("summary")
+        if isinstance(summary, Mapping):
+            return render_summary_text(job_id, summary, max_chars)
+        # Keep this job safe even if an older/malformed artifact has no summary.
+        return render_delivery_text(job_id, stdout, max_chars)
     try:
         parsed = json.loads(stdout)
     except (ValueError, TypeError):
         return stdout
     if (
         isinstance(parsed, Mapping)
-        and str(artifact.get("job_id") or "") in _HOT_MONEY_CHECKPOINT_LABELS
+        and job_id in _HOT_MONEY_CHECKPOINT_LABELS
     ):
         return render_artifact_text(artifact, max_chars)
     return stdout
