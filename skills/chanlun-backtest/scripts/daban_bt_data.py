@@ -10,8 +10,13 @@
 为保证 gap 口径一致，t_close / t1_open / t1_close 统一取自同一份（qfq）K 线，
 zt_pool 只负责事件筛选与 first_seal/连板/封单等元数据。
 
-纯函数（kline_lookup / assemble_events）可用合成数据单测；
-触网函数（fetch_limitup_events / fetch_klines）手动冒烟。
+v4（2026-08）补齐 S1/S2 所需证据字段，逐字段按来源标可得性（见 V4_FIELDS 与
+docs/event-schema-v4-2026-08.md）。铁律：不同来源可得性不同，缺就标 unavailable，
+**绝不用日线代理值伪造**（全日换手率 ≠ 封板前换手，全日量 ≠ 09:45 量比）。
+
+纯函数（kline_lookup / assemble_events / sector_cross_section / turnover_baseline /
+derive_reseal_time）可用合成数据单测；触网函数（fetch_limitup_events / fetch_klines）
+手动冒烟。
 """
 
 import os
@@ -20,6 +25,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
+import daban_config as _cfg  # noqa: E402
 import execution_constraints as xc  # noqa: E402
 from a_stock_http import fetch_tencent_kline, DataSourceError  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
@@ -27,9 +33,49 @@ from paths import data_file  # noqa: E402
 
 
 # v3 相对 v2 增补 T 日 OHLCV/成交额与 t_prev_close/t1_amount —— P5(a) 成交约束模型
-# 判「一字禁买 / 回封参与率 / 跌停承接量」必需的字段。schema 提级同时让 v2 旧缓存
-# 自动失效重建（引擎对缺字段是 fail-closed 拒绝成交，静默复用 v2 会让样本清零）。
-EVENT_SCHEMA = "daban_bt_event_table_v3"
+# 判「一字禁买 / 回封参与率 / 跌停承接量」必需的字段。
+# v4 相对 v3 增补 S1/S2 两个研究策略所需的证据字段（见下方 V4_FIELDS 与
+# docs/event-schema-v4-2026-08.md）：上游 zt_pool 早已返回却被 _map_zt_row 丢弃的
+# 换手率/最后封板时间/炸板次数、由它们派生的 reseal_time、按 date×sector 聚合的板块
+# 横截面家数、以及从已抓 K 线算的 20 日换手基准。
+# schema 提级同时让旧缓存自动失效重建（引擎对缺字段是 fail-closed 拒绝成交，
+# 静默复用旧表会让样本清零）。
+EVENT_SCHEMA = "daban_bt_event_table_v4"
+
+# 字段可得性三态：有值 / 不可得（缺上游数据，绝不造代理值）/ 不适用（语义上不存在）。
+AVAILABLE = "available"
+UNAVAILABLE = "unavailable"
+NOT_APPLICABLE = "not_applicable"
+
+# v4 新增字段清单 —— 每个事件都必须在 field_availability 里对这些字段逐个表态，
+# 「悄悄不写这个键」不是合法状态（那正是 v3 让 S1/S2 零命中却看不出原因的老毛病）。
+V4_FIELDS = (
+    "turnover_pct",
+    "last_seal_time",
+    "open_board_count",
+    "reseal_time",
+    "sector_limitup_count",
+    "sector_one_word_count",
+    "sector_fast_board_count",
+    "turnover_baseline_median",
+    "turnover_baseline_sample_days",
+    "pre_reseal_turnover_pct",
+    "volume_ratio",
+)
+
+# 两条来源都拿不到、且**不允许用日线代理值冒充**的字段：
+#   volume_ratio           —— S1 条件3 要的是 09:45 前量比，日线只有全日量，口径不同。
+#   pre_reseal_turnover_pct—— S2 条件4 要的是「封板前累计换手」，日线只有全日换手率。
+# 两者都必须分钟线才能算，本版一律 unavailable 并带原因，等分钟线管道到位再补。
+MINUTE_BAR_FIELDS = {
+    "volume_ratio": "needs_intraday_minute_bars(0945_volume_ratio)",
+    "pre_reseal_turnover_pct": "needs_intraday_minute_bars(pre_reseal_cumulative_turnover)",
+}
+
+
+def v4_config(path: Optional[str] = None) -> Dict[str, Any]:
+    """事件表 v4 构建口径阈值（yaml 的 event_table_v4 节，缺失回退 DEFAULTS）。"""
+    return _cfg.section("event_table_v4", path)
 
 
 def market_prefix(code: str) -> str:
@@ -58,6 +104,193 @@ def _bar_amount(bar: Dict[str, Any]) -> Optional[float]:
     由 execution_constraints 用 volume×close×每手股数单口径折算，避免两处各折算一次。"""
     direct = _float_or_none(bar.get("amount"))
     return direct if direct is not None and direct > 0 else None
+
+
+def _seal_minutes(value: Any) -> Optional[int]:
+    """'092500' / '09:25' / '0925' → 分钟数；缺失/非法 → None（不猜）。"""
+    if value is None or value == "":
+        return None
+    text = str(value).strip().replace(":", "")
+    if not text.isdigit() or len(text) < 4:
+        return None
+    return int(text[:2]) * 60 + int(text[2:4])
+
+
+# --------------------------------------------------------------------------- #
+# v4-1：回封时刻 —— 语义是「炸板之后重新封板的时刻」
+# --------------------------------------------------------------------------- #
+def derive_reseal_time(row: Dict[str, Any]) -> Tuple[Optional[str], str]:
+    """(reseal_time, availability)。
+
+    判定（这是本字段唯一正确的语义，改动前先读 tests/test_event_schema_v4.py）：
+      - 炸板次数缺失            → unavailable：不知道有没有炸过，不能断言"没回封"。
+      - 炸板次数 == 0           → not_applicable，值 None：一次没炸过就**不存在**回封
+                                  时刻，把当天的最后封板时间当回封是伪造。
+      - 炸板次数 > 0            → 取「最后封板时间」＝最后一次炸板后重新封上的时刻；
+                                  该时间缺失 → unavailable。
+    """
+    count = _float_or_none(row.get("open_board_count"))
+    if count is None:
+        return None, f"{UNAVAILABLE}:open_board_count_missing"
+    if count <= 0:
+        return None, f"{NOT_APPLICABLE}:never_opened_board_no_reseal"
+    last_seal = row.get("last_seal_time")
+    if _seal_minutes(last_seal) is None:
+        return None, f"{UNAVAILABLE}:last_seal_time_missing"
+    return str(last_seal), AVAILABLE
+
+
+# --------------------------------------------------------------------------- #
+# v4-2：板块横截面聚合 —— 按 date × sector 从当日全量涨停池算，不额外触网
+# --------------------------------------------------------------------------- #
+def sector_cross_section(raw_events: List[Dict[str, Any]],
+                         cfg: Optional[Dict[str, Any]] = None
+                         ) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    """(date, sector) → 板块涨停家数 / 一字板家数 / 一字+快速板家数。
+
+    纪律两条：
+    1) sector 缺失的票**不进任何板块**，也不归到"未知板块"——把缺行业的票堆成一个
+       伪板块，会让它在"板块涨停家数"上凭空排到前面。
+    2) 组内只要有一条首次封板时间不可解析，一字/快速板家数就是已知的低估值 →
+       整组标 unavailable，而不是报一个偏小的数（0 家更是伪造）。
+    """
+    settings = dict(cfg if cfg is not None else v4_config())
+    one_word_max = int(settings.get("one_word_seal_minute", 565))
+    fast_max = int(settings.get("fast_board_seal_minute", 571))
+
+    groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for event in raw_events or []:
+        sector = str(event.get("sector") or "").strip()
+        if not sector:
+            continue
+        key = (_norm_date(event.get("date")), sector)
+        bucket = groups.setdefault(key, {
+            "sector_limitup_count": 0, "sector_one_word_count": 0,
+            "sector_fast_board_count": 0, "unknown_seal_time": 0,
+        })
+        bucket["sector_limitup_count"] += 1
+        minute = _seal_minutes(event.get("first_seal"))
+        if minute is None:
+            bucket["unknown_seal_time"] += 1
+            continue
+        if minute <= one_word_max:
+            bucket["sector_one_word_count"] += 1
+        if minute <= fast_max:
+            bucket["sector_fast_board_count"] += 1
+
+    for bucket in groups.values():
+        unknown = bucket.pop("unknown_seal_time")
+        bucket["seal_time_complete"] = unknown == 0
+        bucket["unknown_seal_time_count"] = unknown
+        if unknown:
+            bucket["sector_one_word_count"] = None
+            bucket["sector_fast_board_count"] = None
+    return groups
+
+
+# --------------------------------------------------------------------------- #
+# v4-3：20 日换手基准 —— 从已抓的 K 线历史算，缺流通股本一律 unavailable
+# --------------------------------------------------------------------------- #
+def turnover_baseline(kline: List[Dict[str, Any]], date: str,
+                      float_mktcap: Any, ref_close: Any,
+                      cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """事件日之前 N 个交易日的换手率中位数（%）。
+
+    换手率 = 成交股数 / 流通股本。日线只有 volume（单位「手」）和价格，**没有流通
+    股本**，流通股本只能由 zt_pool 的流通市值 ÷ 当日收盘价反推；流通市值缺失时本
+    函数返回 unavailable —— 绝不退化成"用成交量当换手率"（量纲都不同，仓内已有
+    volume 漏乘每手股数把成交额低估 100 倍的先例）。
+    """
+    settings = dict(cfg if cfg is not None else v4_config())
+    window = int(settings.get("turnover_baseline_window", 20))
+    minimum = int(settings.get("turnover_baseline_min_days", 15))
+    lot = float(xc.constraints_config().get("volume_lot_shares", 100.0))
+
+    cap = _float_or_none(float_mktcap)
+    close = _float_or_none(ref_close)
+    if cap is None or cap <= 0 or close is None or close <= 0:
+        return {"median": None, "sample_days": None,
+                "availability": f"{UNAVAILABLE}:float_shares_unavailable"}
+    float_shares = cap / close
+
+    target = _norm_date(date)
+    index = next((i for i, bar in enumerate(kline or [])
+                  if _norm_date(bar.get("date")) == target), None)
+    if index is None:
+        return {"median": None, "sample_days": None,
+                "availability": f"{UNAVAILABLE}:event_date_not_in_kline"}
+
+    samples: List[float] = []
+    for bar in (kline or [])[max(0, index - window):index]:
+        volume = _float_or_none(bar.get("volume"))
+        if volume is None or volume <= 0:
+            continue
+        samples.append(volume * lot / float_shares * 100.0)
+    if len(samples) < minimum:
+        return {"median": None, "sample_days": len(samples),
+                "availability": (f"{UNAVAILABLE}:baseline_sample_insufficient"
+                                 f"({len(samples)}<{minimum})")}
+    samples.sort()
+    middle = len(samples) // 2
+    median = (samples[middle] if len(samples) % 2
+              else (samples[middle - 1] + samples[middle]) / 2.0)
+    return {"median": round(median, 6), "sample_days": len(samples),
+            "availability": AVAILABLE}
+
+
+def _v4_event_fields(event: Dict[str, Any], kline: List[Dict[str, Any]],
+                     cross_section: Dict[Tuple[str, str], Dict[str, Any]],
+                     t_close: float, cfg: Optional[Dict[str, Any]] = None
+                     ) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """单事件的 v4 字段 + 逐字段可得性。缺一律 None + unavailable，不造代理值。"""
+    fields: Dict[str, Any] = {}
+    availability: Dict[str, str] = {}
+
+    for name, reason in (("turnover_pct", "not_provided_by_source"),
+                         ("last_seal_time", "not_provided_by_source"),
+                         ("open_board_count", "not_provided_by_source")):
+        value = event.get(name)
+        fields[name] = value
+        availability[name] = AVAILABLE if value is not None else f"{UNAVAILABLE}:{reason}"
+
+    fields["reseal_time"], availability["reseal_time"] = derive_reseal_time(event)
+
+    sector = str(event.get("sector") or "").strip()
+    bucket = cross_section.get((_norm_date(event.get("date")), sector)) if sector else None
+    for name in ("sector_limitup_count", "sector_one_word_count", "sector_fast_board_count"):
+        if bucket is None:
+            fields[name] = None
+            availability[name] = f"{UNAVAILABLE}:sector_missing"
+        elif bucket.get(name) is None:
+            fields[name] = None
+            availability[name] = (f"{UNAVAILABLE}:sector_first_seal_incomplete"
+                                  f"({bucket['unknown_seal_time_count']})")
+        else:
+            fields[name] = bucket[name]
+            availability[name] = AVAILABLE
+
+    baseline = turnover_baseline(kline, event.get("date"),
+                                 event.get("float_mktcap"), t_close, cfg=cfg)
+    fields["turnover_baseline_median"] = baseline["median"]
+    fields["turnover_baseline_sample_days"] = baseline["sample_days"]
+    availability["turnover_baseline_median"] = baseline["availability"]
+    availability["turnover_baseline_sample_days"] = baseline["availability"]
+
+    for name, reason in MINUTE_BAR_FIELDS.items():
+        fields[name] = None
+        availability[name] = f"{UNAVAILABLE}:{reason}"
+    return fields, availability
+
+
+def availability_summary(events: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
+    """事件表级别的可得性矩阵：字段 → {状态前缀: 事件数}。零命中时用来定位缺哪类数据。"""
+    summary: Dict[str, Dict[str, int]] = {field: {} for field in V4_FIELDS}
+    for event in events or []:
+        matrix = event.get("field_availability") or {}
+        for field in V4_FIELDS:
+            state = str(matrix.get(field, f"{UNAVAILABLE}:field_absent")).split("(")[0]
+            summary[field][state] = summary[field].get(state, 0) + 1
+    return summary
 
 
 def kline_lookup(kline: List[Dict[str, Any]], date: str
@@ -125,12 +358,18 @@ def first_sellable_exit(
 
 
 def assemble_events(raw_events: List[Dict[str, Any]],
-                    kline_by_code: Dict[str, List[Dict[str, Any]]]
+                    kline_by_code: Dict[str, List[Dict[str, Any]]],
+                    cfg: Optional[Dict[str, Any]] = None
                     ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
     把原始涨停事件 + 各代码 K 线 join 成回测事件表。
     返回 (事件表, 丢弃统计{no_kline, no_next_day})。
+
+    板块横截面聚合用的是**入参的全量涨停池**（丢弃前），因为"当日该板块几家涨停"
+    是市场事实，不该被"这只票我们恰好没抓到 K 线"改写。
     """
+    settings = dict(cfg if cfg is not None else v4_config())
+    cross_section = sector_cross_section(raw_events, cfg=settings)
     out: List[Dict[str, Any]] = []
     dropped = {"no_kline": 0, "no_next_day": 0}
     for ev in raw_events:
@@ -139,66 +378,76 @@ def assemble_events(raw_events: List[Dict[str, Any]],
         if not kline:
             dropped["no_kline"] += 1
             continue
-        pair = kline_pair_lookup(kline, ev.get("date"))
-        if pair is None:
-            dropped["no_next_day"] += 1
+        row, reason = _join_one_event(ev, code, kline, cross_section, settings)
+        if row is None:
+            dropped.setdefault(str(reason), 0)
+            dropped[str(reason)] += 1
             continue
-        current, nxt = pair
-        entry_index = next(
-            index for index, bar in enumerate(kline)
-            if _norm_date(bar.get("date")) == _norm_date(nxt.get("date"))
-        )
-        sellable = first_sellable_exit(
-            kline,
-            entry_index,
-            code,
-            str(ev.get("name") or ""),
-        )
-        if sellable is None:
-            dropped.setdefault("no_sellable_exit", 0)
-            dropped["no_sellable_exit"] += 1
-            continue
-        exit_bar, holding_sessions = sellable
-        t_close = float(current["close"])
-        t1_open = float(nxt["open"])
-        t1_close = float(nxt["close"])
-        # T 日的前一根（昨收）——算 T 日涨跌停价必需；缺则留 None 由引擎 fail-closed。
-        prev_index = entry_index - 2
-        t_prev_close = (
-            float(kline[prev_index].get("close"))
-            if prev_index >= 0 and kline[prev_index].get("close")
-            else None
-        )
-        out.append({
-            "code": code,
-            "name": ev.get("name", code),
-            "date": _norm_date(ev.get("date")),
-            "t_close": t_close,
-            "t1_open": t1_open,
-            "t1_close": t1_close,
-            "entry_date": _norm_date(nxt.get("date")),
-            # v3：T 日成交约束字段（一字禁买 / 回封参与率）
-            "t_prev_close": t_prev_close,
-            "t_open": _float_or_none(current.get("open")),
-            "t_high": _float_or_none(current.get("high")),
-            "t_low": _float_or_none(current.get("low")),
-            "t_volume": _float_or_none(current.get("volume")),
-            "t_amount": _bar_amount(current),
-            "t1_high": float(nxt.get("high", max(t1_open, t1_close))),
-            "t1_low": float(nxt.get("low", min(t1_open, t1_close))),
-            "t1_volume": float(nxt.get("volume", 0) or 0),
-            "t1_amount": _bar_amount(nxt),
-            "exit_date": _norm_date(exit_bar.get("date")),
-            "exit_close": float(exit_bar["close"]),
-            "holding_sessions": holding_sessions,
-            "first_seal": ev.get("first_seal"),
-            "lianban": ev.get("lianban"),
-            "seal_amount": ev.get("seal_amount"),
-            "float_mktcap": ev.get("float_mktcap"),
-            "sector": ev.get("sector"),
-            "is_st": bool(ev.get("is_st", False)),
-        })
+        out.append(row)
     return out, dropped
+
+
+def _join_one_event(ev: Dict[str, Any], code: str, kline: List[Dict[str, Any]],
+                    cross_section: Dict[Tuple[str, str], Dict[str, Any]],
+                    settings: Dict[str, Any]
+                    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """单个涨停事件 + 该票 K 线 → 事件表一行；不可用时返回 (None, 丢弃原因)。"""
+    pair = kline_pair_lookup(kline, ev.get("date"))
+    if pair is None:
+        return None, "no_next_day"
+    current, nxt = pair
+    entry_index = next(
+        index for index, bar in enumerate(kline)
+        if _norm_date(bar.get("date")) == _norm_date(nxt.get("date"))
+    )
+    sellable = first_sellable_exit(kline, entry_index, code, str(ev.get("name") or ""))
+    if sellable is None:
+        return None, "no_sellable_exit"
+    exit_bar, holding_sessions = sellable
+    t_close = float(current["close"])
+    t1_open = float(nxt["open"])
+    t1_close = float(nxt["close"])
+    # T 日的前一根（昨收）——算 T 日涨跌停价必需；缺则留 None 由引擎 fail-closed。
+    prev_index = entry_index - 2
+    t_prev_close = (
+        float(kline[prev_index].get("close"))
+        if prev_index >= 0 and kline[prev_index].get("close")
+        else None
+    )
+    v4_fields, v4_availability = _v4_event_fields(
+        ev, kline, cross_section, t_close, cfg=settings)
+    return {
+        "code": code,
+        "name": ev.get("name", code),
+        "date": _norm_date(ev.get("date")),
+        "t_close": t_close,
+        "t1_open": t1_open,
+        "t1_close": t1_close,
+        "entry_date": _norm_date(nxt.get("date")),
+        # v3：T 日成交约束字段（一字禁买 / 回封参与率）
+        "t_prev_close": t_prev_close,
+        "t_open": _float_or_none(current.get("open")),
+        "t_high": _float_or_none(current.get("high")),
+        "t_low": _float_or_none(current.get("low")),
+        "t_volume": _float_or_none(current.get("volume")),
+        "t_amount": _bar_amount(current),
+        "t1_high": float(nxt.get("high", max(t1_open, t1_close))),
+        "t1_low": float(nxt.get("low", min(t1_open, t1_close))),
+        "t1_volume": float(nxt.get("volume", 0) or 0),
+        "t1_amount": _bar_amount(nxt),
+        "exit_date": _norm_date(exit_bar.get("date")),
+        "exit_close": float(exit_bar["close"]),
+        "holding_sessions": holding_sessions,
+        "first_seal": ev.get("first_seal"),
+        "lianban": ev.get("lianban"),
+        "seal_amount": ev.get("seal_amount"),
+        "float_mktcap": ev.get("float_mktcap"),
+        "sector": ev.get("sector"),
+        "is_st": bool(ev.get("is_st", False)),
+        # v4：S1/S2 证据字段 + 逐字段可得性（unavailable 一律带原因）
+        **v4_fields,
+        "field_availability": v4_availability,
+    }, None
 
 
 def _map_zt_row(row: Dict[str, Any], date: str) -> Dict[str, Any]:
@@ -214,6 +463,10 @@ def _map_zt_row(row: Dict[str, Any], date: str) -> Dict[str, Any]:
         "float_mktcap": row.get("流通市值"),
         "sector": row.get("所属行业"),
         "is_st": "ST" in name.upper(),
+        # v4：这三个上游一直在返回，v3 之前直接丢掉了 —— S2 要的回封时刻就藏在这里。
+        "turnover_pct": _float_or_none(row.get("换手率")),
+        "last_seal_time": row.get("最后封板时间"),
+        "open_board_count": _float_or_none(row.get("炸板次数")),
     }
 
 
@@ -376,6 +629,7 @@ def build_event_table(start: str, end: str, use_cache: bool = True,
         "raw_count": len(raw), "event_count": len(events), "dropped": dropped,
         "coverage": coverage,
         "events": events,
+        "field_availability_summary": availability_summary(events),
         "control_pools": control_pools_from_klines(klines),
     }
     atomic_write_json(cache, result)

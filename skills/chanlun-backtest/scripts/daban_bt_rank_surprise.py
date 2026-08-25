@@ -17,10 +17,11 @@ S1 超预期（RankSurprise）回测接线 — 升级方案 §6.1 + §8.1(a)，N
   board_height       = lianban                                        —— 连板高度
   volume_ratio       = 事件表的 volume_ratio / t1_volume_ratio 字段
 
-量比口径缺口（诚实标注，不许拿日线量比冒充）：方案要求「09:45 前量比」，v3 事件表
-只有全日 volume，二者不是一回事。因此事件表不带 volume_ratio 时，本适配器**不造
-代理值**，信号一律 unavailable(volume_ratio_missing)，在报告里如实计数。要跑出非零
-样本，必须先把盘中 09:45 量比落进事件表（见 docs/rank-surprise-gate-evaluation-2026-08.md）。
+量比口径缺口（诚实标注，不许拿日线量比冒充）：方案要求「09:45 前量比」，日线事件表
+（v3/v4 都一样）只有全日 volume，二者不是一回事。v4 明确把 volume_ratio 标成
+unavailable:needs_intraday_minute_bars 而不是给个代理值，本适配器同样**不造代理值**，
+信号一律 unavailable(volume_ratio_missing)，在报告里如实计数。要跑出非零样本，必须先把
+盘中 09:45 量比落进事件表（见 docs/event-schema-v4-2026-08.md）。
 
 红线：S1 未在 strategy_registry 注册。本脚本只产出研究数字，不得写回任何实盘状态。
 """

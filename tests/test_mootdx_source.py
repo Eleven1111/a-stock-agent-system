@@ -123,6 +123,9 @@ def test_standardize_event_matches_map_zt_row_shape():
         "code": "002001", "name": "测试股", "date": "2024-06-03",
         "first_seal": None, "lianban": 2, "seal_amount": None,
         "float_mktcap": None, "sector": None, "is_st": False,
+        # v4：与 _map_zt_row 同构，显式 None ——「键不存在」和「已知拿不到」在
+        # field_availability 里是两回事，后者才能被标 unavailable 并计数。
+        "turnover_pct": None, "last_seal_time": None, "open_board_count": None,
     }
     assert ms.standardize_event("600000", "*ST退", {"date": "d", "lianban": 1})["is_st"]
 

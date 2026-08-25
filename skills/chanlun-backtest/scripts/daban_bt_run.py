@@ -31,7 +31,17 @@ from research_artifact import write_artifact  # noqa: E402
 from state_store import atomic_write_json  # noqa: E402
 
 STRATEGY_ID = "daban_auction_factors_mvp"
-EVENT_TABLE_SCHEMA = "daban_bt_event_table_v3"
+EVENT_TABLE_SCHEMA = "daban_bt_event_table_v4"
+
+# 各历史 schema 相对当前版本**缺什么**——降级说明必须按版本差异给准确原因。
+# 早先这里把「schema 不等于当前版本」一律解释成「缺 T 日 OHLC」，那只是 v2→v3 的
+# 差异；v4 上线后 v3 旧表同样被判 stale，但它 T 日行情齐全，缺的是 v4 新增的
+# S1/S2 证据字段——原样保留会输出错误诊断。
+V4_ADDED_FIELDS = (
+    "turnover_pct", "last_seal_time", "open_board_count", "reseal_time",
+    "sector_limitup_count", "sector_one_word_count", "sector_fast_board_count",
+    "turnover_baseline_median", "turnover_baseline_sample_days",
+)
 
 
 def _norm_date(value: str) -> str:
@@ -107,13 +117,22 @@ def _oos_h1_validation(oos_events: List[Dict[str, Any]], index_benchmark: float,
     }
 
 
+def _missing_v4_fields(events: List[Dict[str, Any]]) -> List[str]:
+    """v4 新增字段里，事件表**一个事件都没带过**的那些（键完全不存在）。"""
+    present = {key for ev in events for key in ev}
+    return [field for field in V4_ADDED_FIELDS if field not in present]
+
+
 def _degradation_notice(event_table: Dict[str, Any],
                         events: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """区分「策略没信号」与「事件表过期」。
+    """区分「策略没信号」与「事件表过期」，并按版本差异给出**准确**的过期原因。
 
-    v2 及更早的事件表不带 T 日 OHLC/t_prev_close，board_overnight 会被 fail-closed
-    全判买不进、返回空样本。没有这块，探索路径（不带 --oos，schema 闸门不生效）打印出
-    的 ``n=0`` 与「这段行情真的没机会」在输出上完全无法区分。
+    - v2 及更早：不带 T 日 OHLC/t_prev_close，board_overnight 被 fail-closed 全判
+      买不进 → 空样本；同时也没有 v4 字段。
+    - v3：T 日行情齐全，board_overnight 正常成交，缺的是 v4 新增的 S1/S2 证据字段
+      （板块横截面聚合 / 回封时刻 / 换手基准），表现为 S1/S2 全 unavailable、零命中。
+    没有这块，探索路径（不带 --oos，schema 闸门不生效）打印出的 ``n=0`` 与「这段行情
+    真的没机会」在输出上完全无法区分。
     """
     schema = event_table.get("schema")
     if schema == EVENT_TABLE_SCHEMA:
@@ -123,14 +142,27 @@ def _degradation_notice(event_table: Dict[str, Any],
         1 for ev in events
         if eng.board_entry_fill(ev, config).get("reason") == "missing_t_day_bar_fail_closed"
     )
+    missing_v4 = _missing_v4_fields(events)
+    if blocked:
+        note = ("事件表早于 v3，缺 T 日 OHLC/t_prev_close：board_overnight 口径有 "
+                f"{blocked} 个事件被 fail-closed 判买不进，其空样本是数据过期而不是"
+                "没有信号。用 daban_bt_data 重建到 "
+                f"{EVENT_TABLE_SCHEMA} 后再读该口径。")
+    elif missing_v4:
+        note = (f"事件表为 {schema}：T 日行情齐全（board_overnight 可正常成交），"
+                f"缺的是 v4 新增的 S1/S2 证据字段 {'/'.join(missing_v4)} —— "
+                "S1/S2 在此表上全部 unavailable、零命中是数据过期而不是没有信号。"
+                f"用 daban_bt_data 重建到 {EVENT_TABLE_SCHEMA} 后再跑这两个策略。")
+    else:
+        note = (f"事件表 schema 为 {schema}，不等于 {EVENT_TABLE_SCHEMA}，但字段体检未发现"
+                "已知缺口：可能是自定义/合成表。结论按数据过期保守对待，先重建再引用。")
     return {
         "stale_event_table": True,
         "schema": schema,
         "required_schema": EVENT_TABLE_SCHEMA,
         "board_overnight_events_blocked": blocked,
-        "note": ("事件表早于 v3，缺 T 日 OHLC/t_prev_close：board_overnight 口径全部 "
-                 "fail-closed 判买不进，其空样本是数据过期而不是没有信号。"
-                 "用 daban_bt_data 重建到 v3 后再读该口径。"),
+        "missing_v4_fields": missing_v4,
+        "note": note,
     }
 
 
@@ -285,10 +317,11 @@ def format_report(r: Dict[str, Any]) -> str:
         lines += [cov["warning"], ""]
     degraded = r.get("data_degradation") or {}
     if degraded.get("stale_event_table"):
+        # 措辞必须来自 _degradation_notice 的按版本诊断，不能在这里再写死一套原因
+        # （写死那套只对 v2→v3 成立，v3 表读到它就是错误诊断）。
         lines += [
             f"⚠️ 事件表 {degraded.get('schema')} 早于 {degraded.get('required_schema')}："
-            f"board_overnight 有 {degraded.get('board_overnight_events_blocked')} 个事件因缺 T 日行情"
-            "被 fail-closed 判买不进 —— 该口径的空样本是数据过期，不是没有信号。",
+            + str(degraded.get("note") or ""),
             "",
         ]
     lines += [

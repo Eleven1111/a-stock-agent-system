@@ -103,6 +103,13 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         # 题材退潮判定复用 market_cycle_state/market_temperature 的 S 状态口径
         "ebbing_states": ["S6"],
     },
+    # 回测事件表 v4 构建口径（daban_bt_data）。只影响字段派生，不含入场/过滤阈值。
+    "event_table_v4": {
+        "one_word_seal_minute": 565,     # ≤09:25 一字板
+        "fast_board_seal_minute": 571,   # ≤09:31 一字/快速板（含一字）
+        "turnover_baseline_window": 20,
+        "turnover_baseline_min_days": 15,
+    },
     # P3 S2 龙头分歧回封（DivergenceReseal）研究策略参数（升级方案 §6.1）。NON-LIVE：
     # 未在 strategy_registry 注册前，本节只被回测/研究路径读取，绝不影响实盘排序。
     "divergence_reseal": {
