@@ -1,6 +1,6 @@
 {
   "schema": "dataset_catalog_v1",
-  "catalog_version": "1.1.0",
+  "catalog_version": "1.2.0",
   "datasets": [
     {
       "schema": "dataset_contract_v1",
@@ -219,6 +219,243 @@
         "Net returns assume a fixed notional; the minimum commission makes the cost rate notional-dependent, so a different position size restates them.",
         "Outcome availability is derived from the settlement date at market close, not from a per-record observation timestamp.",
         "Settled signals accumulate slowly; coverage fails closed until the ledger holds enough terminal settlements to satisfy minimum_ratio."
+      ]
+    },
+    {
+      "schema": "dataset_contract_v1",
+      "dataset_id": "sentiment_daily_v1",
+      "version": "1.0.0",
+      "description": "Daily A-share hot-money sentiment metrics (limit/break/premium/breadth/ladder) derived from frozen full-market snapshots, one record per trading day.",
+      "provider": {
+        "id": "internal:sentiment_daily",
+        "adapter_version": "sentiment-daily-v1"
+      },
+      "source_rank": "derived_internal",
+      "frequency": "per_trading_day",
+      "timezone": "Asia/Shanghai",
+      "currency": "CNY",
+      "adjustment": "not_applicable",
+      "point_in_time": {
+        "feature_cutoff_field": "trading_date",
+        "feature_available_at_field": "observed_at",
+        "outcome_period_end_field": "session_end_date",
+        "outcome_available_at_field": "available_at",
+        "snapshot_ref_field": "snapshot_ref"
+      },
+      "coverage": {
+        "universe": "eligible_a_share_cash_equity",
+        "minimum_ratio": 0.95,
+        "missing_policy": "fail_closed"
+      },
+      "lineage": {
+        "producer": "sentiment_daily",
+        "producer_version": "sentiment-daily-v1",
+        "inputs": [
+          "candidate_discovery_inputs_v1",
+          "local_market_history",
+          "signal_context"
+        ]
+      },
+      "fields": [
+        {
+          "name": "trading_date",
+          "type": "date",
+          "semantic": "feature_cutoff_date",
+          "unit": "date",
+          "nullable": false
+        },
+        {
+          "name": "session_end_date",
+          "type": "date",
+          "semantic": "outcome_period_end_date",
+          "unit": "date",
+          "nullable": false
+        },
+        {
+          "name": "observed_at",
+          "type": "datetime",
+          "semantic": "feature_available_at",
+          "unit": "timestamp",
+          "nullable": false
+        },
+        {
+          "name": "available_at",
+          "type": "datetime",
+          "semantic": "outcome_available_at",
+          "unit": "timestamp",
+          "nullable": false
+        },
+        {
+          "name": "snapshot_ref",
+          "type": "string",
+          "semantic": "market_snapshot_ref",
+          "unit": "text",
+          "nullable": false
+        },
+        {
+          "name": "source",
+          "type": "string",
+          "semantic": "producer_identity",
+          "unit": "text",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "semantic": "record_status",
+          "unit": "text",
+          "nullable": false
+        },
+        {
+          "name": "universe_count",
+          "type": "integer",
+          "semantic": "observation_count",
+          "unit": "count",
+          "nullable": false
+        },
+        {
+          "name": "coverage_ratio",
+          "type": "float",
+          "semantic": "coverage_ratio",
+          "unit": "ratio",
+          "nullable": true
+        },
+        {
+          "name": "coverage_status",
+          "type": "string",
+          "semantic": "coverage_status",
+          "unit": "text",
+          "nullable": false
+        },
+        {
+          "name": "leader_code",
+          "type": "string",
+          "semantic": "security_code",
+          "unit": "text",
+          "nullable": true
+        },
+        {
+          "name": "unavailable_fields",
+          "type": "string",
+          "semantic": "unavailable_field_list",
+          "unit": "text",
+          "nullable": false
+        },
+        {
+          "name": "limit_count",
+          "type": "integer",
+          "semantic": "market_breadth_count",
+          "unit": "count",
+          "nullable": true
+        },
+        {
+          "name": "limit_down_count",
+          "type": "integer",
+          "semantic": "market_breadth_count",
+          "unit": "count",
+          "nullable": true
+        },
+        {
+          "name": "touch_limit_count",
+          "type": "integer",
+          "semantic": "market_breadth_count",
+          "unit": "count",
+          "nullable": true
+        },
+        {
+          "name": "advance_count",
+          "type": "integer",
+          "semantic": "market_breadth_count",
+          "unit": "count",
+          "nullable": true
+        },
+        {
+          "name": "decline_count",
+          "type": "integer",
+          "semantic": "market_breadth_count",
+          "unit": "count",
+          "nullable": true
+        },
+        {
+          "name": "max_board",
+          "type": "integer",
+          "semantic": "market_breadth_count",
+          "unit": "count",
+          "nullable": true
+        },
+        {
+          "name": "board4plus",
+          "type": "integer",
+          "semantic": "market_breadth_count",
+          "unit": "count",
+          "nullable": true
+        },
+        {
+          "name": "sector_breadth_top",
+          "type": "integer",
+          "semantic": "market_breadth_count",
+          "unit": "count",
+          "nullable": true
+        },
+        {
+          "name": "break_rate",
+          "type": "float",
+          "semantic": "market_breadth_ratio",
+          "unit": "ratio",
+          "nullable": true
+        },
+        {
+          "name": "limit_red_ratio",
+          "type": "float",
+          "semantic": "market_breadth_ratio",
+          "unit": "ratio",
+          "nullable": true
+        },
+        {
+          "name": "adr",
+          "type": "float",
+          "semantic": "market_breadth_ratio",
+          "unit": "ratio",
+          "nullable": true
+        },
+        {
+          "name": "limit_premium_open",
+          "type": "float",
+          "semantic": "price_change_pct",
+          "unit": "percent",
+          "nullable": true
+        },
+        {
+          "name": "limit_premium_close",
+          "type": "float",
+          "semantic": "price_change_pct",
+          "unit": "percent",
+          "nullable": true
+        },
+        {
+          "name": "leader_damage",
+          "type": "float",
+          "semantic": "price_change_pct",
+          "unit": "percent",
+          "nullable": true
+        },
+        {
+          "name": "leader_damage_intraday_drawdown",
+          "type": "float",
+          "semantic": "price_change_pct",
+          "unit": "percent",
+          "nullable": true
+        }
+      ],
+      "validators": [
+        "strict_fields",
+        "point_in_time_split"
+      ],
+      "known_limitations": [
+        "touch_limit_count uses high == the day's limit price; an intraday touch that leaves no trace in the daily high is missed.",
+        "leader_damage carries only the close-to-preclose move; the intraday maximum drawdown needs minute bars and stays null on the daily-bar backfill path.",
+        "coverage_ratio is recorded per record and days below coverage.minimum_ratio are stamped coverage_status=partial rather than dropped; consumers must not read a partial day as a full-universe count.",
+        "Metrics are shadow research inputs carrying calibrated=false semantics; they have never been validated against realised returns."
       ]
     }
   ]

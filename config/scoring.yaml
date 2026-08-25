@@ -78,3 +78,30 @@ emotion_cycle:
   synthesis:
     bottom_min: 3
     top_min: 2
+
+# 统一情绪评分 S_t（升级方案 P0-c，SHADOW ONLY）。
+# skills/common/sentiment_score.py 内**没有**这些数字的副本：本节缺失时该模块整体
+# 返回 unavailable，绝不静默回退。所有数值均为待检验初始参数（原书取值），未经
+# 任何历史收益校准，输出恒带 calibrated=false，不得影响实盘排序/仓位。
+sentiment_score:
+  quantile_window: 120        # 滚动分位窗口（交易日）
+  min_history: 180            # 预热下限：短于此长度一律 unavailable
+  min_available_weight: 0.60  # 分量降级后仍需覆盖的权重下限
+  components:
+    premium:      {field: limit_premium_close, weight: 0.20, invert: false}
+    limit_count:  {field: limit_count,         weight: 0.15, invert: false}
+    adr:          {field: adr,                 weight: 0.15, invert: false}
+    break_rate:   {field: break_rate,          weight: 0.15, invert: true}
+    max_board:    {field: max_board,           weight: 0.15, invert: false}
+    board4plus:   {field: board4plus,          weight: 0.10, invert: false}
+    leader_health: {field: leader_damage,      weight: 0.10, invert: false}
+  bands:
+    - {name: 冰点, min: 0}
+    - {name: 修复, min: 20}
+    - {name: 发酵, min: 40}
+    - {name: 加速, min: 60}
+    - {name: 极热, min: 80}
+  ice_confirm:
+    prev_score_max: 20
+    delta_min: 10
+    sector_breadth_min: 3

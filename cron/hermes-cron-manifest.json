@@ -987,6 +987,7 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/",
+        "$A_STOCK_STATE_HOME/market/sentiment_daily/",
         "$A_STOCK_STATE_HOME/cron/output/cycle-state-shadow/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
@@ -1000,7 +1001,7 @@
         "timeout_seconds": 60,
         "timeout_tier": "short"
       },
-      "external_note": "23:15 在 daily-diagnostics(23:10) 之后跑：读当日选股产物 hot_money_selection_latest.json 里已算好的 market_state，推进周期记忆(日龄+分歧计数)并取沪指趋势闸门，append 一行影子记录到 cycle_shadow_log.jsonl。SHADOW ONLY：不改任何实盘信号/排序/仓位。calendar_day：非交易日照跑，market_state 缺失时 fail-closed 记 available:false，一行不落才能看出调度停摆。"
+      "external_note": "23:15 在 daily-diagnostics(23:10) 之后跑：读当日选股产物 hot_money_selection_latest.json 里已算好的 market_state，推进周期记忆(日龄+分歧计数)并取沪指趋势闸门，append 一行影子记录到 cycle_shadow_log.jsonl；同一次运行还用当日已固化的 discovery 输入快照产出 sentiment_daily 记录（market/sentiment_daily/，只读不取数）并落 {五档,S0-S6,S_t,ΔS} 双轨对照。SHADOW ONLY：不改任何实盘信号/排序/仓位。calendar_day：非交易日照跑，market_state 缺失时 fail-closed 记 available:false，一行不落才能看出调度停摆。"
     },
     {
       "id": "open-confirmation",

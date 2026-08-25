@@ -901,6 +901,36 @@ def apply_leader_identity(
     return output
 
 
+def sentiment_shadow_state(asof: str | None = None) -> dict[str, Any]:
+    """统一情绪评分 S_t 的 shadow 投影（升级方案 P0-c）。
+
+    只读 ``sentiment_daily`` 已落盘的序列算出当期 S_t/ΔS，挂进 selection_state 供
+    报告与账本回溯。**它不参与 timing/gate/排序的任何判定**：本模块内除
+    ``selection_context_for`` 的透传外没有第二个读点，``calibrated=false`` 也表明
+    它尚未经任何收益校准。序列缺失/预热不足时 status 为 ``unavailable``。
+    """
+    import sentiment_daily
+    import sentiment_score
+
+    series = sentiment_daily.load_summary()
+    if asof:
+        series = [row for row in series if str(row.get("trading_date") or "") <= str(asof)]
+    score = sentiment_score.compute_sentiment_score(series)
+    return {
+        "schema": "sentiment_shadow_v1",
+        "shadow_only": True,
+        "calibrated": False,
+        "asof": asof,
+        "status": score.get("status"),
+        "reason": score.get("reason"),
+        "score": score.get("score"),
+        "band": score.get("band"),
+        "delta": score.get("delta"),
+        "delta_squared": score.get("delta_squared"),
+        "series_days": len(series),
+    }
+
+
 def selection_strategy_id(candidate: Mapping[str, Any], lane: str) -> str:
     """Return attribution without pretending a generic candidate is a reseal setup."""
     if lane == "daban" and candidate.get("hot_money_qualified"):
@@ -1006,6 +1036,9 @@ def selection_context_for(
             "board_height": candidate.get("board_height"),
             "is_mid_position": candidate.get("is_mid_position"),
         },
+        # S_t 影子字段：只作归因证据随报告/账本落盘，不进入 market_timing 的任何
+        # 判定分支（那些字段全在上面的 market_timing 块里）。
+        "sentiment_shadow": dict(state.get("sentiment_shadow") or {}),
         "selection_snapshot": dict(state.get("snapshot") or {}),
     }
 
@@ -1068,6 +1101,7 @@ def compact_selection_context(context: Mapping[str, Any] | None) -> dict[str, An
     industry = value.get("industry") or {}
     leader = value.get("leader") or {}
     snapshot = value.get("selection_snapshot") or {}
+    sentiment = value.get("sentiment_shadow") or {}
     return {
         "window": value.get("window"),
         "status": value.get("selection_status"),
@@ -1094,4 +1128,10 @@ def compact_selection_context(context: Mapping[str, Any] | None) -> dict[str, An
             leader.get("hot_money_qualified", leader.get("qualified"))
         ),
         "snapshot_id": snapshot.get("snapshot_id"),
+        # 影子字段随紧凑上下文一起进 cron 产物与账本：带 status 才能区分
+        # "S_t 是 0 分" 与 "S_t 没算出来"。
+        "sentiment_score": sentiment.get("score"),
+        "sentiment_band": sentiment.get("band"),
+        "sentiment_delta": sentiment.get("delta"),
+        "sentiment_status": sentiment.get("status"),
     }
