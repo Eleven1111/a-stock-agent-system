@@ -18,6 +18,10 @@ def test_open_confirmation_marks_yiziban_not_buyable():
         "code": "sz002156",
         "name": "通富微电",
         "auction_gap_pct": 10.0,
+        "auction_volume": 20_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 2_000_000,
+        "unmatched": 0,
         "board_status": "yizi_seal",
         "is_yiziban": True,
     }
@@ -34,6 +38,10 @@ def test_open_confirmation_marks_mid_gain_as_trend_watch():
         "code": "sz002156",
         "name": "通富微电",
         "auction_gap_pct": 4.0,
+        "auction_volume": 20_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 2_000_000,
+        "unmatched": 0,
         "board_status": "high_open",
         "is_yiziban": False,
     }
@@ -406,6 +414,10 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
             "auction_trend_score": 10,
             "auction_selected_by": {"daban": True, "trend": False},
             "auction_gap_pct": 2.0,
+            "auction_volume": 20_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 2_000_000,
+            "unmatched": 0,
             "board_status": "high_open",
             "is_yiziban": False,
             "strict_execution": True,
@@ -436,6 +448,10 @@ def test_build_confirmation_applies_live_retreat_gate(tmp_path, monkeypatch):
             "auction_trend_score": 80,
             "auction_selected_by": {"daban": False, "trend": True},
             "auction_gap_pct": 2.0,
+            "auction_volume": 20_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 2_000_000,
+            "unmatched": 0,
             "board_status": "high_open",
             "is_yiziban": False,
         },
@@ -642,6 +658,10 @@ def test_build_confirmation_persists_top_signals_and_lifecycle(tmp_path, monkeyp
             "daban_score": 85 - i,
             "trend_score": 70 + i,
             "auction_gap_pct": 2.0,
+            "auction_volume": 20_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 2_000_000,
+            "unmatched": 0,
             "board_status": "high_open",
             "is_yiziban": False,
             "strict_execution": True,
@@ -886,6 +906,10 @@ def test_open_confirmation_flags_unreliable_indicative_price():
         "code": "sz002212",
         "name": "天融信",
         "auction_gap_pct": 0.0,
+        "auction_volume": 20_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 2_000_000,
+        "unmatched": 0,
         "indicative_price": 6.60,
         "board_status": "flat_or_low_open",
         "is_yiziban": False,
@@ -907,6 +931,10 @@ def test_open_confirmation_keeps_indicative_price_reliable_when_close():
         "code": "sz002156",
         "name": "通富微电",
         "auction_gap_pct": 4.0,
+        "auction_volume": 20_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 2_000_000,
+        "unmatched": 0,
         "indicative_price": 10.4,
         "board_status": "high_open",
         "is_yiziban": False,
@@ -1330,6 +1358,10 @@ def _local_theme_conditional_candidate(code, *, auction_sector_rank=1, asof="202
         "trend_score": 30,
         "auction_score": 70,
         "auction_sector_rank": auction_sector_rank,
+        "auction_volume": 20_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 2_000_000,
+        "unmatched": 0,
         "research_only": True,
         "execution_action": "none",
         "participation_scope": "local_theme_only",
@@ -1429,6 +1461,76 @@ def test_build_local_theme_signals_confirms_conditional_buy_when_enabled(monkeyp
         assert item["admission_state"] == "conditional_ready"
         assert item["decision"] == "conditional_buy"
         assert item["local_theme_gate"]["resonance_status"] == "confirmed"
+
+
+def test_open_confirmation_missing_auction_volume_fields_is_not_tradeable():
+    factor = {
+        "code": "sh600001",
+        "name": "缺量能",
+        "auction_gap_pct": 3.0,
+        "auction_volume": None,
+        "prev_day_volume": 1_000_000,
+        "matched": 2_000_000,
+        "unmatched": 0,
+    }
+    quote = {
+        "price": 10.3,
+        "prev_close": 10.0,
+        "open": 10.3,
+        "change_pct": 3.0,
+        "volume": 100_000,
+    }
+
+    result = oc.evaluate_open_confirmation(factor, quote, asof="2026-08-24")
+
+    assert result["action"] == "skip"
+    assert any("auction_volume" in reason for reason in result["reasons"])
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("matched", None), ("unmatched", None), ("auction_volume", 0),
+     ("prev_day_volume", 0)],
+)
+def test_open_confirmation_rejects_each_invalid_auction_volume_field(field, value):
+    factor = {
+        "code": "sh600002",
+        "auction_volume": 20_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 2_000_000,
+        "unmatched": 0,
+    }
+    factor[field] = value
+
+    result = oc.evaluate_open_confirmation(
+        factor,
+        {"price": 10.3, "prev_close": 10.0, "open": 10.3, "change_pct": 3.0},
+        asof="2026-08-24",
+    )
+
+    assert result["action"] == "skip"
+    assert any(field in reason for reason in result["reasons"])
+
+
+def test_local_theme_missing_auction_volume_fields_cannot_be_conditional_buy(monkeypatch):
+    _wire_local_theme_policy(monkeypatch)
+    members = [_local_theme_conditional_candidate(f"sh60007{i}") for i in range(1, 5)]
+    members[0]["matched"] = None
+    quotes = {item["code"]: _local_theme_limit_up_quote() for item in members}
+
+    signals = oc.build_local_theme_signals(
+        members,
+        quotes=quotes,
+        asof="2026-08-24",
+        portfolio={"cash": 200000, "positions": []},
+        regime={"regime": "neutral"},
+        discipline_state={"blocked": False, "reasons": []},
+        config={"enabled": True, "local_theme_conditional_trade_enabled": True},
+    )
+
+    blocked = next(item for item in signals if item["code"] == "sh600071")
+    assert blocked["decision"] != "conditional_buy"
+    assert blocked["execution_plan"]["decision"] == "watch"
 
 
 def test_build_local_theme_signals_stays_watch_when_trade_flag_disabled(monkeypatch):
@@ -1667,6 +1769,10 @@ def test_build_confirmation_produces_conditional_signals_when_research_only(tmp_
             "trend_score": 30,
             "auction_score": 70,
             "auction_sector_rank": 1,
+            "auction_volume": 20_000,
+            "prev_day_volume": 1_000_000,
+            "matched": 2_000_000,
+            "unmatched": 0,
             "research_only": True,
             "execution_action": "none",
             "participation_scope": "local_theme_only",

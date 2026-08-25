@@ -355,7 +355,8 @@ def fetch_real_auction_observation(
             "snapshots": [],
         }
     previous = fetch_previous_day_metrics(code, asof=asof)
-    if not previous.get("prev_day_volume"):
+    prev_day_volume = _number(previous.get("prev_day_volume"))
+    if prev_day_volume is None or prev_day_volume <= 0:
         return {
             "status": "blocked",
             "provider": f"{PROVIDER}+previous_day_volume",
@@ -431,7 +432,8 @@ def fetch_real_auction_snapshots(
                     )
                     if enriched:
                         previous = {**previous, **enriched}
-                if not previous.get("prev_day_volume"):
+                prev_day_volume = _number(previous.get("prev_day_volume"))
+                if prev_day_volume is None or prev_day_volume <= 0:
                     return _bare_code(code), [], (
                         "prev_day_volume 缺失或无效（mootdx 与腾讯历史 K 线均失败）"
                     )

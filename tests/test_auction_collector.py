@@ -85,6 +85,40 @@ def test_merge_auction_series_upserts_cumulative_provider_response():
     ]
 
 
+def test_merge_auction_series_preserves_stable_fields_on_lightweight_late_quote():
+    existing = [{
+        "t": "09:23:00",
+        "price": 10.5,
+        "prev_close": 10.0,
+        "prev_day_volume": 1000.0,
+        "prev_day_amount": 10000.0,
+        "volume": 12.0,
+    }]
+    incoming = [{"t": "09:24:00", "price": 10.6, "volume": 13.0}]
+
+    merged = ac._merge_auction_series(existing, incoming)
+
+    assert merged[-1]["price"] == 10.6
+    assert merged[-1]["prev_close"] == 10.0
+    assert merged[-1]["prev_day_volume"] == 1000.0
+    assert merged[-1]["prev_day_amount"] == 10000.0
+
+
+def test_enrich_snapshot_names_fills_missing_names_without_overwriting_provider_name():
+    quotes = {
+        "sh600519": [{"code": "sh600519", "name": "", "price": 10.0}],
+        "sh600000": {"code": "sh600000", "name": "浦发银行", "price": 9.0},
+    }
+
+    enriched = ac._enrich_snapshot_names(
+        quotes,
+        {"600519": "贵州茅台", "600000": "错误名称不应覆盖"},
+    )
+
+    assert enriched["sh600519"][0]["name"] == "贵州茅台"
+    assert enriched["sh600000"]["name"] == "浦发银行"
+
+
 def test_yiziban_detected_and_seal_ratio():
     snaps = [{
         "t": "09:24:50", "name": "通富微电", "price": 11.0, "prev_close": 10.0,
@@ -163,6 +197,23 @@ def test_build_result_shape():
     assert len(r["factors"]) == 1
     assert "chanlun-backtest" in r["note"]
     assert "不是涨停概率" in r["note"]
+
+
+def test_build_result_fills_missing_name_from_universe_quotes_cache(monkeypatch):
+    monkeypatch.setattr(
+        ac,
+        "read_json",
+        lambda path, default=None: {
+            "quotes": {"600001": {"code": "600001", "name": "缓存名称"}}
+        },
+    )
+
+    result = ac._build_result(
+        {"sh600001": [{"t": "09:25:00", "price": 11.0, "prev_close": 10.0}]},
+        "2026-08-24",
+    )
+
+    assert result["factors"][0]["name"] == "缓存名称"
 
 
 def test_load_watch_pool_rejects_stale_state(tmp_path, monkeypatch):

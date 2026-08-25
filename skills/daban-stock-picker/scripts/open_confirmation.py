@@ -69,6 +69,29 @@ from local_theme_resonance import build_local_theme_gate  # noqa: E402
 
 QUOTE_BATCH_SIZE = 80
 POSITIVE_ACTIONS = {"buy", "add", "conditional_buy"}
+AUCTION_EXECUTION_VOLUME_FIELDS = (
+    ("auction_volume", "竞价成交量"),
+    ("prev_day_volume", "前一交易日成交量"),
+    ("matched", "竞价已匹配量（股）"),
+    ("unmatched", "竞价未匹配量（股）"),
+)
+
+
+def _auction_volume_gate_reasons(item: Mapping[str, Any]) -> List[str]:
+    """Final execution gate; missing auction volume can only remain research."""
+    missing: list[str] = []
+    for key, label in AUCTION_EXECUTION_VOLUME_FIELDS:
+        value = item.get(key)
+        try:
+            number = float(value)
+            valid = math.isfinite(number) and (
+                number >= 0.0 if key == "unmatched" else number > 0.0
+            )
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            missing.append(f"{label}({key})缺失或无效")
+    return missing
 
 
 # The quote endpoint is deliberately kept small.  These helpers therefore
@@ -702,6 +725,13 @@ def _open_action(
             f"09:25竞价指示价与实际开盘价偏差{indicative_deviation_pct:+.2f}%，"
             f"竞价因子标记不可信"
         )
+    auction_volume_reasons = _auction_volume_gate_reasons(factor)
+    if auction_volume_reasons:
+        reasons.append(
+            "竞价量能关键字段缺失，fail-closed，仅保留研究："
+            + "、".join(auction_volume_reasons)
+        )
+        return action, reasons
     if factor.get("error"):
         reasons.append(factor["error"])
     elif tradeability.get("tradeable") is False:
@@ -1466,11 +1496,20 @@ def _build_local_theme_signal(
             discipline_state=discipline_state, participation_scope="local_theme_only",
         )
 
-    result = _decide("trend_watch" if ready else "watch", force_watch=not ready)
+    auction_volume_reasons = _auction_volume_gate_reasons(item)
+    result = _decide(
+        "trend_watch" if ready else "watch",
+        force_watch=not ready or bool(auction_volume_reasons),
+    )
+    if auction_volume_reasons:
+        result.setdefault("reasons", []).append(
+            "竞价量能关键字段缺失，fail-closed，仅保留研究："
+            + "、".join(auction_volume_reasons)
+        )
     # issue #260 §4.C.6：开关关闭但结构/风险已就绪时，记录"若开启会怎样"的
     # shadow 结论，不影响真实输出（真实 decision 仍是上面算出的 watch）。
     shadow_decision = None
-    if structurally_ready and not trade_enabled:
+    if structurally_ready and not trade_enabled and not auction_volume_reasons:
         shadow = _decide("trend_watch", force_watch=False)
         shadow_decision = {
             "decision": shadow["decision"],

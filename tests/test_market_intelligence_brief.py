@@ -238,6 +238,29 @@ def test_auction_brief_marks_pool_outsider_as_research_only():
     assert "池外研究情报" in text
 
 
+def test_auction_brief_fills_missing_name_from_universe_quotes_cache(monkeypatch):
+    monkeypatch.setattr(
+        brief,
+        "read_json",
+        lambda path, default=None: {
+            "quotes": {"600001": {"code": "600001", "name": "缓存名称"}}
+        },
+    )
+
+    text = brief.format_brief(
+        "auction",
+        {
+            "asof": "2026-08-24",
+            "factors": [{"code": "sh600001", "name": "", "auction_gap_pct": 1.2}],
+            "shortlist": [],
+            "preopen_decisions": [],
+        },
+    )
+
+    assert "缓存名称(sh600001)" in text
+    assert "sh600001(sh600001)" not in text
+
+
 def test_auction_brief_separates_research_scores_from_execution_candidates():
     text = brief.format_brief(
         "auction",

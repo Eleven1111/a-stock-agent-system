@@ -384,6 +384,38 @@ def take_snapshot(
     return snapshots
 
 
+def _enrich_snapshot_names(
+    quotes: Mapping[str, Any],
+    names_by_code: Mapping[str, str],
+) -> Dict[str, Any]:
+    """Fill missing quote names without overwriting provider-supplied names."""
+    enriched: Dict[str, Any] = {}
+    for raw_code, raw_quote in quotes.items():
+        rows = raw_quote if isinstance(raw_quote, list) else [raw_quote]
+        updated_rows: List[Dict[str, Any]] = []
+        for raw_row in rows:
+            row = dict(raw_row) if isinstance(raw_row, Mapping) else {}
+            code = candidate_pipeline.naked_code(row.get("code") or raw_code)
+            if not str(row.get("name") or "").strip():
+                row["name"] = names_by_code.get(code, "")
+            updated_rows.append(row)
+        enriched[raw_code] = updated_rows if isinstance(raw_quote, list) else updated_rows[0]
+    return enriched
+
+
+def _load_universe_names() -> Dict[str, str]:
+    """Read the durable code→name cache used by candidate discovery."""
+    payload = read_json(data_file("stock-triage", "universe_quotes_cache.json"), {})
+    quotes = payload.get("quotes") if isinstance(payload, Mapping) else {}
+    if not isinstance(quotes, Mapping):
+        return {}
+    return {
+        candidate_pipeline.naked_code(code): str(item.get("name") or "")
+        for code, item in quotes.items()
+        if isinstance(item, Mapping) and str(item.get("name") or "").strip()
+    }
+
+
 # 预算留 20% 给取数之后的活：state 合并、input snapshot 物化、artifact 落盘。
 # 全池 500 只时这段不是零成本，抓满整个 timeout 会把它挤掉。
 FETCH_BUDGET_RATIO = 0.8
@@ -466,8 +498,31 @@ def _merge_auction_series(
             by_time[str(row["t"])] = dict(row)
     for row in incoming:
         if isinstance(row, Mapping) and row.get("t"):
-            by_time[str(row["t"])] = dict(row)
-    return [by_time[key] for key in sorted(by_time)]
+            timestamp = str(row["t"])
+            # The 09:24 full-market pass intentionally omits historical
+            # fields.  Do not let that lightweight row erase fields already
+            # captured by the executable 09:15-09:23 pass.
+            merged = dict(by_time.get(timestamp) or {})
+            merged.update(dict(row))
+            for key, value in by_time.get(timestamp, {}).items():
+                if merged.get(key) is None and value is not None:
+                    merged[key] = value
+            by_time[timestamp] = merged
+
+    rows = [by_time[key] for key in sorted(by_time)]
+    # A later lightweight quote may be a new timestamp, so same-timestamp
+    # merging is not enough.  These fields are stable for the whole auction
+    # window; carry them onto the final quote used by factor calculation.
+    stable_fields = ("prev_close", "prev_day_volume", "prev_day_amount")
+    stable_values = {
+        key: next((row.get(key) for row in rows if row.get(key) is not None), None)
+        for key in stable_fields
+    }
+    for row in rows:
+        for key, value in stable_values.items():
+            if row.get(key) is None and value is not None:
+                row[key] = value
+    return rows
 
 
 
@@ -721,6 +776,11 @@ def append_snapshot(
             codes, asof=asof, deadline_seconds=budget
         )
     failure_summary = summarize_snapshot_failures(fetch_failures)
+    # easy_tdx may omit the display name on the lightweight/full-market pass.
+    # Enrich before materialising the immutable input snapshot so every
+    # downstream consumer (finalize, brief, intraday monitor) sees the same
+    # identity data.
+    raw_quotes = _enrich_snapshot_names(raw_quotes, _load_universe_names())
     if full_universe:
         # Intelligence-only annotation; it must never mutate the executable
         # candidate or auction pool.
@@ -1163,8 +1223,14 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
 
 
 def _build_result(series: Dict[str, List[Dict[str, Any]]], asof: str) -> Dict[str, Any]:
+    names_by_code = _load_universe_names()
     factors = [
-        compute_auction_factors(snaps, code, (snaps[-1].get("name") if snaps else "") or "")
+        compute_auction_factors(
+            snaps,
+            code,
+            (snaps[-1].get("name") if snaps else "")
+            or names_by_code.get(candidate_pipeline.naked_code(code), ""),
+        )
         for code, snaps in series.items()
     ]
     quality = _quality_for_snapshots([

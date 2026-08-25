@@ -182,6 +182,40 @@ def test_batch_uses_supplied_previous_day_metrics_without_historical_fetch(monke
     assert snapshots["600519"][0]["prev_day_volume"] == 1000
 
 
+def test_batch_rejects_invalid_supplied_previous_day_volume(monkeypatch):
+    import sys
+    import types
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get_auction(self, market, code):
+            return [{"time": "09:25:00", "price": 10, "matched": 100, "unmatched": 0}]
+
+    class FakeMacClient:
+        @staticmethod
+        def from_best_host():
+            return FakeClient()
+
+    fake_module = types.ModuleType("easy_tdx")
+    fake_module.MacClient = FakeMacClient
+    monkeypatch.setitem(sys.modules, "easy_tdx", fake_module)
+    monkeypatch.setattr(provider, "fetch_previous_day_metrics", lambda *args, **kwargs: {})
+
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        ["sh600519"],
+        asof="2026-08-18",
+        previous_day_metrics={"600519": {"prev_day_volume": -1}},
+    )
+
+    assert snapshots == {}
+    assert "prev_day_volume" in failures["600519"]
+
+
 def test_easy_tdx_daily_kline_provides_previous_day_metrics_and_is_cached(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
 
