@@ -215,9 +215,14 @@ def strategy_returns(events: List[Dict[str, Any]],
                      predicate: Callable[[Dict[str, Any]], bool],
                      cost: Dict[str, float] = DEFAULT_COST,
                      hold_mode: str = "open_close",
-                     slippage_tiering: bool = False) -> List[float]:
-    """对 universe 内满足 predicate 的事件，按 hold_mode 计净收益列表。"""
-    cfg = xc.constraints_config()
+                     slippage_tiering: bool = False,
+                     config: Optional[Dict[str, Any]] = None) -> List[float]:
+    """对 universe 内满足 predicate 的事件，按 hold_mode 计净收益列表。
+
+    config 显式传入时覆盖 execution_constraints 阈值——反事实对照（关掉成交约束
+    看收益虚高多少）需要在同一进程内跑两套约束，不能只读全局配置。
+    """
+    cfg = config if config is not None else xc.constraints_config()
     return [
         _event_return(e, hold_mode, cost, slippage_tiering, cfg)
         for e in filter_universe(events)
