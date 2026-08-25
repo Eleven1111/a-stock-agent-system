@@ -105,3 +105,55 @@ sentiment_score:
     prev_score_max: 20
     delta_min: 10
     sector_breadth_min: 3
+
+# 龙头连续评分 LeaderScore（升级方案 P2-a，SHADOW ONLY）。
+# hot_money_selection.leader_score 内**没有**这些数字的副本：本节缺失时整体返回
+# unavailable。它与既有的 leader_score（= 100 - (rank-1)*15 的排名代理）是两个
+# 字段：新分写入 leader_score_shadow，既有离散身份标签与排序一律不动。
+# 全部为待检验初始参数（方案 §5.1a 表），未经任何历史收益校准，输出恒带
+# calibrated=false，不得进入 gate/timing/排序。
+leader_score:
+  # 降级后仍需覆盖的权重下限。池外标的必然丢掉 F(0.20)+R(0.15)=0.35，
+  # 余 0.65 仍可出分；再丢一维即整体 unavailable。
+  min_available_weight: 0.60
+  factors:
+    # H 高度：自身连板高度 / 全场最高板。缺任一即该维不可用。
+    height:            {weight: 0.25}
+    # F 封速/首封排名：距 09:30 的分钟数越小越强；仅深度池内可得。
+    seal_speed:        {weight: 0.20, deep_pool_only: true, full_scale_minutes: 60}
+    # R 分歧承接：开板次数 + 回封耗时；仅深度池内可得。
+    resilience:        {weight: 0.15, deep_pool_only: true,
+                        max_open_count: 3, reseal_full_scale_minutes: 30}
+    # B 助攻广度：板块内除自己以外的涨停家数。
+    assist_breadth:    {weight: 0.15, full_scale_assists: 5}
+    # RS 相对强度：相对全市场中位与板块前十均值的超额，双向对称映射到 0-1。
+    relative_strength: {weight: 0.15, excess_full_scale_pct: 10.0}
+    # A 关注度：social_attention 的多源关注分。
+    attention:         {weight: 0.10, full_scale_score: 100.0}
+  # "最高板 ≠ 龙头"：高位孤板 + 后排连续大面 → B、R 归零（是观测到的 0，
+  # 不是 unavailable，因此权重仍留在分母里，分数必须掉下来）。
+  isolation_penalty:
+    max_assist_limitups: 1        # 板块内除自己外涨停家数 ≤ 此值 = 孤板
+    back_row_damage_min_days: 2   # 后排"大面"需连续天数
+    break_rate_min: 0.5           # 中位板炸板率 ≥ 此值算当日后排大面
+    leader_damage_max_pct: -5.0   # 或龙头次日收益 ≤ 此值算当日后排大面
+
+# 题材评分 ThemeScore 新·时·广（升级方案 P2-b，SHADOW ONLY）。
+# theme_strength.theme_score 内**没有**这些数字的副本；本节缺失即 unavailable。
+# 不替换既有 4 因子板块分（sector_weights），只作平行研究字段。
+theme_score:
+  # 三维权重（方案 §5.1b）：0.35N + 0.30T + 0.35B。
+  weights: {novelty: 0.35, timing: 0.30, breadth: 0.35}
+  # S_t 不可用时 T 维降级，余 0.70 仍可出分；再丢一维即整体 unavailable。
+  min_available_weight: 0.65
+  novelty:
+    half_life_days: 5      # theme_registry.created_at 距今天数的半衰期
+    age_weight: 0.6        # N 内部两个子分量的权重（各自可单独降级并重归一化）
+    news_weight: 0.4
+  timing:
+    # S_t 分档 → 时机分：题材真空/修复窗口最有利，极热最不利。
+    band_scores: {冰点: 0.5, 修复: 1.0, 发酵: 0.8, 加速: 0.4, 极热: 0.1}
+    delta_bonus: 0.1       # ΔS > 0 的加成，与分档分相加后 clip 到 [0, 1]
+  breadth:
+    full_scale_limit_ups: 5
+    up_ratio_weight: 0.5   # B = 0.5 * 涨停家数分 + 0.5 * 上涨占比

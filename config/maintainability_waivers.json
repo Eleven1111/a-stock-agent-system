@@ -1360,6 +1360,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing 166-line cleanup_storage in a file modified by issue #239 T8 (snapshot-gc fact cache). The PR adds ~10 lines of cache wiring and does not restructure the deletion plan; splitting the function that decides what gets deleted is deferred to its own change so it can be reviewed on its own.",
       "violation_id": "5d5bff98e8713dc4113a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing module-level sys.path bootstrap in theme_strength.py, unrelated to the P2 ThemeScore additions (novelty/timing dimensions) that touched this file",
+      "violation_id": "a66a3c933b5d6f0cf2c3"
     }
   ]
 }
