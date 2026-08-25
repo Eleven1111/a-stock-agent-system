@@ -26,6 +26,9 @@ import candidate_lifecycle  # noqa: E402
 import candidate_pipeline  # noqa: E402
 import hot_money_selection  # noqa: E402
 from market_adapters import fetch_tencent_minute, fetch_tencent_snapshot  # noqa: E402
+import minute_derived  # noqa: E402
+import minute_derived_store  # noqa: E402
+import minute_rows_source  # noqa: E402
 from market_snapshot import compact_ref, materialize_input_snapshot, write_snapshot  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
@@ -132,6 +135,40 @@ def fetch_quotes(codes: Sequence[str]) -> dict[str, dict[str, Any]]:
         if rows:
             quotes[code]["minute_bars"] = rows
     return quotes
+
+
+def persist_minute_derived(quotes: Mapping[str, Mapping[str, Any]], asof: str
+                           ) -> dict[str, Any]:
+    """把本轮已经抓到的分时**派生**成 5 分钟增量曲线落盘（路径 B，向前累积）。
+
+    挂在这里而不是新开作业，是因为本作业早已为每个候选抓了分时（fetch_quotes 的
+    minute_bars）—— 本函数**不发任何新的网络请求**，只是把已经在内存里、过去被
+    直接丢弃的数据派生后存下来。
+
+    只落曲线，不落量比：量比基准要过去 5 日日线，本作业手上没有，去取就变成新增
+    网络请求了。量比在事件表构建时用回测已经抓好的日线现算（daban_bt_data
+    ._minute_event_fields），口径与来源在那里单点维护。
+
+    落盘失败绝不能拖垮检查点主流程 —— 这是研究侧的增量数据，返回错误摘要即可。
+    """
+    rows_by_code: dict[str, list[dict[str, Any]]] = {}
+    for code, quote in (quotes or {}).items():
+        if not isinstance(quote, Mapping):
+            continue
+        rows = minute_derived.normalize_tencent_minute(quote.get("minute_bars"))
+        if rows:
+            rows_by_code[candidate_pipeline.naked_code(str(code))] = rows
+    if not rows_by_code:
+        return {"status": "skipped", "reason": "no_minute_bars", "count": 0}
+    try:
+        records = minute_rows_source.derived_records(
+            rows_by_code, source=minute_derived.SOURCE_TENCENT_INTRADAY)
+        written = minute_derived_store.write_daily(asof, records)
+        minute_derived_store.prune()
+    except (OSError, ValueError) as exc:
+        return {"status": "error", "reason": f"{type(exc).__name__}: {exc}", "count": 0}
+    return {"status": "ok", "count": written["count"],
+            "truncated": written["truncated"], "path": written["path"]}
 
 
 def _quote_map(quotes: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -562,6 +599,7 @@ def run_checkpoint(profile: str, asof: str) -> dict[str, Any]:
     raw_quotes = fetch_quotes(codes)
     if candidates and not raw_quotes:
         raise DataSourceError("tencent", "检查点候选行情全部缺失")
+    minute_persist = persist_minute_derived(raw_quotes, asof)
     batch_id = os.environ.get("A_STOCK_BATCH_ID") or f"a-share-{asof.replace('-', '')}"
     input_snapshot = materialize_input_snapshot(
         f"hot-money-{profile}-input",
@@ -604,6 +642,7 @@ def run_checkpoint(profile: str, asof: str) -> dict[str, Any]:
         "observation_count": len(observations),
         "confirmed_count": len(confirmed),
         "observations": observations,
+        "minute_derived": minute_persist,
     }
     output_snapshot = write_snapshot(
         f"hot-money-{profile}-output",

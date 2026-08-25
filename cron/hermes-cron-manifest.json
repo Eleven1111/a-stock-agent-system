@@ -1320,6 +1320,7 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/hot_money_checkpoint_morning_confirm_latest.json",
+        "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/minute_derived/",
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_lifecycle/",
         "$A_STOCK_STATE_HOME/market/snapshots/",
         "$A_STOCK_STATE_HOME/cron/output/hot-money-morning-checkpoint/",
@@ -1369,6 +1370,7 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/hot_money_checkpoint_afternoon_reflow_latest.json",
+        "$A_STOCK_STATE_HOME/skills/daban-stock-picker/data/minute_derived/",
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/candidate_lifecycle/",
         "$A_STOCK_STATE_HOME/market/snapshots/",
         "$A_STOCK_STATE_HOME/cron/output/hot-money-afternoon-checkpoint/",

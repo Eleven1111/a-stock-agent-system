@@ -380,6 +380,66 @@ def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,
     return result
 
 
+SINA_MINUTE_URL = ("https://quotes.sina.cn/cn/api/json_v2.php/"
+                   "CN_MarketDataService.getKLineData")
+# 实测上限（2026-08-25，sz000001/sh600519/sz300750 三只一致）：datalen 最大 1023，
+# 请求 4000 直接返回空。因此可得深度由「1023 根」倒推：
+#   scale=1  → 1023 根 ≈ 5 个交易日（240 根/日）
+#   scale=5  → 1023 根 ≈ 22 个交易日（48 根/日）
+# 接口不支持 offset/翻页，**再往前的历史这条源拿不到**，别指望靠分页加深。
+SINA_MINUTE_MAX_DATALEN = 1023
+
+
+def parse_sina_minute_response(rows: Any) -> List[Dict[str, Any]]:
+    """新浪分钟 K 原始 JSON → [{day, open, high, low, close, volume, amount}]（纯函数）。
+
+    volume 单位是**股**、且是**增量**（非累计），bar 以收线时刻标注（当日首根 09:35 含
+    集合竞价）。与腾讯分时（累计、手）口径不同，换算统一交给 minute_derived。
+    """
+    result: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            result.append({
+                "day": str(row["day"]),
+                "open": float(row["open"]), "high": float(row["high"]),
+                "low": float(row["low"]), "close": float(row["close"]),
+                "volume": float(row["volume"]),
+                "amount": float(row.get("amount", 0) or 0),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return result
+
+
+def fetch_sina_minute_history(code: str, market: str = "sz", scale: int = 5,
+                              datalen: int = SINA_MINUTE_MAX_DATALEN
+                              ) -> List[Dict[str, Any]]:
+    """新浪分钟 K **历史**（腾讯分时只有当日，历史回填只能走这条）。
+
+    深度上限见 SINA_MINUTE_MAX_DATALEN 的实测说明；失败/空返回 [] 交调用方 fail-closed。
+    """
+    query = urlencode({
+        "symbol": f"{market}{str(code).zfill(6)}",
+        "scale": int(scale),
+        "ma": "no",
+        "datalen": min(int(datalen), SINA_MINUTE_MAX_DATALEN),
+    })
+    # 这条接口返回的是 JSON **数组**，http_get_json 只收对象，所以直接走 request_json。
+    try:
+        result = request_json(
+            f"{SINA_MINUTE_URL}?{query}",
+            source="sina_minute_history",
+            timeout=15,
+            max_attempts=2,
+            headers={"User-Agent": "Mozilla/5.0 (Hermes A-Stock Agent)"},
+        )
+    except DataSourceError:
+        return []
+    return parse_sina_minute_response(result.data if isinstance(result.data, list) else [])
+
+
 def parse_tencent_minute_response(data: Dict[str, Any], code: str, market: str) -> List[Dict[str, Any]]:
     """从 minute/query 的原始 JSON 提取逐分钟累计量价（纯函数，不触网，可单测）。
 

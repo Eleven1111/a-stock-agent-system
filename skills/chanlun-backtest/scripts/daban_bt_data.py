@@ -27,6 +27,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 import daban_config as _cfg  # noqa: E402
 import execution_constraints as xc  # noqa: E402
+import minute_derived as md  # noqa: E402
+import minute_rows_source as mrs  # noqa: E402
 from a_stock_http import fetch_tencent_kline, DataSourceError  # noqa: E402
 from state_store import read_json, atomic_write_json  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -240,7 +242,8 @@ def turnover_baseline(kline: List[Dict[str, Any]], date: str,
 
 def _v4_event_fields(event: Dict[str, Any], kline: List[Dict[str, Any]],
                      cross_section: Dict[Tuple[str, str], Dict[str, Any]],
-                     t_close: float, cfg: Optional[Dict[str, Any]] = None
+                     t_close: float, cfg: Optional[Dict[str, Any]] = None,
+                     minute_rows: Optional[List[Dict[str, Any]]] = None
                      ) -> Tuple[Dict[str, Any], Dict[str, str]]:
     """单事件的 v4 字段 + 逐字段可得性。缺一律 None + unavailable，不造代理值。"""
     fields: Dict[str, Any] = {}
@@ -276,9 +279,55 @@ def _v4_event_fields(event: Dict[str, Any], kline: List[Dict[str, Any]],
     availability["turnover_baseline_median"] = baseline["availability"]
     availability["turnover_baseline_sample_days"] = baseline["availability"]
 
-    for name, reason in MINUTE_BAR_FIELDS.items():
-        fields[name] = None
-        availability[name] = f"{UNAVAILABLE}:{reason}"
+    minute_fields, minute_availability = _minute_event_fields(
+        event, kline, t_close, fields["reseal_time"], availability["reseal_time"],
+        minute_rows, cfg=cfg)
+    fields.update(minute_fields)
+    availability.update(minute_availability)
+    return fields, availability
+
+
+def _minute_event_fields(event: Dict[str, Any], kline: List[Dict[str, Any]],
+                         t_close: float, reseal_time: Optional[str],
+                         reseal_availability: str,
+                         minute_rows: Optional[List[Dict[str, Any]]],
+                         cfg: Optional[Dict[str, Any]] = None
+                         ) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """S1/S2 的两个分钟级字段。没有分钟行 → 保持 v4 原来的 unavailable 原因不变。
+
+    ``pre_reseal_turnover_pct`` 的可得性**不高于** reseal_time：一次没炸过板就没有
+    「封板前」这个时刻，此时它是 not_applicable 而不是 unavailable，语义跟着
+    derive_reseal_time 走，不在这里另起一套判定。
+    """
+    settings = dict(cfg if cfg is not None else v4_config())
+    checkpoint = str(settings.get("volume_ratio_checkpoint", "09:45"))
+    window_days = int(settings.get("volume_ratio_baseline_days", 5))
+    fields: Dict[str, Any] = {name: None for name in MINUTE_BAR_FIELDS}
+    availability = {name: f"{UNAVAILABLE}:{reason}"
+                    for name, reason in MINUTE_BAR_FIELDS.items()}
+    fields["volume_ratio_source"] = None
+    if not minute_rows:
+        return fields, availability
+
+    baseline = md.baseline_per_minute_from_daily(
+        kline, _norm_date(event.get("date")), window_days=window_days)
+    ratio = md.volume_ratio_at(minute_rows, checkpoint=checkpoint,
+                               baseline_per_minute=baseline["value"])
+    fields["volume_ratio"] = ratio["value"]
+    availability["volume_ratio"] = (
+        ratio["availability"] if baseline["value"] is not None
+        else baseline["availability"])
+    fields["volume_ratio_source"] = (
+        f"{str(event.get('minute_source') or 'minute_derived')}:{checkpoint}"
+        if ratio["value"] is not None else None)
+
+    if not str(reseal_availability).startswith(AVAILABLE):
+        availability["pre_reseal_turnover_pct"] = reseal_availability
+        return fields, availability
+    float_shares = md.float_shares_from_mktcap(event.get("float_mktcap"), t_close)
+    turnover = md.cumulative_turnover_before(minute_rows, reseal_time, float_shares)
+    fields["pre_reseal_turnover_pct"] = turnover["value"]
+    availability["pre_reseal_turnover_pct"] = turnover["availability"]
     return fields, availability
 
 
@@ -359,7 +408,9 @@ def first_sellable_exit(
 
 def assemble_events(raw_events: List[Dict[str, Any]],
                     kline_by_code: Dict[str, List[Dict[str, Any]]],
-                    cfg: Optional[Dict[str, Any]] = None
+                    cfg: Optional[Dict[str, Any]] = None,
+                    minute_rows_by_key: Optional[
+                        Dict[Tuple[str, str], List[Dict[str, Any]]]] = None
                     ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
     把原始涨停事件 + 各代码 K 线 join 成回测事件表。
@@ -378,7 +429,10 @@ def assemble_events(raw_events: List[Dict[str, Any]],
         if not kline:
             dropped["no_kline"] += 1
             continue
-        row, reason = _join_one_event(ev, code, kline, cross_section, settings)
+        minute_rows = (minute_rows_by_key or {}).get(
+            (_norm_date(ev.get("date")), code))
+        row, reason = _join_one_event(ev, code, kline, cross_section, settings,
+                                      minute_rows)
         if row is None:
             dropped.setdefault(str(reason), 0)
             dropped[str(reason)] += 1
@@ -389,7 +443,8 @@ def assemble_events(raw_events: List[Dict[str, Any]],
 
 def _join_one_event(ev: Dict[str, Any], code: str, kline: List[Dict[str, Any]],
                     cross_section: Dict[Tuple[str, str], Dict[str, Any]],
-                    settings: Dict[str, Any]
+                    settings: Dict[str, Any],
+                    minute_rows: Optional[List[Dict[str, Any]]] = None
                     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """单个涨停事件 + 该票 K 线 → 事件表一行；不可用时返回 (None, 丢弃原因)。"""
     pair = kline_pair_lookup(kline, ev.get("date"))
@@ -415,7 +470,7 @@ def _join_one_event(ev: Dict[str, Any], code: str, kline: List[Dict[str, Any]],
         else None
     )
     v4_fields, v4_availability = _v4_event_fields(
-        ev, kline, cross_section, t_close, cfg=settings)
+        ev, kline, cross_section, t_close, cfg=settings, minute_rows=minute_rows)
     return {
         "code": code,
         "name": ev.get("name", code),
@@ -597,13 +652,18 @@ def assess_coverage(raw: List[Dict[str, Any]], start: str, end: str) -> Dict[str
 
 
 def build_event_table(start: str, end: str, use_cache: bool = True,
-                      source: str = "akshare") -> Dict[str, Any]:
+                      source: str = "akshare",
+                      minute_source: str = "auto") -> Dict[str, Any]:
     """
     端到端：涨停事件 + 次日 K 线 → 事件表，带本地缓存。覆盖度不足会在结果里高声标注。
     source="akshare"（默认）：元数据全但仅最近 3-4 周；K 线走腾讯 ifzq。
     source="mootdx"：通达信深历史重建，事件与 K 线同源同深度（6 年+），仅 H1 gap 假设可用。
     """
-    cache = data_file("chanlun-backtest", f"event_table_{source}_{start}_{end}.json")
+    # 缓存键必须带 minute_source：同一区间用 none 建过的表里两个分钟字段全是
+    # unavailable，若被 minute=auto 的这次静默复用，就成了「填了字段但看不到」。
+    cache = data_file(
+        "chanlun-backtest",
+        f"event_table_{source}_m-{minute_source}_{start}_{end}.json")
     if use_cache:
         cached = read_json(cache, default=None)
         if isinstance(cached, dict) and cached.get("schema") == EVENT_SCHEMA:
@@ -621,10 +681,13 @@ def build_event_table(start: str, end: str, use_cache: bool = True,
         klines = fetch_klines_mootdx(codes, _norm_date(start))
     else:
         klines = fetch_klines(codes, days=_auto_days(start))
-    events, dropped = assemble_events(raw, klines)
+    minute_rows, minute_diagnostics = mrs.collect(raw, mode=minute_source)
+    events, dropped = assemble_events(raw, klines, minute_rows_by_key=minute_rows)
     result = {
         "schema": EVENT_SCHEMA,
         "source": source,
+        "minute_source": minute_source,
+        "minute_coverage": minute_diagnostics,
         "start": start, "end": end,
         "raw_count": len(raw), "event_count": len(events), "dropped": dropped,
         "coverage": coverage,

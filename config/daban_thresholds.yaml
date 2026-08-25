@@ -113,6 +113,10 @@ event_table_v4:
   fast_board_seal_minute: 571         # 首次封板 ≤09:31 → 计入一字/快速板家数（含一字）
   turnover_baseline_window: 20        # 换手基准回看窗口（事件日之前的 N 个交易日，不含事件日）
   turnover_baseline_min_days: 15      # 有效样本天数下限，不足 → 基准 unavailable（绝不给默认值）
+  # 分钟线派生字段口径（2026-08 新增，只影响 daban_bt_data 的 volume_ratio 派生）：
+  volume_ratio_checkpoint: "09:45"    # 量比时点，与 rank_surprise.volume_ratio_deadline 同口径
+  volume_ratio_baseline_days: 5       # 量比基准 = 事件日之前 5 个交易日的每分钟均量（股/分钟）
+                                      # 不足 5 天 → 基准 unavailable（绝不用手上的两三天凑）
 
 divergence_reseal:
   min_sector_limit_up_count: 3        # 条件1：板块涨停家数下限

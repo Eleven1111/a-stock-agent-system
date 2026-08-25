@@ -327,3 +327,45 @@ def test_main_exits_one_when_shortlist_file_is_missing(tmp_path, monkeypatch, ca
 
     assert code == 1
     assert payload["status"] == "insufficient_data"
+
+
+# --------------------------------------------------------------------------- #
+# 分钟派生落盘（路径 B）—— 挂在本作业已抓的分时上，不新增任何网络请求
+# --------------------------------------------------------------------------- #
+def _cumulative_bars(lots_per_minute=100.0, minutes=30):
+    """腾讯口径的分时：累计成交量（手）、累计成交额（元）。"""
+    total = 0.0
+    rows = []
+    for index in range(minutes):
+        minute = 570 + index
+        total += lots_per_minute
+        rows.append({
+            "time": f"{minute // 60:02d}{minute % 60:02d}",
+            "price": 10.0,
+            "cum_volume": total,
+            "cum_amount": total * 100 * 10.0,
+        })
+    return rows
+
+
+def test_persist_minute_derived_writes_curve_without_raw_bars(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    result = checkpoint.persist_minute_derived(
+        {"sh600001": {"minute_bars": _cumulative_bars()}}, "2026-08-25")
+    assert result["status"] == "ok" and result["count"] == 1
+
+    payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+    record = payload["records"]["600001"]
+    # 落的是 5 分钟增量曲线，不是 240 根原始分时。
+    assert record["slots_step_minutes"] == 5
+    assert len(record["slots"]) == 6          # 09:35 … 10:00
+    assert "minute_bars" not in record
+    # 量比要过去 5 日日线，本作业手上没有、也不许为此新增请求 → 保持 unavailable。
+    assert record["volume_ratio"] is None
+    assert record["volume_ratio_availability"].startswith("unavailable:")
+
+
+def test_persist_minute_derived_skips_when_no_minute_bars(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    result = checkpoint.persist_minute_derived({"sh600001": {"price": 10.0}}, "2026-08-25")
+    assert result == {"status": "skipped", "reason": "no_minute_bars", "count": 0}
