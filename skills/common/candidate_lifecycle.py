@@ -212,6 +212,11 @@ def settle_day(
     kline_by_code: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> Dict[str, Any]:
     """Resolve T+1 and T+3 returns for every candidate with enough future bars."""
+    # 与 transition/observe_day 同源的守卫：本函数也走 mutate_json，没有它就会
+    # 把 load_day 的空骨架落盘，给"从未初始化"的日期凭空造出 metadata={} /
+    # records=[] 的幽灵队列（2026-07/08 那批空白日的成因之一）。
+    if not cohort_initialized(asof):
+        return {}
     now = datetime.now().isoformat(timespec="seconds")
 
     def _mutate(state: Any) -> Dict[str, Any]:
