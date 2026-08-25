@@ -17,7 +17,7 @@ from datetime import date, datetime, time
 from math import isfinite
 import threading
 from time import monotonic
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from market_adapters import fetch_tencent_kline
 from mootdx_adapter import fetch_mootdx_bars
@@ -355,7 +355,8 @@ def fetch_real_auction_observation(
             "snapshots": [],
         }
     previous = fetch_previous_day_metrics(code, asof=asof)
-    if not previous.get("prev_day_volume"):
+    prev_day_volume = _number(previous.get("prev_day_volume"))
+    if prev_day_volume is None or prev_day_volume <= 0:
         return {
             "status": "blocked",
             "provider": f"{PROVIDER}+previous_day_volume",
@@ -369,6 +370,33 @@ def fetch_real_auction_observation(
         "reason": None,
         "snapshots": snapshots,
     }
+
+
+def _fetch_one_real_auction_snapshot(
+    code: str,
+    auction_rows: Mapping[str, list[dict[str, Any]]],
+    *,
+    asof: date | str | None,
+    previous_day_metrics: Mapping[str, Mapping[str, Any]] | None,
+    require_previous_day_metrics: bool,
+    client: Any,
+    budget_exhausted: Callable[[], bool],
+    deadline_seconds: float | None,
+) -> tuple[str, list[dict[str, Any]], str | None]:
+    bare_code = _bare_code(code)
+    if not require_previous_day_metrics:
+        return bare_code, auction_rows[bare_code], None
+    previous = dict((previous_day_metrics or {}).get(bare_code) or {})
+    if not previous or not previous.get("prev_close"):
+        if budget_exhausted():
+            return bare_code, [], _budget_reason(deadline_seconds)
+        enriched = fetch_previous_day_metrics(code, asof=asof, easy_tdx_client=client)
+        if enriched:
+            previous = {**previous, **enriched}
+    prev_day_volume = _number(previous.get("prev_day_volume"))
+    if prev_day_volume is None or prev_day_volume <= 0:
+        return bare_code, [], "prev_day_volume 缺失或无效（mootdx 与腾讯历史 K 线均失败）"
+    return bare_code, [{**row, **previous} for row in auction_rows[bare_code]], None
 
 
 def fetch_real_auction_snapshots(
@@ -419,26 +447,19 @@ def fetch_real_auction_snapshots(
                 else:
                     auction_rows[_bare_code(code)] = rows
 
-            def fetch_one(code: str) -> tuple[str, list[dict[str, Any]], str | None]:
-                if not require_previous_day_metrics:
-                    return _bare_code(code), auction_rows[_bare_code(code)], None
-                previous = dict((previous_day_metrics or {}).get(_bare_code(code)) or {})
-                if not previous or not previous.get("prev_close"):
-                    if _budget_exhausted():
-                        return _bare_code(code), [], _budget_reason(deadline_seconds)
-                    enriched = fetch_previous_day_metrics(
-                        code, asof=asof, easy_tdx_client=client
-                    )
-                    if enriched:
-                        previous = {**previous, **enriched}
-                if not previous.get("prev_day_volume"):
-                    return _bare_code(code), [], (
-                        "prev_day_volume 缺失或无效（mootdx 与腾讯历史 K 线均失败）"
-                    )
-                return _bare_code(code), [{**row, **previous} for row in auction_rows[_bare_code(code)]], None
-
             valid_codes = [code for code in unique if _bare_code(code) in auction_rows]
             with ThreadPoolExecutor(max_workers=PREVIOUS_DAY_WORKERS) as pool:
+                def fetch_one(code: str) -> tuple[str, list[dict[str, Any]], str | None]:
+                    return _fetch_one_real_auction_snapshot(
+                        code,
+                        auction_rows,
+                        asof=asof,
+                        previous_day_metrics=previous_day_metrics,
+                        require_previous_day_metrics=require_previous_day_metrics,
+                        client=client,
+                        budget_exhausted=_budget_exhausted,
+                        deadline_seconds=deadline_seconds,
+                    )
                 for code, rows, failure in pool.map(fetch_one, valid_codes):
                     if failure:
                         failures[code] = failure

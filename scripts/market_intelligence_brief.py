@@ -30,8 +30,29 @@ STAGE_LABELS = {
 }
 
 
+def _naked_code(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    return raw[2:] if raw[:2] in {"sh", "sz", "bj"} else raw
+
+
+def _universe_names() -> dict[str, str]:
+    payload = read_json(data_file("stock-triage", "universe_quotes_cache.json"), {})
+    quotes = payload.get("quotes") if isinstance(payload, Mapping) else {}
+    if not isinstance(quotes, Mapping):
+        return {}
+    return {
+        _naked_code(code): str(row.get("name") or "")
+        for code, row in quotes.items()
+        if isinstance(row, Mapping) and str(row.get("name") or "").strip()
+    }
+
+
 def _label(item: Mapping[str, Any]) -> str:
-    return f"{item.get('name') or item.get('code')}({item.get('code')})"
+    code = item.get("code")
+    name = str(item.get("name") or "").strip() or _universe_names().get(
+        _naked_code(code), ""
+    )
+    return f"{name or code}({code})"
 
 
 def _score(item: Mapping[str, Any], *keys: str) -> str:
