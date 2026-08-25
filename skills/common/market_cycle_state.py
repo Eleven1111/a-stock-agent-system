@@ -210,11 +210,14 @@ def record_cycle_state(
     asof: str,
     index_trend: Mapping[str, Any] | None = None,
     config: Mapping[str, Any] | None = None,
+    sentiment_track: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """读上一日记忆 → 推进 → 落最新记忆 + append 一行影子日志。返回影子日志行。
 
     index_trend 是可选的指数趋势闸门输出（index_trend_gate），一并记进影子日志，
-    供 P2 对照。本函数只写影子文件，不碰任何实盘信号/排序。
+    供 P2 对照。``sentiment_track`` 是 P0-d 的双轨对照块（五档温度 / S0-S6 /
+    S_t 分档 / ΔS），同样只进影子日志，供 P1 校准。本函数只写影子文件，不碰任何
+    实盘信号/排序。
     """
     prev = read_cycle_memory()
     memory = advance_cycle_memory(prev, market_state, asof=asof, config=config)
@@ -228,6 +231,7 @@ def record_cycle_state(
         "cycle_memory": memory,
         "cycle_shadow_constraints": constraints,
         "index_trend": dict(index_trend or {}),
+        "sentiment_track": dict(sentiment_track or {}),
     }
     _append_shadow_log(shadow_row)
     return shadow_row
