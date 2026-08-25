@@ -113,3 +113,43 @@
   不是全市场涨停池。要覆盖全部涨停票，需要另一个本来就抓全市场分时的作业
   （`eod_anomaly_scanner` 是现成的，但它当前不在 cron manifest 里）。
 - **流通股本口径偏差**：继承 v4，未修正。
+
+## 6. 端到端实证（真实数据，2026-08-25/26 跑）
+
+窗口 2026-07-28 ~ 2026-08-21（`stock_zt_pool_em` 实际覆盖 2026-08-05~08-21，共 13 个
+交易日；覆盖告警照常打印，样本已退化的事实不掩盖），`minute_source="sina"`，
+981 个 (日期, 代码) 键，976 个拿到分钟行（覆盖率 **99.49%**），耗时 2010 s。
+
+事件表可得性（648 条事件）：
+
+| 字段 | available | not_applicable | unavailable |
+|---|---|---|---|
+| `volume_ratio` | **648** | — | 0 |
+| `pre_reseal_turnover_pct` | **274** | 339（一次没炸板，不存在"封板前"） | 35（`minute_rows_start_after_checkpoint`：回封早于当日首根 5 分钟线，如 09:25 竞价即回封） |
+
+S1 / S2 在这张表上的结果（**NON-LIVE 研究观察，样本极小，不构成任何结论**）：
+
+| | signal | filled | mean 净收益 | win_rate |
+|---|---|---|---|---|
+| S1 RankSurprise（`--market-state S3`） | 4 | 2 | +3.47% | 0.50 |
+| S2 DivergenceReseal | 6 | 6 | −4.09% | 0.167 |
+
+**两个策略首次在真实数据上跑出非零命中**（此前恒为 0）。S1 仍带
+`betas_unfitted_placeholder` 降级标记，`volume_ratio_source=minute_derived:09:45`
+如实写进 degraded 列表。剩余 unavailable 的主因不再是分钟字段，而是
+`peer_sample_insufficient`（503）与 `expected_gap:peer_gap_sample_insufficient`（533）
+—— 13 个交易日 × 单板块 peer 数不够，属样本长度问题，不是数据管道问题。
+
+### 单位链条的独立验证
+
+日线 `volume` 是**手**、分钟 `volume` 是**股**这一条，用两条独立源逐日对账：
+
+```
+2026-08-21 tencent_daily_volume 869128.0  sina_shares 86912763  ratio 100.0
+2026-08-24 tencent_daily_volume 1199025.0 sina_shares 119902495 ratio 100.0
+2026-08-25 tencent_daily_volume 994881.0  sina_shares 99488115  ratio 100.0
+```
+
+三天比值精确等于 100 —— `baseline_per_minute_from_daily` 里的 `× lot_shares` 不是
+猜的。数值合理性抽查：000593 / 2026-08-05 回封 09:35:24，封板前换手 5.68%，上游给的
+全日换手 6.86% —— 封板前 < 全日，量纲与大小关系都对。
