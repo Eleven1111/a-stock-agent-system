@@ -404,6 +404,203 @@ def weak_streak(theme_id: str, *, include_today: bool | None = None,
     return streak
 
 
+# ── ThemeScore 新·时·广（升级方案 P2-b，SHADOW ONLY）────────────────────────
+#
+# 既有的主线板块分是 4 因子（涨停 45% / 成交额 20% / 前十涨幅 25% / 关注度 10%），
+# 只描述"现在多强"，说不出"是不是新题材"和"现在是不是它的窗口"。本节补上"新"与
+# "时"两维，与既有 breadth 合成 ThemeScore = 0.35N + 0.30T + 0.35B。
+# 它是**平行研究字段**：不替换 sector_weights，不参与任何 gate/排序判定。
+# 权重与阈值全部来自 config/scoring.yaml 的 ``theme_score`` 节，模块内无数字副本。
+
+THEME_SCORE_SCHEMA = "theme_score_v1"
+THEME_SCORE_SECTION = "theme_score"
+_THEME_SCORE_REQUIRED = ("weights", "min_available_weight", "novelty", "timing", "breadth")
+
+
+def load_theme_score_config(payload: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+    """读取 ``config/scoring.yaml`` 的 ``theme_score`` 节；缺项返回 None。"""
+    if payload is None:
+        try:
+            import yaml
+            from config_registry import config_path
+
+            with open(config_path("scoring"), encoding="utf-8") as handle:
+                payload = yaml.safe_load(handle)
+        except (OSError, ValueError, ImportError):
+            return None
+    section = (payload or {}).get(THEME_SCORE_SECTION) if isinstance(payload, Mapping) else None
+    if not isinstance(section, Mapping):
+        return None
+    if any(section.get(key) in (None, "", [], {}) for key in _THEME_SCORE_REQUIRED):
+        return None
+    return dict(section)
+
+
+def registry_age_days(created_at: Any, asof: Any) -> int | None:
+    """题材首次注册距 ``asof`` 的自然日数；任一端不可解析返回 None。"""
+    from datetime import date as _date
+
+    try:
+        created = _date.fromisoformat(str(created_at or "")[:10])
+        current = _date.fromisoformat(str(asof or "")[:10])
+    except ValueError:
+        return None
+    return (current - created).days
+
+
+def news_novelty(
+    items: Sequence[Mapping[str, Any]] | None, *, seen_keys: Sequence[str] | None
+) -> float | None:
+    """当日新闻 novelty 比例 = 未见过的去重内容键 / 全部内容键。
+
+    键的口径直接复用 ``novelty_gate.content_key``（纯函数，无缓存 IO），不另造一套
+    归一化——两套归一化迟早对同一条新闻给出两个键。``seen_keys`` 必须由调用方显式
+    给出（空列表 = "此前什么都没见过"这一明确主张）；为 None 时返回不可用，绝不默认
+    当作"全都是新的"。
+    """
+    if items is None or seen_keys is None:
+        return None
+    from novelty_gate import content_key
+
+    keys = [content_key(item) for item in items if isinstance(item, Mapping)]
+    if not keys:
+        return None
+    seen = {str(key) for key in seen_keys}
+    unique = set(keys)
+    return round(len(unique - seen) / len(unique), 6)
+
+
+def compute_novelty(
+    theme: Mapping[str, Any],
+    *,
+    asof: str,
+    news_items: Sequence[Mapping[str, Any]] | None = None,
+    seen_news_keys: Sequence[str] | None = None,
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    """N 新鲜度：注册年龄衰减 ⊕ 当日新闻 novelty。两个子分量各自可单独降级并在
+    N 内部重新归一化；两个都不可用时 N 整体 ``unavailable``。"""
+    cfg = dict(config)
+    age = registry_age_days(theme.get("created_at"), asof)
+    half_life = float(cfg.get("half_life_days") or 0) or 1.0
+    parts: list[tuple[float, float]] = []
+    detail: dict[str, Any] = {"registry_age_days": age}
+    if age is not None and age >= 0:
+        decay = 0.5 ** (age / half_life)
+        detail["age_decay"] = round(decay, 6)
+        parts.append((decay, float(cfg.get("age_weight") or 0.0)))
+    ratio = news_novelty(news_items, seen_keys=seen_news_keys)
+    detail["news_novelty"] = ratio
+    if ratio is not None:
+        parts.append((ratio, float(cfg.get("news_weight") or 0.0)))
+    total = sum(weight for _value, weight in parts)
+    if total <= 0.0:
+        return {"status": UNAVAILABLE, "reason": "no_novelty_component", **detail}
+    value = sum(value * weight for value, weight in parts) / total
+    return {"status": "ok", "value": round(value, 6), "component_weight": round(total, 4), **detail}
+
+
+def compute_timing(
+    sentiment: Mapping[str, Any] | None, *, config: Mapping[str, Any]
+) -> dict[str, Any]:
+    """T 时机：消费 P0 的 S_t（``sentiment_score.compute_sentiment_score`` 的输出）。
+
+    S_t 不可用、或分档不在配置表里 → ``unavailable``，由 ThemeScore 重归一化处理；
+    绝不给一个"中性 0.5"冒充观测。
+    """
+    cfg = dict(config)
+    row = dict(sentiment or {})
+    if row.get("status") != "ok":
+        return {"status": UNAVAILABLE, "reason": "sentiment_score_unavailable",
+                "sentiment_status": row.get("status")}
+    band = str(row.get("band") or "")
+    bands = dict(cfg.get("band_scores") or {})
+    if band not in bands:
+        return {"status": UNAVAILABLE, "reason": "band_not_mapped", "band": band or None}
+    base = float(bands[band])
+    delta = _num(row.get("delta"))
+    bonus = float(cfg.get("delta_bonus") or 0.0) if (delta is not None and delta > 0) else 0.0
+    return {
+        "status": "ok",
+        "value": round(min(1.0, max(0.0, base + bonus)), 6),
+        "band": band,
+        "band_score": base,
+        "delta": delta,
+        "delta_bonus_applied": bonus > 0.0,
+    }
+
+
+def compute_breadth_score(
+    breadth: Mapping[str, Any] | None, *, config: Mapping[str, Any]
+) -> dict[str, Any]:
+    """B 广度：直接复用既有 ``compute_breadth`` 的结果，不重算成员行情。"""
+    cfg = dict(config)
+    row = dict(breadth or {})
+    if row.get("status") != "ok":
+        return {"status": UNAVAILABLE, "reason": "breadth_unavailable"}
+    full = float(cfg.get("full_scale_limit_ups") or 0) or 1.0
+    limit_score = min(1.0, (_num(row.get("limit_up_count")) or 0.0) / full)
+    ratio = _num(row.get("up_ratio"))
+    ratio_weight = float(cfg.get("up_ratio_weight") or 0.0)
+    if ratio is None:
+        return {"status": "ok", "value": round(limit_score, 6),
+                "limit_up_score": round(limit_score, 6), "up_ratio": None}
+    value = (1.0 - ratio_weight) * limit_score + ratio_weight * min(1.0, max(0.0, ratio))
+    return {"status": "ok", "value": round(value, 6),
+            "limit_up_score": round(limit_score, 6), "up_ratio": ratio}
+
+
+def theme_score(
+    theme: Mapping[str, Any],
+    record: Mapping[str, Any],
+    *,
+    asof: str,
+    sentiment: Mapping[str, Any] | None = None,
+    news_items: Sequence[Mapping[str, Any]] | None = None,
+    seen_news_keys: Sequence[str] | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """ThemeScore = 0.35N + 0.30T + 0.35B（0-100，SHADOW ONLY，方案 §5.1b）。
+
+    维度不可用即把它的权重移出分母重新归一化；可用权重低于
+    ``min_available_weight``（或三维全缺）→ 整体 ``unavailable``，不返回 0 分。
+    """
+    cfg = load_theme_score_config() if config is None else dict(config)
+    if not cfg:
+        return {"schema": THEME_SCORE_SCHEMA, "status": UNAVAILABLE,
+                "shadow_only": True, "calibrated": False,
+                "score": None, "reason": "config_missing"}
+    dimensions = {
+        "novelty": compute_novelty(
+            theme, asof=asof, news_items=news_items,
+            seen_news_keys=seen_news_keys, config=dict(cfg["novelty"]),
+        ),
+        "timing": compute_timing(sentiment, config=dict(cfg["timing"])),
+        "breadth": compute_breadth_score(record.get("breadth"), config=dict(cfg["breadth"])),
+    }
+    weights = dict(cfg["weights"])
+    available = {name: row for name, row in dimensions.items() if row.get("status") == "ok"}
+    total = sum(float(weights.get(name) or 0.0) for name in available)
+    result: dict[str, Any] = {
+        "schema": THEME_SCORE_SCHEMA,
+        "shadow_only": True,
+        "calibrated": False,
+        "theme_id": theme.get("id") or record.get("theme_id"),
+        "asof": asof,
+        "weights": {name: float(weights.get(name) or 0.0) for name in weights},
+        "available_weight": round(total, 4),
+        "unavailable_dimensions": sorted(set(dimensions) - set(available)),
+        "dimensions": dimensions,
+    }
+    if total <= 0.0 or total < float(cfg["min_available_weight"]):
+        return {**result, "status": UNAVAILABLE, "score": None,
+                "reason": "insufficient_dimension_weight"}
+    weighted = sum(
+        float(row["value"]) * float(weights.get(name) or 0.0) for name, row in available.items()
+    )
+    return {**result, "status": "ok", "score": round(weighted / total * 100.0, 4), "reason": None}
+
+
 def append_history(theme_id: str, record: Mapping[str, Any], *, max_len: int = 60) -> dict[str, Any]:
     """Append today's record to the theme's persisted series (idempotent per
     asof: re-running the same day overwrites that day's entry)."""

@@ -931,6 +931,428 @@ def sentiment_shadow_state(asof: str | None = None) -> dict[str, Any]:
     }
 
 
+# ── LeaderScore 连续评分（升级方案 P2-a，SHADOW ONLY）─────────────────────────
+#
+# 现有的 ``leader_score`` 字段是板内排名的线性代理（100 − (rank−1)×15），排序又以
+# 连板高度为第一键——等于把"最高板"当成了龙头的同义词。研究手册的口径相反：最高板
+# 只是六项之一，高位孤板在后排连续大面时是"最后的强势"，不是安全买点。本节给出六
+# 因子连续分，写入**另一个字段** ``leader_score_shadow``：既有标签、既有排序、既有
+# ``leader_score`` 一律不动，本模块内除 ``apply_leader_score_shadow`` 外没有第二个
+# 读点，它不参与 timing/gate/排序的任何判定。
+#
+# 权重与阈值全部来自 config/scoring.yaml 的 ``leader_score`` 节；本模块内没有等价
+# 的数字副本，配置缺失即 ``unavailable``（两份数字并存迟早分叉）。
+
+LEADER_SCORE_SCHEMA = "leader_score_v1"
+LEADER_SCORE_SECTION = "leader_score"
+_LEADER_SCORE_REQUIRED = ("min_available_weight", "factors", "isolation_penalty")
+_SEAL_BASE_MINUTES = 9 * 60 + 30  # 09:30 开盘，封板时间换算的零点
+
+
+def load_leader_score_config(
+    payload: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """读取 ``config/scoring.yaml`` 的 ``leader_score`` 节；缺项返回 None。"""
+    if payload is None:
+        try:
+            import yaml
+            from config_registry import config_path
+
+            with open(config_path("scoring"), encoding="utf-8") as handle:
+                payload = yaml.safe_load(handle)
+        except (OSError, ValueError, ImportError):
+            return None
+    section = (payload or {}).get(LEADER_SCORE_SECTION) if isinstance(payload, Mapping) else None
+    if not isinstance(section, Mapping):
+        return None
+    if any(section.get(key) in (None, "", [], {}) for key in _LEADER_SCORE_REQUIRED):
+        return None
+    return dict(section)
+
+
+def _seal_minutes(value: Any) -> float | None:
+    """首封时间距 09:30 的分钟数。接受 ``09:45`` / ``094500`` / ``0945``；不可解析
+    返回 None（不可用），绝不折算成 0 分钟当"秒板"。"""
+    text = str(value or "").strip().replace(":", "")
+    if not text.isdigit() or len(text) not in (4, 6):
+        return None
+    hours, minutes = int(text[:2]), int(text[2:4])
+    if hours > 23 or minutes > 59:
+        return None
+    return float(hours * 60 + minutes - _SEAL_BASE_MINUTES)
+
+
+def _factor_height(candidate: Mapping[str, Any]) -> float | None:
+    """H 高度：自身连板高度 / 全场最高板。任一缺失即不可用。"""
+    height = _num(candidate.get("board_height"))
+    space = _num(candidate.get("market_space_height"))
+    if height <= 0 or space <= 0:
+        return None
+    return min(1.0, height / space)
+
+
+def _factor_seal_speed(
+    candidate: Mapping[str, Any], spec: Mapping[str, Any], *, in_deep_pool: bool
+) -> float | None:
+    """F 封速：仅深度池内可得（池外分钟线根本没采），池外一律 None 而非 0 分。"""
+    if spec.get("deep_pool_only") and not in_deep_pool:
+        return None
+    minutes = _seal_minutes(candidate.get("first_seal"))
+    if minutes is None:
+        return None
+    full = float(spec.get("full_scale_minutes") or 0) or 1.0
+    return min(1.0, max(0.0, 1.0 - minutes / full))
+
+
+def _factor_resilience(
+    candidate: Mapping[str, Any], spec: Mapping[str, Any], *, in_deep_pool: bool
+) -> float | None:
+    """R 分歧承接：开板次数 + 回封耗时；同样是分钟线派生，池外 None。"""
+    if spec.get("deep_pool_only") and not in_deep_pool:
+        return None
+    parts: list[float] = []
+    if candidate.get("open_count") is not None:
+        ceiling = float(spec.get("max_open_count") or 0) or 1.0
+        parts.append(max(0.0, 1.0 - _num(candidate["open_count"]) / ceiling))
+    if candidate.get("reseal_minutes") is not None:
+        full = float(spec.get("reseal_full_scale_minutes") or 0) or 1.0
+        parts.append(max(0.0, 1.0 - _num(candidate["reseal_minutes"]) / full))
+    return round(mean(parts), 6) if parts else None
+
+
+def _assist_limitups(candidate: Mapping[str, Any], sector_state: Mapping[str, Any]) -> float | None:
+    """板块内除自己以外的涨停家数；板块涨停数未知时不可用。"""
+    if sector_state.get("limitup_count") is None:
+        return None
+    return max(0.0, _num(sector_state["limitup_count"]) - (1.0 if _is_limit_up(candidate) else 0.0))
+
+
+def _factor_assist_breadth(
+    candidate: Mapping[str, Any], sector_state: Mapping[str, Any], spec: Mapping[str, Any]
+) -> float | None:
+    """B 助攻广度。"""
+    assists = _assist_limitups(candidate, sector_state)
+    if assists is None:
+        return None
+    full = float(spec.get("full_scale_assists") or 0) or 1.0
+    return min(1.0, assists / full)
+
+
+def _factor_relative_strength(
+    candidate: Mapping[str, Any],
+    sector_state: Mapping[str, Any],
+    spec: Mapping[str, Any],
+    *,
+    market_median_change: float | None,
+) -> float | None:
+    """RS 相对强度：相对全市场中位与板块前十均值的超额，对称映射到 0-1（0.5=持平）。
+
+    两个基准都缺则不可用——不拿"相对自己"当超额。
+    """
+    if candidate.get("change_pct") is None:
+        return None
+    scale = float(spec.get("excess_full_scale_pct") or 0) or 1.0
+    change = _num(candidate["change_pct"])
+    parts = [
+        min(1.0, max(0.0, 0.5 + (change - _num(basis)) / (2.0 * scale)))
+        for basis in (market_median_change, sector_state.get("top10_change"))
+        if basis is not None
+    ]
+    return round(mean(parts), 6) if parts else None
+
+
+def _factor_attention(candidate: Mapping[str, Any], spec: Mapping[str, Any]) -> float | None:
+    """A 关注度：候选自身的 social_attention 分；缺失回退到所属主题的关注分。"""
+    for key in ("attention_score", "sector_theme_attention_score"):
+        if candidate.get(key) is not None:
+            full = float(spec.get("full_scale_score") or 0) or 1.0
+            return min(1.0, max(0.0, _num(candidate[key]) / full))
+    return None
+
+
+def back_row_damage_streak(
+    history: Sequence[Mapping[str, Any]] | None, penalty: Mapping[str, Any]
+) -> int | None:
+    """后排"连续大面"天数（按交易日升序的行，末行为最近一日）。
+
+    判据取任一：中位板炸板率 ≥ ``break_rate_min``，或龙头次日收益 ≤
+    ``leader_damage_max_pct``。最近一日两个字段都缺 → 返回 None（**不可判定**），
+    由调用方按"证据不足"处理，而不是伪造一次惩罚或伪造一次豁免。
+    """
+    rows = [row for row in (history or []) if isinstance(row, Mapping)]
+    if not rows:
+        return None
+    break_min = float(penalty["break_rate_min"])
+    damage_max = float(penalty["leader_damage_max_pct"])
+
+    def _damaged(row: Mapping[str, Any]) -> bool | None:
+        rate = row.get("mid_board_break_rate", row.get("break_rate"))
+        damage = row.get("leader_damage")
+        if rate is None and damage is None:
+            return None
+        return bool(
+            (rate is not None and _num(rate) >= break_min)
+            or (damage is not None and _num(damage) <= damage_max)
+        )
+
+    if _damaged(rows[-1]) is None:
+        return None
+    streak = 0
+    for row in reversed(rows):
+        if _damaged(row) is not True:
+            break
+        streak += 1
+    return streak
+
+
+def _isolation_state(
+    candidate: Mapping[str, Any],
+    sector_state: Mapping[str, Any],
+    penalty: Mapping[str, Any],
+    *,
+    damage_streak: int | None,
+) -> dict[str, Any]:
+    """高位孤板判定：自身即全场最高板 ∧ 板块内基本无助攻 ∧ 后排连续大面。"""
+    height = _num(candidate.get("board_height"))
+    space = _num(candidate.get("market_space_height"))
+    assists = _assist_limitups(candidate, sector_state)
+    highest = height > 0 and space > 0 and height >= space
+    lonely = assists is not None and assists <= float(penalty["max_assist_limitups"])
+    back_row = (
+        damage_streak is not None
+        and damage_streak >= int(penalty["back_row_damage_min_days"])
+    )
+    return {
+        "isolated_high_board": bool(highest and lonely and back_row),
+        "is_highest_board": bool(highest),
+        "assist_limitups": assists,
+        "back_row_damage_days": damage_streak,
+        "note": "最高板只是 LeaderScore 的一项：孤板 + 后排连续大面时 B/R 归零",
+    }
+
+
+def _leader_factor_values(
+    candidate: Mapping[str, Any],
+    sector_state: Mapping[str, Any],
+    factors: Mapping[str, Any],
+    *,
+    in_deep_pool: bool,
+    market_median_change: float | None,
+) -> dict[str, float | None]:
+    return {
+        "height": _factor_height(candidate),
+        "seal_speed": _factor_seal_speed(
+            candidate, dict(factors.get("seal_speed") or {}), in_deep_pool=in_deep_pool
+        ),
+        "resilience": _factor_resilience(
+            candidate, dict(factors.get("resilience") or {}), in_deep_pool=in_deep_pool
+        ),
+        "assist_breadth": _factor_assist_breadth(
+            candidate, sector_state, dict(factors.get("assist_breadth") or {})
+        ),
+        "relative_strength": _factor_relative_strength(
+            candidate,
+            sector_state,
+            dict(factors.get("relative_strength") or {}),
+            market_median_change=market_median_change,
+        ),
+        "attention": _factor_attention(candidate, dict(factors.get("attention") or {})),
+    }
+
+
+def _leader_score_unavailable(reason: str, **extra: Any) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "schema": LEADER_SCORE_SCHEMA,
+        "status": "unavailable",
+        "shadow_only": True,
+        "calibrated": False,
+        "score": None,
+        "reason": reason,
+    }
+    result.update(extra)
+    return result
+
+
+def leader_score(
+    candidate: Mapping[str, Any],
+    *,
+    sector_state: Mapping[str, Any] | None = None,
+    in_deep_pool: bool = False,
+    market_median_change: float | None = None,
+    back_row_history: Sequence[Mapping[str, Any]] | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """六因子 LeaderScore（0-100，SHADOW ONLY，方案 §5.1a）。
+
+    降级规则（fail-closed）：任一因子数据缺失 → 该因子 ``unavailable`` 并把它的权重
+    **移出分母**重新归一化（绝不用 0 或中位数冒充观测值，否则池外标的会被系统性
+    低估）；可用权重低于 ``min_available_weight``、或全部因子缺失 → 整体
+    ``unavailable``，不返回 0 分。
+
+    ``isolated_high_board`` 触发时 B、R 强制为 **0.0 而不是 unavailable**：孤板且后排
+    连续大面本身就是对"没有助攻、承接无从谈起"的直接观测，权重必须留在分母里让分数
+    掉下来。这一条优先于深度池降级——它不需要分钟线也成立。
+    """
+    cfg = load_leader_score_config() if config is None else dict(config)
+    if not cfg:
+        return _leader_score_unavailable("config_missing")
+    factors_cfg = dict(cfg["factors"])
+    state = dict(sector_state or {})
+    values = _leader_factor_values(
+        candidate, state, factors_cfg,
+        in_deep_pool=in_deep_pool, market_median_change=market_median_change,
+    )
+    isolation = _isolation_state(
+        candidate, state, dict(cfg["isolation_penalty"]),
+        damage_streak=back_row_damage_streak(back_row_history, dict(cfg["isolation_penalty"])),
+    )
+    if isolation["isolated_high_board"]:
+        values["assist_breadth"] = 0.0
+        values["resilience"] = 0.0
+
+    factors: dict[str, Any] = {}
+    missing: list[str] = []
+    total_weight = 0.0
+    weighted = 0.0
+    for name, spec in factors_cfg.items():
+        weight = float(dict(spec).get("weight") or 0.0)
+        value = values.get(str(name))
+        if value is None:
+            missing.append(str(name))
+            continue
+        factors[str(name)] = {
+            "value": round(float(value), 6),
+            "weight": weight,
+            "contribution": round(float(value) * weight * 100.0, 4),
+        }
+        total_weight += weight
+        weighted += float(value) * weight
+    if total_weight <= 0.0 or total_weight < float(cfg["min_available_weight"]):
+        return _leader_score_unavailable(
+            "insufficient_factor_weight",
+            code=_code(candidate.get("code")),
+            available_weight=round(total_weight, 4),
+            unavailable_factors=sorted(missing),
+            isolation=isolation,
+        )
+    return {
+        "schema": LEADER_SCORE_SCHEMA,
+        "status": "ok",
+        "shadow_only": True,
+        "calibrated": False,
+        "code": _code(candidate.get("code")),
+        "score": round(weighted / total_weight * 100.0, 4),
+        "available_weight": round(total_weight, 4),
+        "unavailable_factors": sorted(missing),
+        "factors": factors,
+        "isolation": isolation,
+        "reason": None,
+    }
+
+
+def apply_leader_score_shadow(
+    candidates: Sequence[Mapping[str, Any]],
+    selection_state: Mapping[str, Any] | None = None,
+    *,
+    deep_pool_codes: Iterable[Any] | None = None,
+    market_median_change: float | None = None,
+    back_row_history: Sequence[Mapping[str, Any]] | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """在候选副本上挂 ``leader_score_shadow``。
+
+    只**新增**一个字段：既有的 ``leader_score`` / ``leader_role`` / ``leader_rank`` /
+    ``hot_money_qualified`` 与列表顺序原样透传，调用方拿到的排序与门禁结论逐字段不变。
+    """
+    state = dict(selection_state or {})
+    sector_states = {
+        str(row.get("sector")): dict(row)
+        for row in state.get("sectors") or []
+        if row.get("sector")
+    }
+    pool = {_code(code) for code in (deep_pool_codes or [])}
+    output: list[dict[str, Any]] = []
+    for item in candidates:
+        row = dict(item)
+        row["leader_score_shadow"] = leader_score(
+            row,
+            sector_state=sector_states.get(str(row.get("sector") or "")) or {},
+            in_deep_pool=_code(row.get("code")) in pool,
+            market_median_change=market_median_change,
+            back_row_history=back_row_history,
+            config=config,
+        )
+        output.append(row)
+    return output
+
+
+def leader_score_divergences(
+    scored: Sequence[Mapping[str, Any]], *, top_n: int | None = None
+) -> list[dict[str, Any]]:
+    """LeaderScore 与现排序 Top-N 不一致的板块级案例（方案 §5.2 第 1 条，供人工复核）。
+
+    只比较两份名单的**集合**差异；不可用的分数不参与比较（缺分不是分歧）。
+    """
+    limit = 2 if top_n is None else int(top_n)
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for item in scored:
+        grouped.setdefault(str(item.get("sector") or ""), []).append(item)
+    records: list[dict[str, Any]] = []
+    for sector, members in sorted(grouped.items()):
+        ranked = [m for m in members if m.get("leader_rank") is not None]
+        current = {
+            _code(m.get("code")) for m in ranked if int(_num(m.get("leader_rank"))) <= limit
+        }
+        usable = [
+            m for m in members
+            if (m.get("leader_score_shadow") or {}).get("status") == "ok"
+        ]
+        usable.sort(
+            key=lambda m: (-_num((m.get("leader_score_shadow") or {}).get("score")),
+                           _code(m.get("code")))
+        )
+        shadow = {_code(m.get("code")) for m in usable[:limit]}
+        if not current or not shadow or current == shadow:
+            continue
+        records.append({
+            "schema": "leader_score_divergence_v1",
+            "sector": sector or None,
+            "top_n": limit,
+            "current_top": sorted(current),
+            "shadow_top": sorted(shadow),
+            "only_in_current": sorted(current - shadow),
+            "only_in_shadow": sorted(shadow - current),
+            "scores": {
+                _code(m.get("code")): (m.get("leader_score_shadow") or {}).get("score")
+                for m in usable
+            },
+        })
+    return records
+
+
+def append_leader_score_divergences(
+    records: Sequence[Mapping[str, Any]], *, asof: str
+) -> dict[str, Any]:
+    """把分歧案例按交易日落盘（幂等：同一 asof 重跑覆盖当日条目）。
+
+    IO 依赖是函数内惰性导入的，模块主路径仍是纯函数（见模块 docstring）。
+    """
+    from paths import data_file
+    from state_store import mutate_json
+
+    def _mut(state: Any) -> dict[str, Any]:
+        data = dict(state) if isinstance(state, dict) else {}
+        data.setdefault("schema", "leader_score_divergence_log_v1")
+        days = dict(data.get("days") or {})
+        days[str(asof)] = [dict(record) for record in records]
+        data["days"] = days
+        return data
+
+    return mutate_json(
+        data_file("stock-triage", "leader_score_divergences.json"), _mut, {}
+    )
+
+
 def selection_strategy_id(candidate: Mapping[str, Any], lane: str) -> str:
     """Return attribution without pretending a generic candidate is a reseal setup."""
     if lane == "daban" and candidate.get("hot_money_qualified"):
