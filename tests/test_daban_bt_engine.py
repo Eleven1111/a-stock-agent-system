@@ -13,12 +13,22 @@ SPEC.loader.exec_module(eng)
 
 def _ev(code="600255", t_close=10.0, t1_open=10.2, t1_close=11.0,
         first_seal="092500", date="2026-06-03", is_st=False, name="X",
-        t1_high=None, t1_low=None, t1_volume=100000, exit_close=11.2):
+        t1_high=None, t1_low=None, t1_volume=100000, exit_close=11.2,
+        t_prev_close=None, t_open=None, t_high=None, t_low=None, t_volume=100000):
     t1_high = max(t1_open, t1_close) if t1_high is None and t1_open is not None else t1_high
     t1_low = min(t1_open, t1_close) if t1_low is None and t1_open is not None else t1_low
+    # v3 成交约束字段：T 日默认是「盘中打上涨停、板上有换手」的可成交涨停日，
+    # 昨收 = t_close/1.1 使 t_close 恰好落在涨停价上（主板 10cm）。
+    t_prev_close = round(t_close / 1.1, 2) if t_prev_close is None else t_prev_close
+    t_open = round(t_prev_close * 1.02, 2) if t_open is None else t_open
+    t_high = t_close if t_high is None else t_high
+    t_low = round(t_prev_close * 0.99, 2) if t_low is None else t_low
     return {"code": code, "name": name, "t_close": t_close, "t1_open": t1_open,
             "t1_close": t1_close, "t1_high": t1_high, "t1_low": t1_low,
-            "t1_volume": t1_volume, "exit_close": exit_close, "exit_date": "2026-06-05",
+            "t1_volume": t1_volume, "t1_amount": None, "exit_close": exit_close,
+            "exit_date": "2026-06-05",
+            "t_prev_close": t_prev_close, "t_open": t_open, "t_high": t_high,
+            "t_low": t_low, "t_volume": t_volume, "t_amount": None,
             "holding_sessions": 1, "first_seal": first_seal, "date": date,
             "is_st": is_st}
 

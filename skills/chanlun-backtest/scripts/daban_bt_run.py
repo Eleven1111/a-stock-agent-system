@@ -24,13 +24,14 @@ from typing import Any, Dict, List
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "chanlun-backtest", "scripts"))
 import daban_bt_engine as eng  # noqa: E402
+import execution_constraints as xc  # noqa: E402
 import daban_bt_stats as st  # noqa: E402
 import research_gate  # noqa: E402
 from research_artifact import write_artifact  # noqa: E402
 from state_store import atomic_write_json  # noqa: E402
 
 STRATEGY_ID = "daban_auction_factors_mvp"
-EVENT_TABLE_SCHEMA = "daban_bt_event_table_v2"
+EVENT_TABLE_SCHEMA = "daban_bt_event_table_v3"
 
 
 def _norm_date(value: str) -> str:
@@ -106,9 +107,37 @@ def _oos_h1_validation(oos_events: List[Dict[str, Any]], index_benchmark: float,
     }
 
 
+def _degradation_notice(event_table: Dict[str, Any],
+                        events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """区分「策略没信号」与「事件表过期」。
+
+    v2 及更早的事件表不带 T 日 OHLC/t_prev_close，board_overnight 会被 fail-closed
+    全判买不进、返回空样本。没有这块，探索路径（不带 --oos，schema 闸门不生效）打印出
+    的 ``n=0`` 与「这段行情真的没机会」在输出上完全无法区分。
+    """
+    schema = event_table.get("schema")
+    if schema == EVENT_TABLE_SCHEMA:
+        return {"stale_event_table": False, "schema": schema}
+    config = xc.constraints_config()
+    blocked = sum(
+        1 for ev in events
+        if eng.board_entry_fill(ev, config).get("reason") == "missing_t_day_bar_fail_closed"
+    )
+    return {
+        "stale_event_table": True,
+        "schema": schema,
+        "required_schema": EVENT_TABLE_SCHEMA,
+        "board_overnight_events_blocked": blocked,
+        "note": ("事件表早于 v3，缺 T 日 OHLC/t_prev_close：board_overnight 口径全部 "
+                 "fail-closed 判买不进，其空样本是数据过期而不是没有信号。"
+                 "用 daban_bt_data 重建到 v3 后再读该口径。"),
+    }
+
+
 def analyze(event_table: Dict[str, Any], split_date: str,
             benchmark_alpha: float = 0.0, n_perm: int = 5000,
-            oos_validation: bool = False) -> Dict[str, Any]:
+            oos_validation: bool = False,
+            slippage_tiering: bool = False) -> Dict[str, Any]:
     """纯计算：事件表 → 两假设统计 + FDR + research_gate 判定。不触网。
     oos_validation=True：在 oos_events 上跑 H1 一次性 OOS 验证，填 research_state 交闸门判上线。"""
     events = event_table.get("events", [])
@@ -118,7 +147,8 @@ def analyze(event_table: Dict[str, Any], split_date: str,
     # 两个持有窗口变体并排（report-all-variants）。board_overnight=真打板(含隔夜跳空)为主检验。
     variants: Dict[str, Dict[str, Any]] = {}
     for mode in eng.HOLD_MODES:
-        ret = eng.split_returns(events, hold_mode=mode)
+        ret = eng.split_returns(events, hold_mode=mode,
+                                slippage_tiering=slippage_tiering)
         h1 = _two_group("H1_gap_filter", ret["h1"]["signal"], ret["h1"]["control"],
                         "signal", "control", n_perm)
         h1["t_test_signal"] = dict(zip(("t", "p"), st.t_test_vs_zero(ret["h1"]["signal"])))
@@ -176,6 +206,11 @@ def analyze(event_table: Dict[str, Any], split_date: str,
                 "simple_breakout": st.summarize(pools.get("simple_breakout", [])),
             },
         },
+        "execution_constraints": {
+            **xc.constraints_config(),
+            "slippage_tiering_applied": slippage_tiering,
+        },
+        "data_degradation": _degradation_notice(event_table, events),
         "research_state": research_state,
         "gate_result": gate,
     }
@@ -248,6 +283,14 @@ def format_report(r: Dict[str, Any]) -> str:
     cov = r["sample"].get("coverage") or {}
     if cov.get("warning"):
         lines += [cov["warning"], ""]
+    degraded = r.get("data_degradation") or {}
+    if degraded.get("stale_event_table"):
+        lines += [
+            f"⚠️ 事件表 {degraded.get('schema')} 早于 {degraded.get('required_schema')}："
+            f"board_overnight 有 {degraded.get('board_overnight_events_blocked')} 个事件因缺 T 日行情"
+            "被 fail-closed 判买不进 —— 该口径的空样本是数据过期，不是没有信号。",
+            "",
+        ]
     lines += [
         f"样本：涨停事件 {r['sample']['event_count']} 丢弃 {r['sample']['dropped']}"
         + (f" | 覆盖 {cov.get('covered_trading_days')}/{cov.get('expected_trading_days')} 交易日"
@@ -284,6 +327,9 @@ def main() -> None:
                         help="正式 OOS 一次性验证(phase=oos_complete)；跑后禁止看结果改规则")
     parser.add_argument("--artifact", help="OOS 研究产物输出路径；--oos 时必需")
     parser.add_argument("--benchmark-alpha", type=float, default=0.0)
+    parser.add_argument("--slippage-tiering", action="store_true",
+                        help="用滑点分档(常态/高波动)替代固定滑点；会重定价全部收益，"
+                             "只用于对照，结论上线仍须走 research_gate")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     if args.oos and not args.artifact:
@@ -308,7 +354,8 @@ def main() -> None:
         benchmark = fetch_index_benchmark(_norm_date(args.split), _norm_date(bench_end))
 
     result = analyze(table, split_date=args.split, benchmark_alpha=benchmark,
-                     oos_validation=args.oos)
+                     oos_validation=args.oos,
+                     slippage_tiering=args.slippage_tiering)
     if args.oos:
         input_path = args.table
         if not input_path:

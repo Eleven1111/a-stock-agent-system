@@ -66,6 +66,25 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "reduce_below_ma": 5,            # 收盘跌破 5 日线 → 减仓（手册 T-02）
         "min_bars": 21,                  # 不足则 fail-closed
     },
+    # P5(a) 回测成交约束模型（升级方案 §8.1）。不含入场/过滤阈值，只管「能不能成交」
+    # 与滑点分档；缺数据一律 fail-closed。实现见 skills/common/execution_constraints.py。
+    "execution_constraints": {
+        "enabled": True,
+        "order_amount": 200000.0,
+        # 日线 volume 单位是「手」，1 手 = 100 股；缺 amount 时按此折算成交额。
+        "volume_lot_shares": 100.0,
+        "max_participation_rate": 0.01,
+        "reseal_participation_rate": 0.01,
+        "reseal_min_amount": 20000000.0,
+        "limit_down_min_amount": 10000000.0,
+        # 常态档 5-20bp / 高波动档 20-50bp，均保守取区间上沿。
+        "slippage_bps_normal": 20.0,
+        "slippage_bps_volatile": 50.0,
+        "volatile_range_pct": 6.0,
+        # 开启滑点分档会重定价全部历史回测结论，默认关闭，由 daban_bt_run
+        # --slippage-tiering 显式打开做对照。
+        "slippage_tiering": False,
+    },
     # §7b 三项调整机制，默认全部关闭；启用必须引用打板归因报告数据
     # （scripts/strategy_attribution_report.py），杠杆实现见 daban_adjustments.py。
     "adjustments": {

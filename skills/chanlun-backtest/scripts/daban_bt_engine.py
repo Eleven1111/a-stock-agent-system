@@ -18,7 +18,9 @@ from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
-from tradeability import assess_tradeability, limit_pct  # noqa: E402
+import execution_constraints as xc  # noqa: E402
+from a_share_rules import price_limit_pct_on  # noqa: E402
+from tradeability import assess_tradeability  # noqa: E402
 import daban_config as _cfg  # noqa: E402
 
 # 阈值走单一事实源 config/daban_thresholds.yaml（回退默认与历史硬编码一致）
@@ -51,14 +53,18 @@ def parse_seal_minutes(value: Any) -> Optional[int]:
     return None
 
 
+def event_is_st(ev: Dict[str, Any]) -> bool:
+    return bool(ev.get("is_st")) or "ST" in str(ev.get("name", "")).upper()
+
+
 def passes_universe(ev: Dict[str, Any]) -> bool:
     code = str(ev.get("code", "")).zfill(6)
-    name = str(ev.get("name", ""))
     if not code.startswith(("00", "60")):
         return False
-    if limit_pct(code, name) != 10.0:        # 排除 ST(5)/创业科创(20)/北交所(30)
+    if event_is_st(ev):                      # 排除风险警示股（当时口径 5cm/10cm 均不在本 universe）
         return False
-    if ev.get("is_st"):
+    # 按事件日期取制度，禁止用今天的涨跌幅回测历史（P5(b)）。
+    if price_limit_pct_on(code, ev.get("date"), is_st=False) != 10.0:
         return False
     for k in ("t_close", "t1_open", "t1_close"):
         v = ev.get(k)
@@ -113,7 +119,68 @@ def split_by_date(events: List[Dict[str, Any]], split_date: str
 HOLD_MODES = ("t1_open_next_sellable_close", "open_close", "board_overnight")
 
 
-def _event_return(ev: Dict[str, Any], hold_mode: str, cost: Dict[str, float]) -> float:
+# ---- P5(a) 成交约束模型接线 ----
+def t_day_bar(ev: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """T 日（打板日）完整 OHLCV+成交额。v3 事件表提供；缺任一价格字段返回 None。"""
+    bar = {
+        "open": ev.get("t_open"), "high": ev.get("t_high"),
+        "low": ev.get("t_low"), "close": ev.get("t_close"),
+        "volume": ev.get("t_volume"), "amount": ev.get("t_amount"),
+    }
+    if any(bar[field] is None for field in ("open", "high", "low", "close")):
+        return None
+    return bar
+
+
+def board_entry_fill(ev: Dict[str, Any],
+                     config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """board_overnight 口径的 T 日板上买入约束：一字禁买 / 回封按参与率部分成交。
+
+    T 日 OHLC 或 t_prev_close 缺失 → fail-closed 判买不进（v2 旧事件表即属此列，
+    须用 daban_bt_data 重建到 v3）。
+    """
+    bar = t_day_bar(ev)
+    if bar is None or ev.get("t_prev_close") is None:
+        return {"schema": xc.SCHEMA, "side": "buy", "filled": False,
+                "fill_ratio": 0.0, "fill_amount": 0.0, "limit_state": "unknown",
+                "reason": "missing_t_day_bar_fail_closed"}
+    return xc.assess_buy_fill(
+        bar,
+        code=str(ev.get("code") or "").zfill(6),
+        asof=ev.get("date"),
+        prev_close=ev.get("t_prev_close"),
+        is_st=event_is_st(ev),
+        config=config,
+    )
+
+
+def event_slippage_bps(ev: Dict[str, Any], hold_mode: str,
+                       config: Optional[Dict[str, Any]] = None) -> Optional[float]:
+    """按持有窗口的买入日定滑点档；涨跌停事件返回 None（走约束模型不叠固定滑点）。"""
+    if hold_mode == "board_overnight":
+        bar, prev = t_day_bar(ev), ev.get("t_prev_close")
+        asof = ev.get("date")
+    else:
+        bar = {"open": ev.get("t1_open"), "high": ev.get("t1_high"),
+               "low": ev.get("t1_low"), "close": ev.get("t1_close"),
+               "volume": ev.get("t1_volume"), "amount": ev.get("t1_amount")}
+        prev, asof = ev.get("t_close"), ev.get("entry_date") or ev.get("date")
+    if bar is None:
+        return None
+    tier = xc.slippage_bps(
+        bar, code=str(ev.get("code") or "").zfill(6), asof=asof,
+        prev_close=prev, is_st=event_is_st(ev), config=config,
+    )
+    return tier["bps"]
+
+
+def _event_return(ev: Dict[str, Any], hold_mode: str, cost: Dict[str, float],
+                  slippage_tiering: bool = False,
+                  config: Optional[Dict[str, Any]] = None) -> float:
+    if slippage_tiering:
+        bps = event_slippage_bps(ev, hold_mode, config)
+        if bps is not None:
+            cost = {**cost, "slippage": float(bps) / 10_000.0}
     if hold_mode == "board_overnight":
         return net_return(ev["t_close"], ev["t1_close"], cost)
     if hold_mode == "t1_open_next_sellable_close":
@@ -121,12 +188,21 @@ def _event_return(ev: Dict[str, Any], hold_mode: str, cost: Dict[str, float]) ->
     return net_return(ev["t1_open"], ev["t1_close"], cost)
 
 
-def hold_mode_executable(ev: Dict[str, Any], hold_mode: str) -> bool:
+def hold_mode_executable(ev: Dict[str, Any], hold_mode: str,
+                         config: Optional[Dict[str, Any]] = None) -> bool:
+    cfg = config if config is not None else xc.constraints_config()
+    if hold_mode == "board_overnight":
+        # 打板买在板上：一字封死买不进、回封换手不足买不进（P5(a) 1/2）。
+        if not cfg.get("enabled", True):
+            return True
+        return bool(board_entry_fill(ev, cfg).get("filled"))
     if hold_mode not in {"open_close", "t1_open_next_sellable_close"}:
         return True
     if not open_close_entry_tradeable(ev):
         return False
     if hold_mode == "t1_open_next_sellable_close":
+        # 卖出侧的「跌停无承接量顺延」由数据层 first_sellable_exit 落到 exit_date/
+        # holding_sessions；这里只校验它确实找到了可成交出场时点（P5(a) 3）。
         return (
             ev.get("exit_close") is not None
             and ev.get("exit_date") is not None
@@ -138,12 +214,14 @@ def hold_mode_executable(ev: Dict[str, Any], hold_mode: str) -> bool:
 def strategy_returns(events: List[Dict[str, Any]],
                      predicate: Callable[[Dict[str, Any]], bool],
                      cost: Dict[str, float] = DEFAULT_COST,
-                     hold_mode: str = "open_close") -> List[float]:
+                     hold_mode: str = "open_close",
+                     slippage_tiering: bool = False) -> List[float]:
     """对 universe 内满足 predicate 的事件，按 hold_mode 计净收益列表。"""
+    cfg = xc.constraints_config()
     return [
-        _event_return(e, hold_mode, cost)
+        _event_return(e, hold_mode, cost, slippage_tiering, cfg)
         for e in filter_universe(events)
-        if predicate(e) and hold_mode_executable(e, hold_mode)
+        if predicate(e) and hold_mode_executable(e, hold_mode, cfg)
     ]
 
 
@@ -163,28 +241,33 @@ def is_intraday_seal(ev: Dict[str, Any]) -> bool:
 
 
 def split_returns(events: List[Dict[str, Any]], cost: Dict[str, float] = DEFAULT_COST,
-                  hold_mode: str = "open_close") -> Dict[str, Dict[str, List[float]]]:
+                  hold_mode: str = "open_close", slippage_tiering: bool = False
+                  ) -> Dict[str, Dict[str, List[float]]]:
     """
     一次性算出两个假设在某事件集合上的收益序列（不切 IS/OOS，由调用方先切）。
     返回 {"h1": {"signal", "control"}, "h2": {"auction", "intraday"}}。
     """
+    cfg = xc.constraints_config()
     universe = filter_universe(events)
     executable = [
         event for event in universe
-        if hold_mode_executable(event, hold_mode)
+        if hold_mode_executable(event, hold_mode, cfg)
     ]
     return {
         "h1": {
-            "signal": strategy_returns(universe, is_h1_signal, cost, hold_mode),
+            "signal": strategy_returns(universe, is_h1_signal, cost, hold_mode,
+                                       slippage_tiering),
             "control": [
-                _event_return(e, hold_mode, cost)
+                _event_return(e, hold_mode, cost, slippage_tiering, cfg)
                 for e in executable
                 if not is_h1_signal(e)
             ],
         },
         "h2": {
-            "auction": strategy_returns(executable, is_auction_seal, cost, hold_mode),
-            "intraday": strategy_returns(executable, is_intraday_seal, cost, hold_mode),
+            "auction": strategy_returns(executable, is_auction_seal, cost, hold_mode,
+                                        slippage_tiering),
+            "intraday": strategy_returns(executable, is_intraday_seal, cost, hold_mode,
+                                         slippage_tiering),
         },
     }
 
@@ -193,17 +276,19 @@ def daily_h1_returns(
     events: List[Dict[str, Any]],
     cost: Dict[str, float] = DEFAULT_COST,
     hold_mode: str = "open_close",
+    slippage_tiering: bool = False,
 ) -> List[Dict[str, Any]]:
     """Aggregate disjoint H1 signal/control observations to one paired row per trading date."""
+    cfg = xc.constraints_config()
     grouped: Dict[str, Dict[str, List[float]]] = defaultdict(
         lambda: {"signal": [], "control": []}
     )
     for event in filter_universe(events):
-        if not hold_mode_executable(event, hold_mode):
+        if not hold_mode_executable(event, hold_mode, cfg):
             continue
         bucket = "signal" if is_h1_signal(event) else "control"
         grouped[str(event.get("date") or "")][bucket].append(
-            _event_return(event, hold_mode, cost)
+            _event_return(event, hold_mode, cost, slippage_tiering, cfg)
         )
     output = []
     for trade_date, values in sorted(grouped.items()):
