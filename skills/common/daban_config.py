@@ -123,6 +123,22 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "min_baseline_sample_days": 15,
         "preferred_baseline_sample_days": 20,
     },
+    # P3 S3 最强助攻套利（AssistArbitrage）研究策略参数（升级方案 §6.1）。NON-LIVE：
+    # 未在 strategy_registry 注册前，本节只被回测/研究路径读取，绝不影响实盘排序。
+    # LeaderScore 复用 P2 已合入的 leader_score_shadow，本节不含任何龙头分权重副本。
+    "assist_arbitrage": {
+        "min_leader_score": 80.0,
+        "min_sector_breadth_count": 3,
+        "min_board_level_gap": 1,
+        "relative_strength_field": "change_pct",
+        "relative_strength_top_pct": 0.20,
+        "min_theme_peer_count": 5,
+        "breakout_rank_top_n": 1,
+        # 退出条件阈值（与入场条件同等地位，见 skills/common/assist_arbitrage.py）
+        "leader_weak_change_pct_max": -3.0,
+        "breadth_decline_min_drop": 1.0,
+        "min_rotation_gap": 15.0,
+    },
     # §7b 三项调整机制，默认全部关闭；启用必须引用打板归因报告数据
     # （scripts/strategy_attribution_report.py），杠杆实现见 daban_adjustments.py。
     "adjustments": {

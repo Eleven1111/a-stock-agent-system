@@ -126,3 +126,20 @@ divergence_reseal:
   max_turnover_ratio: 3.0             # 条件4上限：封板前换手 ≤ 20日同期中位数的3.0倍（含）
   min_baseline_sample_days: 15        # 20日同期基准样本下限，不足 → unavailable（绝不返回0）
   preferred_baseline_sample_days: 20  # 低于此天数但≥下限时，标记 degraded（口径打折但不阻断）
+
+# P3 S3 最强助攻套利（AssistArbitrage）研究策略参数 — NON-LIVE，新增节，不改任何既有阈值。
+# 信号：龙头 LeaderScore≥80（复用 leader_score_shadow，不重造）∧ 板块广度≥3 ∧
+# 候选连板高度≤龙头连板高度-1 ∧ 候选题材内相对强度Top20% ∧ 龙头确认后候选率先突破
+# 日内关键位（升级方案 §6.1）。退出：龙头走弱∧题材广度下降，或新主线DirectionScore
+# 超原主线≥15分——退出判定与入场完全独立，见 skills/common/assist_arbitrage.py。
+assist_arbitrage:
+  min_leader_score: 80.0              # 条件1：龙头 LeaderScore 下限（取自 leader_score_shadow）
+  min_sector_breadth_count: 3         # 条件2：板块涨停家数下限
+  min_board_level_gap: 1              # 条件3：候选连板高度 ≤ 龙头连板高度 - 此值（至少矮一级）
+  relative_strength_field: change_pct # 条件4：相对强度排名依据字段
+  relative_strength_top_pct: 0.20     # 条件4：候选需位于题材内前 20%
+  min_theme_peer_count: 5             # 题材同组样本下限，不足 → unavailable（绝不返回0）
+  breakout_rank_top_n: 1              # 入场触发：按突破时刻排名，取前 N（方案原文"率先"取1）
+  leader_weak_change_pct_max: -3.0    # 退出A：龙头当日涨跌幅 ≤ 此值视为走弱（或已开板失守）
+  breadth_decline_min_drop: 1.0       # 退出A：题材广度较对照时点下降 ≥ 此值家数
+  min_rotation_gap: 15.0              # 退出B：新主线 DirectionScore 超原主线 ≥ 此值
