@@ -22,6 +22,16 @@ final decision.
 - No strategy may influence live ranking before passing the research gate.
 - No external-data failure may be silently interpreted as neutral evidence or
   absence of risk.
+- Take, borrow, and follow momentum only. Never emit an order plan whose
+  purpose is to move a price or induce other participants to follow: no
+  self-reinforcing order ladders, no quote-and-cancel sequences, no
+  "ignition" logic. Historical case studies of such behaviour are research
+  material, never an executable strategy.
+- Never act on inside information, undisclosed information, or unverified
+  rumours, and never emit false or misleading statements about a security.
+- Dragon-tiger (龙虎榜) seat data is a confirmation, crowding, and post-mortem
+  variable only. It must never be an independent buy factor, and it must never
+  enter live ranking weights.
 
 ## Runtime State
 
