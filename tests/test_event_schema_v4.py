@@ -343,3 +343,15 @@ def test_availability_summary_counts_every_field():
     assert summary["reseal_time"][dat.AVAILABLE] == 2
     assert summary["reseal_time"][f"{dat.NOT_APPLICABLE}:never_opened_board_no_reseal"] == 4
     assert sum(summary["volume_ratio"].values()) == len(_PEERS)
+
+
+def test_run_layer_and_data_layer_share_one_schema_constant():
+    """schema 版本号只能有一个事实源。
+
+    构建端与运行端各写一份字面量时，只升其中一处会让每张新建的表都被判
+    「数据过期、请重建」——而重建出来的还是同一个版本，用户陷在死循环里。
+    """
+    import daban_bt_data
+    import daban_bt_run
+
+    assert daban_bt_run.EVENT_TABLE_SCHEMA is daban_bt_data.EVENT_SCHEMA

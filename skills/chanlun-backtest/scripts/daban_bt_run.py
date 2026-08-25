@@ -29,9 +29,12 @@ import daban_bt_stats as st  # noqa: E402
 import research_gate  # noqa: E402
 from research_artifact import write_artifact  # noqa: E402
 from state_store import atomic_write_json  # noqa: E402
+import daban_bt_data  # noqa: E402  -- EVENT_SCHEMA 的单一事实源（akshare/mootdx 均为函数内延迟导入）
 
 STRATEGY_ID = "daban_auction_factors_mvp"
-EVENT_TABLE_SCHEMA = "daban_bt_event_table_v4"
+# 版本号只有 daban_bt_data 一个事实源：构建时打的戳和运行时期待的版本各写一份字面量，
+# 迟早分叉——只升构建端会让每张新表都被判「数据过期、请重建」，重建出来还是同一版本。
+EVENT_TABLE_SCHEMA = daban_bt_data.EVENT_SCHEMA
 
 # 各历史 schema 相对当前版本**缺什么**——降级说明必须按版本差异给准确原因。
 # 早先这里把「schema 不等于当前版本」一律解释成「缺 T 日 OHLC」，那只是 v2→v3 的
