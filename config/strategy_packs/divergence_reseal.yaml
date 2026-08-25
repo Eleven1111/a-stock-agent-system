@@ -1,0 +1,84 @@
+# S2 龙头分歧回封策略包（DivergenceReseal）— 解释与研究假设层（NON-LIVE）
+# =============================================================================
+# 本文件是"声明式策略包"，只用于 agent 解释推荐时引用的判断标准，以及作为研究
+# 假设。它绝不影响实盘排序 / 评分 / 信号（AGENTS.md 红线：任何策略未过 research
+# gate 不得影响实盘排序）。想让本包影响实盘 → 走 research_gate 样本外验证并在
+# strategy_registry 登记 allowed_in_live_agent=true。
+#
+# 红线（本包的具体形态）：
+#   - strategy_registry 中**没有** divergence_reseal 记录 ⇒ 消费端一律降级为
+#     watch、仓位倍率 0（decision_policy「strategy_unverified」/
+#     recommendation_audit「research_only」两条路径都会归零），这条行为由
+#     tests/test_divergence_reseal.py 的消费端行为断言守着，不是靠本文件的
+#     字段值自证。
+#   - 未过 research_gate 之前，任何人不得把 skills/common/divergence_reseal.py
+#     的判定折进 daban_score / trend_score / 排序 / 仓位。
+#
+# 通用模板：不含任何具体股票代码 / 股票名称 / 具体板块名称。
+
+name: divergence_reseal
+display_name: 龙头分歧回封
+description: >-
+  识别"板块内分歧剧烈（大量一字/快速板，追不进去）时，前排龙头率先完成充分换手后
+  重新封板"的标的：板块涨停家数达到梯队规模、板块内存在大量一字/快速板（分歧的
+  表征——多数标的封板太快没有承接窗口），目标标的是按回封时刻排序的**前 2 个**
+  完成充分换手（相对 20 日同期中位数放量 1.5-3.0 倍）后重新封板的前排股。用于解释
+  分歧向一致收敛过程中谁完成了承接换手，不构成买入指令。
+category: pattern
+
+# 适用市场状态：分歧回封的解释力集中在板块梯队已经拉开、需要分歧出清的阶段；
+# 退潮(S6)期板块涨停家数与一字板密度本身通常已回落，不适用。
+market_regimes:
+  - S3   # 扩散/主升（梯队最容易出现分歧）
+  - S4   # 高潮/加速
+  - S5   # 分歧（分歧转一致正是本包关注的形态）
+
+# 需要的证据字段（缺失即无法判定；实现层对缺失一律返回 unavailable，绝不按
+# "默认不满足"处理 —— 把"没数据"折叠成"不触发"会让零样本看起来像已验证的负结果）。
+evidence_requirements:
+  - sector                          # 板块归属，候选池的分组键；缺失 → unavailable
+  - sector_limit_up_count           # 板块涨停家数（条件1：≥3）
+  - sector_fast_seal_count          # 板块内一字/快速板家数（条件2："大量"的可执行下限）
+  - reseal_time                     # 该标的回封时刻（HHMMSS）；条件3排名的唯一依据
+  - pre_reseal_turnover_pct         # 封板前累计换手率(%)
+  - turnover_baseline_median_pct    # 该标的 20 日同期换手中位数(%)
+  - turnover_baseline_sample_days   # 20 日同期基准的样本天数，不足 → unavailable
+
+# 入场四条件（升级方案 §6.1）。阈值不写在本文件里，单一事实源是
+# config/daban_thresholds.yaml 的 divergence_reseal 节：策略包是解释层，
+# 把可执行参数放进来会模糊"解释层 vs 执行层"的边界。
+entry_conditions:
+  - sector_limit_up_breadth:  板块涨停家数 ≥ min_sector_limit_up_count（默认 3）
+  - sector_fast_seal_density: 板块内一字/快速板家数 ≥ min_sector_fast_seal_count（默认 2）
+  - reseal_rank_top_n:        按回封时刻先后排名前 N（默认 2，方案原文"前2个"）
+  - reseal_turnover_band:     封板前换手 ∈ [20日同期中位数×1.5, ×3.0]
+
+# 本策略的成败点（不是入场条件，是判定方法本身）：
+#   "前 2 个"必须按回封**时刻**的先后顺序确定，只用截至该时刻的信息，绝不能按
+#   结果（是否守住到收盘）挑选——一个先回封、后来又炸板的标的仍然按回封时刻被
+#   选中，因为实现层 reseal_rank() 只吃 reseal_time，不读取任何"后续结果"字段。
+#   报告把这一点列为最容易踩的未来函数陷阱：用"当日回封成功"的结果集去反推
+#   "前2个"，回测会漂亮得毫无意义。由 tests/test_divergence_reseal.py 的专门用例守着。
+#   同理，"充分换手"用 20 日同期中位数这个事前基准，不用当日绝对换手率拍脑袋。
+
+research_status: >-
+  not_gated_zero_sample（未验证；既未证实也未证伪）。本机无全市场分钟线缓存，
+  既有 daban_bt_data v3 事件表不含 sector_limit_up_count / sector_fast_seal_count /
+  reseal_time / pre_reseal_turnover_pct / turnover_baseline_median_pct /
+  turnover_baseline_sample_days 六个必需证据字段中的任何一个，walk-forward OOS
+  闸门跑不了，实跑真实事件数按事件表规模非零、命中数为 0。因此本包**没有任何**
+  胜率 / PF / 期望值结论，任何此类数字都不存在。详见
+  docs/divergence-reseal-gate-evaluation-2026-08.md。
+
+interpretation: >-
+  本包描述的是"分歧剧烈时谁先完成承接换手并重新封板"这一可核对的事实：板块涨停
+  家数与一字/快速板密度共同刻画"分歧程度"（一字板越多，说明多数标的没有换手
+  窗口，能进场的只有极少数）；封板前换手相对 20 日同期中位数的倍数刻画"是否真的
+  完成了充分承接"（太低是没换手，太高可能是抛压出逃）；回封时刻的先后排名刻画
+  "是不是前排"。四者叠加构成"分歧→一致"收敛过程中的前排承接假设。注意：板块涨
+  停家数/一字板密度/回封时刻/换手基准任一缺失时，实现层返回 unavailable 而非
+  "不触发"，agent 解释时必须照此表述，不得把不可用读成负面结论。
+
+# 本包不提供任何加减分解释：样本为零，此时给出任何方向性加减分都是把未验证假设
+# 当结论展示。保持空列表而非删除字段（schema 必填项）。
+score_hints: []
