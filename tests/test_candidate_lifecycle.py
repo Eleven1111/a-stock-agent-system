@@ -171,3 +171,24 @@ def test_initialized_cohort_is_still_observable(tmp_path, monkeypatch):
     )
 
     assert result["records"][0]["outcome"]["t1_close_ret"] == 10.0
+
+
+def test_settle_day_does_not_fabricate_a_cohort_that_was_never_initialized(tmp_path, monkeypatch):
+    """settle_day 此前漏了 cohort_initialized 守卫（transition/observe_day 都有）。
+
+    它同样走 mutate_json，会把 load_day 的空骨架落盘，凭空造出
+    metadata={} / records=[] 的文件——正是 2026-07/08 那 6 个"有文件零记录"
+    空白日的成因之一。目前生产不调用它，属潜在而非活跃的洞，但守卫必须补齐，
+    否则将来一旦接线就会重新制造幽灵队列。
+    """
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    missing = lifecycle.lifecycle_file("2026-07-21")
+    klines = {"600001": [
+        {"date": "2026-07-21", "open": 10.0, "close": 10.0, "high": 10.0, "low": 10.0},
+        {"date": "2026-07-22", "open": 11.0, "close": 11.0, "high": 11.0, "low": 11.0},
+    ]}
+
+    result = lifecycle.settle_day("2026-07-21", klines)
+
+    assert result == {}
+    assert not os.path.exists(missing), "未初始化的队列不得被 settle_day 凭空造出来"
