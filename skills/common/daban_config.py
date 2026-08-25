@@ -85,6 +85,24 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         # --slippage-tiering 显式打开做对照。
         "slippage_tiering": False,
     },
+    # P3 S1 超预期（RankSurprise）研究策略参数（升级方案 §6.1）。NON-LIVE：
+    # 未在 strategy_registry 注册前，本节只被回测/研究路径读取，绝不影响实盘排序。
+    # β 未拟合（fitted=false）—— 预期基准必须先在 IS 段拟合并落盘才谈闸门。
+    "rank_surprise": {
+        # 预期基准 ExpectedGap = Median(Gap_peer) + β₁·昨日收益% + β₂·连板高度
+        "beta_prior_return": 0.0,
+        "beta_board_height": 0.0,
+        "betas_fitted": False,
+        # peer 样本下限：低于此值排名与中位数都无意义 → unavailable（不返回 0）
+        "min_peer_count": 5,
+        # 入场四条件阈值（方案 §6.1）
+        "prior_rank_bottom_pct": 0.30,   # 昨日板块内强度排名后 30%
+        "auction_rank_top_pct": 0.20,    # 今日竞价强度进前 20%
+        "min_volume_ratio": 1.5,         # 09:45 前量比 > 1.5
+        "volume_ratio_deadline": "09:45",
+        # 题材退潮判定复用 market_cycle_state/market_temperature 的 S 状态口径
+        "ebbing_states": ["S6"],
+    },
     # §7b 三项调整机制，默认全部关闭；启用必须引用打板归因报告数据
     # （scripts/strategy_attribution_report.py），杠杆实现见 daban_adjustments.py。
     "adjustments": {
