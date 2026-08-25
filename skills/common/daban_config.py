@@ -109,6 +109,8 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "fast_board_seal_minute": 571,   # ≤09:31 一字/快速板（含一字）
         "turnover_baseline_window": 20,
         "turnover_baseline_min_days": 15,
+        "volume_ratio_checkpoint": "09:45",   # 量比时点（分钟线派生，2026-08）
+        "volume_ratio_baseline_days": 5,      # 量比基准回看交易日数
     },
     # P3 S2 龙头分歧回封（DivergenceReseal）研究策略参数（升级方案 §6.1）。NON-LIVE：
     # 未在 strategy_registry 注册前，本节只被回测/研究路径读取，绝不影响实盘排序。
