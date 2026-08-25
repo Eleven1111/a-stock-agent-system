@@ -106,6 +106,14 @@ rank_surprise:
 # ∧ 封板前换手 ≥ 20日同期中位数的1.5-3.0倍（升级方案 §6.1）。
 # "前2个"按回封**时刻**的先后排序，只用截至该时刻的信息判定，不看后续是否炸板——
 # 这是本策略的成败点，实现与测试都必须守住（见 skills/common/divergence_reseal.py）。
+# 回测事件表 v4 构建口径 — 新增节，只影响 daban_bt_data 的字段派生，不含任何入场/过滤阈值。
+# 分档时间阈值用分钟数（HH*60+MM），与 auction.auction_seal_minute 同口径。
+event_table_v4:
+  one_word_seal_minute: 565           # 首次封板 ≤09:25（集合竞价即封）→ 计入一字板家数
+  fast_board_seal_minute: 571         # 首次封板 ≤09:31 → 计入一字/快速板家数（含一字）
+  turnover_baseline_window: 20        # 换手基准回看窗口（事件日之前的 N 个交易日，不含事件日）
+  turnover_baseline_min_days: 15      # 有效样本天数下限，不足 → 基准 unavailable（绝不给默认值）
+
 divergence_reseal:
   min_sector_limit_up_count: 3        # 条件1：板块涨停家数下限
   min_sector_fast_seal_count: 2       # 条件2：板块内一字/快速板家数下限（"大量"的可执行口径）

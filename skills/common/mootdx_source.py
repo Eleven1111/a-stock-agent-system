@@ -118,6 +118,11 @@ def standardize_event(code: str, name: str, hit: Dict[str, Any]) -> Dict[str, An
         "float_mktcap": None,    # 日线拿不到（需 F10）
         "sector": None,          # 日线拿不到（需行业分类源）
         "is_st": "ST" in name.upper(),
+        # v4 字段：与 akshare 路线保持同构，显式置 None ——「键不存在」和「已知拿不到」
+        # 在下游是两回事，后者才能被 field_availability 标成 unavailable 并计数。
+        "turnover_pct": None,      # 需流通股本，日线拿不到
+        "last_seal_time": None,    # 盘口数据，日线拿不到
+        "open_board_count": None,  # 盘口数据，日线拿不到
     }
 
 

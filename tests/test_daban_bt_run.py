@@ -32,9 +32,16 @@ def _table():
             "exit_date": "2026-04-13" if i < 6 else "2026-05-12",
             "exit_close": 11.0, "holding_sessions": 1,
             "first_seal": seal, "is_st": False,
+            # v4 证据字段（本表只验 run 层，取值本身不参与 H1/H2 统计）
+            "sector": "合成板块",
+            "turnover_pct": 8.0, "last_seal_time": "103000", "open_board_count": 1.0,
+            "reseal_time": "103000",
+            "sector_limitup_count": 4, "sector_one_word_count": 1,
+            "sector_fast_board_count": 2,
+            "turnover_baseline_median": 4.0, "turnover_baseline_sample_days": 20,
         })
     return {
-        "schema": "daban_bt_event_table_v3",
+        "schema": "daban_bt_event_table_v4",
         "start": "20260401", "end": "20260531",
         "raw_count": 12, "event_count": 12, "dropped": {"no_kline": 0, "no_next_day": 0},
         "events": events,
@@ -153,7 +160,7 @@ def test_persist_evidence_rejects_legacy_event_schema(tmp_path):
     input_path.write_text(json.dumps(table), encoding="utf-8")
     result = run.analyze(table, split_date="20260501", n_perm=100, oos_validation=True)
 
-    with pytest.raises(ValueError, match="daban_bt_event_table_v3"):
+    with pytest.raises(ValueError, match="daban_bt_event_table_v4"):
         run.persist_evidence(
             result,
             event_table=table,
@@ -163,33 +170,82 @@ def test_persist_evidence_rejects_legacy_event_schema(tmp_path):
         )
 
 
-def test_stale_event_table_reports_degradation_not_a_silent_empty_sample():
+V3_ONLY_FIELDS = ("turnover_pct", "last_seal_time", "open_board_count", "reseal_time",
+                  "sector_limitup_count", "sector_one_word_count",
+                  "sector_fast_board_count",
+                  "turnover_baseline_median", "turnover_baseline_sample_days")
+V2_MISSING = ("t_open", "t_high", "t_low", "t_volume", "t_amount", "t_prev_close")
+
+
+def _v3_table():
+    """v3 形状：T 日行情齐全，但没有 v4 新增的 S1/S2 证据字段。"""
+    table = _table()
+    table["schema"] = "daban_bt_event_table_v3"
+    for ev in table["events"]:
+        for field in V3_ONLY_FIELDS:
+            ev.pop(field, None)
+    return table
+
+
+def _v2_table():
+    """v2 形状：连 T 日行情都没有（v4 字段自然也没有）。"""
+    table = _v3_table()
+    table["schema"] = "daban_bt_event_table_v2"
+    for ev in table["events"]:
+        for field in V2_MISSING:
+            ev.pop(field, None)
+    return table
+
+
+def test_stale_v2_table_diagnoses_missing_t_day_ohlc():
     """v2 旧表跑 board_overnight 会被 fail-closed 判空样本。
 
     空样本必须显式说明是「数据过期」而不是「没有信号」——两者在 n=0 上不可区分，
     而探索路径（不带 --oos）没有 schema 闸门拦截。
     """
-    table = _table()
-    table["schema"] = "daban_bt_event_table_v2"
-    for ev in table["events"]:          # v2 形状：无 T 日行情字段
-        for field in ("t_open", "t_high", "t_low", "t_volume", "t_amount", "t_prev_close"):
-            ev.pop(field, None)
-
+    table = _v2_table()
     result = run.analyze(table, split_date="20260501")
 
     assert result["exploratory"]["variants"]["board_overnight"]["h1"]["signal"]["n"] == 0
     degraded = result["data_degradation"]
     assert degraded["stale_event_table"] is True
-    assert degraded["required_schema"] == "daban_bt_event_table_v3"
+    assert degraded["required_schema"] == "daban_bt_event_table_v4"
     assert degraded["board_overnight_events_blocked"] == len(table["events"]) > 0
+    assert "T 日 OHLC" in degraded["note"]
     assert "不是没有信号" in degraded["note"]
     assert "数据过期" in run.format_report(result)
+
+
+def test_stale_v3_table_diagnoses_missing_v4_fields_not_t_day_ohlc():
+    """v3 表被判 stale，但它**不缺 T 日 OHLC** —— 缺的是 v4 新增字段。
+
+    升 v4 前这里会输出 v2 的措辞（"缺 T 日 OHLC"），那是错误诊断：
+    v3 表的 board_overnight 明明买得进，零命中的是 S1/S2，原因是新字段没有。
+    """
+    result = run.analyze(_v3_table(), split_date="20260501")
+
+    degraded = result["data_degradation"]
+    assert degraded["stale_event_table"] is True
+    assert degraded["board_overnight_events_blocked"] == 0, "v3 表 T 日行情齐全，不该被判买不进"
+    assert degraded["missing_v4_fields"] == list(V3_ONLY_FIELDS)
+    assert "T 日 OHLC" not in degraded["note"]
+    assert "reseal_time" in degraded["note"] and "S1/S2" in degraded["note"]
+    assert "数据过期" in run.format_report(result)
+    # 主检验样本非空：证明 v3 的问题确实不在成交约束上
+    assert result["exploratory"]["variants"]["board_overnight"]["h1"]["signal"]["n"] > 0
+
+
+def test_v2_and_v3_degradation_notices_differ():
+    """两个版本的降级措辞必须不同——一律套同一句就是误诊。"""
+    v2_note = run.analyze(_v2_table(), split_date="20260501")["data_degradation"]["note"]
+    v3_note = run.analyze(_v3_table(), split_date="20260501")["data_degradation"]["note"]
+    assert v2_note != v3_note
 
 
 def test_current_event_table_is_not_flagged_as_degraded():
     result = run.analyze(_table(), split_date="20260501")
     assert result["data_degradation"] == {
         "stale_event_table": False,
-        "schema": "daban_bt_event_table_v3",
+        "schema": "daban_bt_event_table_v4",
     }
     assert "数据过期" not in run.format_report(result)

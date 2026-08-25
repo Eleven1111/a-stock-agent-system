@@ -4,7 +4,7 @@ S2 龙头分歧回封（DivergenceReseal）回测接线 — 升级方案 §6.1 +
 =================================================================================
 把 skills/common/divergence_reseal.py 的纯信号接到既有打板回测事件表上：
 
-  事件表(daban_bt_data v3) → 板块×交易日候选池记录 → divergence_reseal.evaluate_universe
+  事件表(daban_bt_data v4) → 板块×交易日候选池记录 → divergence_reseal.evaluate_universe
   → 命中集合 {(code, date)} → daban_bt_engine.strategy_returns（含 P5(a) 成交约束
   + 既有费用口径 DEFAULT_COST + T+1 口径的 hold_mode）
 
@@ -12,17 +12,16 @@ S2 龙头分歧回封（DivergenceReseal）回测接线 — 升级方案 §6.1 +
 
 字段映射（事件表 → 信号记录）与诚实缺口标注
 --------------------------------------------
-v3 事件表是逐票的涨停事件表，不含板块横截面的"当日涨停家数/一字板家数"聚合、
-不含"开板后重新封板"的分钟级时刻、也不含 20 日同期换手基准。因此本适配器
-**不造代理值**——六个必需证据字段中除 sector 外全部缺失，信号一律
-unavailable，在报告里如实计数。要跑出非零样本，必须先把以下字段落进事件表
-（见 docs/divergence-reseal-gate-evaluation-2026-08.md）：
-  - sector_limit_up_count / sector_fast_seal_count（板块横截面聚合，日频即可）
-  - reseal_time（分钟级开板-回封时刻，需要分钟线）
-  - pre_reseal_turnover_pct / turnover_baseline_median_pct / _sample_days
-    （封板前累计换手 + 20 日同期基准，需要分钟线 + 历史换手序列）
+v4 事件表（EVENT_SCHEMA=daban_bt_event_table_v4）已补齐三组证据（见
+docs/event-schema-v4-2026-08.md）：板块横截面聚合 sector_limitup_count /
+sector_fast_board_count、由「炸板次数>0 时取最后封板时间」派生的 reseal_time、
+从 K 线历史算的 turnover_baseline_median / _sample_days。
 
-若事件表恰好带有这些字段（未来数据管道升级后），适配器按同名/近义字段直接透传；
+仍然缺的是 **pre_reseal_turnover_pct**（封板前累计换手，需分钟线）：akshare 的
+换手率是全日口径，不等价，**不拿它冒充**。因此在真实 v4 表上 S2 的条件4 仍会
+unavailable、命中为 0；这是数据缺口，不是"没有信号"。
+
+适配器对这些字段只做同名/近义透传（v3 旧命名保留回退）；
 带 sector 但不带其余字段的记录，仍然诚实地判 unavailable，不拿"事件表里有涨停
 就算板块涨停家数"这种间接推断顶替真实聚合——间接推断算出的"家数"会包含非
 候选池的其他票，口径不等价，比 unavailable 更危险。
@@ -56,6 +55,15 @@ SCHEMA = "divergence_reseal_backtest_v1"
 DEFAULT_HOLD_MODE = "board_overnight"
 
 
+def _first(event: Dict[str, Any], *names: str) -> Any:
+    """按名字顺序取第一个非 None 的值（新命名优先，旧命名回退）。"""
+    for name in names:
+        value = event.get(name)
+        if value is not None:
+            return value
+    return None
+
+
 def event_record(event: Dict[str, Any]) -> Dict[str, Any]:
     """单个回测事件 → S2 信号记录。
 
@@ -67,11 +75,17 @@ def event_record(event: Dict[str, Any]) -> Dict[str, Any]:
         "code": str(event.get("code") or "").zfill(6),
         "date": str(event.get("date") or ""),
         "sector": event.get("sector"),
-        "sector_limit_up_count": event.get("sector_limit_up_count"),
-        "sector_fast_seal_count": event.get("sector_fast_seal_count"),
+        # v4 事件表用 sector_limitup_count / sector_fast_board_count /
+        # turnover_baseline_median 命名；这里只做**近义字段透传**（信号层判定一行未改），
+        # 旧命名保留为回退，v3 时代固化的表继续可读。
+        "sector_limit_up_count": _first(event, "sector_limitup_count",
+                                        "sector_limit_up_count"),
+        "sector_fast_seal_count": _first(event, "sector_fast_board_count",
+                                         "sector_fast_seal_count"),
         "reseal_time": event.get("reseal_time"),
         "pre_reseal_turnover_pct": event.get("pre_reseal_turnover_pct"),
-        "turnover_baseline_median_pct": event.get("turnover_baseline_median_pct"),
+        "turnover_baseline_median_pct": _first(event, "turnover_baseline_median",
+                                               "turnover_baseline_median_pct"),
         "turnover_baseline_sample_days": event.get("turnover_baseline_sample_days"),
     }
 
