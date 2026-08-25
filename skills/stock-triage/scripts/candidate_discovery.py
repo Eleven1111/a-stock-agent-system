@@ -1264,6 +1264,9 @@ def run_discovery(
         "asof": asof,
         "batch_id": batch_id,
         "input_snapshot": compact_ref(input_snapshot),
+        # P0-c：S_t 只作为影子归因字段挂上来（selection_context 透传），排序、
+        # market_gate、daban_ready 均不读它。
+        "sentiment_shadow": hot_money_selection.sentiment_shadow_state(asof),
     })
     selection_snapshot = write_snapshot(
         "hot-money-selection-state",

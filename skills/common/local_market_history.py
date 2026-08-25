@@ -175,6 +175,53 @@ def get_latest_daily_bars(
     return _query_rows(sql, parameters)
 
 
+def trading_dates_between(
+    start_date: str, end_date: str, adjust_flag: str = "qfq"
+) -> list[str]:
+    """Distinct cached trading dates in ``[start_date, end_date]``, ascending.
+
+    The cache is the only record of which days it actually holds; deriving the
+    list from the calendar instead would silently invent days the cache never
+    saw.
+    """
+    rows = _query_rows(
+        """
+        SELECT DISTINCT trading_date FROM daily_bars
+        WHERE trading_date >= ? AND trading_date <= ? AND adjust_flag = ?
+        ORDER BY trading_date
+        """,
+        [str(start_date), str(end_date), adjust_flag],
+    )
+    return [str(row["trading_date"]) for row in rows]
+
+
+def get_bars_on(trading_date: str, adjust_flag: str = "qfq") -> list[dict[str, Any]]:
+    """Every cached bar for one trading date, ordered by code."""
+    return _query_rows(
+        f"""
+        SELECT {', '.join(_COLUMNS)} FROM daily_bars
+        WHERE trading_date = ? AND adjust_flag = ?
+        ORDER BY code
+        """,
+        [str(trading_date), adjust_flag],
+    )
+
+
+def distinct_code_count(
+    start_date: str, end_date: str, adjust_flag: str = "qfq"
+) -> int:
+    """How many distinct codes the cache covers in a window — the denominator
+    for a per-day coverage ratio."""
+    rows = _query_rows(
+        """
+        SELECT COUNT(DISTINCT code) AS code_count FROM daily_bars
+        WHERE trading_date >= ? AND trading_date <= ? AND adjust_flag = ?
+        """,
+        [str(start_date), str(end_date), adjust_flag],
+    )
+    return int(rows[0]["code_count"]) if rows else 0
+
+
 def cache_stats() -> dict[str, Any]:
     """Return basic cache size and date-range statistics."""
     ensure_schema()
