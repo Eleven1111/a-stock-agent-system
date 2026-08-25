@@ -436,17 +436,29 @@ def _section(
     observations: Sequence[Mapping[str, Any]], config: Mapping[str, Any] | None,
     min_samples: int, *, conclusive: bool,
 ) -> dict[str, Any]:
+    state_pnl = {
+        scheme: {outcome: state_matrix(observations, scheme, outcome,
+                                       min_samples=min_samples)
+                 for outcome in OUTCOMES}
+        for scheme in SCHEMES
+    }
+    # ``conclusive`` 只说覆盖口径够不够格，不代表真有结论：full 覆盖但零样本时
+    # 若还留 True，下游一句 ``if section["conclusive"]`` 就会把空矩阵当成已校准
+    # 结果放行（仓内「空集恒真」那类假绿）。因此再与「至少一格达到样本门槛」求与。
+    has_conclusion = any(
+        cell.get("status") == "ok"
+        for by_outcome in state_pnl.values()
+        for matrix in by_outcome.values()
+        for cell in matrix.values()
+    )
     return {
-        "conclusive": bool(conclusive),
+        "conclusive": bool(conclusive) and has_conclusion,
+        "conclusion_eligible_scope": bool(conclusive),
+        "has_conclusion": has_conclusion,
         "coverage_scope": "full" if conclusive else "partial_or_unknown",
         "sample_count": len(observations),
         "regimes": sorted({str(row.get("regime")) for row in observations}),
-        "state_pnl": {
-            scheme: {outcome: state_matrix(observations, scheme, outcome,
-                                           min_samples=min_samples)
-                     for outcome in OUTCOMES}
-            for scheme in SCHEMES
-        },
+        "state_pnl": state_pnl,
         "discrimination": {
             outcome: discrimination(observations, outcome, config=config,
                                     min_samples=min_samples)

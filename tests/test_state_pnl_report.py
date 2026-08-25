@@ -230,3 +230,17 @@ def test_sentiment_band_available_after_warmup(spr):
     assert labels[-1]["sentiment_band"] is not None
     assert labels[-1]["sentiment_score"] is not None
     assert labels[0]["sentiment_band"] is None  # 预热不足，不给 50 分
+
+
+def test_full_coverage_but_empty_sample_is_not_marked_conclusive(spr):
+    """full 覆盖 + 零样本时 conclusive 必须为 False。
+
+    否则下游一句 ``if section["conclusive"]`` 会把空矩阵当成已校准结果放行——
+    覆盖口径够格与真有结论是两回事，字段必须分开且默认保守。
+    """
+    report = spr.build_report([])
+    section = report["conclusive"]
+    assert section["sample_count"] == 0
+    assert section["conclusion_eligible_scope"] is True   # 口径本身够格
+    assert section["has_conclusion"] is False             # 但没有任何一格达门槛
+    assert section["conclusive"] is False                 # 合取后不得放行
