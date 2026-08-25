@@ -103,6 +103,17 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         # 题材退潮判定复用 market_cycle_state/market_temperature 的 S 状态口径
         "ebbing_states": ["S6"],
     },
+    # P3 S2 龙头分歧回封（DivergenceReseal）研究策略参数（升级方案 §6.1）。NON-LIVE：
+    # 未在 strategy_registry 注册前，本节只被回测/研究路径读取，绝不影响实盘排序。
+    "divergence_reseal": {
+        "min_sector_limit_up_count": 3,
+        "min_sector_fast_seal_count": 2,
+        "reseal_rank_top_n": 2,
+        "min_turnover_ratio": 1.5,
+        "max_turnover_ratio": 3.0,
+        "min_baseline_sample_days": 15,
+        "preferred_baseline_sample_days": 20,
+    },
     # §7b 三项调整机制，默认全部关闭；启用必须引用打板归因报告数据
     # （scripts/strategy_attribution_report.py），杠杆实现见 daban_adjustments.py。
     "adjustments": {

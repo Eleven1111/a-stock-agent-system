@@ -100,3 +100,17 @@ rank_surprise:
   min_volume_ratio: 1.5             # 条件3：量比 > 1.5（严格大于）
   volume_ratio_deadline: "09:45"    # 条件3 的口径：09:45 前量比；日线全日量比不满足该口径
   ebbing_states: ["S6"]             # 条件4：题材退潮状态（复用 market_cycle_state 的 S 口径）
+
+# P3 S2 龙头分歧回封（DivergenceReseal）研究策略参数 — NON-LIVE，新增节，不改任何既有阈值。
+# 信号：板块涨停≥3 ∧ 板块内存在大量一字/快速板 ∧ 目标是前2个完成充分换手后回封的前排股
+# ∧ 封板前换手 ≥ 20日同期中位数的1.5-3.0倍（升级方案 §6.1）。
+# "前2个"按回封**时刻**的先后排序，只用截至该时刻的信息判定，不看后续是否炸板——
+# 这是本策略的成败点，实现与测试都必须守住（见 skills/common/divergence_reseal.py）。
+divergence_reseal:
+  min_sector_limit_up_count: 3        # 条件1：板块涨停家数下限
+  min_sector_fast_seal_count: 2       # 条件2：板块内一字/快速板家数下限（"大量"的可执行口径）
+  reseal_rank_top_n: 2                # 条件3：按回封时刻先后排名，取前 N（方案原文"前2个"）
+  min_turnover_ratio: 1.5             # 条件4下限：封板前换手 ≥ 20日同期中位数的1.5倍（含）
+  max_turnover_ratio: 3.0             # 条件4上限：封板前换手 ≤ 20日同期中位数的3.0倍（含）
+  min_baseline_sample_days: 15        # 20日同期基准样本下限，不足 → unavailable（绝不返回0）
+  preferred_baseline_sample_days: 20  # 低于此天数但≥下限时，标记 degraded（口径打折但不阻断）
