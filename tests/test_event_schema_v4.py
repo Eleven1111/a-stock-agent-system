@@ -25,7 +25,9 @@ dat = _load("daban_bt_data", SCRIPTS / "daban_bt_data.py")
 mootdx = _load("mootdx_source_v4", ROOT / "skills" / "common" / "mootdx_source.py")
 s1 = _load("daban_bt_rank_surprise", SCRIPTS / "daban_bt_rank_surprise.py")
 s2 = _load("daban_bt_divergence_reseal", SCRIPTS / "daban_bt_divergence_reseal.py")
+import pytest  # noqa: E402
 import divergence_reseal as dr  # noqa: E402  -- 由上面的适配器 import 把 skills/common 挂上 sys.path
+import minute_derived as md  # noqa: E402
 
 DATE = "2026-06-26"
 SECTOR = "合成板块"
@@ -332,6 +334,100 @@ def test_s1_and_s2_still_zero_without_the_minute_only_fields():
     assert s2_report["signal_count"] == 0
     reasons = s2_report["signal_summary"]["unavailable_reasons"]
     assert any("pre_reseal_turnover_missing" in key for key in reasons), reasons
+
+
+# --------------------------------------------------------------------------- #
+# 分钟线派生管道接入（2026-08）：两个字段由真实派生层填，不再是注入的合成常数
+# --------------------------------------------------------------------------- #
+# 日线基准：事件日之前 5 天，每天 200000 手 = 2e7 股 → 2e7 / 240 = 83333.33 股/分钟。
+# 目标票 09:30~09:45 成交 2.5e6 股 → 2.5e6 / 15 / 83333.33 = 2.0 倍量比。
+# 流通股本 5.5e9 / 11.0 = 5e8 股；截至回封 10:32 累计 4e7 股 → 换手 8.00%（基准 4.0 → 2.0 倍）。
+_EARLY_SHARES = 2_500_000.0 / 3
+_LATE_SHARES = (40_000_000.0 - 2_500_000.0) / 9
+
+
+def _target_minute_rows():
+    slots = {"0935": _EARLY_SHARES, "0940": _EARLY_SHARES, "0945": _EARLY_SHARES}
+    for index in range(9):                      # 09:50 … 10:30
+        minute = 590 + index * 5
+        slots[f"{minute // 60:02d}{minute % 60:02d}"] = _LATE_SHARES
+    slots["1035"] = 1.0                         # 回封时刻之后，必须不影响任何结果
+    return md.slots_to_rows(slots)
+
+
+def _v4_table_with_real_minute_rows():
+    raw = [
+        dat._map_zt_row(
+            _zt_row(code, first_seal=seal, last_seal=last, open_boards=opens), "20260626")
+        for code, seal, last, opens, _ in _PEERS
+    ]
+    klines = {code: _kline(t1_open=t1_open) for code, _, _, _, t1_open in _PEERS}
+    events, _ = dat.assemble_events(
+        raw, klines, minute_rows_by_key={(DATE, TARGET): _target_minute_rows()})
+    return events
+
+
+def test_minute_pipeline_fills_the_two_fields_with_hand_checkable_values():
+    events = _v4_table_with_real_minute_rows()
+    target = next(e for e in events if e["code"] == TARGET)
+    assert target["field_availability"]["volume_ratio"] == dat.AVAILABLE
+    assert target["field_availability"]["pre_reseal_turnover_pct"] == dat.AVAILABLE
+    assert target["volume_ratio"] == pytest.approx(2.0)
+    assert target["pre_reseal_turnover_pct"] == pytest.approx(8.0)
+    assert target["volume_ratio_source"].endswith(":09:45")
+
+
+def test_minute_pipeline_ignores_bars_after_the_reseal_moment():
+    """回封之后的成交不得进入"封板前累计换手" —— 加一根巨量收盘条，结果必须不变。"""
+    rows = _target_minute_rows()
+    baseline = dat._minute_event_fields(
+        {"date": DATE, "float_mktcap": FLOAT_MKTCAP}, _kline(), 11.0,
+        "103200", dat.AVAILABLE, rows)[0]
+    noisy = rows + md.slots_to_rows({"1450": 9.9e9})
+    after = dat._minute_event_fields(
+        {"date": DATE, "float_mktcap": FLOAT_MKTCAP}, _kline(), 11.0,
+        "103200", dat.AVAILABLE, noisy)[0]
+    assert baseline["pre_reseal_turnover_pct"] == after["pre_reseal_turnover_pct"]
+    assert baseline["volume_ratio"] == after["volume_ratio"]
+
+
+def test_peers_without_minute_rows_stay_unavailable_not_zero():
+    """接了管道≠全员有值：没抓到分钟行的票必须还是 unavailable，绝不落成 0。"""
+    events = _v4_table_with_real_minute_rows()
+    others = [e for e in events if e["code"] != TARGET]
+    assert others
+    for event in others:
+        assert event["volume_ratio"] is None
+        assert event["field_availability"]["volume_ratio"].startswith(
+            f"{dat.UNAVAILABLE}:needs_intraday_minute_bars")
+
+
+def test_never_opened_board_keeps_not_applicable_even_with_minute_rows():
+    """一次没炸过板 → 不存在"封板前"，有分钟行也不许算出一个数来。"""
+    raw = [dat._map_zt_row(_zt_row(code, first_seal=seal, last_seal=last,
+                                   open_boards=opens), "20260626")
+           for code, seal, last, opens, _ in _PEERS]
+    klines = {code: _kline(t1_open=t1_open) for code, _, _, _, t1_open in _PEERS}
+    quiet = "600100"        # open_boards=0
+    events, _ = dat.assemble_events(
+        raw, klines, minute_rows_by_key={(DATE, quiet): _target_minute_rows()})
+    event = next(e for e in events if e["code"] == quiet)
+    assert event["pre_reseal_turnover_pct"] is None
+    assert event["field_availability"]["pre_reseal_turnover_pct"] == (
+        f"{dat.NOT_APPLICABLE}:never_opened_board_no_reseal")
+    assert event["volume_ratio"] is not None      # 量比与回封无关，仍应算出来
+
+
+def test_s1_and_s2_fire_on_a_table_fed_by_the_real_derivation_layer():
+    """端到端（合成分钟行、真实派生层）：两个字段由管道算出后 S1/S2 必须真的命中。"""
+    events = _v4_table_with_real_minute_rows()
+    s1_report = s1.run(events, market_state={"available": True, "dominant_state": "S3"},
+                       hold_mode="board_overnight")
+    s2_report = s2.run(events, hold_mode="board_overnight")
+    assert s1_report["universe_count"] == len(_PEERS), "样本非空断言"
+    assert s1_report["signal_count"] >= 1, s1_report["signal_summary"]
+    assert s2_report["signal_count"] >= 1, s2_report["signal_summary"]
+    assert s1_report["returns"]["n"] >= 1 and s2_report["returns"]["n"] >= 1
 
 
 # --------------------------------------------------------------------------- #
