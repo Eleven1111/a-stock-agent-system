@@ -129,6 +129,33 @@ def test_render_hot_money_checkpoint_payload_for_both_windows(
     assert '"confirmed"' not in rendered
 
 
+def test_render_origin_text_uses_paper_trading_close_summary_message():
+    message = "[模拟盘·研究专用] 空仓归因: no_candidates（需人工核查）"
+    rendered = feishu_push.render_origin_text(
+        {
+            "job_id": "paper-trading-close",
+            "stdout": json.dumps(
+                {
+                    "schema": "paper_trading_close_run_v1",
+                    "message": "producer message",
+                    "positions": [],
+                    "zero_fill": {"anomaly_reasons": ["internal detail"]},
+                },
+                ensure_ascii=False,
+            ),
+            "summary": {
+                "schema": "delivery_summary_v1",
+                "message": message,
+            },
+        },
+        1000,
+    )
+
+    assert rendered == message
+    assert "internal detail" not in rendered
+    assert "{\"schema\"" not in rendered
+
+
 def test_reports_failure_without_raising(monkeypatch):
     monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
 
