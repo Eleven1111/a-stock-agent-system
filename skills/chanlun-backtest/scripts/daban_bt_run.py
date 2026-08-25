@@ -107,6 +107,33 @@ def _oos_h1_validation(oos_events: List[Dict[str, Any]], index_benchmark: float,
     }
 
 
+def _degradation_notice(event_table: Dict[str, Any],
+                        events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """区分「策略没信号」与「事件表过期」。
+
+    v2 及更早的事件表不带 T 日 OHLC/t_prev_close，board_overnight 会被 fail-closed
+    全判买不进、返回空样本。没有这块，探索路径（不带 --oos，schema 闸门不生效）打印出
+    的 ``n=0`` 与「这段行情真的没机会」在输出上完全无法区分。
+    """
+    schema = event_table.get("schema")
+    if schema == EVENT_TABLE_SCHEMA:
+        return {"stale_event_table": False, "schema": schema}
+    config = xc.constraints_config()
+    blocked = sum(
+        1 for ev in events
+        if eng.board_entry_fill(ev, config).get("reason") == "missing_t_day_bar_fail_closed"
+    )
+    return {
+        "stale_event_table": True,
+        "schema": schema,
+        "required_schema": EVENT_TABLE_SCHEMA,
+        "board_overnight_events_blocked": blocked,
+        "note": ("事件表早于 v3，缺 T 日 OHLC/t_prev_close：board_overnight 口径全部 "
+                 "fail-closed 判买不进，其空样本是数据过期而不是没有信号。"
+                 "用 daban_bt_data 重建到 v3 后再读该口径。"),
+    }
+
+
 def analyze(event_table: Dict[str, Any], split_date: str,
             benchmark_alpha: float = 0.0, n_perm: int = 5000,
             oos_validation: bool = False,
@@ -183,6 +210,7 @@ def analyze(event_table: Dict[str, Any], split_date: str,
             **xc.constraints_config(),
             "slippage_tiering_applied": slippage_tiering,
         },
+        "data_degradation": _degradation_notice(event_table, events),
         "research_state": research_state,
         "gate_result": gate,
     }
@@ -255,6 +283,14 @@ def format_report(r: Dict[str, Any]) -> str:
     cov = r["sample"].get("coverage") or {}
     if cov.get("warning"):
         lines += [cov["warning"], ""]
+    degraded = r.get("data_degradation") or {}
+    if degraded.get("stale_event_table"):
+        lines += [
+            f"⚠️ 事件表 {degraded.get('schema')} 早于 {degraded.get('required_schema')}："
+            f"board_overnight 有 {degraded.get('board_overnight_events_blocked')} 个事件因缺 T 日行情"
+            "被 fail-closed 判买不进 —— 该口径的空样本是数据过期，不是没有信号。",
+            "",
+        ]
     lines += [
         f"样本：涨停事件 {r['sample']['event_count']} 丢弃 {r['sample']['dropped']}"
         + (f" | 覆盖 {cov.get('covered_trading_days')}/{cov.get('expected_trading_days')} 交易日"

@@ -161,3 +161,35 @@ def test_persist_evidence_rejects_legacy_event_schema(tmp_path):
             artifact_path=str(tmp_path / "artifact.json"),
             split_date="20260501",
         )
+
+
+def test_stale_event_table_reports_degradation_not_a_silent_empty_sample():
+    """v2 旧表跑 board_overnight 会被 fail-closed 判空样本。
+
+    空样本必须显式说明是「数据过期」而不是「没有信号」——两者在 n=0 上不可区分，
+    而探索路径（不带 --oos）没有 schema 闸门拦截。
+    """
+    table = _table()
+    table["schema"] = "daban_bt_event_table_v2"
+    for ev in table["events"]:          # v2 形状：无 T 日行情字段
+        for field in ("t_open", "t_high", "t_low", "t_volume", "t_amount", "t_prev_close"):
+            ev.pop(field, None)
+
+    result = run.analyze(table, split_date="20260501")
+
+    assert result["exploratory"]["variants"]["board_overnight"]["h1"]["signal"]["n"] == 0
+    degraded = result["data_degradation"]
+    assert degraded["stale_event_table"] is True
+    assert degraded["required_schema"] == "daban_bt_event_table_v3"
+    assert degraded["board_overnight_events_blocked"] == len(table["events"]) > 0
+    assert "不是没有信号" in degraded["note"]
+    assert "数据过期" in run.format_report(result)
+
+
+def test_current_event_table_is_not_flagged_as_degraded():
+    result = run.analyze(_table(), split_date="20260501")
+    assert result["data_degradation"] == {
+        "stale_event_table": False,
+        "schema": "daban_bt_event_table_v3",
+    }
+    assert "数据过期" not in run.format_report(result)
