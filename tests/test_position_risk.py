@@ -429,3 +429,15 @@ def test_theme_risk_from_positions_skips_positions_without_stop_distance():
 
 def test_theme_risk_requires_positive_risk_unit():
     assert pr.theme_risk_from_positions([{"market_value": 1}], risk_unit_value=0) == {}
+
+
+def test_tier_to_state_stays_in_sync_with_market_temperature():
+    """两份 TIER_TO_STATE 必须逐键相等。
+
+    position_risk 刻意保留一份局部映射以维持零依赖（cron / 回测路径可单独 import），
+    代价是它可能与 market_temperature 的那份悄悄分叉。运行时不加 import，改由本用例
+    守住同步——两份同值常量没有守卫时，迟早只改一边（EVENT_SCHEMA 就这么漂过）。
+    """
+    import market_temperature
+
+    assert pr.TIER_TO_STATE == market_temperature.TIER_TO_STATE
