@@ -119,13 +119,19 @@ system cron 和人工运行共享同一套依赖、快照、租约、Policy 与 
 | 候选发现 | 动态 A 股股票池、自然语言召回、尾盘异动、涨停与趋势双通道 |
 | 评分 | 技术 30% × 情绪 15% × 催化 30% × 深研 25% 的 S/A/B/C 四维评分 |
 | 研究 | Serenity 基本面深研、Chan 结构研究、政策意图解码、多专家研究委员会、受治理的数据写回与混合检索、双 Agent 受限计划编译 |
-| 风险与生命周期 | 可成交性、A 股 T+1、集中度、止损止盈、候选 FSM、建议审计、结算 |
-| 评估 | IS/OOS 隔离、成本与对照组、统计门、shadow 晋级、专家校准、隔离确定性重放 |
+| 情绪周期 | 每日情绪数据集、滚动分位情绪分、状态分阶段归因、龙头与题材评分 —— 全部 shadow-only |
+| 策略研究库 | 六条未注册的短线研究假设（超预期、分歧回封、最强助攻、先于龙头、反量龙回头、冰点反转），各带独立闸门评估 |
+| 风险与生命周期 | 可成交性、A 股 T+1、集中度、止损止盈、候选 FSM、建议审计、结算、1+1+1 阶梯建仓、四层止损、R 化熔断 |
+| 评估 | IS/OOS 隔离、成本与对照组、统计门、shadow 晋级、专家校准、隔离确定性重放、成交约束回测、消融阶梯、尾部风险指标 |
 | 运维 | Manifest 调度器、可恢复 DAG、Provider Health、状态恢复、执行 Trace、交付遥测 |
 | 模拟 | 10 万元独立模拟账户，遵守 A 股手数、费用、涨跌停、T+1 和 `paper.*` 事件边界 |
 
 能力列表刻意大于实盘决策面。research-only 或纯解释性模块在完成晋级门禁前，不能影响
 实盘排序。
+
+策略研究库里的六条策略就是个具体例子：它们**全部不在 `strategy_registry` 里**，因此正向
+信号会被降级为 `watch`、仓位倍率归零。各自的闸门评估报的是 `UNVERIFIED` 而不是胜率 ——
+本机历史窗口不足以支撑一个胜率结论，而拿个位数样本报命中率比什么都不报更糟。
 
 ## 研究委员会
 
@@ -268,6 +274,12 @@ CI 覆盖受支持的 Python 矩阵和 CodeQL。固定 Agent Harness 只验证�
 | 模拟交易 | [docs/paper-trading-protocol.md](docs/paper-trading-protocol.md) |
 | 研究委员会 | [docs/research-committee-guide.md](docs/research-committee-guide.md) |
 | 游资选股 | [docs/hot-money-selection-protocol.md](docs/hot-money-selection-protocol.md) |
+| 回测事件表（schema v4） | [docs/event-schema-v4-2026-08.md](docs/event-schema-v4-2026-08.md) |
+| 分钟线派生字段管道 | [docs/minute-derived-pipeline-2026-08.md](docs/minute-derived-pipeline-2026-08.md) |
+| 情绪状态分阶段归因 | [docs/state-pnl-calibration-2026-08.md](docs/state-pnl-calibration-2026-08.md) |
+| 龙头与题材评分 | [docs/leader-theme-score-evaluation-2026-08.md](docs/leader-theme-score-evaluation-2026-08.md) |
+| 仓位、四层止损与熔断 | [docs/position-risk-p4-2026-08.md](docs/position-risk-p4-2026-08.md) |
+| 策略闸门评估 | [超预期](docs/rank-surprise-gate-evaluation-2026-08.md)、[分歧回封](docs/divergence-reseal-gate-evaluation-2026-08.md)、[最强助攻](docs/assist-arbitrage-gate-evaluation-2026-08.md)、[先于龙头](docs/preleader-arbitrage-gate-evaluation-2026-08.md)、[反量龙回头](docs/reverse-volume-gate-evaluation-2026-08.md)、[冰点反转](docs/ice-point-reversal-gate-evaluation-2026-08.md) |
 | 尾盘研究通道 | [docs/tail-close-strategy-protocol.md](docs/tail-close-strategy-protocol.md) |
 | Stock Intelligence 集成 | [docs/stock-intelligence-integration.md](docs/stock-intelligence-integration.md) |
 | 已安装调度器 | [AUTOPILOT.md](AUTOPILOT.md) |
