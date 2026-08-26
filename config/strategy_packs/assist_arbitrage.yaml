@@ -1,0 +1,107 @@
+# S3 最强助攻套利策略包（AssistArbitrage）— 解释与研究假设层（NON-LIVE）
+# =============================================================================
+# 本文件是"声明式策略包"，只用于 agent 解释推荐时引用的判断标准，以及作为研究
+# 假设。它绝不影响实盘排序 / 评分 / 信号（AGENTS.md 红线：任何策略未过 research
+# gate 不得影响实盘排序）。想让本包影响实盘 → 走 research_gate 样本外验证并在
+# strategy_registry 登记 allowed_in_live_agent=true。
+#
+# 红线（本包的具体形态）：
+#   - strategy_registry 中**没有** assist_arbitrage 记录 ⇒ 消费端一律降级为
+#     watch、仓位倍率 0（decision_policy「strategy_unverified」/
+#     recommendation_audit「research_only」两条路径都会归零），这条行为由
+#     tests/test_assist_arbitrage.py 的消费端行为断言守着，不是靠本文件的
+#     字段值自证。
+#   - 未过 research_gate 之前，任何人不得把 skills/common/assist_arbitrage.py
+#     的判定折进 daban_score / trend_score / 排序 / 仓位。
+#
+# 通用模板：不含任何具体股票代码 / 股票名称 / 具体板块名称。
+
+name: assist_arbitrage
+display_name: 最强助攻套利
+description: >-
+  识别"跟着已确认龙头走、但自己没有独立持有理由"的助攻股：龙头 LeaderScore 达标
+  （复用 P2 已合入的 leader_score_shadow，不重造第二份龙头分）、板块广度达到梯队
+  规模、候选连板高度明显低于龙头（至少矮一级）、候选相对强度位于题材前 20%，且
+  在龙头确认之后候选率先突破日内关键位时入场。用于解释"这是跟龙头的助攻股"这一
+  可核对的事实，不构成买入指令。本包的退出条件与入场同等重要：候选自身强弱不能
+  否决"龙头走弱 + 题材广度下降"或"主线切换"触发的退出。
+
+category: pattern
+
+# 适用市场状态：助攻股的解释力集中在梯队已经拉开、有明确龙头可供跟随的阶段；
+# 退潮(S6)期通常已无可确认的龙头，不适用。
+market_regimes:
+  - S3   # 扩散/主升（梯队拉开，龙头与助攻分层最清晰）
+  - S4   # 高潮/加速
+
+# 需要的证据字段（缺失即无法判定；实现层对缺失一律返回 unavailable，绝不按
+# "默认不满足"处理 —— 把"没数据"折叠成"不触发"会让零样本看起来像已验证的负结果）。
+evidence_requirements:
+  - sector                                  # 题材/板块归属，候选池的分组键；缺失 → unavailable
+  - board_height                            # 候选与龙头的连板高度，条件3的唯一依据
+  - sector_breadth_count                    # 板块涨停家数（条件2：≥3）
+  - change_pct                              # 候选相对强度的横截面排名依据（条件4：Top20%）
+  - breakout_time                           # 候选突破日内关键位的时刻（入场触发）
+  - leader_confirmed                        # 龙头是否已确认（如已封板）——入场触发的另一半
+  - leader_score_shadow                     # 龙头记录上已挂好的 LeaderScore（条件1，复用 P2）
+  # 退出判定用（与入场证据字段各自独立，缺失同样 fail-closed）：
+  - leader_board_broken                     # 龙头是否开板/失守
+  - leader_change_pct                       # 龙头当日涨跌幅
+  - sector_breadth_count_prior              # 题材广度的对照时点值（判断"下降"）
+  - original_mainline_direction_score       # 原主线 DirectionScore
+  - new_mainline_direction_score            # 新主线 DirectionScore（判断主线切换）
+
+# 入场四条件（升级方案 §6.1）+ 一个入场触发。阈值不写在本文件里，单一事实源是
+# config/daban_thresholds.yaml 的 assist_arbitrage 节：策略包是解释层，
+# 把可执行参数放进来会模糊"解释层 vs 执行层"的边界。
+entry_conditions:
+  - leader_score_min:         龙头 LeaderScore ≥ min_leader_score（默认80，来自 leader_score_shadow）
+  - sector_breadth_min:       板块涨停家数 ≥ min_sector_breadth_count（默认3）
+  - board_level_below_leader: 候选连板高度 ≤ 龙头连板高度 − min_board_level_gap（默认1，即至少矮一级）
+  - relative_strength_top20:  候选题材内相对强度分位 ≥ 1 − relative_strength_top_pct（默认前20%）
+  - leader_confirmed_breakout_first: 龙头已确认 ∧ 候选按突破时刻在题材内排名 ≤ breakout_rank_top_n（默认1，"率先"）
+
+# 退出条件（方案 §6.1 原文）——本策略的成败点，实现在 skills/common/assist_arbitrage.py
+# 的 exit_signal 里，与入场判定完全独立，候选自身依然强势不能否决退出：
+#   A) 龙头走弱（开板/失守，或涨跌幅跌破 leader_weak_change_pct_max）
+#      ∧ 题材广度下降（较对照时点下降 ≥ breadth_decline_min_drop 家）
+#   B) 新主线 DirectionScore 超原主线 ≥ min_rotation_gap（默认15分）
+exit_conditions:
+  - leader_weakening_and_breadth_declining: 龙头走弱 ∧ 题材广度下降 → 退出
+  - mainline_rotation: 新主线 DirectionScore − 原主线 DirectionScore ≥ min_rotation_gap（默认15） → 退出
+
+# 本策略的成败点（不是入场条件，是判定方法本身）：
+#   助攻股没有独立的持有理由——它的价值完全来自龙头/主线。因此：
+#   1) LeaderScore 必须取自 P2 已合入的 leader_score_shadow，不可得时本包该条件
+#      unavailable，绝不自己按其它字段拍一个替代分（两份龙头分实现迟早分叉）。
+#   2) 退出条件必须与入场条件同等地位、由代码硬编码执行：即使候选自身量价依然
+#      很强（entry 判定仍是 signal），只要 exit_signal 判定命中 A 或 B，调用方
+#      都必须按退出处理，不得因为候选自身强势就继续持有。
+#      由 tests/test_assist_arbitrage.py 的专门用例守这一点。
+#   3) "率先突破"按突破**时刻**的先后顺序确定，只用截至该时刻的信息，与
+#      divergence_reseal 的回封排名同构，不掺入任何后续结果字段。
+
+research_status: >-
+  not_gated_zero_sample（未验证；既未证实也未证伪）。本机无全市场分钟线缓存，
+  既有 daban_bt_data v4 事件表不含 breakout_time（候选突破日内关键位需要分钟线
+  的"关键位"检测管道，本仓库尚未构建）、leader_score_shadow（六因子 LeaderScore
+  依赖深度池 seal_speed/resilience 与全市场 relative_strength 基准，回测事件表
+  层面大概率不可用权重不足整体 unavailable）两个必需证据字段，walk-forward OOS
+  闸门跑不了，实跑真实事件数按事件表规模非零、命中数很可能为 0 或极少。因此本包
+  **没有任何**胜率 / PF / 期望值结论，任何此类数字都不存在。详见
+  docs/assist-arbitrage-gate-evaluation-2026-08.md。
+
+interpretation: >-
+  本包描述的是"候选是否在跟随一个已确认龙头做助攻"这一可核对的事实：龙头
+  LeaderScore（复用既有六因子分，不重造）刻画"是不是一个够格的龙头"；板块广度
+  刻画"梯队是否成规模"；候选与龙头的连板高度差刻画"候选是不是明显的后排/助攻
+  位置而非并列龙头"；候选题材内相对强度分位刻画"候选自身是否也在走强"；龙头确认
+  后候选率先突破刻画"入场时机是不是跟随龙头而非自发"。四条主条件叠加一个入场
+  触发构成"最强助攻"假设。注意：龙头不可判定、LeaderScore/板块广度/连板高度/
+  相对强度/突破时刻任一缺失时，实现层返回 unavailable 而非"不触发"，agent 解释
+  时必须照此表述，不得把不可用读成负面结论。退出侧同理：龙头走弱/题材广度趋势/
+  主线 DirectionScore 任一缺失时也是 unavailable，不得读成"可以继续持有"。
+
+# 本包不提供任何加减分解释：样本为零，此时给出任何方向性加减分都是把未验证假设
+# 当结论展示。保持空列表而非删除字段（schema 必填项）。
+score_hints: []
