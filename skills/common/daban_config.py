@@ -139,6 +139,14 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "breadth_decline_min_drop": 1.0,
         "min_rotation_gap": 15.0,
     },
+    # P3 S4 先于龙头套利（PreleaderArbitrage）研究策略参数（升级方案 §6.1）。NON-LIVE：
+    # 未在 strategy_registry 注册前，本节只被回测/研究路径读取，绝不影响实盘排序。
+    # 盘前表（build_pretable）由 D-1 数据构建，本节只含 D0 确认阶段的运行期阈值。
+    "preleader_arbitrage": {
+        "max_reaction_minutes": 10.0,
+        "min_candidate_amount": 20000000.0,
+        "min_member_avg_turnover": 20000000.0,
+    },
     # §7b 三项调整机制，默认全部关闭；启用必须引用打板归因报告数据
     # （scripts/strategy_attribution_report.py），杠杆实现见 daban_adjustments.py。
     "adjustments": {
