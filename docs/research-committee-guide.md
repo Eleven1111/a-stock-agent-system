@@ -458,7 +458,7 @@ pytest tests/test_research_bus.py tests/test_evidence_pack.py tests/test_researc
 
 ## 9. 更深入的资料
 
-- 完整架构设计与实现细节：[research-plane-worklog-2026-07-03.md](research-plane-worklog-2026-07-03.md)
+- 完整架构设计与实现细节：内部研究文档，不在公开仓库内
 - 运行时操作手册（给 Hermes/OpenClaw 模型自己看的）：
   [skills/research-committee/SKILL.md](../skills/research-committee/SKILL.md)
 - 三个专家的完整原文：`skills/research-committee/experts/`

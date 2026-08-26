@@ -309,8 +309,6 @@ returns or open-world prediction accuracy.
 | Portfolio research protocol | [docs/portfolio-research-protocol.md](docs/portfolio-research-protocol.md) |
 | Paper trading | [docs/paper-trading-protocol.md](docs/paper-trading-protocol.md) |
 | Research committee | [docs/research-committee-guide.md](docs/research-committee-guide.md) |
-| Hot-money selection | [docs/hot-money-selection-protocol.md](docs/hot-money-selection-protocol.md) |
-| Tail-close research lane | [docs/tail-close-strategy-protocol.md](docs/tail-close-strategy-protocol.md) |
 | Stock-intelligence integration | [docs/stock-intelligence-integration.md](docs/stock-intelligence-integration.md) |
 | Installed scheduler | [AUTOPILOT.md](AUTOPILOT.md) |
 | Release history | [CHANGELOG.md](CHANGELOG.md) |

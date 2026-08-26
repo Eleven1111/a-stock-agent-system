@@ -2,7 +2,7 @@
 
 third_party/chan_py_reference/ vendors Vespa314/chan.py (pinned commit,
 see its README.md) purely as a differential-testing oracle for the
-chanlun structure rewrite (docs_private/chanlun-upgrade-plan-2026-08.md). Its
+chanlun structure rewrite (docs_private/). Its
 config-parsing path uses exec(), which is a security red line for this
 repository — it must never reach a production import path. This test
 statically scans every .py file under skills/ and scripts/ (source

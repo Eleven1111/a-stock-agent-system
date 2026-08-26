@@ -273,8 +273,6 @@ CI 覆盖受支持的 Python 矩阵和 CodeQL。固定 Agent Harness 只验证�
 | 组合研究协议 | [docs/portfolio-research-protocol.md](docs/portfolio-research-protocol.md) |
 | 模拟交易 | [docs/paper-trading-protocol.md](docs/paper-trading-protocol.md) |
 | 研究委员会 | [docs/research-committee-guide.md](docs/research-committee-guide.md) |
-| 游资选股 | [docs/hot-money-selection-protocol.md](docs/hot-money-selection-protocol.md) |
-| 尾盘研究通道 | [docs/tail-close-strategy-protocol.md](docs/tail-close-strategy-protocol.md) |
 | Stock Intelligence 集成 | [docs/stock-intelligence-integration.md](docs/stock-intelligence-integration.md) |
 | 已安装调度器 | [AUTOPILOT.md](AUTOPILOT.md) |
 | 版本历史 | [CHANGELOG.md](CHANGELOG.md) |

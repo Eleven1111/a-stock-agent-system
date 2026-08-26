@@ -315,7 +315,7 @@ def r_sized_position(
     """``Position = min(ModeCap, RiskBudget / StopDistance)``。
 
     单位换算：RiskBudget(元) = NAV × rb%/100，StopDistance(比例) = sd%/100，
-    于是 仓位% = rb% / sd% × 100。算例见 docs_private/position-risk-p4-2026-08.md。
+    于是 仓位% = rb% / sd% × 100。算例见 docs_private/。
 
     fail-closed 的三个入口：NAV ≤ 0、StopDistance ≤ 0/缺失、ModeCap ≤ 0 —— 全部返回
     ``status=blocked`` 且 ``position_pct=0.0``。**不返回无穷仓位，也不静默改用默认值。**
