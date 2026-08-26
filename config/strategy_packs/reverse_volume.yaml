@@ -1,0 +1,102 @@
+# S5 反量龙回头策略包（ReverseVolume）— 解释与研究假设层（NON-LIVE）
+# =============================================================================
+# 本文件是"声明式策略包"，只用于 agent 解释推荐时引用的判断标准，以及作为研究
+# 假设。它绝不影响实盘排序 / 评分 / 信号（AGENTS.md 红线：任何策略未过 research
+# gate 不得影响实盘排序）。想让本包影响实盘 → 走 research_gate 样本外验证并在
+# strategy_registry 登记 allowed_in_live_agent=true。
+#
+# 红线（本包的具体形态）：
+#   - strategy_registry 中**没有** reverse_volume 记录 ⇒ 消费端一律降级为
+#     watch、仓位倍率 0（decision_policy「strategy_unverified」/
+#     recommendation_audit「research_only」两条路径都会归零），这条行为由
+#     tests/test_reverse_volume.py 的消费端行为断言守着，不是靠本文件的
+#     字段值自证。
+#   - 未过 research_gate 之前，任何人不得把 skills/common/reverse_volume.py
+#     的判定折进 daban_score / trend_score / 排序 / 仓位。
+#
+# 通用模板：不含任何具体股票代码 / 股票名称 / 具体板块名称。
+
+name: reverse_volume
+display_name: 反量龙回头
+description: >-
+  识别"前一周期最高人气/高度股，从高点深度回撤后，恐慌抛压衰竭、多头力量反超的
+  再次上攻"这一形态：从高点回撤25%-40% ∧ 大盘/情绪不再加速恶化（前提）；3-5日
+  波动收窄 ∧ 成交量缩至20日低分位（初步观察）；单分钟上攻成交量反超此前单分钟
+  下跌成交量峰值的1.3-1.5倍（反量确认，取自minute_derived分钟量峰值，不自行
+  解析）；价格回踩但下跌分钟量峰值继续萎缩（回踩确认）。用于解释"这是一次力的
+  反转，不是趋势延续"这一可核对的事实，不构成买入指令。二次确认（比值≥1.5 ∧
+  突破短期平衡区）用于解释"是否值得从观察仓加至常规仓"，同样不构成加仓指令。
+
+category: reversal
+
+# 适用市场状态：反量龙回头的解释力集中在题材分歧/退潮后个股独立探底的阶段——
+# 大盘整体仍在加速下跌时"情绪不再恶化"这个前提本身就不成立。
+market_regimes:
+  - S5   # 分歧（板块梯队瓦解，个股开始各自定价，正是本形态出现的阶段）
+  - S6   # 退潮（题材整体降温后，前排龙头股独立探底、酝酿反抽）
+
+# 需要的证据字段（缺失即无法判定；实现层对缺失一律返回 unavailable，绝不按
+# "默认不满足"处理 —— 把"没数据"折叠成"不触发"会让零样本看起来像已验证的负结果）。
+evidence_requirements:
+  - was_prior_period_top_leader     # 前提：是否前一周期最高人气/高度股
+  - drawdown_pct                    # 前提：从高点回撤幅度（0-1）
+  - market_sentiment                # 前提：大盘/情绪是否不再加速恶化（外部状态口径）
+  - volatility_contraction_ratio    # 初步观察：近3-5日波动/此前波动比例
+  - volume_percentile_20d           # 初步观察：成交量20日分位
+  - max_up_minute_volume            # 反量确认：入场时段单分钟上攻成交量峰值（复用minute_derived）
+  - max_down_minute_volume_prior    # 反量确认基准：入场之前的单分钟下跌成交量历史峰值（复用minute_derived）
+  - pullback_max_down_minute_volume # 回踩确认：回踩期单分钟下跌成交量峰值（复用minute_derived）
+  # 二次确认（加仓判断）用，独立于入场七条件：
+  - second_max_up_minute_volume     # 二次确认：更晚一次上攻的单分钟成交量峰值
+  - breakout_above_balance_zone     # 二次确认：价格是否突破短期平衡区
+
+# 入场七条件（升级方案 §6.1，前提3 + 初步观察2 + 反量/回踩确认2）。阈值不写在
+# 本文件里，单一事实源是 config/daban_thresholds.yaml 的 reverse_volume 节：
+# 策略包是解释层，把可执行参数放进来会模糊"解释层 vs 执行层"的边界。
+entry_conditions:
+  - prior_period_top_leader:        是否前一周期最高人气/高度股
+  - drawdown_in_range:               从高点回撤幅度 ∈ [min_drawdown_pct, max_drawdown_pct]（默认[0.25,0.40]）
+  - sentiment_not_deteriorating:     大盘/情绪不再加速恶化
+  - volatility_contraction:          近3-5日波动/此前波动 ≤ max_volatility_contraction_ratio（默认0.6）
+  - volume_low_percentile:           成交量20日分位 ≤ max_volume_percentile_20d（默认0.30）
+  - reversal_volume_confirmed:       单分钟上攻量峰值 ≥ 此前单分钟下跌量峰值 × reversal_volume_ratio_min（默认1.3）
+  - pullback_down_volume_shrinking:  回踩期单分钟下跌量峰值 < 此前单分钟下跌量峰值（继续萎缩）
+
+# 二次确认（方案 §6.1 原文："加至20%-30%"）——实现在 skills/common/
+# reverse_volume.py 的 second_confirmation()，与入场七条件完全独立评估：
+second_confirmation_conditions:
+  - reversal_volume_ratio_second_confirm: 二次上攻量峰值/回踩下跌量峰值 ≥ reversal_volume_ratio_second_min（默认1.5）
+  - breakout_above_balance_zone:          价格突破短期平衡区
+
+# 本策略的成败点（不是入场条件，是判定方法本身）：
+#   1) 反量确认/回踩确认的"分钟量峰值"必须复用 minute_derived 的成交量归一化
+#      （腾讯"手"累计值/新浪"股"增量值换算），本包实现只加了"按涨跌方向分类"这一层
+#      minute_derived 本身没有的语义，不重新解析原始供应商数据。
+#   2) "此前最大下跌分钟量"必须是入场时刻之前的历史极值，绝不许用整段行情
+#      （含入场之后）的极值——喂入场后的数据不得改变判定结果，见
+#      tests/test_reverse_volume.py 的反未来函数专门用例。
+#   3) 反量比值(1.3-1.5/1.5)与回撤区间(25%-40%)全部来自单一历史案例（摩恩电气）
+#      的工程化取值，不是统计结论，未经任何样本外验证——所有相关字段/文档必须
+#      显式标注这一点，不得包装成"经验阈值"或"业界共识"。
+
+research_status: >-
+  not_gated_zero_sample（未验证；既未证实也未证伪）。本机无全市场分钟线缓存，
+  既有 daban_bt_data v4 事件表是"单日涨停快照"结构，不含跨周期的高点/回撤序列、
+  前一周期人气排名、大盘情绪状态，也不落盘原始分钟行情（只落 09:45 量比这一个
+  派生标量）——本包全部七个入场条件在现有事件表上结构性不可得，walk-forward OOS
+  闸门跑不了，实跑真实事件数按事件表规模非零、命中数为 0。因此本包**没有任何**
+  胜率 / PF / 期望值结论，任何此类数字都不存在。反量比值(1.3-1.5/1.5)本身也只是
+  单一历史案例的工程化取值。详见 docs/reverse-volume-gate-evaluation-2026-08.md。
+
+interpretation: >-
+  本包描述的是"一次力的反转是否成立"这一可核对的事实：从高点回撤+情绪不再恶化
+  刻画"恐慌是否已经出清到位"；波动收窄+缩量刻画"抛压是否已经衰竭"；单分钟上攻量
+  反超此前单分钟下跌量峰值刻画"多头是否已经在量能上反超空头"；回踩期下跌量继续
+  萎缩刻画"回踩是不是真的缩量回踩而非二次探底"。七条前提/观察/确认叠加构成"反量
+  龙回头"假设。注意：任一必需证据缺失时，实现层返回 unavailable 而非"不触发"，
+  agent 解释时必须照此表述，不得把不可用读成负面结论。二次确认同理：比值/突破
+  证据缺失时也是 unavailable，不得读成"不该加仓"。
+
+# 本包不提供任何加减分解释：样本为零，此时给出任何方向性加减分都是把未验证假设
+# 当结论展示。保持空列表而非删除字段（schema 必填项）。
+score_hints: []
