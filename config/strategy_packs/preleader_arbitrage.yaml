@@ -1,0 +1,86 @@
+# S4 先于龙头套利策略包（PreleaderArbitrage）— 解释与研究假设层（NON-LIVE）
+# =============================================================================
+# 本文件是"声明式策略包"，只用于 agent 解释推荐时引用的判断标准，以及作为研究
+# 假设。它绝不影响实盘排序 / 评分 / 信号（AGENTS.md 红线：任何策略未过 research
+# gate 不得影响实盘排序）。想让本包影响实盘 → 走 research_gate 样本外验证并在
+# strategy_registry 登记 allowed_in_live_agent=true。
+#
+# 红线（本包的具体形态）：
+#   - strategy_registry 中**没有** preleader_arbitrage 记录 ⇒ 消费端一律降级为
+#     watch、仓位倍率 0（decision_policy「strategy_unverified」/
+#     recommendation_audit「research_only」两条路径都会归零），这条行为由
+#     tests/test_preleader_arbitrage.py 的消费端行为断言守着，不是靠本文件的
+#     字段值自证。
+#   - 未过 research_gate 之前，任何人不得把 skills/common/preleader_arbitrage.py
+#     的判定折进 daban_score / trend_score / 排序 / 仓位。
+#
+# 通用模板：不含任何具体股票代码 / 股票名称 / 具体板块名称。
+
+name: preleader_arbitrage
+display_name: 先于龙头套利
+description: >-
+  D-1 晚间预先建立「龙头候选 → 属性 → 同属性首板候选」映射表（并在建表时排除
+  重大利空、流动性不足的成分），D0 盘中只负责"确认"——龙头一旦确认，只允许买
+  盘前表内已经列好的候选，不做临时选股。这是原书航天通信案例的核心纪律：龙头
+  开盘快速确认后，留给判断助攻票的时间往往只有数分钟，盘中没有时间重新构建
+  候选池。用于解释"这是盘前已排好队、龙头确认后跟进的候选"这一可核对的事实，
+  不构成买入指令。
+
+category: pattern
+
+# 适用市场状态：需要有明确的龙头确认动作可供跟随；退潮(S6)期通常已无新龙头确认，
+# 不适用。
+market_regimes:
+  - S3   # 扩散/主升（梯队拉开，龙头确认动作最清晰）
+  - S4   # 高潮/加速
+
+# 需要的证据字段（缺失即无法判定；实现层对缺失一律返回 unavailable，绝不按
+# "默认不满足"处理）：
+evidence_requirements:
+  - attribute            # 候选/龙头共同的属性归类（题材id或sector，候选池分组键）
+  - pretable              # D-1 晚间构建的盘前表（build_pretable 产物，含 as_of/generated_at）
+  - leader_confirmed      # 龙头是否已在 D0 确认（如已封板）
+  - leader_confirmed_time # 龙头确认时刻，用于反应窗口判定
+  - evaluation_time       # 候选自身反应时刻（如封板/突破时刻）
+  - candidate_amount      # 候选当日成交额，条件4流动性下限依据
+
+# 入场四条件（升级方案 §6.1，实现见 skills/common/preleader_arbitrage.py）。
+# 阈值不写在本文件里，单一事实源是 config/daban_thresholds.yaml 的
+# preleader_arbitrage 节：策略包是解释层，把可执行参数放进来会模糊
+# "解释层 vs 执行层"的边界。
+entry_conditions:
+  - pretable_generated_before_d0:   盘前表 as_of 严格早于候选交易日（防止把当日现算的表冒充盘前产物）
+  - candidate_in_pretable:          候选须出现在盘前表对应(龙头,属性)条目的候选列表内，不在表内不触发
+  - leader_confirmed_reaction_window: 龙头已确认 ∧ 候选须在确认后 max_reaction_minutes 分钟内完成自身反应
+  - candidate_liquidity_min:        候选当日成交额 ≥ min_candidate_amount（运行期兜底，建表阶段已筛过一次成分库）
+
+# 本策略的成败点（不是入场条件，是判定方法本身）：
+#   1) 盘前表必须是真的盘前产物：build_pretable 只吃 as_of 及更早的数据，任何
+#      D0 当天的记录一律被丢弃，喂入 D0 数据不改变输出（见测试
+#      test_build_pretable_ignores_d0_data）；
+#   2) 候选必须在盘前表内才允许触发：D0 当天表现再好、但不在盘前表候选列表
+#      内的标的一律不触发（不是临时补进表，是明确的 no_signal）；
+#   3) "率先反应"按龙头确认后的分钟数窗口判定，只用截至评估时刻的信息，
+#      不掺入任何后续结果字段——与 assist_arbitrage 的突破排名判定同构。
+#   由 tests/test_preleader_arbitrage.py 的专门用例守这三条。
+
+research_status: >-
+  not_gated_zero_sample_or_thin（未验证；既未证实也未证伪）。本机历史窗口仅
+  22 个交易日，属性映射所需的题材归属/成分股 20 日均成交额/龙头确认时刻等
+  D-1 数据链路本仓库尚未有稳定生产管道，回测适配层（daban_bt_preleader_arbitrage.py）
+  用同一份事件表滚动构造"前一交易日"盘前表，真实命中数可能为零或极少。因此本包
+  **没有任何**胜率 / PF / 期望值结论，任何此类数字都不存在。详见
+  docs/preleader-arbitrage-gate-evaluation-2026-08.md。
+
+interpretation: >-
+  本包描述的是"候选是否已经出现在盘前排好队、且在龙头确认后按纪律反应"这一
+  可核对的事实：盘前表新鲜度刻画"这张表是不是真的提前算好的"；候选在表内刻画
+  "盘中没有临时选股"；反应窗口刻画"跟随速度是否符合原书案例的数分钟量级"；
+  流动性刻画"候选自身是否可交易"。四条叠加构成"先于龙头"假设。注意：属性、
+  盘前表、龙头确认状态/时刻、候选流动性任一缺失时，实现层返回 unavailable
+  而非"不触发"，agent 解释时必须照此表述；候选"不在盘前表内"则是明确的
+  no_signal，不是数据缺口。
+
+# 本包不提供任何加减分解释：样本为零或极稀薄，此时给出任何方向性加减分都是把
+# 未验证假设当结论展示。保持空列表而非删除字段（schema 必填项）。
+score_hints: []

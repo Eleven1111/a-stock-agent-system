@@ -143,3 +143,13 @@ assist_arbitrage:
   leader_weak_change_pct_max: -3.0    # 退出A：龙头当日涨跌幅 ≤ 此值视为走弱（或已开板失守）
   breadth_decline_min_drop: 1.0       # 退出A：题材广度较对照时点下降 ≥ 此值家数
   min_rotation_gap: 15.0              # 退出B：新主线 DirectionScore 超原主线 ≥ 此值
+
+# P3 S4 先于龙头套利（PreleaderArbitrage）研究策略参数 — NON-LIVE，新增节，不改任何既有阈值。
+# 信号：D-1 晚间已建立「龙头候选→属性→同属性首板候选」盘前表(build_pretable，只用
+# D-1及更早数据、排除重大利空/流动性不足) ∧ D0 龙头确认后，候选须在盘前表候选列表内
+# ∧ 候选在龙头确认后 max_reaction_minutes 分钟内完成自身反应 ∧ 候选自身流动性达标
+# （升级方案 §6.1）。盘中不做临时选股是本策略的成败点，见 skills/common/preleader_arbitrage.py。
+preleader_arbitrage:
+  max_reaction_minutes: 10.0          # 条件3：候选须在龙头确认后此分钟数内完成自身反应
+  min_candidate_amount: 20000000.0    # 条件4：候选当日成交额下限2000万，不足→流动性不足
+  min_member_avg_turnover: 20000000.0 # 盘前表构建：属性成分股20日均成交额下限，不足→建表阶段排除
