@@ -1,74 +1,72 @@
-# checkpoint: 板块强度盘中时序落盘
+# checkpoint: 游资情绪交易体系升级执行（P0-P6）
 
-方案: `.omx/plans/sector-intraday-series.md`
-上游背景: 宿主机对 agent 提出 6 条改进建议；核实后 4 条能力已存在，真缺口为
-"盘中时序未落盘"（第3条）与"回测样本量未知"（第6条）。本轮做这两项。
+方案: `docs/hot-money-emotion-system-upgrade-plan-2026-08.md`（用户 2026-08-25 确认）
+执行模式: 主对话调度 + 独立终检（不采信子代理自述）；实现派 Opus 5 / Sonnet 5 子代理。
+授权: 2026-08-26 起用户授权**自行合并**，按方案做完为止。
+并发纪律: 最多 1 个写入子代理（dispatch.md §1）。
 
-前序: issue #260（市场/板块门禁拆分，宿主机建议第5条）已由 PR #261 合并。
+## 已合并（13 个 PR）
 
-## 本轮状态
-
-- [x] 现状核实 —— 6 条建议逐条对照代码，结论见下方"核实结论"
-- [x] 方案 —— `.omx/plans/sector-intraday-series.md`
-- [x] 实现
-  - [x] 新增 `skills/common/sector_series.py`（纯函数）：`slot_of` 15分钟分桶、
-        `record_slot` 幂等 upsert、`derive_persistence` 消费方、`summarize_day`
-        有界摘要、`prune_old_days` 保留 20 日
-  - [x] `intraday_monitor.py` 接线：新增 `_record_sector_series()`，落盘失败
-        fail-open（不压制涨跌停/退出告警）但把失败显式带回返回值
-  - [x] cron manifest 白名单加 `sector_series/`（**不加会导致生产写入被拦**）
-  - [x] 部署机只读诊断 `scripts/diagnose_settlement_samples.py`
-- [x] 测试 —— `tests/test_sector_series.py` 25 个 + `test_intraday_monitor.py` +3
-- [x] Mutation check（4 项全部确认变红后复原）
-- [x] 验证门槛 —— 见下
-
-## 三条 fail-closed 语义（本轮核心）
-
-1. **"没跑" ≠ "跑了但没数据"**：`slots` 记录所有执行过的槽位，
-   `degraded_slots` 记录执行了但观测不可用的槽位。缺 slot = 运维问题，
-   两者都有 = 数据问题。（issue #112/#113 教训）
-2. **缺口不插值**：斜率委托 `market_temperature.three_day_slope`，
-   不足 3 点返回 None，不用 0 冒充"走平"。
-3. **空集不出恒真数**：`derive_persistence({})` 返回 `insufficient_slots`，
-   不返回比率。降级槽计入分母，否则持续性被系统性高估。
-
-## Mutation check 结果（testing.md 要求）
-
-| 变异 | 预期 | 实测 |
+| PR | 内容 | main commit |
 |---|---|---|
-| 去掉同槽幂等（改无条件追加） | 幂等测试红 | ✅ 2 个红 |
-| 去掉 degraded 记录 | degraded 测试红 | ✅ 1 个红 |
-| 斜率不足3点时用 0.0 冒充 | 缺口测试红 | ✅ 1 个红 |
-| 降级槽从分母消失 | 比率测试红 | ✅ 1 个红（1.0 vs 0.75，正是"覆盖率恒1.0"类假绿） |
+| #267 | P0 情绪日报数据集 + S_t shadow | f54d485 |
+| #268 | P5(a,b) 成交约束模型 + rule_version | 4073c77 |
+| #269 | P1 State PnL 归因（零样本 UNVERIFIED） | 51571a5 |
+| #271 | P2 LeaderScore / ThemeScore | 1548e5d |
+| #272 | P3-S1 超预期 RankSurprise | e2ad43d |
+| #273 | P3-S2 龙头分歧回封 | 001421c |
+| #274 | 事件表 EVENT_SCHEMA v4 | e662a8a |
+| #275 | 分钟线派生管道（S1/S2 首次非零命中） | 05bb34a |
+| #276 | P6 合规红线（AGENTS.md + 行为断言） | 777cc62 |
+| #277 | P3-S3 最强助攻套利 | c70a837 |
+| #278 | P5(d) 尾部风险指标 | 4e5483d |
+| #279 | P3-S4 先于龙头套利 | 3707859 |
+| #280 | P5(c) 消融实验 A→G | 1c712e7 |
 
-## 验证门槛（本地 3.13）
+## 剩余
 
-全量 pytest **3084 passed**（+3 既有环境失败，与本次无关，已用 git stash 核实历史）
-/ ruff 全绿 / compileall 全绿 / validate_cron_manifest OK(67 jobs)
-/ maintainability budget 全绿 / git diff --check 全绿。
-**CI 3.10 矩阵待远端跑。**
+- [ ] **P3-S5 反量龙回头** — sonnet 子代理进行中（分支 feat/p3-s5-reverse-volume）
+- [ ] **P6 大面股库** ← 主对话进行中（分支 feat/p6-big-loss-ledger）
+- [ ] P3-S6 冰点反转（依赖 P1 校准结论，本机零样本 → 只能交付管道并注明依赖未满足）
+- [ ] P4 仓位/止损/熔断（1+1+1 状态机、R 化风险预算、环境总仓表、四层止损、熔断阶梯；paper 先行）
+- [ ] P6 剩余：复盘清单自动化、DisciplineScore 联动
 
-## 核实结论：宿主机 6 条建议 vs 代码现状
+## 核心约束（每次派发前重申）
 
-| # | 建议 | 现状 | 真缺口 |
-|---|---|---|---|
-| 1 | 板块/主题映射+角色 | `industry_map.py`(815行)、`theme_registry.py` 支持三类证据、角色 leader/core/follower | 板块**扁平**（`resolve_sector` 单值），做不了"贵金属→白银→资源扩散"层级；缺"补涨"档 |
-| 2 | 板块强度指标 | 中位数/上涨数/涨停数/相对大盘/核心股表现均有 | 缺 3 个小指标：板块级炸板率、5%档计数、成交额增速 |
-| 3 | 盘中时序 | 时点基础设施已有 | **本轮已修复** |
-| 4 | 板块内部结构 | 零件齐（消融/拥挤/轮动/S0-S6） | 缺"低位补涨"与板块级"诱多回落"；主要缺聚合层 |
-| 5 | 市场/板块门禁拆分 | #260 已合并 | 只做了冰点→restricted 一个方向；反方向（强势市≠全板块可参与）未做 |
-| 6 | 回测校准 | 机器齐（`lifecycle_analytics` 有 IC/消融/分阶段） | **数据未知** —— 本轮交付诊断脚本待部署机上跑 |
+- **本机只做管道就绪**（用户 2026-08-25 决策）：历史窗口仅 22 交易日、无全市场缓存，
+  **严禁用小样本出胜率/PF/期望值结论**；零命中如实报 UNVERIFIED 是正确结局。
+- 策略一律 **NON-LIVE 未注册**；NON-LIVE 必须用**行为断言**（消费端真降为 watch/零仓位），
+  不是断言 pack 字段值。
+- `config/daban_thresholds.yaml` 既有阈值**零删改**，只可追加新节（铁律）。
+- 阈值不得照分位数回拟合，调整须走 research_gate。
+- 空集/缺数据一律 `unavailable`，绝不用 0 或代理值冒充。
 
-## 下一步（建议顺序）
+## 反复踩到的坑（派发时直接写进 prompt）
 
-1. **部署机跑 `python scripts/diagnose_settlement_samples.py`** —— 拿回结算样本量，
-   决定第6条是"接线"还是"重建"。这是所有校准的前提。
-2. 第2条缺的 3 个指标（炸板率/5%档/成交额增速）—— 小增量
-3. 第4条形态聚合层 —— 纯聚合，不新增数据源
-4. 第1条层级化 —— 最贵，要动 `resolve_sector` 契约及全部下游，建议单独立项
+1. **Bash 每轮重置工作目录**：多步命令必须 `cd <worktree> && ...` 串一条，否则会在主仓库上
+   跑测试拿到错数字（我自己踩过一次，3313 vs 3345）。
+2. **mutation 前必须先 commit**：`git checkout --` 恢复到 HEAD，未提交的改动会被自己的
+   变异循环删掉。
+3. **mutation 没变红 ≠ 实现正确**：先用 `git diff --numstat` 确认变异真的生效（多次遇到
+   perl 没匹配上、`continue` 仍在导致空操作），查清再下结论。
+4. **worktree 里 `import skills.common` 解析到主仓库副本**（editable 安装），新模块 CLI
+   直接跑会 ModuleNotFoundError；验证用 `PYTHONPATH=$PWD`。
+5. 写 `docs/*.md` 被 settings 钩子拦，用 Bash heredoc 并说明原因。
 
-## 明确未做
+## 待生产数据到位后必须补做
 
-- 板块强度摘要**未接入简报** —— 刻意的：先确认时序数据可靠再决定呈现
-- 不做主线持续性**判断**（只落盘+出摘要，不出"是否主线"结论）
-- 不改告警阈值、不动 #260 门禁语义、不新增 cron 作业
+- P1 三套情绪口径的区分度结论、分组单调性、方案 §4.2 预期的证实/证伪。
+- P2 LeaderScore 20 日一致率与分歧案例复核、分组单调性；ThemeScore 与现 4 因子分对比。
+- P3 各策略 OOS 闸门判定、胜率/PF/期望值、分情绪状态 PnL、消融 A→G 实跑、纸面 ≥20 笔。
+- 方案 §11 全局验收第 2 条（策略走完全流程）在本机不可达，已显式推迟。
+- **量比阈值待复核**：真实分布中位 7.84 / p90 27.9，`min_volume_ratio=1.5` 近乎非约束，
+  S1 四条件实际只有三条起作用（见 docs/minute-derived-pipeline-2026-08.md）。
+- **P2 孤板惩罚生产风险**：依赖 sentiment_daily 的 break_rate/leader_damage 序列，本机 0 行；
+  生产若也缺，这条核心逻辑会静默成死代码 —— 上线前必须确认序列有值。
+- 各策略零命中的数据缺口：S1 `volume_ratio`（已由 #275 解决）、S2 `pre_reseal_turnover`、
+  S3 `leader_score_shadow` 权重不足 + `breakout_time`、S4 `t_amount` 全量为 None。
+
+## 文档归属（用户指令：入库但不上 GitHub）
+
+`docs_private/` 下有权威副本；`docs/` 下的同名副本用 `.git/info/exclude` 本地排除
+（该文件不进仓库），文件留在磁盘供用户复盘，不会被 git add 捕获。
