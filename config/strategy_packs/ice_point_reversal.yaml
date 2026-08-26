@@ -1,0 +1,100 @@
+# S6 冰点反转策略包（IcePointReversal）— 解释与研究假设层（NON-LIVE）
+# =============================================================================
+# 本文件是"声明式策略包"，只用于 agent 解释推荐时引用的判断标准，以及作为研究
+# 假设。它绝不影响实盘排序 / 评分 / 信号（AGENTS.md 红线：任何策略未过 research
+# gate 不得影响实盘排序）。想让本包影响实盘 → 走 research_gate 样本外验证并在
+# strategy_registry 登记 allowed_in_live_agent=true。
+#
+# 红线（本包的具体形态）：
+#   - strategy_registry 中**没有** ice_point_reversal 记录 ⇒ 消费端一律降级为
+#     watch、仓位倍率 0（decision_policy「strategy_unverified」/
+#     recommendation_audit「research_only」两条路径都会归零），这条行为由
+#     tests/test_ice_point_reversal.py 的消费端行为断言守着，不是靠本文件的
+#     字段值自证。
+#   - 未过 research_gate 之前，任何人不得把 skills/common/
+#     ice_point_reversal.py 的判定折进 daban_score / trend_score / 排序 / 仓位。
+#   - **本策略的注册条件比其他策略更严**：升级方案 §6.1 明确写明 S6"依赖 P1
+#     校准结论支持后才启动回测"。P1（State PnL 分阶段收益归因，#269）在本机是
+#     零样本 UNVERIFIED——情绪状态是否真有区分度既未证实也未证伪。因此
+#     ice_point_reversal 不能像其他策略一样"先接线、等真实数据积累后再评估"，
+#     而是必须先等 P1 在 full 模式下产出覆盖样本、且分档单格 n>=30，才具备
+#     启动 research_gate 的前提条件。
+#
+# 通用模板：不含任何具体股票代码 / 股票名称 / 具体板块名称。
+
+name: ice_point_reversal
+display_name: 冰点反转
+description: >-
+  识别"极端亏钱效应出清完毕、恐慌恶化速度下降、逆势活口出现并被市场确认、板块
+  开始扩散"这一完整阶段序列，而非"炸板率高+跌停多=抄底"这种被原书专门批评的
+  误用模式。四项量化谓词全部满足才构成"值得买入"的解释：上一日情绪评分S_t-1
+  处于极弱区间（<20，冰点）∧ 当日情绪评分改善幅度ΔS_t显著为正（>10，恶化速度
+  下降/触底反弹）∧ 逆势活口被市场确认（LeaderConfirm=1）∧ 板块参与扩散广度
+  达标（SectorBreadth>=3）。单独满足"冰点"（S_t-1<20）不构成任何买入解释——
+  原书记录过一名交易者机械在冰点打高度板、两周大赚后连续大面回撤30%+的教训，
+  否极并不必然泰来。
+
+category: reversal
+
+# 适用市场状态：冰点反转的解释力集中在极端恐慌出清后的阶段——大盘/板块仍在
+# 加速下跌、尚未出现逆势活口时，四项条件里的"确认"两项本身就不成立。
+market_regimes:
+  - S5   # 分歧（板块梯队瓦解，个股开始各自定价，逆势活口开始出现的阶段）
+  - S6   # 退潮（题材整体降温、极端亏钱效应最集中的阶段，也是本形态的前提阶段）
+
+# 需要的证据字段（缺失即无法判定；实现层对缺失一律返回 unavailable，绝不按
+# "默认不满足"处理 —— 把"没数据"折叠成"不触发"会让零样本看起来像已验证的
+# 负结果）。S_t/ΔS_t 的具体计算全部委托给 skills/common/sentiment_score.py，
+# 本包不重复定义任何情绪评分公式。
+evidence_requirements:
+  - sentiment_series        # 市场级情绪日报时间序列（>=180交易日预热），喂给 sentiment_score.compute_sentiment_score
+  - leader_confirm           # 逆势活口是否被市场确认（外部判定，本包不产出）
+  - sector_breadth_top       # 板块参与扩散广度（sentiment_daily.sector_breadth_top 产出）
+
+# 四项合取条件（升级方案 §6.1）。阈值不写在本文件里，单一事实源是
+# config/scoring.yaml 的 sentiment_score.ice_confirm 子节——策略包是解释层，
+# 把可执行参数放进来会模糊"解释层 vs 执行层"的边界，且会制造与 sentiment_score
+# 自身阈值的第二份拷贝（分叉风险）。
+entry_conditions:
+  - prev_score_extreme_below_threshold: 上一日情绪评分S_t-1 < prev_score_max（scoring.yaml，默认20，冰点）
+  - delta_score_improving_above_threshold: 当日情绪评分改善幅度ΔS_t > delta_min（scoring.yaml，默认10）
+  - leader_confirm: 逆势活口被市场确认（LeaderConfirm=1）
+  - sector_breadth_at_least_threshold: 板块参与扩散广度 >= sector_breadth_min（scoring.yaml，默认3）
+
+# 本策略的成败点（不是入场条件，是判定方法本身）：
+#   1) S_t/ΔS_t 必须复用 sentiment_score.compute_sentiment_score()，本包实现
+#      不重新计算滚动分位/加权评分，阈值(20/10/3)全部来自 scoring.yaml 的
+#      sentiment_score.ice_confirm 子节，本模块没有第二份拷贝。
+#   2) 四项条件必须全部满足才是 signal，缺任一项都不得触发——单独满足"冰点"
+#      永不构成买入许可，测试须覆盖"逐项去掉任一项都不触发"与"只满足冰点、
+#      其余三项都不满足"两类用例。
+#   3) 任一证据缺失（S_t不可得/leader_confirm未知/sector_breadth未知）一律
+#      unavailable，不得折叠成"不是冰点"这个负面结论。
+
+research_status: >-
+  not_gated_zero_sample（未验证；既未证实也未证伪，且前置依赖未满足）。升级
+  方案§6.1明确要求S6"依赖P1校准结论支持后才启动回测"——P1（State PnL分阶段
+  收益归因，#269）在本机只有3条结算样本，是零样本UNVERIFIED，情绪状态是否
+  真有区分度既未证实也未证伪。本包的回测管道已接线（daban_bt_ice_point_
+  reversal.py），但现有daban_bt_data v4事件表是"单日涨停快照"结构，不携带
+  市场级情绪日报序列/逆势活口确认/板块扩散广度，本包三类证据在现有事件表上
+  结构性不可得，walk-forward OOS闸门跑不了，实跑真实事件数按事件表规模非零、
+  命中数为0。因此本包**没有任何**胜率/PF/期望值结论，任何此类数字都不存在。
+  **本策略注册条件比其他S1-S5策略更严**：不是"接线后等数据积累"，而是必须先
+  等P1在full模式下产出覆盖样本、且分档单格n>=30，才具备启动research_gate的
+  前提条件。详见 docs/ice-point-reversal-gate-evaluation-2026-08.md。
+
+interpretation: >-
+  本包描述的是"极端恐慌是否已经出清、逆势活口是否已经确认、扩散是否已经开始"
+  这一完整阶段序列是否成立，而非"炸板率高=该抄底"这种被原书专门批评的误用。
+  S_t-1<20刻画"上一日确实处于冰点"；ΔS_t>10刻画"恶化速度正在显著下降/触底
+  反弹"；LeaderConfirm刻画"是否已经有具体标的被市场追认为逆势活口"；
+  SectorBreadth>=3刻画"确认是否已经扩散到多个板块而非孤例"。四条叠加构成
+  "值得从冰点转为观察"这一假设，注意：任一必需证据缺失时，实现层返回
+  unavailable而非"不触发"，agent解释时必须照此表述，不得把不可用读成负面
+  结论；更不得把"只满足S_t-1<20"单独解释成买入信号——这正是原书批评的误用
+  模式本身。
+
+# 本包不提供任何加减分解释：样本为零且前置依赖(P1)未满足，此时给出任何方向性
+# 加减分都是把未验证假设当结论展示。保持空列表而非删除字段（schema 必填项）。
+score_hints: []
