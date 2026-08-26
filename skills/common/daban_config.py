@@ -147,6 +147,19 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "min_candidate_amount": 20000000.0,
         "min_member_avg_turnover": 20000000.0,
     },
+    # 反量比值/回撤区间来自单一历史案例（摩恩电气）的工程化取值，未经样本外验证，
+    # 见 skills/common/reverse_volume.py 与 docs/reverse-volume-gate-evaluation-2026-08.md。
+    "reverse_volume": {
+        "min_drawdown_pct": 0.25,
+        "max_drawdown_pct": 0.40,
+        "max_volatility_contraction_ratio": 0.6,
+        "max_volume_percentile_20d": 0.30,
+        "reversal_volume_ratio_min": 1.3,
+        "reversal_volume_ratio_second_min": 1.5,
+        "entry_position_pct": 0.10,
+        "second_confirmation_position_pct_min": 0.20,
+        "second_confirmation_position_pct_max": 0.30,
+    },
     # §7b 三项调整机制，默认全部关闭；启用必须引用打板归因报告数据
     # （scripts/strategy_attribution_report.py），杠杆实现见 daban_adjustments.py。
     "adjustments": {
