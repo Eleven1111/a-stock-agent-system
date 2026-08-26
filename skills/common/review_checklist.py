@@ -22,7 +22,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 OK = "ok"
 EMPTY = "empty"
