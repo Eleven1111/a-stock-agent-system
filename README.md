@@ -132,14 +132,23 @@ snapshot, lease, policy, and ledger rules.
 | Candidate discovery | Dynamic A-share universe, natural-language recall, tail-window anomalies, limit-up and trend lanes |
 | Scoring | Four-dimensional S/A/B/C grading: technical 30%, sentiment 15%, catalyst 30%, deep research 25% |
 | Research | Serenity fundamental research, Chan-structure research, policy-intent decoding, multi-expert research committee, governed write-back and hybrid retrieval, dual-Agent bounded plan compilation |
-| Risk and lifecycle | Tradeability, A-share T+1, concentration, stops, candidate FSM, recommendation audit, settlement |
-| Evaluation | IS/OOS walls, costs, controls, statistical gates, shadow promotion, expert calibration, isolated deterministic replay |
+| Sentiment cycle | Daily sentiment dataset, rolling-percentile sentiment score, state attribution, leader and theme scoring — all shadow-only |
+| Strategy research library | Six unregistered short-swing hypotheses (surprise, divergence reseal, assist arbitrage, pre-leader, reverse volume, ice-point reversal), each with its own gate evaluation |
+| Risk and lifecycle | Tradeability, A-share T+1, concentration, stops, candidate FSM, recommendation audit, settlement, ladder position sizing, four-layer exits, R-based circuit breakers |
+| Evaluation | IS/OOS walls, costs, controls, statistical gates, shadow promotion, expert calibration, isolated deterministic replay, execution-constraint backtests, ablation ladder, tail-risk metrics |
 | Operations | Manifest scheduler, resumable DAG, provider health, state recovery, execution traces, delivery telemetry |
 | Simulation | Independent ¥100,000 paper account with A-share lots, costs, limits, T+1, and `paper.*` events |
 
 The capability list is intentionally broader than the live decision surface.
 Research-only or explanatory modules cannot affect live ranking until their
 promotion gates pass.
+
+The six strategies in the research library are a concrete example: every one of
+them is absent from `strategy_registry`, so a positive signal is downgraded to
+`watch` with a zero position multiplier. Their gate evaluations report
+`UNVERIFIED` rather than a win rate — the local history window is too short to
+support one, and reporting a hit rate from a handful of samples would be worse
+than reporting nothing.
 
 ## Research committee
 
@@ -301,6 +310,12 @@ returns or open-world prediction accuracy.
 | Paper trading | [docs/paper-trading-protocol.md](docs/paper-trading-protocol.md) |
 | Research committee | [docs/research-committee-guide.md](docs/research-committee-guide.md) |
 | Hot-money selection | [docs/hot-money-selection-protocol.md](docs/hot-money-selection-protocol.md) |
+| Backtest event table (schema v4) | [docs/event-schema-v4-2026-08.md](docs/event-schema-v4-2026-08.md) |
+| Minute-derived field pipeline | [docs/minute-derived-pipeline-2026-08.md](docs/minute-derived-pipeline-2026-08.md) |
+| Sentiment-state PnL calibration | [docs/state-pnl-calibration-2026-08.md](docs/state-pnl-calibration-2026-08.md) |
+| Leader and theme scoring | [docs/leader-theme-score-evaluation-2026-08.md](docs/leader-theme-score-evaluation-2026-08.md) |
+| Position sizing, exits, circuit breakers | [docs/position-risk-p4-2026-08.md](docs/position-risk-p4-2026-08.md) |
+| Strategy gate evaluations | [rank-surprise](docs/rank-surprise-gate-evaluation-2026-08.md), [divergence-reseal](docs/divergence-reseal-gate-evaluation-2026-08.md), [assist-arbitrage](docs/assist-arbitrage-gate-evaluation-2026-08.md), [preleader-arbitrage](docs/preleader-arbitrage-gate-evaluation-2026-08.md), [reverse-volume](docs/reverse-volume-gate-evaluation-2026-08.md), [ice-point-reversal](docs/ice-point-reversal-gate-evaluation-2026-08.md) |
 | Tail-close research lane | [docs/tail-close-strategy-protocol.md](docs/tail-close-strategy-protocol.md) |
 | Stock-intelligence integration | [docs/stock-intelligence-integration.md](docs/stock-intelligence-integration.md) |
 | Installed scheduler | [AUTOPILOT.md](AUTOPILOT.md) |
