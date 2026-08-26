@@ -148,7 +148,7 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "min_member_avg_turnover": 20000000.0,
     },
     # 反量比值/回撤区间来自单一历史案例（摩恩电气）的工程化取值，未经样本外验证，
-    # 见 skills/common/reverse_volume.py 与 docs/reverse-volume-gate-evaluation-2026-08.md。
+    # 见 skills/common/reverse_volume.py 与 docs_private/reverse-volume-gate-evaluation-2026-08.md。
     "reverse_volume": {
         "min_drawdown_pct": 0.25,
         "max_drawdown_pct": 0.40,

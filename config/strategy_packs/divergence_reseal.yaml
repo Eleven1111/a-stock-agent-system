@@ -68,7 +68,7 @@ research_status: >-
   turnover_baseline_sample_days 六个必需证据字段中的任何一个，walk-forward OOS
   闸门跑不了，实跑真实事件数按事件表规模非零、命中数为 0。因此本包**没有任何**
   胜率 / PF / 期望值结论，任何此类数字都不存在。详见
-  docs/divergence-reseal-gate-evaluation-2026-08.md。
+  docs_private/divergence-reseal-gate-evaluation-2026-08.md。
 
 interpretation: >-
   本包描述的是"分歧剧烈时谁先完成承接换手并重新封板"这一可核对的事实：板块涨停

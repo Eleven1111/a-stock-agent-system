@@ -274,12 +274,6 @@ CI 覆盖受支持的 Python 矩阵和 CodeQL。固定 Agent Harness 只验证�
 | 模拟交易 | [docs/paper-trading-protocol.md](docs/paper-trading-protocol.md) |
 | 研究委员会 | [docs/research-committee-guide.md](docs/research-committee-guide.md) |
 | 游资选股 | [docs/hot-money-selection-protocol.md](docs/hot-money-selection-protocol.md) |
-| 回测事件表（schema v4） | [docs/event-schema-v4-2026-08.md](docs/event-schema-v4-2026-08.md) |
-| 分钟线派生字段管道 | [docs/minute-derived-pipeline-2026-08.md](docs/minute-derived-pipeline-2026-08.md) |
-| 情绪状态分阶段归因 | [docs/state-pnl-calibration-2026-08.md](docs/state-pnl-calibration-2026-08.md) |
-| 龙头与题材评分 | [docs/leader-theme-score-evaluation-2026-08.md](docs/leader-theme-score-evaluation-2026-08.md) |
-| 仓位、四层止损与熔断 | [docs/position-risk-p4-2026-08.md](docs/position-risk-p4-2026-08.md) |
-| 策略闸门评估 | [超预期](docs/rank-surprise-gate-evaluation-2026-08.md)、[分歧回封](docs/divergence-reseal-gate-evaluation-2026-08.md)、[最强助攻](docs/assist-arbitrage-gate-evaluation-2026-08.md)、[先于龙头](docs/preleader-arbitrage-gate-evaluation-2026-08.md)、[反量龙回头](docs/reverse-volume-gate-evaluation-2026-08.md)、[冰点反转](docs/ice-point-reversal-gate-evaluation-2026-08.md) |
 | 尾盘研究通道 | [docs/tail-close-strategy-protocol.md](docs/tail-close-strategy-protocol.md) |
 | Stock Intelligence 集成 | [docs/stock-intelligence-integration.md](docs/stock-intelligence-integration.md) |
 | 已安装调度器 | [AUTOPILOT.md](AUTOPILOT.md) |

@@ -13,7 +13,7 @@ S2 龙头分歧回封（DivergenceReseal）回测接线 — 升级方案 §6.1 +
 字段映射（事件表 → 信号记录）与诚实缺口标注
 --------------------------------------------
 v4 事件表（EVENT_SCHEMA=daban_bt_event_table_v4）已补齐三组证据（见
-docs/event-schema-v4-2026-08.md）：板块横截面聚合 sector_limitup_count /
+docs_private/event-schema-v4-2026-08.md）：板块横截面聚合 sector_limitup_count /
 sector_fast_board_count、由「炸板次数>0 时取最后封板时间」派生的 reseal_time、
 从 K 线历史算的 turnover_baseline_median / _sample_days。
 

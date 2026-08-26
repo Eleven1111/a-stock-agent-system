@@ -127,7 +127,7 @@ STAR_MARKET_OPEN = date(2019, 7, 22)
 # 北交所开市，自始适用 30%。此前的新三板精选层不在本函数覆盖范围内。
 BSE_OPEN = date(2021, 11, 15)
 # 沪市主板风险警示股票涨跌幅 5% → 10%。
-# 出处：docs/hot-money-emotion-system-upgrade-plan-2026-08.md §8.1(b)。
+# 出处：docs_private/hot-money-emotion-system-upgrade-plan-2026-08.md §8.1(b)。
 # 该文只声明了沪市主板，深市主板未见同口径表述，故此处只对沪市改判，
 # 深市主板风险警示沿用既有 5%（保持既有调用方行为不变），差异见交付报告。
 SSE_RISK_WARNING_10PCT_FROM = date(2026, 7, 6)

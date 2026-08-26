@@ -6,7 +6,7 @@
 
 ``trend_score`` 正是从这个盲区漏过去的：它从未被要求证明高分优于低分。
 2026-08-08 用部署机 lifecycle 数据实测，其中窗口 rank IC 为 -0.34、8/8 队列
-全负、十分位近似单调倒挂（见 docs/trend-score-ic-evaluation-2026-08.md）。
+全负、十分位近似单调倒挂（见 docs_private/trend-score-ic-evaluation-2026-08.md）。
 
 三条设计取舍，都来自那次分析踩到的坑：
 

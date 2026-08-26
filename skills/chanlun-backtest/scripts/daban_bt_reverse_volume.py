@@ -33,7 +33,7 @@ T+1表现），本策略需要的七类证据全部是**跨周期/跨日的时�
     事件表 v4 只固化了 09:45 量比这一个**标量**派生值（`volume_ratio`），
     不落原始分钟行——同 S1 的 volume_ratio 缺口、S2 的 pre_reseal_turnover_pct
     缺口一样，是分钟线派生管道尚未覆盖到"多个时间窗口的方向性峰值"这一层
-    （见 docs/minute-derived-pipeline-2026-08.md）。要跑出非零样本，必须先把
+    （见 docs_private/minute-derived-pipeline-2026-08.md）。要跑出非零样本，必须先把
     "入场前/回踩期"两个时间窗口的分钟行落盘或改造 minute_rows_source 支持
     多窗口检索。
   - breakout_above_balance_zone：需要盘中"短期平衡区"检测（同 S3 的

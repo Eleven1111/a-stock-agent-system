@@ -4,7 +4,7 @@ Verifies the driver can run chan.py's structure analysis fully offline
 on a synthetic K-line series with obvious swing highs/lows, and that
 it returns non-empty, well-formed 笔 (bi) and 买卖点 (bsp) records.
 This is the oracle used for future differential testing against the
-production chanlun rewrite (docs/chanlun-upgrade-plan-2026-08.md).
+production chanlun rewrite (docs_private/chanlun-upgrade-plan-2026-08.md).
 """
 
 import datetime

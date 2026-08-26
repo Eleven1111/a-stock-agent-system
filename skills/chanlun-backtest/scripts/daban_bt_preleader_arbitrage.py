@@ -36,7 +36,7 @@ no_signal（不在任何(龙头,属性)条目内），这是诚实的边界情�
 仍然缺的证据（诚实标注，不许拿近似值冒充）：
   - material_bad_news：事件表没有个股利空事件流，盘前表构建时对这一项恒当
     False（即"建表阶段不做利空剔除"），与 S3 的诚实缺口标注同构——这不是
-    "利空不存在"，是数据缺口，见 docs/preleader-arbitrage-gate-evaluation-2026-08.md；
+    "利空不存在"，是数据缺口，见 docs_private/preleader-arbitrage-gate-evaluation-2026-08.md；
   - avg_turnover_20d：本适配器用候选当日成交额 t_amount 作代理（不是真正的
     20 日均值），与 change_pct 用封板早晚代理相对强度同类处理，语义已在此更正。
 

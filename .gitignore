@@ -31,3 +31,6 @@ docs/superpowers/
 .venv/
 .omx/
 .coverage
+
+# 执行状态文件：本地保留供断线恢复，不进公开仓库
+checkpoint.md

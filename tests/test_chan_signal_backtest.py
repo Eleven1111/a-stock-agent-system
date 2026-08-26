@@ -202,7 +202,7 @@ def test_formal_registration_is_idempotent_but_blocks_changed_oos(tmp_path):
 def test_v2_lineage_uses_strategy_id_v2_and_filters_unsure_signals(monkeypatch):
     """2026-08 T6：v2 谱系接入合成数据管线自检（pending_real_data_run）——只验证
     strategy_id_v2 路由 + is_sure 过滤生效，不构成任何 A/B 结论（结论只能来自
-    docs/chanlun-gate-evaluation-2026-08.md 的真实数据运行）。"""
+    docs_private/chanlun-gate-evaluation-2026-08.md 的真实数据运行）。"""
     backtest = load_module()
 
     def fake_analyze(prefix):
