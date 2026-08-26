@@ -22,14 +22,17 @@
 | #278 | P5(d) 尾部风险指标 | 4e5483d |
 | #279 | P3-S4 先于龙头套利 | 3707859 |
 | #280 | P5(c) 消融实验 A→G | 1c712e7 |
+| #281 | P3-S5 反量龙回头 | f5cb36b |
+| #282 | P6 大面股库 | 73d32a8 |
+| #283 | P6 纪律分 DisciplineScore | 61968c3 |
+| #284 | P6 晚间复盘清单 | b9334d9 |
+| #285 | P3-S6 冰点反转（P3 收官） | d2d2769 |
 
 ## 剩余
 
-- [ ] **P3-S5 反量龙回头** — sonnet 子代理进行中（分支 feat/p3-s5-reverse-volume）
-- [ ] **P6 大面股库** ← 主对话进行中（分支 feat/p6-big-loss-ledger）
-- [ ] P3-S6 冰点反转（依赖 P1 校准结论，本机零样本 → 只能交付管道并注明依赖未满足）
-- [ ] P4 仓位/止损/熔断（1+1+1 状态机、R 化风险预算、环境总仓表、四层止损、熔断阶梯；paper 先行）
-- [ ] P6 剩余：复盘清单自动化、DisciplineScore 联动
+- [ ] **P4 仓位/止损/熔断** — opus 子代理进行中（分支 feat/p4-position-risk）
+      1+1+1 状态机 / R 化风险预算 / 环境总仓表 / 四层止损（事件止损优先）/ 熔断阶梯；**paper 先行**。
+      这是方案的最后一块；合并后 P0-P6 全部交付完毕。
 
 ## 核心约束（每次派发前重申）
 
@@ -52,6 +55,9 @@
 4. **worktree 里 `import skills.common` 解析到主仓库副本**（editable 安装），新模块 CLI
    直接跑会 ModuleNotFoundError；验证用 `PYTHONPATH=$PWD`。
 5. 写 `docs/*.md` 被 settings 钩子拦，用 Bash heredoc 并说明原因。
+6. **mutation 复原后仍报红时，先清 `__pycache__` 再下结论**：本仓扁平模块导入
+   （`import xxx` 走 sys.path）+ 快速 mutate/restore 循环会命中过期字节码，
+   造成"源码已复原但测试仍红"的假象（S6 那轮踩到，清缓存后 31 passed）。
 
 ## 待生产数据到位后必须补做
 
