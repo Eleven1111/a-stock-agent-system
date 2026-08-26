@@ -67,7 +67,7 @@ research_status: >-
   为 peer 中位数）；本机无全市场日线缓存（sentiment_daily 0 行、覆盖率 1.15%），
   walk-forward OOS 闸门跑不了；既有 v1/v3 事件表不含 09:45 前量比，实跑真实事件
   数为 0。因此本包**没有任何**胜率 / PF / 期望值结论，任何此类数字都不存在。
-  详见 docs_private/rank-surprise-gate-evaluation-2026-08.md。
+  详见 docs_private/。
 
 interpretation: >-
   本包描述的是"该标的今日竞价相对同板块梯队的预期差"这一可核对的事实：先取同板块

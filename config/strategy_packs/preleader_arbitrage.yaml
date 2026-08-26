@@ -70,7 +70,7 @@ research_status: >-
   D-1 数据链路本仓库尚未有稳定生产管道，回测适配层（daban_bt_preleader_arbitrage.py）
   用同一份事件表滚动构造"前一交易日"盘前表，真实命中数可能为零或极少。因此本包
   **没有任何**胜率 / PF / 期望值结论，任何此类数字都不存在。详见
-  docs_private/preleader-arbitrage-gate-evaluation-2026-08.md。
+  docs_private/。
 
 interpretation: >-
   本包描述的是"候选是否已经出现在盘前排好队、且在龙头确认后按纪律反应"这一

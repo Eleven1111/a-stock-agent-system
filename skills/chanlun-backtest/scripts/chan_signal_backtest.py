@@ -41,7 +41,7 @@ STRATEGY_DIRECTIONS = {
     "chanlun_top_divergence": "bearish",
 }
 # 2026-08 T6：结构升级后的全谱系买卖点（chan_bsp.py 输出的 strategy_id_v2），版本化 ID +
-# 新留出集重评，legacy 四类型的既有代码路径/台账不动（见 docs_private/chanlun-upgrade-plan-2026-08.md §0）。
+# 新留出集重评，legacy 四类型的既有代码路径/台账不动（见 docs_private/ §0）。
 BSP_TYPES_V2 = ("1", "1p", "2", "2s", "3a", "3b")
 STRATEGY_DIRECTIONS_V2 = {
     **{f"chanlun_bsp{t}_buy_v2": "bullish" for t in BSP_TYPES_V2},

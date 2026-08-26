@@ -89,7 +89,7 @@ research_status: >-
   层面大概率不可用权重不足整体 unavailable）两个必需证据字段，walk-forward OOS
   闸门跑不了，实跑真实事件数按事件表规模非零、命中数很可能为 0 或极少。因此本包
   **没有任何**胜率 / PF / 期望值结论，任何此类数字都不存在。详见
-  docs_private/assist-arbitrage-gate-evaluation-2026-08.md。
+  docs_private/。
 
 interpretation: >-
   本包描述的是"候选是否在跟随一个已确认龙头做助攻"这一可核对的事实：龙头

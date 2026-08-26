@@ -11,7 +11,7 @@
 zt_pool 只负责事件筛选与 first_seal/连板/封单等元数据。
 
 v4（2026-08）补齐 S1/S2 所需证据字段，逐字段按来源标可得性（见 V4_FIELDS 与
-docs_private/event-schema-v4-2026-08.md）。铁律：不同来源可得性不同，缺就标 unavailable，
+docs_private/）。铁律：不同来源可得性不同，缺就标 unavailable，
 **绝不用日线代理值伪造**（全日换手率 ≠ 封板前换手，全日量 ≠ 09:45 量比）。
 
 纯函数（kline_lookup / assemble_events / sector_cross_section / turnover_baseline /
@@ -37,7 +37,7 @@ from paths import data_file  # noqa: E402
 # v3 相对 v2 增补 T 日 OHLCV/成交额与 t_prev_close/t1_amount —— P5(a) 成交约束模型
 # 判「一字禁买 / 回封参与率 / 跌停承接量」必需的字段。
 # v4 相对 v3 增补 S1/S2 两个研究策略所需的证据字段（见下方 V4_FIELDS 与
-# docs_private/event-schema-v4-2026-08.md）：上游 zt_pool 早已返回却被 _map_zt_row 丢弃的
+# docs_private/）：上游 zt_pool 早已返回却被 _map_zt_row 丢弃的
 # 换手率/最后封板时间/炸板次数、由它们派生的 reseal_time、按 date×sector 聚合的板块
 # 横截面家数、以及从已抓 K 线算的 20 日换手基准。
 # schema 提级同时让旧缓存自动失效重建（引擎对缺字段是 fail-closed 拒绝成交，

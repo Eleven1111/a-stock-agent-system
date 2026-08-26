@@ -76,7 +76,7 @@ ARTIFACT_DIR = os.path.join(
     os.path.dirname(OUTPUT_FILE), "evidence", "gate_evaluation"
 )
 # 2026-08 T6：v2 谱系（12 个 chanlun_bsp{...}_v2 假设，新 split）写独立产物路径，
-# 不与 legacy 四类型的已登记台账/证据文件混写或覆盖（docs_private/chanlun-upgrade-plan-2026-08.md §0）。
+# 不与 legacy 四类型的已登记台账/证据文件混写或覆盖（docs_private/ §0）。
 OUTPUT_FILE_V2 = data_file("chanlun-backtest", "gate_evaluation_v2_latest.json")
 ARTIFACT_DIR_V2 = os.path.join(
     os.path.dirname(OUTPUT_FILE_V2), "evidence", "gate_evaluation_v2"

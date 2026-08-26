@@ -1,7 +1,7 @@
 """缠论门控一次性评估 runner — 合成管线自检 + 真实抓取路径 mock 化验证。
 
 网络/mootdx 一律 mock，测试不触网。真实数据结论的可信度由
-docs_private/chanlun-gate-evaluation-2026-07.md 的真实运行记录负责，不在本文件断言。
+docs_private/ 的真实运行记录负责，不在本文件断言。
 """
 
 import importlib.util
@@ -162,7 +162,7 @@ def test_summarize_for_report_verdict_b_when_all_fail_or_block():
 def test_v2_lineage_synthetic_pipeline_stays_pending_and_never_registers():
     """2026-08 T6：v2 谱系（12 个 chanlun_bsp{...}_v2）合成管线自检。输出必须标注
     pending_real_data_run，不可作为 A/B 结论——真实结论只来自
-    docs_private/chanlun-gate-evaluation-2026-08.md 记录的 --mode real 运行。"""
+    docs_private/ 记录的 --mode real 运行。"""
     module = load_module()
 
     result = module.run_evaluation(

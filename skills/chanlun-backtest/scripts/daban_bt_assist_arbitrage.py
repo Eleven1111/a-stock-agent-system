@@ -30,7 +30,7 @@ assist_arbitrage.py 的默认 relative_strength_field 配置项，语义已在�
   - breakout_time：候选"率先突破日内关键位"需要盘中关键位检测，事件表（v3/v4）
     都没有这条分钟线派生管道，因此本适配器把它留空，入场触发条件在真实事件表上
     恒 unavailable。这不是"没有信号"，是数据缺口——同 S1 的 volume_ratio、S2 的
-    pre_reseal_turnover_pct 一样，见 docs_private/event-schema-v4-2026-08.md 的缺口清单。
+    pre_reseal_turnover_pct 一样，见 docs_private/ 的缺口清单。
   - leader_score_shadow：本脚本用 hot_money_selection.leader_score() 现算（复用
     P2 已合入的实现，不重造），但六因子里 seal_speed/resilience 仅深度池可得、
     relative_strength 需要全市场中位数与板块前十均值（回测事件表没有这两个基准）、
