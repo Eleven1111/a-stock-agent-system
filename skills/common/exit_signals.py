@@ -10,15 +10,53 @@
   7. time_stop:       持仓超过持有窗口未达目标
   8. lhb_climax:      龙虎榜高潮见顶（净买突然放量3倍，issue #88）
   9. deep_research_exit: 深研低分复核（普通/过期评分不得直接触发交易）
+ 10. theme_invalid:   题材失效（题材分跌幅≥20 或主线降为后排 + 助攻大面积掉队）
+ 11. leader_invalid:  龙头失效（LeaderScore 跌幅≥20 或龙头断板 + 承接断层）
+ 12. event_stop:      事件止损（龙头大幅低开 ∧ 助攻无溢价 ∧ 昨日后排跌停）
 
 每个信号返回 {triggered, signal_type, severity, reason, action}。
 severity: critical(立即卖) / warning(减仓/关注) / info(记录)
+
+四层止损（升级方案 P4(d)）：市场层(sentiment_exit/flow_reversal) → 题材层(theme_invalid)
+→ 龙头层(leader_invalid/event_stop/lhb_climax) → 个股层(stop_loss/trailing/…)。
+``evaluate_all_exit_signals`` 给每条信号打 ``exit_layer`` 标签，并让**事件止损优先于
+价格止损**：同为 critical 时，事件类信号排在价格类之前。理由是价格止损在情绪股上
+天然滞后——龙头低开、助攻无溢价、昨日后排跌停已经把承接打穿时，ATR 还没触及，
+但那一口承接明天不会回来。
 """
 
 from __future__ import annotations
 
 from datetime import date
 from typing import Any, Mapping
+
+#: 每类信号归属的止损层（四层止损）。未登记的信号落 "stock"，不静默丢弃。
+EXIT_LAYERS: dict[str, str] = {
+    "sentiment_exit": "market",
+    "flow_reversal": "market",
+    "theme_invalid": "theme",
+    "leader_invalid": "leader",
+    "event_stop": "leader",
+    "lhb_climax": "leader",
+    "stop_loss": "stock",
+    "take_profit": "stock",
+    "trailing_stop": "stock",
+    "time_stop": "stock",
+    "catalyst_negated": "stock",
+    "deep_research_exit": "stock",
+    "auction_premium_exit": "stock",
+}
+
+#: 事件止损集合：同 severity 下排序优先于价格止损。只含 P4 新增的三类，
+#: 既有信号的相对次序一字未动（改动它们会静默重排历史告警的 top_signal）。
+EVENT_STOP_SIGNALS = frozenset({"event_stop", "leader_invalid", "theme_invalid"})
+
+#: 题材/龙头失效的评分跌幅阈值（方案 §7.1(d)：≥20）。
+SCORE_COLLAPSE_DROP = 20.0
+#: 助攻「大面积掉队」的比例阈值：过半助攻掉队即视为主线塌方。
+ASSIST_LAGGARD_RATIO = 0.5
+#: 事件止损中「大幅低开」的口径。
+LEADER_GAP_DOWN_PCT = -3.0
 
 
 def check_stop_loss(
@@ -250,6 +288,157 @@ def check_deep_research_exit(
     }
 
 
+def _pct(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value != value:  # NaN
+        return None
+    return float(value)
+
+
+def check_theme_invalid(
+    theme_score_drop_pct: Any = None,
+    theme_rank_demoted: bool = False,
+    assist_laggard_ratio: Any = None,
+) -> dict[str, Any]:
+    """题材层：主线塌方就退出，不等个股价格确认。
+
+    两条独立触发路径（方案 §7.1(d)）：
+      1. ThemeScore 跌幅 ≥ 20；
+      2. 主线降为后排 **且** 助攻大面积掉队（过半）—— 单独降级不算，题材轮动里
+         排名波动是常态，只有「降级 + 助攻整体掉队」才说明这条线没人接了。
+    """
+    drop = _pct(theme_score_drop_pct)
+    ratio = _pct(assist_laggard_ratio)
+    score_collapsed = drop is not None and drop >= SCORE_COLLAPSE_DROP
+    breadth_collapsed = bool(theme_rank_demoted) and ratio is not None and ratio >= ASSIST_LAGGARD_RATIO
+    triggered = score_collapsed or breadth_collapsed
+    parts = []
+    if score_collapsed:
+        parts.append(f"题材分跌幅{drop:.0f}(阈值{SCORE_COLLAPSE_DROP:.0f})")
+    if breadth_collapsed:
+        parts.append(f"主线降为后排且助攻掉队{ratio:.0%}")
+    return {
+        "triggered": triggered,
+        "signal_type": "theme_invalid",
+        "severity": "critical" if triggered else "info",
+        "reason": "；".join(parts) if triggered else "",
+        "action": "sell" if triggered else "hold",
+        "theme_score_drop_pct": drop,
+        "assist_laggard_ratio": ratio,
+    }
+
+
+def check_leader_invalid(
+    leader_score_drop_pct: Any = None,
+    leader_streak_broken: bool = False,
+    bid_support_broken: bool = False,
+) -> dict[str, Any]:
+    """龙头层：龙头失效则跟风盘全部失去定价锚，持仓逻辑不再成立。
+
+    触发路径：LeaderScore 跌幅 ≥ 20，或 龙头断板 **且** 承接断层。断板单独出现
+    可能只是换手，配上承接断层才是「没人接了」。
+    """
+    drop = _pct(leader_score_drop_pct)
+    score_collapsed = drop is not None and drop >= SCORE_COLLAPSE_DROP
+    support_collapsed = bool(leader_streak_broken) and bool(bid_support_broken)
+    triggered = score_collapsed or support_collapsed
+    parts = []
+    if score_collapsed:
+        parts.append(f"龙头分跌幅{drop:.0f}(阈值{SCORE_COLLAPSE_DROP:.0f})")
+    if support_collapsed:
+        parts.append("龙头断板且承接断层")
+    return {
+        "triggered": triggered,
+        "signal_type": "leader_invalid",
+        "severity": "critical" if triggered else "info",
+        "reason": "；".join(parts) if triggered else "",
+        "action": "sell" if triggered else "hold",
+        "leader_score_drop_pct": drop,
+    }
+
+
+def check_event_stop(
+    leader_gap_pct: Any = None,
+    assist_premium_pct: Any = None,
+    laggard_limit_down: bool = False,
+) -> dict[str, Any]:
+    """事件止损：龙头大幅低开 ∧ 助攻无溢价 ∧ 昨日后排跌停 → 未触 ATR 也退出。
+
+    三个条件必须同时成立（方案 §7.1(d) 原文）。任一缺失即返回未触发——这条规则
+    强到可以越过价格止损，不能让缺数据把它推成默认成立。
+    """
+    gap = _pct(leader_gap_pct)
+    premium = _pct(assist_premium_pct)
+    if gap is None or premium is None:
+        return {"triggered": False, "signal_type": "event_stop"}
+    triggered = (
+        gap <= LEADER_GAP_DOWN_PCT
+        and premium <= 0
+        and bool(laggard_limit_down)
+    )
+    if not triggered:
+        return {"triggered": False, "signal_type": "event_stop"}
+    return {
+        "triggered": True,
+        "signal_type": "event_stop",
+        "severity": "critical",
+        "reason": (
+            f"龙头低开{gap:.1f}%、助攻溢价{premium:.1f}%、昨日后排跌停"
+            "——承接已断，事件止损优先于价格止损"
+        ),
+        "action": "sell",
+        "price_stop_bypassed": True,
+    }
+
+
+def _rank_triggered(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """排序触发的信号：先按 severity，同 severity 下**事件止损优先于价格止损**。
+
+    ``sort`` 稳定，因此既有信号之间的相对次序一字未动——改动它们会静默重排历史
+    告警的 top_signal。
+    """
+    severity_order = {"critical": 0, "warning": 1, "info": 2}
+    triggered = [c for c in checks if c.get("triggered")]
+    triggered.sort(key=lambda c: (
+        severity_order.get(c.get("severity", "info"), 9),
+        0 if c.get("signal_type") in EVENT_STOP_SIGNALS else 1,
+    ))
+    return triggered
+
+
+def _exit_verdict(checks: list[dict[str, Any]],
+                  triggered: list[dict[str, Any]]) -> dict[str, Any]:
+    """把排好序的触发信号折成最终行动建议 + 四层命中情况。"""
+    if not triggered:
+        return {"action": "hold", "triggered_count": 0, "signals": checks,
+                "layers_triggered": [], "summary": "无退出信号"}
+    top = triggered[0]
+    layers = [layer for layer in ("market", "theme", "leader", "stock")
+              if any(c.get("exit_layer") == layer for c in triggered)]
+    return {
+        "action": top["action"],
+        "triggered_count": len(triggered),
+        "top_signal": top,
+        "signals": checks,
+        "layers_triggered": layers,
+        "event_stop_priority": top.get("signal_type") in EVENT_STOP_SIGNALS,
+        "summary": f"{len(triggered)}个退出信号: " + "; ".join(
+            f"[{c['severity']}]{c['signal_type']}" for c in triggered
+        ),
+    }
+
+
+def _auction_premium_check(entry_date: Any, open_premium_pct: Any,
+                           asof: Any) -> list[dict[str, Any]]:
+    try:
+        from daban_adjustments import check_auction_premium_exit
+    except ImportError:  # pragma: no cover - flat sys.path imports
+        return []
+    return [check_auction_premium_exit(
+        entry_date=entry_date, open_premium_pct=open_premium_pct, asof=asof)]
+
+
 def evaluate_all_exit_signals(
     *,
     current_price: float,
@@ -272,6 +461,15 @@ def evaluate_all_exit_signals(
     auction_open_premium_pct: float | None = None,
     lhb_profile: Mapping[str, Any] | None = None,
     deep_score: float | Mapping[str, Any] | None = None,
+    theme_score_drop_pct: float | None = None,
+    theme_rank_demoted: bool = False,
+    assist_laggard_ratio: float | None = None,
+    leader_score_drop_pct: float | None = None,
+    leader_streak_broken: bool = False,
+    bid_support_broken: bool = False,
+    leader_gap_pct: float | None = None,
+    assist_premium_pct: float | None = None,
+    laggard_limit_down: bool = False,
 ) -> dict[str, Any]:
     """综合评估所有退出信号，返回最高优先级的行动建议。
 
@@ -292,37 +490,12 @@ def evaluate_all_exit_signals(
         check_time_stop(entry_date, horizon_days, current_pnl_pct, asof),
         check_lhb_climax(lhb_profile),
         check_deep_research_exit(deep_score),
+        check_theme_invalid(theme_score_drop_pct, theme_rank_demoted, assist_laggard_ratio),
+        check_leader_invalid(leader_score_drop_pct, leader_streak_broken, bid_support_broken),
+        check_event_stop(leader_gap_pct, assist_premium_pct, laggard_limit_down),
     ]
-    try:
-        from daban_adjustments import check_auction_premium_exit
+    checks.extend(_auction_premium_check(entry_date, auction_open_premium_pct, asof))
+    for check in checks:
+        check["exit_layer"] = EXIT_LAYERS.get(str(check.get("signal_type")), "stock")
 
-        checks.append(check_auction_premium_exit(
-            entry_date=entry_date,
-            open_premium_pct=auction_open_premium_pct,
-            asof=asof,
-        ))
-    except ImportError:  # pragma: no cover - flat sys.path imports
-        pass
-
-    triggered = [c for c in checks if c.get("triggered")]
-    severity_order = {"critical": 0, "warning": 1, "info": 2}
-    triggered.sort(key=lambda c: severity_order.get(c.get("severity", "info"), 9))
-
-    if not triggered:
-        return {
-            "action": "hold",
-            "triggered_count": 0,
-            "signals": checks,
-            "summary": "无退出信号",
-        }
-
-    top = triggered[0]
-    return {
-        "action": top["action"],
-        "triggered_count": len(triggered),
-        "top_signal": top,
-        "signals": checks,
-        "summary": f"{len(triggered)}个退出信号: " + "; ".join(
-            f"[{c['severity']}]{c['signal_type']}" for c in triggered
-        ),
-    }
+    return _exit_verdict(checks, _rank_triggered(checks))

@@ -552,11 +552,43 @@ def _fill_exit(
     }
 
 
+def _resolve_exit_trigger(
+    position: dict[str, Any], quote: Any, *, code: str, observed_at: str,
+    config: Mapping[str, Any], risk: Mapping[str, Any], asof: str,
+    time_stop_sessions: int, exit_overrides: Mapping[str, str] | None,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """解析单个持仓的退出触发。返回 (退出原因, 阻塞事件)，两者至多一个非 None。
+
+    退出原因的优先级：已登记的处置计划 > 事件止损（``exit_overrides``）> 价格止损。
+    """
+    if not isinstance(quote, Mapping):
+        return None, {"status": "blocked", "code": code, "reason": "quote_unavailable"}
+    fresh, freshness_reason = _fresh_quote(quote, observed_at=observed_at, config=config)
+    if not fresh:
+        return None, {"status": "blocked", "code": code, "reason": freshness_reason}
+    price = _number(quote.get("price"))
+    position["peak_price"] = max(_number(position.get("peak_price")), price)
+    reason = (
+        (position.get("pending_exit") or {}).get("reason")
+        or (exit_overrides or {}).get(code)
+        or _exit_reason(position, price, risk, asof, time_stop_sessions)
+    )
+    return reason, None
+
+
 def simulate_exit_checks(
     account: Mapping[str, Any], quotes_by_code: Mapping[str, Mapping[str, Any]], *,
     asof: str, observed_at: str, config: Mapping[str, Any], risk: Mapping[str, Any],
     time_stop_sessions: int,
+    exit_overrides: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
+    """持仓期退出检查。
+
+    ``exit_overrides``（P4(d)，code → 退出原因）承载**事件止损**：题材失效 /
+    龙头失效 / 承接断层这类信号在价格触及 ATR 之前就要求退出，因此它排在
+    ``_exit_reason``（价格止损）之前、``pending_exit``（已登记的处置计划）之后。
+    默认 None —— 不传时本函数行为与改造前完全一致。
+    """
     state = deepcopy(account)
     events: list[dict[str, Any]] = []
     kept = []
@@ -564,56 +596,41 @@ def simulate_exit_checks(
     for index, position in enumerate(positions):
         code = _code(position.get("code"))
         quote = quotes_by_code.get(code) or quotes_by_code.get(f"sh{code}") or quotes_by_code.get(f"sz{code}")
-        if not isinstance(quote, Mapping):
+        reason, blocked = _resolve_exit_trigger(
+            position, quote, code=code, observed_at=observed_at, config=config,
+            risk=risk, asof=asof, time_stop_sessions=time_stop_sessions,
+            exit_overrides=exit_overrides,
+        )
+        if blocked is not None:
             kept.append(position)
-            events.append({"status": "blocked", "code": code, "reason": "quote_unavailable"})
-            continue
-        fresh, freshness_reason = _fresh_quote(quote, observed_at=observed_at, config=config)
-        if not fresh:
-            kept.append(position)
-            events.append({"status": "blocked", "code": code, "reason": freshness_reason})
+            events.append(blocked)
             continue
         price = _number(quote.get("price"))
-        position["peak_price"] = max(_number(position.get("peak_price")), price)
-        reason = (position.get("pending_exit") or {}).get("reason") or _exit_reason(position, price, risk, asof, time_stop_sessions)
         if not reason:
             kept.append(position)
             continue
         constraint = t1_constraint(position.get("buy_date"), asof)
         if not constraint["sell_allowed"]:
+            # T+1 锁定：只记录 + 次日处置计划，仓位与现金一律不动。
             position["pending_exit"] = {
                 "reason": reason,
                 "triggered_on": asof,
                 "earliest_sell_date": constraint["earliest_sell_date"],
             }
             kept.append(position)
-            events.append(
-                _pending_exit_event(
-                    status="pending_t1",
-                    code=code,
-                    reason=reason,
-                    state=state,
-                    remaining=kept + positions[index + 1 :],
-                    observed_at=observed_at,
-                    t1=constraint,
-                )
-            )
+            events.append(_pending_exit_event(
+                status="pending_t1", code=code, reason=reason, state=state,
+                remaining=kept + positions[index + 1:], observed_at=observed_at,
+                t1=constraint))
             continue
         tradeability = assess_tradeability(dict(quote), code, str(position.get("name") or ""))
         if tradeability.get("status") in {"halted", "limit_down"} or tradeability.get("tradeable") is False:
             position["pending_exit"] = {"reason": reason, "triggered_on": asof, "execution_block": tradeability.get("status")}
             kept.append(position)
-            events.append(
-                _pending_exit_event(
-                    status="pending_unfilled",
-                    code=code,
-                    reason=reason,
-                    state=state,
-                    remaining=kept + positions[index + 1 :],
-                    observed_at=observed_at,
-                    tradeability=tradeability,
-                )
-            )
+            events.append(_pending_exit_event(
+                status="pending_unfilled", code=code, reason=reason, state=state,
+                remaining=kept + positions[index + 1:], observed_at=observed_at,
+                tradeability=tradeability))
             continue
         events.append(
             _fill_exit(

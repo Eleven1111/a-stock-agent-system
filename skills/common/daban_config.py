@@ -160,6 +160,17 @@ DEFAULTS: Dict[str, Dict[str, Any]] = {
         "second_confirmation_position_pct_min": 0.20,
         "second_confirmation_position_pct_max": 0.30,
     },
+    # P4(e) 熔断阶梯 R 化（升级方案 §7.1(e)）。新增节，market_gate 一字未改——
+    # 两套口径并存是刻意的，R 口径先在 paper 跑样本。实现见 position_risk.py。
+    "circuit_ladder_r": {
+        "day_loss_r_stop": -2.0,
+        "week_loss_r_reduce": -4.0,
+        "week_loss_r_freeze": -5.0,
+        "drawdown_halve_pct": 8.0,
+        "drawdown_stop_pct": 10.0,
+        "theme_risk_r_max": 2.0,
+        "off_system_streak_max": 3,
+    },
     # §7b 三项调整机制，默认全部关闭；启用必须引用打板归因报告数据
     # （scripts/strategy_attribution_report.py），杠杆实现见 daban_adjustments.py。
     "adjustments": {

@@ -20,9 +20,26 @@ STATE_RISK_OFF_MULTIPLIER = 0.2
 # allow_new_daban 上游门控，这里不重复。
 STATE_RISK_OFF_DOWNGRADE = {"S6"}
 
+# P4(c) 环境总仓表：把上面「S6 压到 20%」的单点规则换成 S0-S6 全状态表
+# （position_risk.ENVIRONMENT_POSITION_TABLE）。**默认关闭**——未把
+# HERMES_ENV_POSITION_TABLE 设为 enforce 时，本文件的输出与改造前逐字段一致
+# （见 tests/test_position_risk_decision_policy.py 的行为断言）。全表接管的是
+# 实盘链路的仓位倍率，必须先在 paper 侧跑出结算样本才谈打开。
+try:  # pragma: no cover - flat sys.path imports
+    import position_risk as _position_risk
+except ImportError:  # pragma: no cover
+    _position_risk = None  # type: ignore[assignment]
+
 
 def _crowding_guard_enforced() -> bool:
     return os.environ.get("HERMES_CROWDING_GUARD", "observe").strip().lower() == "enforce"
+
+
+def _env_position_table_enforced() -> bool:
+    if _position_risk is None:
+        return False
+    return os.environ.get(
+        "HERMES_ENV_POSITION_TABLE", "off").strip().lower() == "enforce"
 
 
 # guardrail 结构化口径：把 reasons 里的机器码归入稳定的分组码，供审计/回流复用。
@@ -86,6 +103,9 @@ def _guardrail_reason_code(reason: str) -> str:
         return GUARDRAIL_REASON_CODES[reason]
     if reason == "T1_LOCKED" or "T+1" in reason:
         return "t_plus_1"
+    if reason.startswith("env_position_table_"):
+        # P4(c) 环境总仓表与温度/拥挤门禁同源，归到同一个分组码。
+        return "temperature_gate"
     return "other"
 
 
@@ -322,7 +342,16 @@ def evaluate_decision(
                 and fragility >= FRAGILITY_CLIMAX_THRESHOLD
             )
             ebbing = str(market_crowding.get("dominant_state") or "") in STATE_RISK_OFF_DOWNGRADE
-            if ebbing:
+            table_enforced = _env_position_table_enforced()
+            if table_enforced:
+                band = _position_risk.environment_position_multiplier(
+                    state=market_crowding.get("dominant_state"),
+                    tier=market_crowding.get("tier"),
+                )
+                multiplier = min(multiplier, float(band["position_multiplier"]))
+                reasons.append(
+                    f"env_position_table_{band['state'] or 'unknown'}")
+            if ebbing and not table_enforced:
                 multiplier = min(multiplier, STATE_RISK_OFF_MULTIPLIER)
                 reasons.append("market_state_ebbing_reduced")
             elif climax:

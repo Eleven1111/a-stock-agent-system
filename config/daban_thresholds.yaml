@@ -173,3 +173,20 @@ reverse_volume:
   entry_position_pct: 0.10                    # 入场观察仓（方案原文"10%观察仓"，仅供解释展示）
   second_confirmation_position_pct_min: 0.20  # 二次确认加仓下限（方案原文"20%-30%"）
   second_confirmation_position_pct_max: 0.30  # 二次确认加仓上限
+
+# ── P4(e) 熔断阶梯 R 化（升级方案 §7.1(e)）──────────────────────────────────
+# **新增节，既有 market_gate 一字未改**：market_gate 的 day_loss_pct_stop /
+# week_loss_pct_freeze / consecutive_losses_max 仍按百分比口径服务实盘链路，
+# 本节是并行的 R 口径阶梯（1R = 一次预设止损的亏损额），当前只被 paper /
+# 研究路径通过 skills/common/position_risk.assess_circuit_ladder 读取。
+# 两套口径并存是刻意的：R 口径要先在 paper 跑出结算样本，证明它比百分比口径
+# 更早拦住坏日子，才谈替换 market_gate。缺块回退 position_risk.DEFAULT_CIRCUIT_CONFIG
+# （同值），行为与未配置时一致。
+circuit_ladder_r:
+  day_loss_r_stop: -2.0        # 单日 −2R → 停止新开仓
+  week_loss_r_reduce: -4.0     # 单周 −4R → 降仓（倍率 0.5）
+  week_loss_r_freeze: -5.0     # 单周 −5R → 冻结新开仓
+  drawdown_halve_pct: 8.0      # 账户回撤 8% → 仓位减半
+  drawdown_stop_pct: 10.0      # 账户回撤 10% → 停实盘 + 强制复盘周（原书第二十九课）
+  theme_risk_r_max: 2.0        # 同主题在险总额上限 2R
+  off_system_streak_max: 3     # 连续 3 笔系统外交易 → 强制停手（对接 discipline_score）

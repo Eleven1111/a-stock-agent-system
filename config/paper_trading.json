@@ -28,5 +28,13 @@
     "open_confirmation_not_before": "09:35:00",
     "maximum_quote_age_seconds": 120,
     "slippage_bps": 20.0
+  },
+  "position_risk": {
+    "enabled": false,
+    "risk_budget_pct": 0.75,
+    "atr_multiple": 1.5,
+    "stop_distance_pct_range": [3.0, 8.0],
+    "leg_pct": 10.0,
+    "max_single_position_pct": 30.0
   }
 }
