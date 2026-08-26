@@ -21,7 +21,7 @@ S1 超预期（RankSurprise）回测接线 — 升级方案 §6.1 + §8.1(a)，N
 （v3/v4 都一样）只有全日 volume，二者不是一回事。v4 明确把 volume_ratio 标成
 unavailable:needs_intraday_minute_bars 而不是给个代理值，本适配器同样**不造代理值**，
 信号一律 unavailable(volume_ratio_missing)，在报告里如实计数。要跑出非零样本，必须先把
-盘中 09:45 量比落进事件表（见 docs/event-schema-v4-2026-08.md）。
+盘中 09:45 量比落进事件表（见 docs_private/event-schema-v4-2026-08.md）。
 
 红线：S1 未在 strategy_registry 注册。本脚本只产出研究数字，不得写回任何实盘状态。
 """

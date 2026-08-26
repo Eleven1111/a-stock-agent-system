@@ -8,7 +8,7 @@
 
 ## 用途与边界
 
-本目录是缠论算法升级（`docs/chanlun-upgrade-plan-2026-08.md`）的**差分测试 oracle**：
+本目录是缠论算法升级（`docs_private/chanlun-upgrade-plan-2026-08.md`）的**差分测试 oracle**：
 生产侧在 `skills/chanlun-backtest/scripts/` 用纯函数重写缠论笔/线段/中枢/买卖点算法，
 本目录提供参照实现，供测试用例比对结构输出（笔端点、线段端点、中枢区间、买卖点位置）。
 

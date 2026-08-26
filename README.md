@@ -310,12 +310,6 @@ returns or open-world prediction accuracy.
 | Paper trading | [docs/paper-trading-protocol.md](docs/paper-trading-protocol.md) |
 | Research committee | [docs/research-committee-guide.md](docs/research-committee-guide.md) |
 | Hot-money selection | [docs/hot-money-selection-protocol.md](docs/hot-money-selection-protocol.md) |
-| Backtest event table (schema v4) | [docs/event-schema-v4-2026-08.md](docs/event-schema-v4-2026-08.md) |
-| Minute-derived field pipeline | [docs/minute-derived-pipeline-2026-08.md](docs/minute-derived-pipeline-2026-08.md) |
-| Sentiment-state PnL calibration | [docs/state-pnl-calibration-2026-08.md](docs/state-pnl-calibration-2026-08.md) |
-| Leader and theme scoring | [docs/leader-theme-score-evaluation-2026-08.md](docs/leader-theme-score-evaluation-2026-08.md) |
-| Position sizing, exits, circuit breakers | [docs/position-risk-p4-2026-08.md](docs/position-risk-p4-2026-08.md) |
-| Strategy gate evaluations | [rank-surprise](docs/rank-surprise-gate-evaluation-2026-08.md), [divergence-reseal](docs/divergence-reseal-gate-evaluation-2026-08.md), [assist-arbitrage](docs/assist-arbitrage-gate-evaluation-2026-08.md), [preleader-arbitrage](docs/preleader-arbitrage-gate-evaluation-2026-08.md), [reverse-volume](docs/reverse-volume-gate-evaluation-2026-08.md), [ice-point-reversal](docs/ice-point-reversal-gate-evaluation-2026-08.md) |
 | Tail-close research lane | [docs/tail-close-strategy-protocol.md](docs/tail-close-strategy-protocol.md) |
 | Stock-intelligence integration | [docs/stock-intelligence-integration.md](docs/stock-intelligence-integration.md) |
 | Installed scheduler | [AUTOPILOT.md](AUTOPILOT.md) |

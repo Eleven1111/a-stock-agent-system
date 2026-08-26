@@ -82,7 +82,7 @@ research_status: >-
   命中数为0。因此本包**没有任何**胜率/PF/期望值结论，任何此类数字都不存在。
   **本策略注册条件比其他S1-S5策略更严**：不是"接线后等数据积累"，而是必须先
   等P1在full模式下产出覆盖样本、且分档单格n>=30，才具备启动research_gate的
-  前提条件。详见 docs/ice-point-reversal-gate-evaluation-2026-08.md。
+  前提条件。详见 docs_private/ice-point-reversal-gate-evaluation-2026-08.md。
 
 interpretation: >-
   本包描述的是"极端恐慌是否已经出清、逆势活口是否已经确认、扩散是否已经开始"
