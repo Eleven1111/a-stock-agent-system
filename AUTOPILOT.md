@@ -15,7 +15,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（69 个作业，当前 55 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（71 个作业，当前 57 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -267,6 +267,34 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc \
   .venv/bin/python scripts/market_history_cache.py --dry-run --json
 ```
 
+### 六策略统一证据数据集（strategy-evidence-daily）
+
+六个策略共用一条深证据管道，不再各自拼候选池、竞价、日线和分钟 sidecar。Evidence
+Cohort 是「官方涨停事件 + 竞价短名单 + 60 天内仍在跟踪的市场最高板」的并集；每天
+收盘后只对并集内每只股票请求一次腾讯全天分时，官方涨停池也只请求一次。
+
+| 项 | 值 |
+|---|---|
+| id | `strategy-evidence-daily`（`enabled: true`） |
+| 调度 | `20 23 * * 1-5`（等待 23:15 `cycle-state-shadow` 固化当日情绪序列） |
+| 执行 | `python scripts/strategy_evidence_daily.py --json` |
+| cohort | 官方涨停池 + 竞价短名单 + 在跟踪龙头；上限 160，只去重、不截断 |
+| 外部请求 | 官方涨停池 1 次；cohort 每只腾讯分时 1 次，串行共享节流 |
+| 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_evidence/{asof}.json` |
+| 超时 | 1200s（`long` 档，覆盖双域名失败时的最坏退避） |
+| 停止 | manifest 里把该作业 `enabled` 改为 `false` |
+
+超过 160 只时整批失败并暴露 `EvidenceBudgetExceeded`，绝不静默截断。正式产物只接受
+官方收盘事件、腾讯当日分时和本地日线；BaoStock 5 分钟重建仍只属于
+Exploratory Reconstruction，不得写成 Canonical Forward Evidence。每个策略的缺字段、
+ready 记录数和覆盖率都固化在 `coverage`，缺数据是 `unavailable`，不是负样本。
+
+S6 的 `S_t` 需要 180 个交易日预热，不能等上线后再空转九个月。22:50 的
+`sentiment-daily-backfill` 只读 `history.sqlite3`，在已有前向记录**之前**一次性播种
+180 日；达到 180 日后每次直接 `skipped`。它不会用日线近似覆盖已经固化的前向记录，
+日线拿不到的字段继续为 `unavailable`。23:15 的 `cycle-state-shadow` 把它列为可选依赖，
+因此周末的 calendar-day 诊断不会被一个仅交易日运行的 bootstrap 挡住。
+
 ### 六策略每日影子评估（strategy-shadow-daily）
 
 六个游资研究策略（rank_surprise / divergence_reseal / assist_arbitrage /
@@ -277,15 +305,16 @@ preleader_arbitrage / reverse_volume / ice_point_reversal）在实盘外单独�
 | 项 | 值 |
 |---|---|
 | id | `strategy-shadow-daily`（`enabled: true`） |
-| 调度 | `10 16 * * 1-5`（收盘后，依赖 `closing-triage` 同交易日产物） |
+| 调度 | `40 23 * * 1-5`（等待证据数据集、S4 盘前表与当日情绪序列） |
 | 执行 | `python scripts/strategy_shadow_runner.py --json` |
-| 输入 | 当日 `candidate_pool_latest.json`；同日竞价短名单与选股产物作为证据 sidecar |
+| 输入 | 当日不可变 `strategy_evidence_daily_v1`；不再现场拼 sidecar |
 | 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_shadow/{asof}.json` |
 | 交付 | `local`（只写本地产物，不推送） |
 | 超时 | 120s（`standard` 档） |
 | 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
 
-**fail-closed 口径**：输入 asof 与请求日不符直接报错；同日已有产物但输入 hash 不同
+**fail-closed 口径**：输入 asof 与请求日不符、非 canonical forward 或混入 exploratory
+reconstruction 都直接报错；同日已有产物但输入 hash 不同
 时拒绝覆盖（不可变产物）；任一策略缺证据记 `unavailable`，不退化成 `no_signal`。
 
 `preleader_arbitrage` 消费**前一日**的盘前表（见下条作业）。找不到 D-1 的表时报

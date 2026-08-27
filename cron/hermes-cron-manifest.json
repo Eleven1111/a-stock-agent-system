@@ -963,6 +963,39 @@
       "external_note": "23:10 归档当日诊断（Markdown + 结构化 JSON），回一行摘要含 P0/P1/P2 与近 5 日新增/重复/已修/待验证"
     },
     {
+      "id": "sentiment-daily-backfill",
+      "name": "S6 情绪历史一次性播种",
+      "schedule": "50 22 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "required",
+      "command_argv": ["python", "scripts/run_agent_dag.py", "sentiment-daily-backfill", "--emit-target"],
+      "cwd": ".",
+      "enabled": true,
+      "external": false,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1200,
+      "context_from": ["market-history-cache"],
+      "dependency_policy": {"trading_date": "same_trading_date", "max_age_minutes": 600},
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/market/sentiment_daily/",
+        "$A_STOCK_STATE_HOME/cron/output/sentiment-daily-backfill/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": ["python", "scripts/sentiment_daily_backfill.py", "--bootstrap-min-days", "180", "--json"],
+        "cwd": ".",
+        "timeout_seconds": 1200,
+        "timeout_tier": "long",
+        "timeout_rationale": "首次从本地全市场日线为 S6 播种180个交易日，约90万行计算；达到180天后每日恒为快速 skipped。已有前向记录绝不被日线重建覆盖。"
+      },
+      "external_note": "只读 history.sqlite3，一次性在已有前向 sentiment_daily 记录之前补180日滚动窗口；不触网。达到下限后跳过。日线拿不到的字段保持 unavailable，不插值。"
+    },
+    {
       "id": "cycle-state-shadow",
       "name": "情绪周期状态影子记录",
       "schedule": "15 23 * * *",
@@ -983,7 +1016,12 @@
       "context_scope": "cron",
       "deliver": "local",
       "max_output_chars": 600,
-      "context_from": [],
+      "context_from": ["sentiment-daily-backfill"],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 60,
+        "optional_jobs": ["sentiment-daily-backfill"]
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/",
@@ -1004,9 +1042,42 @@
       "external_note": "23:15 在 daily-diagnostics(23:10) 之后跑：读当日选股产物 hot_money_selection_latest.json 里已算好的 market_state，推进周期记忆(日龄+分歧计数)并取沪指趋势闸门，append 一行影子记录到 cycle_shadow_log.jsonl；同一次运行还用当日已固化的 discovery 输入快照产出 sentiment_daily 记录（market/sentiment_daily/，只读不取数）并落 {五档,S0-S6,S_t,ΔS} 双轨对照。SHADOW ONLY：不改任何实盘信号/排序/仓位。calendar_day：非交易日照跑，market_state 缺失时 fail-closed 记 available:false，一行不落才能看出调度停摆。"
     },
     {
+      "id": "strategy-evidence-daily",
+      "name": "六策略统一证据数据集",
+      "schedule": "20 23 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "required",
+      "command_argv": ["python", "scripts/run_agent_dag.py", "strategy-evidence-daily", "--emit-target"],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1600,
+      "context_from": ["closing-triage", "market-history-cache", "cycle-state-shadow"],
+      "dependency_policy": {"trading_date": "same_trading_date", "max_age_minutes": 600},
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_evidence/",
+        "$A_STOCK_STATE_HOME/cron/output/strategy-evidence-daily/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": ["python", "scripts/strategy_evidence_daily.py", "--json"],
+        "cwd": ".",
+        "timeout_seconds": 1200,
+        "timeout_tier": "long",
+        "timeout_rationale": "收盘后仅对官方涨停池+竞价短名单+在跟踪龙头做一次腾讯分时请求；预算上限160只，串行共享节流。单源故障时双域名超时可能放大到约20秒/只，因此保留20分钟硬上限；超预算整批失败，绝不静默截断。"
+      },
+      "external_note": "统一冻结六策略证据。只对有界事件 cohort 收盘后每只请求一次分时，另取一次官方涨停池；不做全市场/每分钟采集。缺字段写 unavailable，5分钟重建不得进入 canonical forward evidence。SHADOW ONLY。"
+    },
+    {
       "id": "strategy-shadow-daily",
       "name": "六策略每日影子评估",
-      "schedule": "10 16 * * 1-5",
+      "schedule": "40 23 * * 1-5",
       "timezone": "Asia/Shanghai",
       "trading_day_policy": "required",
       "command_argv": ["python", "scripts/run_agent_dag.py", "strategy-shadow-daily", "--emit-target"],
@@ -1019,8 +1090,8 @@
       "context_scope": "cron",
       "deliver": "local",
       "max_output_chars": 1200,
-      "context_from": ["closing-triage"],
-      "dependency_policy": {"trading_date": "same_trading_date", "max_age_minutes": 90},
+      "context_from": ["strategy-evidence-daily", "preleader-pretable-build", "cycle-state-shadow"],
+      "dependency_policy": {"trading_date": "same_trading_date", "max_age_minutes": 600},
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_shadow/",
@@ -1033,7 +1104,7 @@
         "timeout_seconds": 120,
         "timeout_tier": "standard"
       },
-      "external_note": "只读当日候选池，逐一运行六个研究策略；缺证据标 unavailable。SHADOW ONLY：不调用 strategy_registry、不改变排序/仓位、不写 portfolio、不产生 signal.opened。"
+      "external_note": "只读当日 strategy_evidence_daily_v1，逐一运行六个研究策略；S6 只跑一条市场级事件，缺证据标 unavailable。SHADOW ONLY：不调用 strategy_registry、不改变排序/仓位、不写 portfolio、不产生 signal.opened。"
     },
     {
       "id": "preleader-pretable-build",

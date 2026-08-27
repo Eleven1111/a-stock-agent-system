@@ -90,10 +90,12 @@ def test_same_window_auction_and_open_pushes_are_merged():
 
 def test_strategy_shadow_daily_is_isolated_and_after_close():
     job = _manifest_job("strategy-shadow-daily")
-    assert job["schedule"] == "10 16 * * 1-5"
+    assert job["schedule"] == "40 23 * * 1-5"
     assert job["enabled"] is True
     assert job["deliver"] == "local"
-    assert job["context_from"] == ["closing-triage"]
+    assert job["context_from"] == [
+        "strategy-evidence-daily", "preleader-pretable-build", "cycle-state-shadow"
+    ]
     assert _entry_command(job) == (
         "python scripts/run_agent_dag.py strategy-shadow-daily --emit-target"
     )
@@ -102,6 +104,33 @@ def test_strategy_shadow_daily_is_isolated_and_after_close():
     assert "strategy_shadow" in writes
     assert "portfolio" not in writes
     assert "signal_ledger" not in writes
+
+
+def test_strategy_evidence_daily_is_bounded_and_isolated():
+    job = _manifest_job("strategy-evidence-daily")
+    assert job["schedule"] == "20 23 * * 1-5"
+    assert job["context_from"] == [
+        "closing-triage", "market-history-cache", "cycle-state-shadow"
+    ]
+    assert _entry_command(job) == (
+        "python scripts/run_agent_dag.py strategy-evidence-daily --emit-target"
+    )
+    assert _run_command(job) == "python scripts/strategy_evidence_daily.py --json"
+    writes = " ".join(job["allowed_state_writes"])
+    assert "strategy_evidence" in writes
+    assert "portfolio" not in writes
+    assert "signal_ledger" not in writes
+
+
+def test_sentiment_backfill_bootstraps_s6_without_network_or_overwriting_forward_rows():
+    job = _manifest_job("sentiment-daily-backfill")
+    assert job["schedule"] == "50 22 * * 1-5"
+    assert job["external"] is False
+    assert job["context_from"] == ["market-history-cache"]
+    assert _run_command(job) == (
+        "python scripts/sentiment_daily_backfill.py --bootstrap-min-days 180 --json"
+    )
+    assert "sentiment_daily" in " ".join(job["allowed_state_writes"])
 
 
 def test_paper_trading_jobs_are_research_only_and_dag_ordered():
