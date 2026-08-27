@@ -5,6 +5,7 @@ import json
 import pytest
 
 from scripts import preleader_pretable_build as builder
+from skills.common import preleader_pretable_store as store
 
 
 def _pool(tmp_path, *, asof="2026-08-07", rows=None):
@@ -102,7 +103,7 @@ def test_degraded_rerun_does_not_overwrite_a_usable_pretable(tmp_path, monkeypat
     monkeypatch.setattr(builder, "average_turnover", lambda codes, as_of: {})
     again = builder.run(_pool(tmp_path), as_of="2026-08-07")
     assert again["status"] == "ok"
-    assert builder.load_pretable("2026-08-07")[0] is not None
+    assert store.load_pretable("2026-08-07")[0] is not None
 
 
 def test_load_pretable_refuses_a_degraded_artifact(tmp_path, monkeypatch):
@@ -110,7 +111,7 @@ def test_load_pretable_refuses_a_degraded_artifact(tmp_path, monkeypatch):
     monkeypatch.setattr(builder, "average_turnover", lambda codes, as_of: {})
     builder.run(_pool(tmp_path), as_of="2026-08-07")
 
-    pretable, reason = builder.load_pretable("2026-08-07")
+    pretable, reason = store.load_pretable("2026-08-07")
     assert pretable is None
     assert reason.startswith("pretable_degraded:")
 
@@ -124,9 +125,9 @@ def test_previous_trading_asof_walks_back_over_gaps(tmp_path, monkeypatch):
                         lambda codes, as_of: ({"600002": False, "600003": False}, []))
     builder.run(_pool(tmp_path, asof="2026-08-04"), as_of="2026-08-04")
 
-    assert builder.previous_trading_asof("2026-08-07") == "2026-08-04"
+    assert store.previous_trading_asof("2026-08-07") == "2026-08-04"
     # 严格早于：同日的表不算 D-1 盘前表。
-    assert builder.previous_trading_asof("2026-08-04") is None
+    assert store.previous_trading_asof("2026-08-04") is None
 
 
 def test_mandatory_periodic_disclosure_is_not_read_as_material_bad_news(monkeypatch):
