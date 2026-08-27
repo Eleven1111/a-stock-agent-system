@@ -21,6 +21,7 @@ import assist_arbitrage  # noqa: E402
 import divergence_reseal  # noqa: E402
 import ice_point_reversal  # noqa: E402
 import preleader_arbitrage  # noqa: E402
+import preleader_pretable_store  # noqa: E402
 import rank_surprise  # noqa: E402
 import reverse_volume  # noqa: E402
 from paths import data_file  # noqa: E402
@@ -115,19 +116,51 @@ def _merge_auction_evidence(payload: Any, asof: str) -> tuple[Any, list[str]]:
     return merged, used
 
 
+def _preleader_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把候选池的封板时刻映射成 S4 需要的「龙头已确认」字段。
+
+    S4 靠 ``pick_confirmed_leader`` 在同属性组里挑确认时刻最早者，需要每行带
+    ``confirmed`` / ``confirmed_time``；反应窗口条件还要候选自己的
+    ``evaluation_time``。候选池里对应的事实是 ``first_seal``（首次封板时刻）。
+
+    **这是一处口径判断，不是既有字段的搬运**：这里把"当日封上板"等同于"该标的
+    已确认"，把封板时刻同时当作龙头的确认时刻与候选自身的反应时刻。原案例
+    （鹏起科技→航天通信）正是这个形态。没封板的行不给 ``confirmed``，让
+    fail-closed 逻辑照常把龙头判成不可判定，而不是拿涨幅之类的代理值凑一个。
+    """
+    output = []
+    for record in records:
+        row = dict(record)
+        seal = row.get("first_seal")
+        if seal:
+            row.setdefault("confirmed", True)
+            row.setdefault("confirmed_time", seal)
+            row.setdefault("evaluation_time", seal)
+        output.append(row)
+    return output
+
+
 def _unavailable(strategy_id: str, reason: str) -> dict[str, Any]:
     return {"strategy_id": strategy_id, "status": "unavailable", "reasons": [reason],
             "results": [], "research_only": True, "execution_eligible": False}
 
 
-def _run_one(strategy_id: str, records: list[dict[str, Any]], market_state: Any) -> dict[str, Any]:
+def _run_one(
+    strategy_id: str, records: list[dict[str, Any]], market_state: Any,
+    *, pretable: Mapping[str, Any] | None = None, pretable_reason: str = "ok",
+) -> dict[str, Any]:
     if not records:
         return _unavailable(strategy_id, "input_records_empty")
+    if strategy_id == "preleader_arbitrage" and pretable is None:
+        # 缺盘前表就是缺证据，报 unavailable 并带上具体原因；传一张空表进去会让
+        # 它输出 no_signal，把"没数据"伪装成"明确不满足"。
+        return _unavailable(strategy_id, pretable_reason)
     runners: dict[str, Callable[[], list[dict[str, Any]]]] = {
         "rank_surprise": lambda: rank_surprise.evaluate_universe(records, market_state=market_state),
         "divergence_reseal": lambda: divergence_reseal.evaluate_universe(records),
         "assist_arbitrage": lambda: assist_arbitrage.evaluate_universe(records),
-        "preleader_arbitrage": lambda: preleader_arbitrage.evaluate_universe(records, pretable={}),
+        "preleader_arbitrage": lambda: preleader_arbitrage.evaluate_universe(
+            _preleader_records(records), pretable=pretable),
         "reverse_volume": lambda: reverse_volume.evaluate_universe(records, market_state=market_state),
         "ice_point_reversal": lambda: ice_point_reversal.evaluate_universe(records, market_state=market_state),
     }
@@ -165,6 +198,7 @@ def run(input_path: str, *, asof: str | None = None) -> dict[str, Any]:
     payload, sidecars = _merge_auction_evidence(payload, requested_asof)
     records = _records(payload, requested_asof)
     market_state = payload.get("market_state") if isinstance(payload, Mapping) else None
+    pretable, pretable_reason = preleader_pretable_store.load_previous_pretable(requested_asof)
     source_hash = json_sha256(payload)
     path = _output_path(requested_asof)
     existing = read_json(path, None)
@@ -178,8 +212,14 @@ def run(input_path: str, *, asof: str | None = None) -> dict[str, Any]:
         "input_path": os.path.abspath(os.path.expanduser(input_path)),
         "input_sha256": source_hash, "record_count": len(records),
         "evidence_sidecars": sidecars,
+        "preleader_pretable_asof": pretable.get("as_of") if pretable else None,
+        "preleader_pretable_status": pretable_reason,
         "research_only": True, "execution_eligible": False, "live_order_sent": False,
-        "strategies": {sid: _run_one(sid, records, market_state) for sid in STRATEGY_IDS},
+        "strategies": {
+            sid: _run_one(sid, records, market_state,
+                          pretable=pretable, pretable_reason=pretable_reason)
+            for sid in STRATEGY_IDS
+        },
     }
     result["result_sha256"] = json_sha256(result)
     atomic_write_json(path, result)
