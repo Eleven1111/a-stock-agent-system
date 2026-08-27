@@ -1375,6 +1375,11 @@
       "expires_on": "2026-10-31",
       "violation_id": "0c6094140c617b5efa7e",
       "reason": "_run_one 的 catch-all 是 fail-closed 设计的一部分：单个策略抛错要记成该策略 unavailable 并保留异常类型进 artifact，收窄异常类型会让未预期错误击穿整个 shadow 批次"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing long build_execution_plan in recommendation_quality.py (already over budget at HEAD); the periodic-disclosure exemption fix only touched scan_announcement_risks and added a module-level helper, it did not lengthen this function",
+      "violation_id": "2b9dce6d2a9af927bc06"
     }
   ]
 }

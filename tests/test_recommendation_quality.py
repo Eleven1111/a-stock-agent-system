@@ -81,6 +81,104 @@ def test_disclosed_hard_risk_still_rejects_recommendation():
     assert "announcement_hard_risk" in report["blocking_checks"]
 
 
+def test_mandatory_periodic_capital_occupation_form_is_not_a_hard_risk():
+    """「非经营性资金占用及其他关联资金往来情况汇总表」是定期报告必交披露件。
+
+    它的主题恰恰是"本期不存在非经营性资金占用"，纯子串匹配读不出这层否定。
+    2026-08-27 实测：2026-08-07 候选池 237 只成分股有 86 只（36%）被判硬风险，
+    抽样 25 只全部由这一条触发——定期报告季（4 月/8 月）会把接近全市场判成 avoid。
+    """
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[{
+            "title": "2026年半年度非经营性资金占用及其他关联资金往来情况汇总表",
+            "text": "本期公司不存在非经营性资金占用及其他关联资金往来。",
+        }],
+        asof=date(2026, 8, 27),
+    )
+
+    assert report["status"] == "passed"
+    assert report["announcement_scan"]["hard_risk_hits"] == []
+    assert "announcement_hard_risk" not in report["blocking_checks"]
+    # 豁免要留痕：下游审计需要看到"这条被豁免了"，而不是"从没命中过"。
+    assert report["announcement_scan"]["periodic_disclosure_exempt_hits"] == ["资金占用"]
+
+
+def test_periodic_form_exemption_covers_the_real_world_title_variants():
+    """同一张必交件的命名各家不一：2026-08-27 实测样本里这四种写法都真实出现过。
+
+    逐字枚举全称必漏，所以锚点是"关联资金往来"这个披露件名 + 文体后缀。
+    """
+    titles = [
+        "2026年半年度非经营性资金占用及其他关联资金往来情况的专项说明",
+        "浙江建投2026半年度非经营性资金占用及其他关联资金往来情况表",
+        "雅艺科技2026年半年度非经营性资金占用及其他关联资金往来情况表",
+        "关于非经营性资金占用及其他关联资金往来情况的专项审核报告",
+    ]
+    for title in titles:
+        report = quality.build_quality_report(
+            _complete_recommendation(),
+            announcements=[{"title": title}],
+            asof=date(2026, 8, 27),
+        )
+        assert report["status"] == "passed", title
+        assert report["announcement_scan"]["hard_risk_hits"] == [], title
+
+
+def test_real_capital_occupation_event_still_rejects():
+    """正向对照：豁免锚在"披露件类型"上，不是锚在「资金占用」这四个字上。
+
+    没有这条，护栏会退化成"凡是提到资金占用一律放行"——比不修更危险。
+    """
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[{
+            "title": "关于控股股东非经营性资金占用及整改进展的公告",
+            "text": "控股股东占用公司资金 2.3 亿元，公司正督促其限期归还。",
+        }],
+        asof=date(2026, 8, 27),
+    )
+
+    assert report["status"] == "rejected"
+    assert report["announcement_scan"]["hard_risk_hits"] == ["资金占用"]
+    assert "announcement_hard_risk" in report["blocking_checks"]
+
+
+def test_periodic_form_exempts_only_the_capital_occupation_term():
+    """同一条披露件里的**其它**硬风险词不在豁免范围内。
+
+    这类专项说明的正文会一并说明违规担保等事项；把整条公告整体放行，等于让一条
+    真信号搭定期披露件的便车被洗掉。
+    """
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[{
+            "title": "2026年半年度非经营性资金占用及其他关联资金往来情况的专项说明",
+            "text": "本期不存在非经营性资金占用；报告期内公司存在违规担保 1.2 亿元。",
+        }],
+        asof=date(2026, 8, 27),
+    )
+
+    assert report["status"] == "rejected"
+    assert report["announcement_scan"]["hard_risk_hits"] == ["违规担保"]
+    assert report["announcement_scan"]["periodic_disclosure_exempt_hits"] == ["资金占用"]
+
+
+def test_periodic_form_exemption_does_not_whitewash_other_announcements():
+    """豁免是逐条公告、逐个词的：同一只票的另一条真利空必须照旧判出来。"""
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[
+            {"title": "2026年半年度非经营性资金占用及其他关联资金往来情况汇总表"},
+            {"title": "关于公司被中国证监会立案调查的公告"},
+        ],
+        asof=date(2026, 8, 27),
+    )
+
+    assert report["status"] == "rejected"
+    assert report["announcement_scan"]["hard_risk_hits"] == ["立案调查"]
+
+
 def test_missing_announcement_scan_cannot_be_full_pass():
     report = quality.build_quality_report(
         _complete_recommendation(),

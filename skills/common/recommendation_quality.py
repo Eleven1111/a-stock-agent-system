@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any, Iterable, Mapping
 
@@ -54,6 +55,48 @@ HARD_RISK_TERMS = (
     "减持计划",
 )
 
+#: 强制定期披露件的**标题形态**——主题恰恰是"不存在该风险"，却含硬风险关键词。
+#:
+#: 「（年度/半年度）非经营性资金占用及其他关联资金往来情况汇总表 / 专项说明」是每家
+#: 上市公司随定期报告必交的披露件，正文通常正是"本期不存在非经营性资金占用"。子串
+#: 匹配读不出这层否定：2026-08-27 实测 2026-08-07 候选池 237 只成分股有 86 只（36%）
+#: 被判硬风险，抽样 25 只无一例外由这一条触发——定期报告季会把接近全市场判成 avoid。
+#:
+#: 锚点必须是**披露件类型**（"关联资金往来…汇总表/专项说明"），不能是「非经营性资金
+#: 占用」这几个字：真的占用事件（整改报告、督促归还公告）标题里同样有这几个字，锚错
+#: 了护栏就退化成"凡提到资金占用一律放行"，比不修更危险。
+#: 同类补丁的仓内先例：``skills/announcement-radar/assets/taxonomy.json`` 的
+#: ``polarity_rules.flip``（按标题反转极性）。
+#:
+#: **刻意不豁免**「上市公司控股股东、实际控制人及其他关联方资金占用情况表」
+#: （2026-08-27 决定）：它虽同为必交附表，但真有占用时标题一字不变，豁免它等于放弃
+#: 这一条唯一的标题级信号；实测占比 1/80，宁可留在保守侧。
+PERIODIC_DISCLOSURE_TITLE_RE = re.compile(
+    # 同一张必交件在各家的命名有「情况汇总表 / 情况表 / 情况的专项说明 / 专项审核
+    # 报告」等多种写法（2026-08-27 实测样本里四种都出现过），锚点取"关联资金往来"
+    # 这个披露件名 + 文体后缀，而不是逐字枚举全称。
+    r"关联资金往来(情况)?(的)?"
+    r"((汇总)?表|专项(审计|审核|核查|鉴证)?(说明|报告|意见)|鉴证报告|审核报告|审计报告)"
+)
+
+#: 上述披露件只豁免它天然会带的这一个词；同一条公告里的其它硬风险词照旧生效。
+PERIODIC_DISCLOSURE_EXEMPT_TERMS = ("资金占用",)
+
+
+def _split_periodic_disclosure_exemptions(
+    title: str, hard_risks: list[str]
+) -> tuple[list[str], list[str]]:
+    """返回 (仍然生效的硬风险词, 因定期披露件而豁免的词)。
+
+    只看 ``title``：正文引用这张表的名字很常见（"详见…情况汇总表"），拿正文做锚点会
+    把真利空一起洗白。
+    """
+    if not hard_risks or not PERIODIC_DISCLOSURE_TITLE_RE.search(title):
+        return hard_risks, []
+    kept = [term for term in hard_risks if term not in PERIODIC_DISCLOSURE_EXEMPT_TERMS]
+    exempted = [term for term in hard_risks if term in PERIODIC_DISCLOSURE_EXEMPT_TERMS]
+    return kept, exempted
+
 
 def _as_date(value: date | datetime | str | None) -> date:
     if value is None:
@@ -75,6 +118,7 @@ def scan_announcement_risks(
     review_hits: list[str] = []
     warning_only_hits: list[str] = []
     hard_risk_hits: list[str] = []
+    periodic_disclosure_exempt_hits: list[str] = []
     scanned = 0
     current = _as_date(asof)
     for item in announcements:
@@ -92,6 +136,8 @@ def scan_announcement_risks(
         reviews = [term for term in REVIEW_TERMS if term in text]
         warning_only = [term for term in WARNING_ONLY_TERMS if term in text]
         hard_risks = [term for term in HARD_RISK_TERMS if term in text]
+        hard_risks, exempted = _split_periodic_disclosure_exemptions(title, hard_risks)
+        periodic_disclosure_exempt_hits.extend(exempted)
         if invalidations:
             thesis_invalidation_hits.extend(invalidations)
             warnings.append(f"公告澄清/事实否定交易逻辑：{title or text[:40]}")
@@ -114,6 +160,7 @@ def scan_announcement_risks(
             thesis_invalidation_hits + review_hits
         )),
         "hard_risk_hits": sorted(set(hard_risk_hits)),
+        "periodic_disclosure_exempt_hits": sorted(set(periodic_disclosure_exempt_hits)),
         "warnings": warnings,
     }
 
@@ -148,6 +195,7 @@ def build_quality_report(
             "warning_only_hits": [],
             "clarification_hits": [],
             "hard_risk_hits": [],
+            "periodic_disclosure_exempt_hits": [],
             "warnings": ["未完成公司公告扫描"],
         }
         blocking.append("announcement_scan_missing")
