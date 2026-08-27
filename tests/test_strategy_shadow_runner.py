@@ -69,3 +69,27 @@ def test_same_day_auction_and_market_sidecars_are_merged(tmp_path, monkeypatch):
     assert payload["candidates"][0]["auction_strength"] == 8.5
     assert payload["market_state"]["dominant_state"] == "S3"
     assert len(sidecars) == 2
+
+
+def test_prefixed_candidate_codes_still_receive_auction_evidence(tmp_path, monkeypatch):
+    """两侧代码归一化口径必须一致，否则 sidecar 记为「已用」而证据其实丢了。
+
+    候选池的 code 带 `sh/sz` 前缀是真实形态（runner 自己就有 market_code 回退，
+    竞价侧也显式剥前缀）。只归一化一侧会让合并静默落空——比缺证据更糟，因为
+    artifact 仍然声称用了这份 sidecar。
+    """
+    state = tmp_path / "state"
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(state))
+    auction_dir = state / "skills" / "daban-stock-picker" / "data"
+    auction_dir.mkdir(parents=True)
+    (auction_dir / "auction_shortlist_latest.json").write_text(json.dumps({
+        "asof": "2026-08-26",
+        "factors": [{"code": "sh600001", "auction_strength": 8.5}],
+    }), encoding="utf-8")
+
+    payload, sidecars = runner._merge_auction_evidence(
+        {"asof": "2026-08-26", "candidates": [{"code": "sh600001", "name": "fixture"}]},
+        "2026-08-26",
+    )
+    assert sidecars, "同日竞价 sidecar 应被采用"
+    assert payload["candidates"][0]["auction_strength"] == 8.5

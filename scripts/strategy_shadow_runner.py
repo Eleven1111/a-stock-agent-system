@@ -72,13 +72,23 @@ def _records(payload: Any, asof: str) -> list[dict[str, Any]]:
     return output
 
 
+def _naked_code(value: Any) -> str:
+    """候选池与竞价产物必须用同一把尺子归一化代码。
+
+    只归一化一侧会让合并静默落空，而 sidecar 仍被记为「已使用」——artifact
+    于是声称用了它其实没用上的证据，比干脆缺证据更难发现。
+    """
+    code = str(value or "").strip().lower()
+    return code.removeprefix("sh").removeprefix("sz").zfill(6) if code else ""
+
+
 def _merge_auction_evidence(payload: Any, asof: str) -> tuple[Any, list[str]]:
     """Merge same-day auction/market artifacts without inventing evidence."""
     if not isinstance(payload, Mapping):
         return payload, []
     merged = dict(payload)
     base_rows = _records(payload, asof)
-    by_code = {str(row.get("code") or row.get("market_code")): row for row in base_rows}
+    by_code = {_naked_code(row.get("code") or row.get("market_code")): row for row in base_rows}
     used = []
     auction_path = data_file("daban-stock-picker", "auction_shortlist_latest.json")
     auction = read_json(auction_path, None)
@@ -92,9 +102,8 @@ def _merge_auction_evidence(payload: Any, asof: str) -> tuple[Any, list[str]]:
         for raw in auction_rows:
             if not isinstance(raw, Mapping):
                 continue
-            code = str(raw.get("code") or raw.get("market_code") or "")
-            code = code.lower().removeprefix("sh").removeprefix("sz").zfill(6)
-            if code in by_code:
+            code = _naked_code(raw.get("code") or raw.get("market_code"))
+            if code and code in by_code:
                 by_code[code].update(dict(raw))
     selection_path = data_file("stock-triage", "hot_money_selection_latest.json")
     selection = read_json(selection_path, None)

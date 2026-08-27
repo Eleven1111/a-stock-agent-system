@@ -1365,6 +1365,16 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing module-level sys.path bootstrap in theme_strength.py, unrelated to the P2 ThemeScore additions (novelty/timing dimensions) that touched this file",
       "violation_id": "a66a3c933b5d6f0cf2c3"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "violation_id": "8d1fbf46ac75bc68a33f",
+      "reason": "strategy_shadow_runner 用与 scripts/ 下其余入口一致的 module-level sys.path 引导加载 skills/common；绝对包导入方案本仓已证伪，不重试"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "violation_id": "0c6094140c617b5efa7e",
+      "reason": "_run_one 的 catch-all 是 fail-closed 设计的一部分：单个策略抛错要记成该策略 unavailable 并保留异常类型进 artifact，收窄异常类型会让未预期错误击穿整个 shadow 批次"
     }
   ]
 }

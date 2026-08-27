@@ -1,9 +1,9 @@
 {
   "baseline_ref": "origin/main",
   "budget": {
-    "broad_exception": 158,
+    "broad_exception": 159,
     "long_function": 68,
-    "sys_path_mutation": 39
+    "sys_path_mutation": 40
   },
   "schema": "maintainability_baseline_v1",
   "violations": [
@@ -384,6 +384,20 @@
       "line": 60,
       "path": "scripts/strategy_attribution_report.py",
       "symbol": "<module>"
+    },
+    {
+      "id": "8d1fbf46ac75bc68a33f",
+      "kind": "sys_path_mutation",
+      "line": 18,
+      "path": "scripts/strategy_shadow_runner.py",
+      "symbol": "<module>"
+    },
+    {
+      "id": "0c6094140c617b5efa7e",
+      "kind": "broad_exception",
+      "line": 141,
+      "path": "scripts/strategy_shadow_runner.py",
+      "symbol": "_run_one"
     },
     {
       "id": "96ade249ffefdf83d108",
