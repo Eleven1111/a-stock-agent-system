@@ -130,6 +130,18 @@ def test_counterfactual_reports_no_bite_on_empty_sample():
     assert report["mean_return_inflation"] is None
 
 
+def test_reconstructed_5m_events_are_rejected_before_signal_evaluation():
+    events = _events()
+    events[0]["event_source"] = "reconstructed_5m_close_state_v1"
+    events[0]["reseal_time"] = "092900"
+
+    report = bt.run(events, hold_mode="board_overnight")
+
+    assert report["reconstructed_event_rejected_count"] == 1
+    assert report["universe_count"] == len(events) - 1
+    assert report["reconstructed_events_eligible"] is False
+
+
 # --------------------------------------------------------------------------- #
 # 2) NON-LIVE：消费端行为断言（不是配置字段断言）
 # --------------------------------------------------------------------------- #
