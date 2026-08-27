@@ -127,3 +127,28 @@ def test_previous_trading_asof_walks_back_over_gaps(tmp_path, monkeypatch):
     assert builder.previous_trading_asof("2026-08-07") == "2026-08-04"
     # 严格早于：同日的表不算 D-1 盘前表。
     assert builder.previous_trading_asof("2026-08-04") is None
+
+
+def test_mandatory_periodic_disclosure_is_not_read_as_material_bad_news(monkeypatch):
+    """「非经营性资金占用…汇总表」是定期报告必交件，主题是"不存在该风险"。
+
+    纯子串匹配会把它读成「资金占用」硬风险。2026-08-27 实测：抽样 25 只被判利空的
+    成分股全部由这一条触发，定期报告季会把接近全市场判成有利空。
+    """
+    monkeypatch.setattr(builder.announcement_risk, "scan_many", lambda codes: {
+        "600002": [{"date": "2026-08-07",
+                    "title": "2026年半年度非经营性资金占用及其他关联资金往来情况汇总表"}],
+    })
+    flags, failed = builder.scan_material_bad_news(["600002"], "2026-08-07")
+    assert failed == []
+    assert flags["600002"] is False
+
+
+def test_a_real_hard_risk_announcement_still_flags(monkeypatch):
+    """正向对照：真利空必须照旧判出来，否则上面那条护栏就成了「永不排除」。"""
+    monkeypatch.setattr(builder.announcement_risk, "scan_many", lambda codes: {
+        "600003": [{"date": "2026-08-07",
+                    "title": "关于公司收到中国证监会立案调查通知书的公告"}],
+    })
+    flags, _ = builder.scan_material_bad_news(["600003"], "2026-08-07")
+    assert flags["600003"] is True

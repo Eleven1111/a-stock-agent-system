@@ -106,6 +106,28 @@ def average_turnover(codes: Sequence[str], as_of: str) -> dict[str, float]:
     }
 
 
+#: 强制定期披露的标题形态——**主题恰恰是"不存在该风险"**，却含风险关键词。
+#:
+#: 2026-08-27 实测：237 只成分股里 86 只（36%）被判重大利空，抽样 25 只**全部**
+#: 命中「资金占用」，来源无一例外是「（年度/半年度）非经营性资金占用及其他关联
+#: 资金往来情况汇总表/专项说明」——每家公司随定期报告必交的一张表，内容通常正是
+#: "本期不存在非经营性资金占用"。纯子串匹配读不出这层否定，于是在定期报告季会把
+#: 接近全市场判成有利空。
+#:
+#: 这里只在**本模块**过滤掉这类标题，不动 ``recommendation_quality`` 的共享词表：
+#: 那张表同时服务实盘公告质检，改它会改变实盘 avoid 判定，该单独评审。
+PERIODIC_DISCLOSURE_TITLE_PATTERNS = (
+    "非经营性资金占用",
+    "关联资金往来情况汇总表",
+    "关联资金往来情况的专项说明",
+)
+
+
+def _is_periodic_disclosure(announcement: Mapping[str, Any]) -> bool:
+    title = str(announcement.get("title") or "")
+    return any(pattern in title for pattern in PERIODIC_DISCLOSURE_TITLE_PATTERNS)
+
+
 def scan_material_bad_news(
     codes: Sequence[str], as_of: str
 ) -> tuple[dict[str, bool], list[str]]:
@@ -113,7 +135,8 @@ def scan_material_bad_news(
 
     "重大利空"取 ``recommendation_quality`` 已有的两类硬信号：证伪交易逻辑的澄清
     （``thesis_invalidation_hits``）与硬风险（``hard_risk_hits``）。本脚本不自造
-    第二套关键词表。
+    第二套关键词表，只在送检前剔掉 ``PERIODIC_DISCLOSURE_TITLE_PATTERNS`` 那类
+    "主题是没有该风险"的强制定期披露。
     """
     if not codes:
         return {}, []
@@ -125,7 +148,8 @@ def scan_material_bad_news(
         if announcements is None:
             failed.append(key)
             continue
-        risks = recommendation_quality.scan_announcement_risks(announcements, as_of)
+        material = [item for item in announcements if not _is_periodic_disclosure(item)]
+        risks = recommendation_quality.scan_announcement_risks(material, as_of)
         flags[key] = bool(
             risks.get("thesis_invalidation_hits") or risks.get("hard_risk_hits")
         )
