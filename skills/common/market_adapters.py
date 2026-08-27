@@ -585,8 +585,7 @@ def _sina_spot_row_to_record(raw_row: Mapping[str, Any]) -> dict[str, Any]:
     """新浪 getHQNodeData 单行 → 标准中文列（含 总市值/市盈率-动态）。
 
     原始字段：per=市盈率(动态)、pb=市净率、mktcap=总市值(万元)、
-    nmc=流通市值(万元)、turnoverratio=换手率(%)。市值统一转成元，
-    与 eod_anomaly_scanner 的 ``MARKET_CAP_MIN_YI * 1e8`` 口径一致。
+    nmc=流通市值(万元)、turnoverratio=换手率(%)。市值统一转成元。
     """
     def _f(key: str) -> float | None:
         value = raw_row.get(key)

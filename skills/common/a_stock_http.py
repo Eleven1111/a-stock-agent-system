@@ -469,9 +469,9 @@ def parse_tencent_minute_response(data: Dict[str, Any], code: str, market: str) 
 
 
 # ======================== 腾讯分时节流 ========================
-# 2026-08-03: proxy.finance.qq.com 分时接口在高频并发下会触发 WAF 限流
-# （eod_anomaly_scanner 全量 2843 只曾 0 命中）。模块级锁保证同一进程内
-# 两次分时请求间隔 >= _TENCENT_MINUTE_INTERVAL 秒，实测 8 并发 ~8/s 稳定。
+# 2026-08-03: proxy.finance.qq.com 分时接口在高频并发下会触发 WAF 限流；
+# 历史全量 2843 只扫描曾出现 0 命中。模块级锁保证同一进程内两次分时请求
+# 至少间隔 _TENCENT_MINUTE_INTERVAL 秒。
 _TENCENT_MINUTE_INTERVAL = 0.05  # 秒
 _tencent_minute_lock = threading.Lock()
 _tencent_minute_last_ts = 0.0
@@ -492,9 +492,8 @@ def fetch_tencent_minute(code: str, market: str = "sz") -> List[Dict[str, Any]]:
 
     2026-08-03: web.ifzq.gtimg.cn 分时接口被 WAF 拦截(501)，改用备用域名
     proxy.finance.qq.com（返回结构一致，见 parse_tencent_minute_response）。
-    备用域名高频并发会触发限流（全量扫描曾 0 命中），所以加了模块级节流：
-    每只股票请求间隔 >= _TENCENT_MINUTE_INTERVAL，配合 eod_anomaly_scanner
-    的 8 并发，实测 ~8/s 可稳定跑完全市场。
+    备用域名高频并发会触发限流（全量扫描曾 0 命中），所以加了模块级节流。
+    该接口只允许有界候选证据采集，不应用于全市场分钟扫描。
     """
     _minute_throttle()
     hosts = (
