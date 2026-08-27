@@ -44,6 +44,39 @@ from state_store import read_json  # noqa: E402
 SOURCE = "local_history_cache"
 
 
+def bootstrap(*, min_days: int, end_date: str) -> dict[str, Any]:
+    """Seed the rolling history once, without overwriting forward daily rows.
+
+    Existing forward rows have richer intraday/sector evidence than a daily-bar
+    reconstruction.  The bootstrap window therefore ends on the last cached
+    trading day strictly before the earliest existing row.
+    """
+    existing = sentiment_daily.load_summary()
+    if len(existing) >= int(min_days):
+        return {
+            "status": "ok", "skipped": True, "reason": "minimum_history_ready",
+            "observed_days": len(existing), "required_days": int(min_days),
+        }
+    bootstrap_end = end_date
+    if existing:
+        earliest = min(str(row.get("trading_date") or "") for row in existing)
+        earlier = history.trading_dates_between("1990-01-01", earliest)
+        earlier = [day for day in earlier if day < earliest]
+        if not earlier:
+            return {
+                "status": "blocked", "reason": "no_history_before_forward_rows",
+                "observed_days": len(existing), "required_days": int(min_days),
+            }
+        bootstrap_end = earlier[-1]
+    result = backfill(
+        start_date="1990-01-01", end_date=bootstrap_end, limit_days=int(min_days)
+    )
+    result["bootstrap"] = True
+    result["preserved_forward_days"] = len(existing)
+    result["required_days"] = int(min_days)
+    return result
+
+
 def load_name_map() -> dict[str, str]:
     """代码 → 证券名称（判 ST 用）。缺失则返回空表，ST 一律按板块常规幅度判定。"""
     payload = read_json(data_file("stock-triage", "exchange_universe.json"), {})
@@ -165,10 +198,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--end-date", default="2100-01-01")
     parser.add_argument("--limit-days", type=int,
                         help="只回填窗口内最近 N 个交易日")
+    parser.add_argument("--bootstrap-min-days", type=int,
+                        help="仅当现有序列不足 N 天时，在已有前向记录之前一次性播种 N 天")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args(argv)
-    result = backfill(
-        start_date=args.start_date, end_date=args.end_date, limit_days=args.limit_days
+    result = (
+        bootstrap(min_days=args.bootstrap_min_days, end_date=args.end_date)
+        if args.bootstrap_min_days is not None
+        else backfill(start_date=args.start_date, end_date=args.end_date, limit_days=args.limit_days)
     )
     if args.json:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))

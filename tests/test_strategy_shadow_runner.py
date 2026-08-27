@@ -31,6 +31,41 @@ def test_all_six_strategies_run_and_remain_non_live(tmp_path, monkeypatch):
     assert any(item["status"] == "unavailable" for item in result["strategies"].values())
 
 
+def test_canonical_strategy_evidence_is_consumed_without_remerging_sidecars(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps({
+        "schema": "strategy_evidence_daily_v1",
+        "asof": "2026-08-26",
+        "canonical_forward": True,
+        "exploratory_reconstruction": False,
+        "records": [{"code": "600001", "date": "2026-08-26", "sector": "通信"}],
+        "market_state": {"available": True, "dominant_state": "S2"},
+        "coverage": {"rank_surprise": {"ready_records": 0}},
+        "research_only": True,
+        "execution_eligible": False,
+    }), encoding="utf-8")
+
+    result = runner.run(str(path), asof="2026-08-26")
+
+    assert result["evidence_schema"] == "strategy_evidence_daily_v1"
+    assert result["canonical_forward"] is True
+    assert result["evidence_sidecars"] == []
+    assert result["evidence_coverage"]["rank_surprise"]["ready_records"] == 0
+    assert len(result["strategies"]["ice_point_reversal"]["results"]) == 1
+
+
+def test_noncanonical_evidence_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps({
+        "schema": "strategy_evidence_daily_v1", "asof": "2026-08-26",
+        "canonical_forward": False, "records": [],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="canonical forward"):
+        runner.run(str(path), asof="2026-08-26")
+
+
 def test_same_input_is_idempotent_and_conflicting_input_is_preserved(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
     path = _input(tmp_path)

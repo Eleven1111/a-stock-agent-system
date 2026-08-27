@@ -140,3 +140,37 @@ def test_halted_symbol_does_not_reset_its_board_height(state_home):
                             "high": 10.2}]),
     )
     assert broken["600000"] == 0
+
+
+def test_bootstrap_skips_when_minimum_history_already_exists(state_home, monkeypatch):
+    script = _backfill_script()
+    monkeypatch.setattr(sd, "load_summary", lambda: [
+        {"trading_date": f"2026-01-{day:02d}"} for day in range(1, 4)
+    ])
+    monkeypatch.setattr(script, "backfill", lambda **kwargs: pytest.fail("must not rebuild"))
+    result = script.bootstrap(min_days=3, end_date="2026-08-31")
+    assert result["status"] == "ok"
+    assert result["skipped"] is True
+
+
+def test_bootstrap_backfills_only_before_existing_forward_rows(state_home, monkeypatch):
+    script = _backfill_script()
+    monkeypatch.setattr(sd, "load_summary", lambda: [
+        {"trading_date": "2026-08-20", "source": "candidate_discovery_inputs"}
+    ])
+    monkeypatch.setattr(
+        history, "trading_dates_between",
+        lambda start, end: ["2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20"],
+    )
+    captured = {}
+
+    def fake_backfill(**kwargs):
+        captured.update(kwargs)
+        return {"status": "ok", "written_days": 3}
+
+    monkeypatch.setattr(script, "backfill", fake_backfill)
+    result = script.bootstrap(min_days=3, end_date="2026-08-31")
+    assert captured == {
+        "start_date": "1990-01-01", "end_date": "2026-08-19", "limit_days": 3
+    }
+    assert result["preserved_forward_days"] == 1
