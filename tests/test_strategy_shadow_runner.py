@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from scripts import preleader_pretable_build as builder
 from scripts import strategy_shadow_runner as runner
 
 
@@ -93,3 +94,62 @@ def test_prefixed_candidate_codes_still_receive_auction_evidence(tmp_path, monke
     )
     assert sidecars, "同日竞价 sidecar 应被采用"
     assert payload["candidates"][0]["auction_strength"] == 8.5
+
+
+def _write_pretable(tmp_path, monkeypatch, *, as_of):
+    """在 ``as_of`` 落一张可用盘前表（证据齐全路径）。"""
+    pool = tmp_path / f"pool-{as_of}.json"
+    pool.write_text(json.dumps({
+        "asof": as_of,
+        "candidates": [
+            {"code": "600001", "sector": "通信设备", "leader_role": "sector_leader"},
+            {"code": "600002", "sector": "通信设备", "leader_role": "sector_follower"},
+        ],
+    }), encoding="utf-8")
+    monkeypatch.setattr(builder, "average_turnover",
+                        lambda codes, as_of_: {code: 5e7 for code in codes})
+    monkeypatch.setattr(builder, "scan_material_bad_news",
+                        lambda codes, as_of_: ({"600002": False}, []))
+    return builder.run(str(pool), as_of=as_of)
+
+
+def test_preleader_reports_the_missing_pretable_reason_not_a_no_signal(tmp_path, monkeypatch):
+    """没有 D-1 盘前表时必须是 unavailable + 具体原因。
+
+    传一张空表进去会让它输出 no_signal，把"没数据"伪装成"明确不在表内"——
+    零样本于是看起来像已验证的负结果。
+    """
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
+    result = runner.run(str(_input(tmp_path)), asof="2026-08-26")
+
+    preleader = result["strategies"]["preleader_arbitrage"]
+    assert preleader["status"] == "unavailable"
+    assert preleader["reasons"] == ["no_prior_pretable_artifact"]
+    assert result["preleader_pretable_asof"] is None
+
+
+def test_preleader_consumes_the_prior_day_pretable(tmp_path, monkeypatch):
+    """正向对照：D-1 有可用盘前表时，它必须真的被读进来。
+
+    只配"缺表→unavailable"的用例，一个恒不加载的实现也能全过。
+    """
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
+    _write_pretable(tmp_path, monkeypatch, as_of="2026-08-25")
+
+    result = runner.run(str(_input(tmp_path)), asof="2026-08-26")
+    assert result["preleader_pretable_asof"] == "2026-08-25"
+    assert result["preleader_pretable_status"] == "ok"
+    # 表被读进来后走的是真实评估路径：产出 summary，而不是缺表短路的 reasons。
+    preleader = result["strategies"]["preleader_arbitrage"]
+    assert "summary" in preleader
+    assert "reasons" not in preleader
+
+
+def test_same_day_pretable_is_not_accepted_as_a_preopen_table(tmp_path, monkeypatch):
+    """D0 当天建的表不是盘前表——接受它等于用当日信息选样本。"""
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
+    _write_pretable(tmp_path, monkeypatch, as_of="2026-08-26")
+
+    result = runner.run(str(_input(tmp_path)), asof="2026-08-26")
+    assert result["preleader_pretable_asof"] is None
+    assert result["strategies"]["preleader_arbitrage"]["status"] == "unavailable"

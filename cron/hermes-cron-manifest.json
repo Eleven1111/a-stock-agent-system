@@ -1036,6 +1036,39 @@
       "external_note": "只读当日候选池，逐一运行六个研究策略；缺证据标 unavailable。SHADOW ONLY：不调用 strategy_registry、不改变排序/仓位、不写 portfolio、不产生 signal.opened。"
     },
     {
+      "id": "preleader-pretable-build",
+      "name": "S4 先于龙头套利盘前表构建",
+      "schedule": "40 16 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "required",
+      "command_argv": ["python", "scripts/run_agent_dag.py", "preleader-pretable-build", "--emit-target"],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1200,
+      "context_from": ["market-history-cache"],
+      "dependency_policy": {"trading_date": "same_trading_date", "max_age_minutes": 180},
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/preleader_pretable/",
+        "$A_STOCK_STATE_HOME/cron/output/preleader-pretable-build/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": ["python", "scripts/preleader_pretable_build.py", "--json"],
+        "cwd": ".",
+        "timeout_seconds": 2400,
+        "timeout_tier": "long",
+        "timeout_rationale": "公告扫描按 code 逐只走网络（announcement_risk.scan_many 固定 5 并发）。2026-08-27 本机实测 10 只 47.9s = 4.79s/只，成分股池上限 400 只对应约 1916s，取 2400s 留巨潮变慢的余量。超时宁可无产物（下游报缺表）也不要半张表。"
+      },
+      "external_note": "D-1 晚间构建「龙头候选→属性→同属性候选」盘前表，供次日 strategy-shadow-daily 的 S4 使用。只读当日候选池 + 本地日线缓存 + 巨潮公告。缺流动性证据或成分股池超出扫描预算时出 degraded 产物且不出表，绝不出一张「所有人都不合格」的空壳表。SHADOW ONLY：不进实盘排序/仓位。"
+    },
+    {
       "id": "open-confirmation",
       "name": "开盘确认+上车判定",
       "schedule": "35 9 * * 1-5",
