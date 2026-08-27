@@ -254,7 +254,7 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 | id | `market-history-cache`（`enabled: true`） |
 | 调度 | `10 15 * * 1-5`（收盘后 10 分钟） |
 | 执行 | `python scripts/market_history_cache.py --json` |
-| 数据源 | BaoStock；**未安装时输出 `status: blocked`**，不报错、不影响其他作业 |
+| 数据源 | BaoStock（全市场个股 + `sh.000300` 指数基准）；**未安装时输出 `status: blocked`**，不报错、不影响其他作业 |
 | 产物 | `$A_STOCK_STATE_HOME/market/history.sqlite3` |
 | 交付 | `local`（只写本地产物，不推送） |
 | 超时 | 300s（`standard` 档；全市场按缺失日增量，单票失败只记 `failed` 不中断批次） |

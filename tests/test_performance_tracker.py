@@ -2,6 +2,7 @@
 
 import json
 import threading
+from datetime import date
 
 import performance_tracker as pt
 import signal_ledger
@@ -404,8 +405,10 @@ def test_update_outcomes_preserves_concurrent_append(tmp_path, monkeypatch):
     append_done = threading.Event()
 
     def fake_fetch(code, signal_date, market):
-        if code == pt.BENCH_CODE:        # 跳过基准，alpha=None
-            return None
+        if code == pt.BENCH_CODE:
+            return {"signal_close": 4000.0,
+                    "future": [{"open": 4001.0, "close": 4002.0,
+                                "high": 4003.0, "low": 3999.0}]}
         # 个股结算：先通知主线程"已进入结算窗口"，等并发追加落地后再返回，
         # 把"追加发生在 update_outcomes 的读快照之后、写回之前"的竞态固定下来。
         fetch_started.set()
@@ -473,7 +476,13 @@ def test_update_outcomes_upgrades_t1_to_t3_final(tmp_path, monkeypatch):
     current = {"value": one_bar}
 
     def fake_fetch(code, signal_date, market):
-        return None if code == pt.BENCH_CODE else current["value"]
+        if code == pt.BENCH_CODE:
+            return {"signal_close": 4000.0, "future": [
+                bar(4001.0, 4002.0, 4003.0, 3999.0),
+                bar(4002.0, 4003.0, 4004.0, 4000.0),
+                bar(4003.0, 4004.0, 4005.0, 4001.0),
+            ]}
+        return current["value"]
 
     monkeypatch.setattr(pt, "_fetch_future_bars", fake_fetch)
 
@@ -511,7 +520,8 @@ def test_update_outcomes_uses_observable_signal_price_not_signal_day_close(
 
     def fake_fetch(code, signal_date, market):
         if code == pt.BENCH_CODE:
-            return None
+            return {"signal_close": 4000.0,
+                    "future": [bar(4001.0, 4002.0, 4003.0, 3999.0)]}
         return {
             # 这是 2026-06-10 收盘价，在 09:35 信号发生时尚不可观察。
             "signal_close": 10.0,
@@ -590,6 +600,82 @@ def test_update_outcomes_terminalizes_aged_market_data_gap(tmp_path, monkeypatch
     assert unresolved["settlement_observation_status"] == (
         "market_data_unavailable_or_tradeability_unknown"
     )
+
+
+def test_update_outcomes_fails_closed_when_benchmark_cache_is_missing(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(pt, "HISTORY_FILE", str(tmp_path / "signal_history.json"))
+    monkeypatch.setattr(pt, "LEDGER_FILE", str(tmp_path / "signal_ledger.jsonl"))
+    pt.record_signal(
+        "600001", "基准缺失", "A", 5.0, 10.0, signal_date=date.today().isoformat()
+    )
+
+    def fake_fetch(code, signal_date, market):
+        if code == pt.BENCH_CODE:
+            return None
+        return {"signal_close": 10.0,
+                "future": [bar(10.5, 11.0, 11.0, 10.4)]}
+
+    monkeypatch.setattr(pt, "_fetch_future_bars", fake_fetch)
+
+    pending = pt.update_outcomes()[0]
+
+    assert pending["outcome"] == "pending"
+    assert pending.get("settlement_status") != "final"
+    assert "t1_close_ret" not in pending
+
+
+def test_fetch_future_bars_reads_qfq_local_cache_without_network(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        pt.local_market_history,
+        "get_daily_bars",
+        lambda codes, end_date, lookback, adjust_flag="qfq": calls.append(
+            (codes, end_date, lookback, adjust_flag)
+        ) or [
+            {"code": "600001", "trading_date": "2026-06-10", "close": 10.0},
+            {
+                "code": "600001", "trading_date": "2026-06-11", "open": 10.5,
+                "high": 11.1, "low": 10.4, "close": 11.0, "volume": 1000.0,
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        pt,
+        "fetch_tencent_kline",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("network call")),
+        raising=False,
+    )
+
+    result = pt._fetch_future_bars("600001", "2026-06-10", "sh")
+
+    assert result["signal_close"] == 10.0
+    assert result["future"][0]["date"] == "2026-06-11"
+    assert calls[0][0] == ["600001"]
+    assert calls[0][2:] == (120, "qfq")
+
+
+def test_fetch_future_bars_fails_closed_when_signal_day_missing(monkeypatch):
+    monkeypatch.setattr(
+        pt.local_market_history,
+        "get_daily_bars",
+        lambda *args, **kwargs: [{
+            "code": "600001", "trading_date": "2026-06-11", "close": 11.0,
+        }],
+    )
+
+    assert pt._fetch_future_bars("600001", "2026-06-10", "sh") is None
+
+
+def test_fetch_future_bars_fails_closed_when_cache_database_is_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        pt.local_market_history,
+        "get_daily_bars",
+        lambda *args, **kwargs: (_ for _ in ()).throw(pt.sqlite3.OperationalError("locked")),
+    )
+
+    assert pt._fetch_future_bars("600001", "2026-06-10", "sh") is None
 
 
 def test_settlement_coverage_blocks_strategy_gate():

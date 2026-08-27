@@ -135,6 +135,12 @@ Chanlun 看多结构作二次硬门控；Chanlun 不产生候选、不改变排�
 - 不新增订单，不自动买入，不建议当日卖出
 - 结果和不可变输入快照写入候选生命周期，供 T+1/T+3 归因
 
+这里的分钟数据定位是**候选证据采集器**，不是全市场分钟数据库：盘中只保留现有
+09:50 / 13:15 两次、每次不超过 20 只候选、最多 4 并发，不增加 09:35 或 14:30
+采集作业。历史研究按需读取 BaoStock 5 分钟 K，顺序为已落盘曲线 → BaoStock →
+新浪短窗口兜底；明确放弃分钟粒度的全市场对照组，对照研究使用不可变候选池快照和
+本地全市场日线完成。
+
 该 lane 的完整判定口径属内部研究文档，不在公开仓库内；此处只描述它对生命周期的
 可观测影响（研究状态、不下单、写入不可变快照）。
 
@@ -186,5 +192,8 @@ python skills/stock-triage/scripts/monitor_manager.py --cancel-theme AI算力
 - T+1：写 `signal.t1_settled`，仅作 provisional 观察
 - T+3：写 `signal.t3_settled`，作为 final 绩效结果
 - 周度：按最终期望值更新 `strategy_registry.json`，负期望策略可被统一 Policy 停用
+
+个股与沪深300基准统一读取 15:10 更新的 `market/history.sqlite3`；缺少精确的
+`(code, signal_date)` 或后续日线时保持 pending，不回落到网络数据源。
 
 人工修正仍追加新事件，不覆盖历史事件。

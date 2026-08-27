@@ -136,7 +136,18 @@ def test_universe_loader_prefers_exchange_universe(tmp_path, monkeypatch):
     (data / "exchange_universe.json").write_text(json.dumps({"stocks": [{"code": "sh.600000"}, {"code": "000001"}]}))
     (data / "universe_quotes_cache.json").write_text(json.dumps({"stocks": [{"code": "600002"}]}))
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
-    assert module.load_universe() == ["600000", "000001"]
+    assert module.load_universe() == ["600000", "000001", "000300"]
+
+
+def test_universe_loader_adds_benchmark_without_masking_missing_universe(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+
+    assert module.load_universe() == []
+
+
+def test_baostock_symbol_maps_hs300_to_shanghai_index():
+    assert module._baostock_symbol("000300") == "sh.000300"
+    assert module._baostock_symbol("000001") == "sz.000001"
 
 
 def test_fetch_baostock_uses_mocked_provider_without_network(monkeypatch):
@@ -166,6 +177,24 @@ def test_fetch_baostock_uses_mocked_provider_without_network(monkeypatch):
     assert rows[0]["code"] == "600000"
     assert rows[0]["close"] == 10.0
     assert rows[0]["source"] == "baostock"
+
+
+def test_fetch_baostock_uses_index_symbol_mapping(monkeypatch):
+    calls = []
+
+    class Result:
+        def next(self):
+            return False
+
+    session = types.SimpleNamespace(
+        bs=types.SimpleNamespace(
+            query_history_k_data_plus=lambda *args, **kwargs: calls.append(args[0]) or Result()
+        )
+    )
+
+    module.BaoStockSession.fetch(session, "000300", "2026-08-18", "2026-08-18")
+
+    assert calls == ["sh.000300"]
 
 
 # --------------------------------------------------------------------------

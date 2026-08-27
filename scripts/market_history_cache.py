@@ -36,6 +36,11 @@ BACKFILL_CALENDAR_DAYS = 240
 #: SIGKILLed with everything it learned still in memory.
 FETCH_BUDGET_RATIO = 0.8
 
+# Benchmarks consumed by local-only settlement. Keep this explicit: index
+# symbols do not belong to the exchange equity universe and BaoStock's market
+# prefix cannot be inferred from the six digits alone (000300 is Shanghai).
+INDEX_BENCHMARK_SYMBOLS = {"000300": "sh.000300"}
+
 
 def fetch_budget_seconds() -> float | None:
     """Wall-clock fetch budget, or ``None`` when running outside cron.
@@ -89,8 +94,15 @@ def load_universe() -> list[str]:
             if normalized:
                 codes.append(normalized)
         if codes:
-            return list(dict.fromkeys(codes))
+            return list(dict.fromkeys([*codes, *INDEX_BENCHMARK_SYMBOLS]))
     return []
+
+
+def _baostock_symbol(code: str) -> str:
+    normalized = _code(code)
+    if normalized in INDEX_BENCHMARK_SYMBOLS:
+        return INDEX_BENCHMARK_SYMBOLS[normalized]
+    return f"sh.{normalized}" if normalized.startswith("6") else f"sz.{normalized}"
 
 
 def _asof(value: str | None) -> str:
@@ -170,7 +182,7 @@ class BaoStockSession:
 
     def fetch(self, code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
         """Fetch and normalize one stock; callers isolate errors per stock."""
-        api_code = f"sh.{code}" if code.startswith("6") else f"sz.{code}"
+        api_code = _baostock_symbol(code)
         result = self.bs.query_history_k_data_plus(
             api_code,
             "date,open,high,low,close,preclose,volume,amount,turn,pctChg",
