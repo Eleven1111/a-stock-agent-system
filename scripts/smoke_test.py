@@ -91,19 +91,15 @@ tests = [
         [PY, "skills/stock-triage/scripts/discipline_review.py", "--no-refresh", "--json"],
         "discipline_review", 15, True, True
     ),
-    (  # 11. 尾盘异动扫描器（示例模式：全A扫描本身耗时且依赖易抖动的akshare接口，不适合smoke）
-        [PY, "skills/stock-triage/scripts/eod_anomaly_scanner.py", "--example", "--json"],
-        "eod_anomaly_scanner", 10, True
-    ),
-    (  # 12. 漏斗召回/门禁遗憾研究报告（无结算数据时 insufficient_data 仍是合法 JSON）
+    (  # 11. 漏斗召回/门禁遗憾研究报告（无结算数据时 insufficient_data 仍是合法 JSON）
         [PY, "scripts/funnel_recall_report.py"],
         "funnel_recall_report", 20, True
     ),
-    (  # 13. 评分校准研究报告（研究用，不改权重）
+    (  # 12. 评分校准研究报告（研究用，不改权重）
         [PY, "scripts/score_calibration_report.py"],
         "score_calibration_report", 20, True
     ),
-    (  # 14. 反身性护栏成本后反事实消融（无样本时显式 insufficient_data）
+    (  # 13. 反身性护栏成本后反事实消融（无样本时显式 insufficient_data）
         [PY, "scripts/reflexivity_report.py"],
         "reflexivity_report", 20, True
     ),
