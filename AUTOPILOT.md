@@ -15,7 +15,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（68 个作业，当前 54 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（69 个作业，当前 55 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -288,9 +288,40 @@ preleader_arbitrage / reverse_volume / ice_point_reversal）在实盘外单独�
 **fail-closed 口径**：输入 asof 与请求日不符直接报错；同日已有产物但输入 hash 不同
 时拒绝覆盖（不可变产物）；任一策略缺证据记 `unavailable`，不退化成 `no_signal`。
 
-**已知边界**：`preleader_arbitrage` 目前以空盘前表运行，因此在本 lane 恒为
-`unavailable` —— 它需要 D-1 晚间构建的 pretable，该产物尚未接线。这是缺输入，
-不是缺实现；接上之前不要把它的零信号读成「该策略无机会」。
+`preleader_arbitrage` 消费**前一日**的盘前表（见下条作业）。找不到 D-1 的表时报
+`unavailable` 并带原因，不会退化成 `no_signal` —— 缺表是缺证据，不是「不在表内」。
+
+**一处口径判断（不是字段搬运）**：S4 还需要 D0 的龙头确认，runner 把候选池的
+`first_seal`（首次封板时刻）映射成 `confirmed` / `confirmed_time` /
+`evaluation_time`，即把「当日封上板」等同于「该标的已确认」。没封板的行不给
+`confirmed`，龙头保持不可判定。这条等价关系取自原案例形态，**未经样本外验证**；
+读 S4 结果前先确认你接受它。
+
+### S4 盘前表构建（preleader-pretable-build）
+
+D-1 晚间建「龙头候选 → 属性 → 同属性候选」映射表，供次日 S4 使用。策略的成败点
+是这张表必须是真盘前产物：盘中现算等于用当日信息选样本。
+
+| 项 | 值 |
+|---|---|
+| id | `preleader-pretable-build`（`enabled: true`） |
+| 调度 | `40 16 * * 1-5`（在 15:10 `market-history-cache` 之后，用它的日线缓存） |
+| 执行 | `python scripts/preleader_pretable_build.py --json` |
+| 输入 | 当日 `candidate_pool_latest.json` + 本地日线缓存（20日均额）+ 巨潮公告 |
+| 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/preleader_pretable/{as_of}.json` |
+| 交付 | `local`（只写本地产物，不推送） |
+| 超时 | 1500s（`long` 档；公告逐只网络取数，306 只实测 >10 分钟） |
+| 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
+
+**证据缺失一律显式退化，不出表**（`status: degraded` + 命名缺口）：
+
+| 缺口 | 为什么不能照常出表 |
+|---|---|
+| `avg_turnover_20d_source_unavailable` | 日线缓存整体不可用时照常建表，每只成分股都会被记成「流动性不足」——一张「所有人都不合格」的表在下游和真表长得一模一样 |
+| `member_pool_exceeds_announcement_scan_budget` | 静默截断会让被截掉的票以「没有利空」的身份留在表里 |
+
+单只公告取数失败的票**不进成分股池**，记入 `announcement_scan_failed`；把取数失败
+当成「没有利空」是把未知洗成干净。只有 `status == "ok"` 的表才会被次日消费。
 
 ### 历史与注意事项
 
