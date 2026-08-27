@@ -79,22 +79,52 @@ PERIODIC_DISCLOSURE_TITLE_RE = re.compile(
     r"((汇总)?表|专项(审计|审核|核查|鉴证)?(说明|报告|意见)|鉴证报告|审核报告|审计报告)"
 )
 
-#: 上述披露件只豁免它天然会带的这一个词；同一条公告里的其它硬风险词照旧生效。
-PERIODIC_DISCLOSURE_EXEMPT_TERMS = ("资金占用",)
+#: 已关闭的减持计划——**计划窗口已经结束**，未来不再有该计划下的减持压力。
+#:
+#: 公告质检拦的是前瞻风险，而纯子串匹配把"这个减持计划结束了"读成"有减持计划"。
+#: 2026-08-27 实测 150 只抽样：命中「减持计划」的 2 只里，301503 的四条公告全是期限
+#: 届满（纯假阳性），300555 是届满与在途预披露并存（另有真信号，逐条豁免不影响它）。
+#: 量级远小于资金占用那条（1.3% vs 36%），但机制同源，且 ``taxonomy.json`` 的
+#: ``polarity_rules.flip`` 早已收录同一组词（终止减持 / 减持期限届满未减持）。
+#:
+#: 「期限届满暨实施情况」也在内：无论期间减没减，届满都意味着该计划不能再减。
+#: **刻意不豁免**「减持计划实施完成」：它证明确有在减的股东，标题带真信号，留在保守侧
+#: （与「关联方资金占用情况表」同一条取舍标准）。
+CLOSED_SELL_PLAN_TITLE_RE = re.compile(
+    r"减持计划[^，。；]{0,10}?(期限届满|期满|届满|终止|未实施|未减持)"
+    r"|(终止|提前终止)(实施)?减持计划"
+)
+
+#: 标题级豁免规则表：(标题形态, 该形态天然会带、因而不作数的硬风险词)。
+#:
+#: 豁免逐条公告、逐个词生效——同一条公告里的其它硬风险词照旧命中，同一只票的另一条
+#: 公告更不受影响。新增规则一律加在这张表里，别在调用点另写分支。
+TITLE_EXEMPTION_RULES: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
+    (PERIODIC_DISCLOSURE_TITLE_RE, ("资金占用",)),
+    (CLOSED_SELL_PLAN_TITLE_RE, ("减持计划",)),
+)
 
 
-def _split_periodic_disclosure_exemptions(
+def _split_title_exemptions(
     title: str, hard_risks: list[str]
 ) -> tuple[list[str], list[str]]:
-    """返回 (仍然生效的硬风险词, 因定期披露件而豁免的词)。
+    """返回 (仍然生效的硬风险词, 因标题形态而豁免的词)。
 
-    只看 ``title``：正文引用这张表的名字很常见（"详见…情况汇总表"），拿正文做锚点会
-    把真利空一起洗白。
+    只看 ``title``：正文引用这些披露件的名字很常见（"详见…情况汇总表"），拿正文做
+    锚点会把真利空一起洗白。
     """
-    if not hard_risks or not PERIODIC_DISCLOSURE_TITLE_RE.search(title):
+    if not hard_risks:
         return hard_risks, []
-    kept = [term for term in hard_risks if term not in PERIODIC_DISCLOSURE_EXEMPT_TERMS]
-    exempted = [term for term in hard_risks if term in PERIODIC_DISCLOSURE_EXEMPT_TERMS]
+    exempt = {
+        term
+        for pattern, terms in TITLE_EXEMPTION_RULES
+        if pattern.search(title)
+        for term in terms
+    }
+    if not exempt:
+        return hard_risks, []
+    kept = [term for term in hard_risks if term not in exempt]
+    exempted = [term for term in hard_risks if term in exempt]
     return kept, exempted
 
 
@@ -118,7 +148,7 @@ def scan_announcement_risks(
     review_hits: list[str] = []
     warning_only_hits: list[str] = []
     hard_risk_hits: list[str] = []
-    periodic_disclosure_exempt_hits: list[str] = []
+    title_exempt_hits: list[str] = []
     scanned = 0
     current = _as_date(asof)
     for item in announcements:
@@ -136,8 +166,8 @@ def scan_announcement_risks(
         reviews = [term for term in REVIEW_TERMS if term in text]
         warning_only = [term for term in WARNING_ONLY_TERMS if term in text]
         hard_risks = [term for term in HARD_RISK_TERMS if term in text]
-        hard_risks, exempted = _split_periodic_disclosure_exemptions(title, hard_risks)
-        periodic_disclosure_exempt_hits.extend(exempted)
+        hard_risks, exempted = _split_title_exemptions(title, hard_risks)
+        title_exempt_hits.extend(exempted)
         if invalidations:
             thesis_invalidation_hits.extend(invalidations)
             warnings.append(f"公告澄清/事实否定交易逻辑：{title or text[:40]}")
@@ -160,7 +190,7 @@ def scan_announcement_risks(
             thesis_invalidation_hits + review_hits
         )),
         "hard_risk_hits": sorted(set(hard_risk_hits)),
-        "periodic_disclosure_exempt_hits": sorted(set(periodic_disclosure_exempt_hits)),
+        "title_exempt_hits": sorted(set(title_exempt_hits)),
         "warnings": warnings,
     }
 
@@ -195,7 +225,7 @@ def build_quality_report(
             "warning_only_hits": [],
             "clarification_hits": [],
             "hard_risk_hits": [],
-            "periodic_disclosure_exempt_hits": [],
+            "title_exempt_hits": [],
             "warnings": ["未完成公司公告扫描"],
         }
         blocking.append("announcement_scan_missing")

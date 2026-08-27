@@ -101,7 +101,7 @@ def test_mandatory_periodic_capital_occupation_form_is_not_a_hard_risk():
     assert report["announcement_scan"]["hard_risk_hits"] == []
     assert "announcement_hard_risk" not in report["blocking_checks"]
     # 豁免要留痕：下游审计需要看到"这条被豁免了"，而不是"从没命中过"。
-    assert report["announcement_scan"]["periodic_disclosure_exempt_hits"] == ["资金占用"]
+    assert report["announcement_scan"]["title_exempt_hits"] == ["资金占用"]
 
 
 def test_periodic_form_exemption_covers_the_real_world_title_variants():
@@ -161,7 +161,7 @@ def test_periodic_form_exempts_only_the_capital_occupation_term():
 
     assert report["status"] == "rejected"
     assert report["announcement_scan"]["hard_risk_hits"] == ["违规担保"]
-    assert report["announcement_scan"]["periodic_disclosure_exempt_hits"] == ["资金占用"]
+    assert report["announcement_scan"]["title_exempt_hits"] == ["资金占用"]
 
 
 def test_periodic_form_exemption_does_not_whitewash_other_announcements():
@@ -177,6 +177,62 @@ def test_periodic_form_exemption_does_not_whitewash_other_announcements():
 
     assert report["status"] == "rejected"
     assert report["announcement_scan"]["hard_risk_hits"] == ["立案调查"]
+
+
+def test_closed_share_reduction_plan_is_not_a_forward_looking_hard_risk():
+    """「减持计划期限届满 / 终止」——计划窗口已关闭，未来不再有该计划下的减持压力。
+
+    公告质检拦的是**前瞻**风险；纯子串匹配把"这个减持计划结束了"读成"有减持计划"。
+    2026-08-27 实测 150 只抽样：命中「减持计划」的 2 只里，301503 的四条公告全是
+    期限届满，属纯假阳性。taxonomy.json 的 polarity_rules.flip 早已收录同一组词
+    （终止减持 / 减持期限届满未减持），共享词表此前没有对应处置。
+    """
+    for title in [
+        "关于持股5%以上股东减持计划期限届满的公告",
+        "关于特定股东、高级管理人员减持计划期限届满的公告",
+        "关于终止实施减持计划的公告",
+        "关于股东减持计划期满未实施的公告",
+    ]:
+        report = quality.build_quality_report(
+            _complete_recommendation(),
+            announcements=[{"title": title}],
+            asof=date(2026, 8, 27),
+        )
+        assert report["status"] == "passed", title
+        assert report["announcement_scan"]["hard_risk_hits"] == [], title
+
+
+def test_live_share_reduction_plan_still_rejects():
+    """正向对照：预披露的减持计划是真利空，必须照旧 avoid。
+
+    没有这条，"计划已结束"的豁免会滑成"凡提到减持计划一律放行"。
+    """
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[{"title": "关于高级管理人员减持计划的预披露公告"}],
+        asof=date(2026, 8, 27),
+    )
+
+    assert report["status"] == "rejected"
+    assert report["announcement_scan"]["hard_risk_hits"] == ["减持计划"]
+
+
+def test_closed_plan_exemption_is_per_announcement():
+    """同一只票另有在途减持计划时，届满公告不能把它洗白。
+
+    300555 实测就是这个形态：3 条期限届满 + 1 条预披露并存。
+    """
+    report = quality.build_quality_report(
+        _complete_recommendation(),
+        announcements=[
+            {"title": "关于持股5%以上股东减持计划期限届满的公告"},
+            {"title": "关于特定股东未来减持计划的预披露公告"},
+        ],
+        asof=date(2026, 8, 27),
+    )
+
+    assert report["status"] == "rejected"
+    assert report["announcement_scan"]["hard_risk_hits"] == ["减持计划"]
 
 
 def test_missing_announcement_scan_cannot_be_full_pass():
