@@ -358,6 +358,33 @@ def test_append_snapshot_consumes_immutable_input_snapshot(tmp_path, monkeypatch
     assert state["series"]["sh600001"][0]["price"] == 10.5
 
 
+def test_append_snapshot_reuses_candidate_volume_and_prev_close(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(ac, "load_watch_pool", lambda asof: {
+        "asof": asof,
+        "execution_candidates": [{
+            "code": "600001", "volume": 1234, "amount": 5678,
+            "prev_close": 10.0,
+        }],
+        "research_candidates": [{"code": "600001"}],
+    })
+
+    def fake_snapshot(codes, **kwargs):
+        captured.update(kwargs)
+        return {codes[0]: [{
+            "t": "09:25:00", "price": 10.5,
+            "prev_day_volume": 1234, "prev_close": 10.0,
+        }]}, {}
+
+    monkeypatch.setattr(ac, "take_snapshot_with_failures", fake_snapshot)
+    ac.append_snapshot(["sh600001"], "2026-06-12")
+
+    metrics = captured["previous_day_metrics"]
+    assert metrics["600001"]["prev_day_volume"] == 1234
+    assert metrics["600001"]["prev_close"] == 10.0
+
+
 def test_append_snapshot_marks_local_history_source_version(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(

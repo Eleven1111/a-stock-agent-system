@@ -1004,6 +1004,38 @@
       "external_note": "23:15 在 daily-diagnostics(23:10) 之后跑：读当日选股产物 hot_money_selection_latest.json 里已算好的 market_state，推进周期记忆(日龄+分歧计数)并取沪指趋势闸门，append 一行影子记录到 cycle_shadow_log.jsonl；同一次运行还用当日已固化的 discovery 输入快照产出 sentiment_daily 记录（market/sentiment_daily/，只读不取数）并落 {五档,S0-S6,S_t,ΔS} 双轨对照。SHADOW ONLY：不改任何实盘信号/排序/仓位。calendar_day：非交易日照跑，market_state 缺失时 fail-closed 记 available:false，一行不落才能看出调度停摆。"
     },
     {
+      "id": "strategy-shadow-daily",
+      "name": "六策略每日影子评估",
+      "schedule": "10 16 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "required",
+      "command_argv": ["python", "scripts/run_agent_dag.py", "strategy-shadow-daily", "--emit-target"],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1200,
+      "context_from": ["closing-triage"],
+      "dependency_policy": {"trading_date": "same_trading_date", "max_age_minutes": 90},
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_shadow/",
+        "$A_STOCK_STATE_HOME/cron/output/strategy-shadow-daily/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": ["python", "scripts/strategy_shadow_runner.py", "--json"],
+        "cwd": ".",
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
+      },
+      "external_note": "只读当日候选池，逐一运行六个研究策略；缺证据标 unavailable。SHADOW ONLY：不调用 strategy_registry、不改变排序/仓位、不写 portfolio、不产生 signal.opened。"
+    },
+    {
       "id": "open-confirmation",
       "name": "开盘确认+上车判定",
       "schedule": "35 9 * * 1-5",

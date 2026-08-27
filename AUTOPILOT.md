@@ -15,7 +15,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（67 个作业，当前 53 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（68 个作业，当前 54 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -266,6 +266,31 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc \
   .venv/bin/python scripts/market_history_cache.py --dry-run --json
 ```
+
+### 六策略每日影子评估（strategy-shadow-daily）
+
+六个游资研究策略（rank_surprise / divergence_reseal / assist_arbitrage /
+preleader_arbitrage / reverse_volume / ice_point_reversal）在实盘外单独跑一遍，
+只为积累样本。**SHADOW ONLY**：不调用 `strategy_registry`、不改排序与仓位、
+不写 `portfolio.json`、不产生 `signal.opened`。
+
+| 项 | 值 |
+|---|---|
+| id | `strategy-shadow-daily`（`enabled: true`） |
+| 调度 | `10 16 * * 1-5`（收盘后，依赖 `closing-triage` 同交易日产物） |
+| 执行 | `python scripts/strategy_shadow_runner.py --json` |
+| 输入 | 当日 `candidate_pool_latest.json`；同日竞价短名单与选股产物作为证据 sidecar |
+| 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_shadow/{asof}.json` |
+| 交付 | `local`（只写本地产物，不推送） |
+| 超时 | 120s（`standard` 档） |
+| 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
+
+**fail-closed 口径**：输入 asof 与请求日不符直接报错；同日已有产物但输入 hash 不同
+时拒绝覆盖（不可变产物）；任一策略缺证据记 `unavailable`，不退化成 `no_signal`。
+
+**已知边界**：`preleader_arbitrage` 目前以空盘前表运行，因此在本 lane 恒为
+`unavailable` —— 它需要 D-1 晚间构建的 pretable，该产物尚未接线。这是缺输入，
+不是缺实现；接上之前不要把它的零信号读成「该策略无机会」。
 
 ### 历史与注意事项
 
