@@ -732,26 +732,37 @@ def append_snapshot(
         # Unit/replay callers may provide their own snapshot adapter. Production
         # cron still has the candidate-preopen pool and uses it when available.
         pool = {}
-    metric_candidates = (
-        pool.get("research_candidates")
-        if "research_candidates" in pool
-        else pool.get("candidates", [])
-    )
-    previous_day_metrics = {
-        candidate_pipeline.naked_code(item.get("code") or item.get("market_code")): {
-            "prev_day_volume": item.get("volume"),
+    # Candidate contract v2 keeps research and execution views separately.
+    # Both can carry the already-fetched daily volume; using only
+    # research_candidates made the 09:15 batch refetch history for every name
+    # whenever that view omitted prev_close, exhausting the fetch budget.
+    metric_candidates = [
+        item
+        for key in ("execution_candidates", "research_candidates", "candidates")
+        for item in (pool.get(key) or [])
+        if isinstance(item, Mapping)
+    ]
+    previous_day_metrics: Dict[str, Dict[str, Any]] = {}
+    for item in metric_candidates:
+        code = candidate_pipeline.naked_code(item.get("code") or item.get("market_code"))
+        volume = item.get("volume")
+        if not code or not volume:
+            continue
+        # Prefer the first valid row (execution view normally has the freshest
+        # quote), but retain the previous close so the provider can trust the
+        # supplied volume without another historical request.
+        previous_day_metrics.setdefault(code, {
+            "prev_day_volume": volume,
             "prev_day_amount": item.get("amount"),
-            "prev_day_date": asof,
+            "prev_close": item.get("prev_close") or item.get("close"),
+            "prev_day_date": item.get("prev_day_date") or asof,
             "prev_day_provider": item.get("quote_source") or item.get("provider") or "candidate-preopen",
             "prev_day_provenance": {
                 "provider": item.get("quote_source") or item.get("provider") or "candidate-preopen",
                 "dataset": "candidate_watch_pool_v1",
-                "date": asof,
+                "date": item.get("prev_day_date") or asof,
             },
-        }
-        for item in metric_candidates or []
-        if (item.get("code") or item.get("market_code")) and item.get("volume")
-    }
+        })
     pool_stale = watch_pool_staleness(pool, asof)
     budget = fetch_budget_seconds()
     if full_universe:

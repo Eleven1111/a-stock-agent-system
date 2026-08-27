@@ -88,6 +88,22 @@ def test_same_window_auction_and_open_pushes_are_merged():
     assert open_brief["deliver"] == "origin"
 
 
+def test_strategy_shadow_daily_is_isolated_and_after_close():
+    job = _manifest_job("strategy-shadow-daily")
+    assert job["schedule"] == "10 16 * * 1-5"
+    assert job["enabled"] is True
+    assert job["deliver"] == "local"
+    assert job["context_from"] == ["closing-triage"]
+    assert _entry_command(job) == (
+        "python scripts/run_agent_dag.py strategy-shadow-daily --emit-target"
+    )
+    assert _run_command(job) == "python scripts/strategy_shadow_runner.py --json"
+    writes = " ".join(job["allowed_state_writes"])
+    assert "strategy_shadow" in writes
+    assert "portfolio" not in writes
+    assert "signal_ledger" not in writes
+
+
 def test_paper_trading_jobs_are_research_only_and_dag_ordered():
     open_job = _manifest_job("paper-trading-open")
     monitor_job = _manifest_job("paper-trading-monitor")
