@@ -29,7 +29,6 @@ import argparse
 import json
 import os
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
@@ -38,11 +37,12 @@ import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 import announcement_risk  # noqa: E402
 import local_market_history  # noqa: E402
 import preleader_arbitrage  # noqa: E402
+import preleader_pretable_store  # noqa: E402
 import recommendation_quality  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 
-SCHEMA = "preleader_pretable_artifact_v1"
+SCHEMA = preleader_pretable_store.SCHEMA
 TURNOVER_LOOKBACK_DAYS = 20
 # 成分股池超过此规模就不建表：公告扫描是逐只网络取数，静默截断会让被截掉的那些票
 # 以"没有利空"的身份留在表里——那正是本文件开头要防的洗白。
@@ -216,53 +216,15 @@ def build(
     }
 
 
-def output_path(as_of: str) -> str:
-    return data_file("stock-triage", os.path.join("preleader_pretable", f"{as_of}.json"))
-
-
 def run(input_path: str, *, as_of: str | None = None, **kwargs: Any) -> dict[str, Any]:
     result = build(input_path, as_of=as_of, **kwargs)
-    path = output_path(result["as_of"])
+    path = preleader_pretable_store.output_path(result["as_of"])
     existing = read_json(path, None)
     if isinstance(existing, Mapping) and existing.get("status") == "ok" and result["status"] != "ok":
         # 已有可用盘前表时，一次退化的重跑不许把它盖掉。
         return dict(existing)
     atomic_write_json(path, result)
     return result
-
-
-def previous_trading_asof(asof: str) -> str | None:
-    """找**严格早于** ``asof`` 的最近一张盘前表日期；没有则 None。
-
-    按产物目录里的实际日期回溯，而不是按日历减一天：节假日与停摆日都不会有表，
-    减一天会得到一个不存在的日期，然后把"作业停摆"误报成"表缺失"。
-    """
-    directory = Path(output_path(asof)).parent
-    if not directory.is_dir():
-        return None
-    dates = sorted(
-        path.stem for path in directory.glob("*.json")
-        if len(path.stem) == 10 and path.stem < str(asof)[:10]
-    )
-    return dates[-1] if dates else None
-
-
-def load_pretable(as_of: str) -> tuple[Mapping[str, Any] | None, str]:
-    """读 ``as_of`` 当日的盘前表；只有 ``status == "ok"`` 才交出表体。
-
-    返回 ``(pretable, reason)``——取不到时 ``pretable`` 为 None 且 reason 说明原因，
-    调用方据此报 unavailable，而不是拿一张退化的表当有效表用。
-    """
-    payload = read_json(output_path(as_of), None)
-    if not isinstance(payload, Mapping):
-        return None, "pretable_artifact_missing"
-    if payload.get("status") != "ok":
-        gaps = ",".join(payload.get("evidence_gaps") or []) or "unknown"
-        return None, f"pretable_degraded:{gaps}"
-    pretable = payload.get("pretable")
-    if not isinstance(pretable, Mapping):
-        return None, "pretable_body_missing"
-    return pretable, "ok"
 
 
 def main() -> None:

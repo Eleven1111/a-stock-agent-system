@@ -21,13 +21,12 @@ import assist_arbitrage  # noqa: E402
 import divergence_reseal  # noqa: E402
 import ice_point_reversal  # noqa: E402
 import preleader_arbitrage  # noqa: E402
+import preleader_pretable_store  # noqa: E402
 import rank_surprise  # noqa: E402
 import reverse_volume  # noqa: E402
 from paths import data_file  # noqa: E402
 from research_artifact import json_sha256  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
-
-from scripts import preleader_pretable_build  # noqa: E402
 
 STRATEGY_IDS = (
     "rank_surprise", "divergence_reseal", "assist_arbitrage",
@@ -117,18 +116,28 @@ def _merge_auction_evidence(payload: Any, asof: str) -> tuple[Any, list[str]]:
     return merged, used
 
 
-def _load_preleader_pretable(asof: str) -> tuple[Mapping[str, Any] | None, str]:
-    """取 D-1 盘前表。
+def _preleader_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把候选池的封板时刻映射成 S4 需要的「龙头已确认」字段。
 
-    S4 的成败点是"表必须是 D-1 晚间产物"，所以这里只找**严格早于** ``asof`` 的
-    那张表，绝不回退到当日：拿当日的表来判当日，等于用 D0 信息选样本，
-    ``preleader_arbitrage`` 的 ``COND_PRETABLE_FRESH`` 也会把它判掉。
+    S4 靠 ``pick_confirmed_leader`` 在同属性组里挑确认时刻最早者，需要每行带
+    ``confirmed`` / ``confirmed_time``；反应窗口条件还要候选自己的
+    ``evaluation_time``。候选池里对应的事实是 ``first_seal``（首次封板时刻）。
+
+    **这是一处口径判断，不是既有字段的搬运**：这里把"当日封上板"等同于"该标的
+    已确认"，把封板时刻同时当作龙头的确认时刻与候选自身的反应时刻。原案例
+    （鹏起科技→航天通信）正是这个形态。没封板的行不给 ``confirmed``，让
+    fail-closed 逻辑照常把龙头判成不可判定，而不是拿涨幅之类的代理值凑一个。
     """
-    previous = preleader_pretable_build.previous_trading_asof(asof)
-    if not previous:
-        return None, "no_prior_pretable_artifact"
-    pretable, reason = preleader_pretable_build.load_pretable(previous)
-    return pretable, reason if pretable is None else "ok"
+    output = []
+    for record in records:
+        row = dict(record)
+        seal = row.get("first_seal")
+        if seal:
+            row.setdefault("confirmed", True)
+            row.setdefault("confirmed_time", seal)
+            row.setdefault("evaluation_time", seal)
+        output.append(row)
+    return output
 
 
 def _unavailable(strategy_id: str, reason: str) -> dict[str, Any]:
@@ -150,7 +159,8 @@ def _run_one(
         "rank_surprise": lambda: rank_surprise.evaluate_universe(records, market_state=market_state),
         "divergence_reseal": lambda: divergence_reseal.evaluate_universe(records),
         "assist_arbitrage": lambda: assist_arbitrage.evaluate_universe(records),
-        "preleader_arbitrage": lambda: preleader_arbitrage.evaluate_universe(records, pretable=pretable),
+        "preleader_arbitrage": lambda: preleader_arbitrage.evaluate_universe(
+            _preleader_records(records), pretable=pretable),
         "reverse_volume": lambda: reverse_volume.evaluate_universe(records, market_state=market_state),
         "ice_point_reversal": lambda: ice_point_reversal.evaluate_universe(records, market_state=market_state),
     }
@@ -188,7 +198,7 @@ def run(input_path: str, *, asof: str | None = None) -> dict[str, Any]:
     payload, sidecars = _merge_auction_evidence(payload, requested_asof)
     records = _records(payload, requested_asof)
     market_state = payload.get("market_state") if isinstance(payload, Mapping) else None
-    pretable, pretable_reason = _load_preleader_pretable(requested_asof)
+    pretable, pretable_reason = preleader_pretable_store.load_previous_pretable(requested_asof)
     source_hash = json_sha256(payload)
     path = _output_path(requested_asof)
     existing = read_json(path, None)

@@ -291,6 +291,12 @@ preleader_arbitrage / reverse_volume / ice_point_reversal）在实盘外单独�
 `preleader_arbitrage` 消费**前一日**的盘前表（见下条作业）。找不到 D-1 的表时报
 `unavailable` 并带原因，不会退化成 `no_signal` —— 缺表是缺证据，不是「不在表内」。
 
+**一处口径判断（不是字段搬运）**：S4 还需要 D0 的龙头确认，runner 把候选池的
+`first_seal`（首次封板时刻）映射成 `confirmed` / `confirmed_time` /
+`evaluation_time`，即把「当日封上板」等同于「该标的已确认」。没封板的行不给
+`confirmed`，龙头保持不可判定。这条等价关系取自原案例形态，**未经样本外验证**；
+读 S4 结果前先确认你接受它。
+
 ### S4 盘前表构建（preleader-pretable-build）
 
 D-1 晚间建「龙头候选 → 属性 → 同属性候选」映射表，供次日 S4 使用。策略的成败点

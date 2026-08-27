@@ -153,3 +153,28 @@ def test_same_day_pretable_is_not_accepted_as_a_preopen_table(tmp_path, monkeypa
     result = runner.run(str(_input(tmp_path)), asof="2026-08-26")
     assert result["preleader_pretable_asof"] is None
     assert result["strategies"]["preleader_arbitrage"]["status"] == "unavailable"
+
+
+def test_first_seal_becomes_the_leader_confirmation_input():
+    """封板时刻映射成 S4 的 confirmed/confirmed_time/evaluation_time。
+
+    这是口径判断而非字段搬运：把"当日封上板"等同于"该标的已确认"。没封板的行
+    不给 confirmed，让龙头保持不可判定，而不是用涨幅之类的代理值凑一个。
+    """
+    rows = [{"code": "600001", "first_seal": "0935"}, {"code": "600002"}]
+    mapped = {row["code"]: row for row in runner._preleader_records(rows)}
+
+    assert mapped["600001"]["confirmed"] is True
+    assert mapped["600001"]["confirmed_time"] == "0935"
+    assert mapped["600001"]["evaluation_time"] == "0935"
+    assert "confirmed" not in mapped["600002"]
+    # 不得就地改调用方的记录。
+    assert "confirmed" not in rows[0]
+
+
+def test_existing_confirmation_fields_are_not_overwritten():
+    rows = [{"code": "600001", "first_seal": "0935",
+             "confirmed": False, "confirmed_time": "1000"}]
+    mapped = runner._preleader_records(rows)[0]
+    assert mapped["confirmed"] is False
+    assert mapped["confirmed_time"] == "1000"
