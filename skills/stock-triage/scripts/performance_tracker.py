@@ -21,7 +21,8 @@
   · 结算与信号价均取自**前复权 K 线**，规避送转除权导致的收益失真
   · 阈值对称（±5% / 0）
 
-数据源（共享 data-access 层，cron-safe）：腾讯前复权 K 线 + 沪深300 指数。
+数据源（共享 data-access 层，cron-safe）：收盘后 BaoStock 前复权日线缓存，
+个股与沪深300 基准都只读 ``market/history.sqlite3``；缓存缺失时保持 pending。
 
 Usage:
   python3 performance_tracker.py                          # 查看统计
@@ -33,6 +34,7 @@ Usage:
 import json
 import math
 import os
+import sqlite3
 import sys
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Any, Mapping
@@ -43,7 +45,7 @@ sys.path.insert(0, ROOT)
 from state_store import read_json, atomic_write_json, update_json_list, mutate_json
 from paths import data_file
 from tradeability import limit_pct, round_limit
-from a_stock_http import fetch_tencent_kline, DataSourceError
+import local_market_history
 from execution_model import FEE_SCHEDULE, net_return_pct
 import signal_ledger
 from scripts.cron_budget_report import build_push_report, read_push_telemetry
@@ -51,7 +53,7 @@ from scripts.cron_budget_report import build_push_report, read_push_telemetry
 HISTORY_FILE = data_file("stock-triage", "signal_history.json")
 LEDGER_FILE = signal_ledger.LEDGER_FILE
 
-# 沪深300 基准（腾讯指数代码 sh000300）
+# 沪深300 基准（BaoStock 指数代码 sh.000300，缓存键仍为六位代码）
 BENCH_MARKET = "sh"
 BENCH_CODE = "000300"
 
@@ -221,20 +223,23 @@ def record_signal(
 
 
 def _fetch_future_bars(code: str, signal_date: str, market: str) -> Optional[Dict[str, Any]]:
-    """取信号日收盘价(前复权) + 之后的 K 线。"""
+    """Read signal-day close plus future qfq bars from the local cache only."""
     try:
-        klines = fetch_tencent_kline(code, market, days=120, ktype="day")
-    except DataSourceError:
+        cached = local_market_history.get_daily_bars(
+            [str(code).zfill(6)], date.today().isoformat(), 120, adjust_flag="qfq"
+        )
+    except (OSError, sqlite3.Error, ValueError):
         return None
+    klines = []
+    for row in cached:
+        normalized = dict(row)
+        normalized["date"] = str(row.get("trading_date") or row.get("date") or "")
+        klines.append(normalized)
     if not klines:
         return None
     idx = next((i for i, k in enumerate(klines) if k["date"] == signal_date), None)
     if idx is None:
-        # 信号日尚无 K 线 → 取最后一根 <= signal_date
-        prior = [i for i, k in enumerate(klines) if k["date"] <= signal_date]
-        if not prior:
-            return None
-        idx = prior[-1]
+        return None
     return {"signal_close": klines[idx]["close"], "future": klines[idx + 1:]}
 
 
@@ -330,13 +335,27 @@ def update_outcomes() -> List[Dict]:
         if sdate not in bench_cache:
             bench_cache[sdate] = _fetch_future_bars(BENCH_CODE, sdate, BENCH_MARKET)
         bench = bench_cache[sdate]
+        if not bench or not bench["future"]:
+            signal_id = str(signal_ledger.legacy_signal_links(r)["signal_id"])
+            age_days = _signal_age_days(r)
+            if age_days is not None and age_days >= TERMINAL_UNRESOLVED_DAYS:
+                resolutions[signal_id] = _unresolved_settlement(
+                    "benchmark_data_unavailable", age_days
+                )
+                records_by_id[signal_id] = r
+            elif age_days is not None and age_days >= AGED_PENDING_DAYS:
+                observations[signal_id] = {
+                    "settlement_observation_status": "aged_pending_benchmark",
+                    "settlement_age_days": age_days,
+                }
+            continue
 
         result = evaluate_signal(
             signal_close=entry_price,
             future_bars=stock["future"],
             limit_pct_val=limit_pct(code, r.get("name", "")),
-            index_signal_close=bench["signal_close"] if bench else None,
-            index_future_bars=bench["future"] if bench else None,
+            index_signal_close=bench["signal_close"],
+            index_future_bars=bench["future"],
             limit_reference_close=stock["signal_close"],
         )
         if result:

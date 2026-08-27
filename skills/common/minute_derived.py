@@ -48,6 +48,7 @@ SESSION_MINUTES = 240
 # 来源标签 —— 写进事件表的 ``volume_ratio_source``，S1 用它判 degraded。
 SOURCE_TENCENT_INTRADAY = "tencent_minute_intraday"
 SOURCE_SINA_5MIN = "sina_5min_history"
+SOURCE_BAOSTOCK_5MIN = "baostock_5min_history"
 
 
 # --------------------------------------------------------------------------- #
@@ -150,6 +151,32 @@ def normalize_sina_minute(rows: Optional[Iterable[Mapping[str, Any]]]
             "time": f"{minute // 60:02d}:{minute % 60:02d}",
             "volume_shares": volume,
             "amount": amount if amount is not None else 0.0,
+        })
+    return out
+
+
+def normalize_baostock_minute(rows: Optional[Iterable[Mapping[str, Any]]]
+                              ) -> Optional[list[dict[str, Any]]]:
+    """BaoStock 5-minute K rows → canonical incremental-share rows.
+
+    BaoStock timestamps are compact ``YYYYMMDDHHMMsssss`` values, while the
+    volume and amount fields are per-bar increments. A malformed row rejects
+    the whole series so partial history cannot masquerade as a quiet session.
+    """
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        raw_time = str(row.get("time") or "").strip()
+        time_value = raw_time[8:12] if len(raw_time) >= 12 and raw_time[:12].isdigit() else raw_time
+        minute = parse_minute(time_value)
+        volume = _non_negative(row.get("volume"))
+        amount = _non_negative(row.get("amount"))
+        if minute is None or volume is None or amount is None:
+            return None
+        out.append({
+            "minute": minute,
+            "time": f"{minute // 60:02d}:{minute % 60:02d}",
+            "volume_shares": volume,
+            "amount": amount,
         })
     return out
 

@@ -65,6 +65,17 @@ def test_sina_rows_are_incremental_shares():
     assert rows[0]["volume_shares"] == 8300378.0
 
 
+def test_baostock_rows_are_incremental_shares_and_use_bar_close_time():
+    rows = md.normalize_baostock_minute([
+        {"time": "20260827093500000", "volume": "182300", "amount": "237030374"},
+        {"time": "20260827094000000", "volume": "109200", "amount": "141910000"},
+    ])
+
+    assert [row["minute"] for row in rows] == [575, 580]
+    assert rows[0]["volume_shares"] == 182300.0
+    assert rows[0]["amount"] == 237030374.0
+
+
 def test_non_monotonic_cumulative_is_rejected_not_clamped():
     assert md.normalize_tencent_minute(tencent_rows([("0930", 200), ("0931", 100)])) is None
 

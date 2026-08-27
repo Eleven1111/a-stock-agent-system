@@ -2,11 +2,14 @@
 """
 分钟行来源解析 — 把「(交易日, 代码) → 规范分钟行」这件事收敛到一处
 ====================================================================
-两条路，可得性完全不同，**都不许互相冒充**：
+三条路，可得性完全不同，**都不许互相冒充**：
 
 - ``store``（路径 B，向前累积）：读 minute_derived_store 落盘的 5 分钟增量曲线。
   只覆盖落盘作业上线之后的交易日，历史部分本来就没有 —— 缺就是缺。
-- ``sina``（路径 A，历史回填）：新浪分钟 K 历史。实测（2026-08-25）深度上限
+- ``baostock``（历史主路径）：BaoStock 5 分钟 K。2026-08-27 对沪主板、深主板、
+  创业板、科创板各一只实测均覆盖 2023-01-03 起 885 个交易日，每日 48 根。
+  BaoStock 不提供 1 分钟 K；本模块固定使用与落盘曲线一致的 5 分钟口径。
+- ``sina``（历史兜底）：新浪分钟 K 历史。实测（2026-08-25）深度上限
   1023 根：scale=5 约 22 个交易日、scale=1 约 5 个交易日，且接口不支持翻页。
   **超出这个窗口的历史，这条路也拿不到**，返回空让上游标 unavailable。
 
@@ -18,6 +21,8 @@ mootdx（通达信 TCP）在 2026-08-25 的探测里 38 个节点全部 ``bars()
 from __future__ import annotations
 
 import time
+from contextlib import redirect_stdout
+import io
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import minute_derived as md
@@ -27,6 +32,7 @@ from a_stock_http import fetch_sina_minute_history
 Key = Tuple[str, str]
 
 MODE_STORE = "store"
+MODE_BAOSTOCK = "baostock"
 MODE_SINA = "sina"
 MODE_AUTO = "auto"
 MODE_NONE = "none"
@@ -81,17 +87,95 @@ def rows_from_sina(keys: Iterable[Key], scale: int = 5, sleep: float = 0.2
     return out
 
 
+def _baostock_symbol(code: str) -> str:
+    normalized = str(code).zfill(6)
+    return f"sh.{normalized}" if normalized.startswith("6") else f"sz.{normalized}"
+
+
+def _rows_from_baostock_with_error(
+    keys: Iterable[Key],
+) -> Tuple[Dict[Key, List[Dict[str, Any]]], Optional[str]]:
+    """Fetch requested 5-minute days in one BaoStock session.
+
+    Each symbol is queried only across its requested min/max date window and
+    then split by day. Any provider/query error discards the affected result;
+    callers may use Sina as a distinct fallback, never a daily-bar proxy.
+    """
+    wanted: Dict[str, set[str]] = {}
+    for date, code in keys:
+        wanted.setdefault(code, set()).add(date)
+    if not wanted:
+        return {}, None
+    try:
+        import baostock as bs
+    except ImportError:
+        return {}, "baostock_not_installed"
+
+    output = io.StringIO()
+    try:
+        with redirect_stdout(output):
+            login = bs.login()
+        if str(getattr(login, "error_code", "0")) != "0":
+            return {}, f"baostock_login_failed:{getattr(login, 'error_msg', '')}"
+
+        out: Dict[Key, List[Dict[str, Any]]] = {}
+        errors: list[str] = []
+        for code, dates in wanted.items():
+            result = bs.query_history_k_data_plus(
+                _baostock_symbol(code),
+                "date,time,open,high,low,close,volume,amount",
+                start_date=min(dates),
+                end_date=max(dates),
+                frequency="5",
+                adjustflag="2",
+            )
+            raw_by_date: Dict[str, List[Dict[str, Any]]] = {}
+            while result.next():
+                values = result.get_row_data()
+                if len(values) < 8 or not values[0]:
+                    continue
+                raw_by_date.setdefault(str(values[0]), []).append({
+                    "time": values[1],
+                    "volume": values[6],
+                    "amount": values[7],
+                })
+            if str(getattr(result, "error_code", "0")) != "0":
+                errors.append(f"{code}:{getattr(result, 'error_msg', '')}")
+                continue
+            for date in dates:
+                rows = md.normalize_baostock_minute(raw_by_date.get(date))
+                if rows:
+                    out[(date, code)] = rows
+        error = f"baostock_query_failed:{';'.join(errors)}" if errors else None
+        return out, error
+    except (AttributeError, IndexError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        return {}, f"baostock_query_failed:{type(exc).__name__}:{exc}"
+    finally:
+        try:
+            with redirect_stdout(output):
+                bs.logout()
+        except (AttributeError, OSError, RuntimeError):
+            pass
+
+
+def rows_from_baostock(keys: Iterable[Key]) -> Dict[Key, List[Dict[str, Any]]]:
+    """Public fail-closed BaoStock path; provider errors return no rows."""
+    rows, _ = _rows_from_baostock_with_error(keys)
+    return rows
+
+
 def collect(raw_events: Iterable[Mapping[str, Any]], mode: str = MODE_AUTO,
             scale: int = 5, sleep: float = 0.2
             ) -> Tuple[Dict[Key, List[Dict[str, Any]]], Dict[str, Any]]:
     """(事件表原始事件, 模式) → ({(date, code): 规范行}, 诊断)。
 
-    ``auto``：先吃落盘（免费、无网络），再用新浪补齐剩下的键。诊断里分别记两条路各
-    命中多少，零命中时要能一眼看出是「历史超出新浪窗口」还是「落盘作业还没跑过」。
+    ``auto``：先吃落盘（免费、无网络），再用 BaoStock、最后用新浪补齐剩余键。
+    每条来源分别计数；任何来源缺失都不会用日线代理值伪造分钟证据。
     """
     keys = _event_keys(raw_events)
     diagnostics: Dict[str, Any] = {"mode": mode, "requested_keys": len(keys),
-                                   "from_store": 0, "from_sina": 0}
+                                   "from_store": 0, "from_baostock": 0,
+                                   "from_sina": 0}
     if mode == MODE_NONE or not keys:
         diagnostics["covered_keys"] = 0
         return {}, diagnostics
@@ -100,6 +184,13 @@ def collect(raw_events: Iterable[Mapping[str, Any]], mode: str = MODE_AUTO,
     if mode in (MODE_STORE, MODE_AUTO):
         rows.update(rows_from_store(keys))
         diagnostics["from_store"] = len(rows)
+    if mode in (MODE_BAOSTOCK, MODE_AUTO):
+        missing = [key for key in keys if key not in rows]
+        fetched, error = _rows_from_baostock_with_error(missing) if missing else ({}, None)
+        rows.update(fetched)
+        diagnostics["from_baostock"] = len(fetched)
+        if error:
+            diagnostics["baostock_error"] = error
     if mode in (MODE_SINA, MODE_AUTO):
         missing = [key for key in keys if key not in rows]
         fetched = rows_from_sina(missing, scale=scale, sleep=sleep) if missing else {}
@@ -140,5 +231,6 @@ def derived_records(minute_rows: Mapping[str, List[Dict[str, Any]]],
     return out
 
 
-__all__ = ["MODE_STORE", "MODE_SINA", "MODE_AUTO", "MODE_NONE",
-           "collect", "rows_from_store", "rows_from_sina", "derived_records"]
+__all__ = ["MODE_STORE", "MODE_BAOSTOCK", "MODE_SINA", "MODE_AUTO", "MODE_NONE",
+           "collect", "rows_from_store", "rows_from_baostock", "rows_from_sina",
+           "derived_records"]
