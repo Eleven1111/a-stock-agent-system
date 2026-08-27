@@ -45,6 +45,10 @@ def test_baostock_normalization_uses_close_time_and_share_units(monkeypatch):
     assert result[("2026-08-27", "600519")] == [{
         "minute": 575,
         "time": "09:35",
+        "open": 10.0,
+        "high": 10.1,
+        "low": 9.9,
+        "close": 10.0,
         "volume_shares": 123400.0,
         "amount": 1234567.89,
     }]

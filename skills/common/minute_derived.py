@@ -172,12 +172,19 @@ def normalize_baostock_minute(rows: Optional[Iterable[Mapping[str, Any]]]
         amount = _non_negative(row.get("amount"))
         if minute is None or volume is None or amount is None:
             return None
-        out.append({
+        normalized = {
             "minute": minute,
             "time": f"{minute // 60:02d}:{minute % 60:02d}",
             "volume_shares": volume,
             "amount": amount,
-        })
+        }
+        price_fields = ("open", "high", "low", "close")
+        if any(row.get(field) not in (None, "") for field in price_fields):
+            prices = {field: _non_negative(row.get(field)) for field in price_fields}
+            if any(value is None for value in prices.values()):
+                return None
+            normalized.update(prices)
+        out.append(normalized)
     return out
 
 

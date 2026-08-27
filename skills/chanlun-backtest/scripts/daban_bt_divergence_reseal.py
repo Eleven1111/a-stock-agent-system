@@ -53,6 +53,7 @@ from daban_bt_engine import (  # noqa: E402
 
 SCHEMA = "divergence_reseal_backtest_v1"
 DEFAULT_HOLD_MODE = "board_overnight"
+RECONSTRUCTED_SOURCE_PREFIX = "reconstructed_"
 
 
 def _first(event: Dict[str, Any], *names: str) -> Any:
@@ -94,6 +95,10 @@ def event_records(events: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [event_record(event) for event in filter_universe(list(events))]
 
 
+def _is_reconstructed_event(event: Dict[str, Any]) -> bool:
+    return str(event.get("event_source") or "").startswith(RECONSTRUCTED_SOURCE_PREFIX)
+
+
 def _stats(returns: Sequence[float]) -> Dict[str, Any]:
     values = [float(r) for r in returns]
     if not values:
@@ -120,7 +125,9 @@ def run(
     if hold_mode not in HOLD_MODES:
         raise ValueError(f"unknown hold_mode: {hold_mode}; allowed {HOLD_MODES}")
     all_events = list(events)
-    records = event_records(all_events)
+    reconstructed = [event for event in all_events if _is_reconstructed_event(event)]
+    eligible_events = [event for event in all_events if not _is_reconstructed_event(event)]
+    records = event_records(eligible_events)
     results = dr.evaluate_universe(records, cfg=cfg)
     fired = dr.signal_codes(results)
 
@@ -132,7 +139,7 @@ def run(
         return key in fired
 
     returns = strategy_returns(
-        all_events, predicate, cost or DEFAULT_COST, hold_mode,
+        eligible_events, predicate, cost or DEFAULT_COST, hold_mode,
         config=constraints,
     )
     return {
@@ -141,6 +148,8 @@ def run(
         "execution_constraints_enabled": bool(constraints_enabled),
         "event_count": len(all_events),
         "universe_count": len(records),
+        "reconstructed_event_rejected_count": len(reconstructed),
+        "reconstructed_events_eligible": False,
         "signal_summary": dr.summarize(results),
         "signal_count": len(fired),
         "filled_count": len(returns),

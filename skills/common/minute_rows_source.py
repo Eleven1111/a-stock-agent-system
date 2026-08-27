@@ -136,6 +136,10 @@ def _rows_from_baostock_with_error(
                     continue
                 raw_by_date.setdefault(str(values[0]), []).append({
                     "time": values[1],
+                    "open": values[2],
+                    "high": values[3],
+                    "low": values[4],
+                    "close": values[5],
                     "volume": values[6],
                     "amount": values[7],
                 })
