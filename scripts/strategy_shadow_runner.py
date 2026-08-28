@@ -38,8 +38,8 @@ def _today() -> str:
     return datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
 
 
-def _input_path() -> str:
-    return data_file("stock-triage", "candidate_pool_latest.json")
+def _input_path(asof: str) -> str:
+    return data_file("stock-triage", os.path.join("strategy_evidence", f"{asof}.json"))
 
 
 def _output_path(asof: str) -> str:
@@ -55,7 +55,7 @@ def _records(payload: Any, asof: str) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         rows = payload
     elif isinstance(payload, Mapping):
-        rows = payload.get("events") or payload.get("candidates") or []
+        rows = payload.get("records") or payload.get("events") or payload.get("candidates") or []
     else:
         rows = []
     if not isinstance(rows, list):
@@ -155,6 +155,7 @@ def _run_one(
         # 缺盘前表就是缺证据，报 unavailable 并带上具体原因；传一张空表进去会让
         # 它输出 no_signal，把"没数据"伪装成"明确不满足"。
         return _unavailable(strategy_id, pretable_reason)
+    market_records = [{"code": "MARKET", "date": records[0].get("date")}] if records else []
     runners: dict[str, Callable[[], list[dict[str, Any]]]] = {
         "rank_surprise": lambda: rank_surprise.evaluate_universe(records, market_state=market_state),
         "divergence_reseal": lambda: divergence_reseal.evaluate_universe(records),
@@ -162,7 +163,8 @@ def _run_one(
         "preleader_arbitrage": lambda: preleader_arbitrage.evaluate_universe(
             _preleader_records(records), pretable=pretable),
         "reverse_volume": lambda: reverse_volume.evaluate_universe(records, market_state=market_state),
-        "ice_point_reversal": lambda: ice_point_reversal.evaluate_universe(records, market_state=market_state),
+        "ice_point_reversal": lambda: ice_point_reversal.evaluate_universe(
+            market_records, market_state=market_state),
     }
     modules = {
         "rank_surprise": rank_surprise, "divergence_reseal": divergence_reseal,
@@ -195,10 +197,30 @@ def run(input_path: str, *, asof: str | None = None) -> dict[str, Any]:
         raise ValueError("input asof is required")
     if str(source_asof)[:10] != requested_asof:
         raise ValueError(f"input asof mismatch: expected {requested_asof}, got {source_asof}")
-    payload, sidecars = _merge_auction_evidence(payload, requested_asof)
+    evidence_schema = payload.get("schema") if isinstance(payload, Mapping) else None
+    canonical = evidence_schema == "strategy_evidence_daily_v1"
+    if canonical:
+        if payload.get("canonical_forward") is not True or payload.get("exploratory_reconstruction") is True:
+            raise ValueError("strategy shadow requires canonical forward evidence")
+        sidecars = []
+    else:
+        # Compatibility path for explicit historical fixtures. The scheduled
+        # job always consumes the Strategy Evidence Dataset.
+        payload, sidecars = _merge_auction_evidence(payload, requested_asof)
     records = _records(payload, requested_asof)
+    raw_strategy_records = payload.get("strategy_records") if canonical else None
+    strategy_records = {
+        sid: _records({"records": (raw_strategy_records or {}).get(sid) or []}, requested_asof)
+        if isinstance(raw_strategy_records, Mapping) else records
+        for sid in STRATEGY_IDS
+    }
     market_state = payload.get("market_state") if isinstance(payload, Mapping) else None
-    pretable, pretable_reason = preleader_pretable_store.load_previous_pretable(requested_asof)
+    if canonical:
+        raw_pretable = payload.get("preleader_pretable")
+        pretable = dict(raw_pretable) if isinstance(raw_pretable, Mapping) else None
+        pretable_reason = str(payload.get("preleader_pretable_status") or "pretable_status_missing")
+    else:
+        pretable, pretable_reason = preleader_pretable_store.load_previous_pretable(requested_asof)
     source_hash = json_sha256(payload)
     path = _output_path(requested_asof)
     existing = read_json(path, None)
@@ -212,11 +234,14 @@ def run(input_path: str, *, asof: str | None = None) -> dict[str, Any]:
         "input_path": os.path.abspath(os.path.expanduser(input_path)),
         "input_sha256": source_hash, "record_count": len(records),
         "evidence_sidecars": sidecars,
+        "evidence_schema": evidence_schema,
+        "canonical_forward": canonical,
+        "evidence_coverage": payload.get("coverage") if canonical else None,
         "preleader_pretable_asof": pretable.get("as_of") if pretable else None,
         "preleader_pretable_status": pretable_reason,
         "research_only": True, "execution_eligible": False, "live_order_sent": False,
         "strategies": {
-            sid: _run_one(sid, records, market_state,
+            sid: _run_one(sid, strategy_records[sid], market_state,
                           pretable=pretable, pretable_reason=pretable_reason)
             for sid in STRATEGY_IDS
         },
@@ -228,11 +253,12 @@ def run(input_path: str, *, asof: str | None = None) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="每日六策略 shadow 评估器")
-    parser.add_argument("--input", default=_input_path())
+    parser.add_argument("--input", default=None)
     parser.add_argument("--asof", default=None)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    output = run(args.input, asof=args.asof)
+    requested_asof = args.asof or _today()
+    output = run(args.input or _input_path(requested_asof), asof=requested_asof)
     if args.json:
         print(json.dumps(output, ensure_ascii=False, indent=2))
     else:
