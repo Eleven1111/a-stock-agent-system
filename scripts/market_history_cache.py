@@ -18,6 +18,7 @@ import sys
 from time import monotonic
 from typing import Any, Iterable, Mapping
 
+from skills.common import a_share_rules
 from skills.common import local_market_history as history
 
 FULL_BACKFILL_START_DATE = "1990-01-01"
@@ -225,8 +226,16 @@ def fetch_baostock(
 
 def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: bool = False, full_backfill: bool | None = None) -> dict[str, Any]:
     target_date = _asof(asof)
-    selected = list(dict.fromkeys(_code(item) for item in (codes or load_universe()) if _code(item)))
     result: dict[str, Any] = {"status": "ok", "asof": target_date, "fetched": 0, "upserted": 0, "failed": [], "cache_stats": {}}
+    try:
+        trading_day = a_share_rules.is_trading_day(target_date)
+    except a_share_rules.CalendarCoverageError as exc:
+        result.update(status="blocked", reason=f"trading_calendar_unavailable:{exc}")
+        return result
+    if not trading_day:
+        result.update(status="skipped", reason="non_trading_day")
+        return result
+    selected = list(dict.fromkeys(_code(item) for item in (codes or load_universe()) if _code(item)))
     try:
         history.ensure_schema()
         result["cache_stats"] = history.cache_stats()
@@ -244,6 +253,16 @@ def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: boo
         return result
     full_backfill = bool(full_backfill)
     result["full_backfill"] = full_backfill
+    if not full_backfill and all(latest.get(code) == target_date for code in selected):
+        result.update(
+            status="skipped",
+            reason="target_date_already_cached",
+            budget_seconds=fetch_budget_seconds(),
+            processed=0,
+            remaining=0,
+            budget_exhausted=False,
+        )
+        return result
     ordered = fetch_order(selected, latest)
     budget = fetch_budget_seconds()
     deadline = None if budget is None else monotonic() + budget
