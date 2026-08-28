@@ -12,6 +12,77 @@ sys.modules[SPEC.name] = module
 SPEC.loader.exec_module(module)
 
 
+def test_non_trading_day_skips_without_touching_cache_or_provider(monkeypatch):
+    monkeypatch.setattr(
+        module.history,
+        "ensure_schema",
+        lambda: (_ for _ in ()).throw(AssertionError("cache touched")),
+    )
+    monkeypatch.setattr(
+        module,
+        "BaoStockSession",
+        lambda: (_ for _ in ()).throw(AssertionError("provider touched")),
+    )
+
+    result = module.run(asof="2026-08-22", codes=["600000"])
+
+    assert result == {
+        "status": "skipped",
+        "asof": "2026-08-22",
+        "reason": "non_trading_day",
+        "fetched": 0,
+        "upserted": 0,
+        "failed": [],
+        "cache_stats": {},
+    }
+
+
+def test_unknown_trading_calendar_is_blocked_not_mislabeled_as_a_holiday(monkeypatch):
+    def unavailable(_day):
+        raise module.a_share_rules.CalendarCoverageError("calendar does not cover 2027")
+
+    monkeypatch.setattr(module.a_share_rules, "is_trading_day", unavailable)
+    monkeypatch.setattr(
+        module.history,
+        "ensure_schema",
+        lambda: (_ for _ in ()).throw(AssertionError("cache touched")),
+    )
+
+    result = module.run(asof="2027-01-04", codes=["600000"])
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "trading_calendar_unavailable:calendar does not cover 2027"
+    assert result["reason"] != "non_trading_day"
+    assert result["fetched"] == result["upserted"] == 0
+
+
+def test_complete_target_date_cache_skips_without_opening_provider(monkeypatch):
+    selected = ["600000", "000001", "000300"]
+    monkeypatch.setattr(module.a_share_rules, "is_trading_day", lambda _day: True)
+    monkeypatch.setattr(module, "load_universe", lambda: selected)
+    monkeypatch.setattr(module.history, "ensure_schema", lambda: None)
+    monkeypatch.setattr(module.history, "cache_stats", lambda: {"row_count": 3})
+    monkeypatch.setattr(
+        module.history,
+        "get_latest_daily_bars",
+        lambda codes, asof: [
+            {"code": code, "trading_date": asof} for code in codes
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "BaoStockSession",
+        lambda: (_ for _ in ()).throw(AssertionError("provider touched")),
+    )
+
+    result = module.run(asof="2026-08-18")
+
+    assert result["status"] == "skipped"
+    assert result["reason"] == "target_date_already_cached"
+    assert result["fetched"] == result["upserted"] == 0
+    assert result["processed"] == result["remaining"] == 0
+
+
 def test_run_fetches_missing_bars_and_upserts(monkeypatch):
     calls = []
     monkeypatch.setattr(module.history, "ensure_schema", lambda: None)
