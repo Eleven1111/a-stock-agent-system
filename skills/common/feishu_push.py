@@ -13,6 +13,7 @@ import subprocess
 from typing import Any, Mapping
 
 CHAT_ID_ENV = "A_STOCK_FEISHU_CHAT_ID"
+EGRESS_ENABLED_ENV = "A_STOCK_FEISHU_EGRESS_ENABLED"
 LARK_CLI = "lark-cli"
 
 # Compliance footer appended to every outbound message (AGENTS.md: never
@@ -20,6 +21,17 @@ LARK_CLI = "lark-cli"
 # the single Feishu egress point, so the disclosure is enforced here instead
 # of relying on each script to remember to add it.
 DISCLOSURE = "—— 研究信息，非投资建议 ——"
+
+
+def egress_enabled() -> bool:
+    """Return whether any Feishu egress is explicitly enabled.
+
+    Feishu is fail-closed: configuring a chat id alone must never activate an
+    outbound channel. Every Feishu writer uses this single policy boundary.
+    """
+    return os.environ.get(EGRESS_ENABLED_ENV, "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
 
 
 def target_chat_id() -> str | None:
@@ -313,6 +325,9 @@ def push_text(job_id: str, text: str, *, timeout_seconds: int = 15) -> dict[str,
     Never raises: callers run inside cron jobs and a push failure must not
     block the underlying job's artifact/ledger writes.
     """
+    if not egress_enabled():
+        return {"status": "disabled", "job_id": job_id}
+
     chat_id = target_chat_id()
     if not chat_id:
         return {"status": "not_configured", "job_id": job_id}

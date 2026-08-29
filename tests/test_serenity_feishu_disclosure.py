@@ -46,6 +46,7 @@ def test_created_doc_content_carries_disclosure(tmp_path, monkeypatch):
     只 mock subprocess，不 mock 内容组装——否则测的是 mock 不是行为。
     """
     serenity = load_serenity()
+    monkeypatch.setenv(feishu_push.EGRESS_ENABLED_ENV, "true")
     captured = {}
 
     class _Completed:
@@ -68,3 +69,15 @@ def test_created_doc_content_carries_disclosure(tmp_path, monkeypatch):
     assert captured["body"].rstrip().endswith(feishu_push.DISCLOSURE)
     # 披露不能破坏既有的表格清洗行为
     assert "• 列A — 列B" in captured["body"]
+
+
+def test_doc_creation_is_disabled_by_default(monkeypatch):
+    serenity = load_serenity()
+    monkeypatch.delenv(feishu_push.EGRESS_ENABLED_ENV, raising=False)
+    monkeypatch.setattr(
+        serenity.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+
+    assert serenity.create_feishu_doc("测试标题", "# 报告") is None

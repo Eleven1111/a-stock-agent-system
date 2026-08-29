@@ -86,23 +86,12 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
   .venv/bin/python scripts/cron_failure_watch.py --json
 ```
 
-### 飞书推送：只放行故障告警（2026-08-19 全关 → 2026-08-20 放行两个）
+### 飞书出口：默认全部关闭（2026-08-29）
 
-2026-08-19 把原先 7 个 `deliver: feishu_direct` 的作业全部改成 `local`。
-2026-08-20 放行回两个 **故障告警** 类作业，其余保持 `local`：
-
-| 作业 | 现在 | 理由 |
-|---|---|---|
-| `auction-chain-watch` | `feishu_direct` | 它存在的全部理由就是链路挂掉时有人知道；只落盘等于它自己也不可见 |
-| `preopen-preflight` | `feishu_direct` | 开盘前拦不住人就等于没做（issue #239 验收标准 3） |
-| `capital-flow` / `event-calendar` / `news-monitor` / `news-monitor-intraday` / `news-monitor-weekend` / `official-policy-watch` | `local` | 资讯类，关掉的初衷是太吵，与「系统挂了要有人知道」是两回事 |
-
-两者都是 `silent_when_no_signal: true`：**全绿时一条都不推**。
-
-**必须配 `A_STOCK_FEISHU_CHAT_ID`**，否则 `feishu_push` 返回 `not_configured`，
-作业照常跑完、trace 记一条 `delivery.failed not_configured`，不报错也不重试 ——
-告警生成了却送不出去。`preopen-preflight` 的 `delivery` 检查项专门盯这件事：
-manifest 里有 enabled 的 `feishu_direct` 作业而 chat id 未配置时直接报红。
+所有 cron 作业均为 `local`/`silent`/`origin`，manifest 中不得出现
+`feishu_direct`。聊天消息与 Serenity 文档共用 fail-closed 总开关：仅同时显式配置
+`A_STOCK_FEISHU_EGRESS_ENABLED=true` 及相应目标时才允许调用 `lark-cli`。
+只配置 `A_STOCK_FEISHU_CHAT_ID` 不会恢复推送；重大新闻旁路也受同一总开关约束。
 
 ### 开盘前体检（preopen-preflight）
 
