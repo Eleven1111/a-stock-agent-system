@@ -56,14 +56,7 @@ def _config_sha256() -> str:
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def build(*, asof: str, posterior_draws: int = 4096) -> dict:
-    config_before = _config_sha256()
-    settings = _shadow_settings()
-    rows = [
-        row for row in observations.load_scores(schemas=[observations.SCHEMA])
-        if str(row.get("trading_date") or "") <= asof
-    ]
-    labels = research.build_labels(rows, asof=asof, assumed_notional=settings["assumed_notional"])
+def _frozen_lanes(asof: str) -> tuple[str, dict, dict]:
     freeze_path = data_file("stock-triage", "four_dim_weight_shadow_freeze.json")
     frozen = read_json(freeze_path, {})
     existing_lanes = (frozen.get("lanes") or {}) if isinstance(frozen, dict) else {}
@@ -71,22 +64,13 @@ def build(*, asof: str, posterior_draws: int = 4096) -> dict:
         lane: payload for lane, payload in existing_lanes.items()
         if str((payload or {}).get("fit_cutoff") or "9999-12-31") <= asof
     }
-    report = research.build_shadow_report(
-        rows,
-        labels,
-        current_weights=_current_weights(),
-        posterior_draws=posterior_draws,
-        min_fit_days=settings["minimum_fit_trading_days"],
-        min_oos_days=settings["minimum_unseen_oos_trading_days"],
-        asof=asof,
-        frozen_lanes=eligible_frozen_lanes,
-    )
-    config_after = _config_sha256()
-    report["config_unchanged"] = config_before == config_after
-    report["config_sha256_before"] = config_before
-    report["config_sha256_after"] = config_after
-    if not report["config_unchanged"]:
-        raise RuntimeError("shadow evaluation mutated scoring config")
+    return freeze_path, dict(existing_lanes), eligible_frozen_lanes
+
+
+def _persist(
+    *, asof: str, rows: list[dict], labels: dict, report: dict,
+    freeze_path: str, existing_lanes: dict,
+) -> dict:
     artifact_key = report["version_hashes"]["observation_set_sha256"][:16]
     artifact_dir = data_file("stock-triage", "four_dim_weight_shadow")
     report_path = os.path.join(artifact_dir, f"{asof}-{artifact_key}.json")
@@ -138,6 +122,35 @@ def build(*, asof: str, posterior_draws: int = 4096) -> dict:
         "config_unchanged": True,
         "promotion_allowed": False,
     }
+
+
+def build(*, asof: str, posterior_draws: int = 4096) -> dict:
+    config_before = _config_sha256()
+    settings = _shadow_settings()
+    rows = [
+        row for row in observations.load_scores(schemas=[observations.SCHEMA])
+        if str(row.get("trading_date") or "") <= asof
+    ]
+    labels = research.build_labels(rows, asof=asof, assumed_notional=settings["assumed_notional"])
+    freeze_path, existing_lanes, eligible_frozen_lanes = _frozen_lanes(asof)
+    report = research.build_shadow_report(
+        rows, labels, current_weights=_current_weights(), posterior_draws=posterior_draws,
+        min_fit_days=settings["minimum_fit_trading_days"],
+        min_oos_days=settings["minimum_unseen_oos_trading_days"], asof=asof,
+        frozen_lanes=eligible_frozen_lanes,
+    )
+    config_after = _config_sha256()
+    report.update({
+        "config_unchanged": config_before == config_after,
+        "config_sha256_before": config_before,
+        "config_sha256_after": config_after,
+    })
+    if not report["config_unchanged"]:
+        raise RuntimeError("shadow evaluation mutated scoring config")
+    return _persist(
+        asof=asof, rows=rows, labels=labels, report=report,
+        freeze_path=freeze_path, existing_lanes=existing_lanes,
+    )
 
 
 def main() -> int:
