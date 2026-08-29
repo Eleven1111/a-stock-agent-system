@@ -19,7 +19,7 @@ from typing import Optional, Dict
 from urllib.parse import urlparse
 
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
-from feishu_push import DISCLOSURE
+from feishu_push import DISCLOSURE, egress_enabled
 from paths import cron_output_dir
 
 LARK_CLI = "lark-cli"
@@ -104,6 +104,9 @@ def extract_feishu_doc_url(stdout: str) -> Optional[str]:
 
 def create_feishu_doc(title: str, content: str) -> Optional[str]:
     """创建飞书文档"""
+    if not egress_enabled():
+        return None
+
     # 飞书文档标题限制
     safe_title = title[:100].replace('"', "'")
 

@@ -5,6 +5,23 @@ import pytest
 from skills.common import feishu_push
 
 
+@pytest.fixture(autouse=True)
+def enable_feishu_egress_for_legacy_send_tests(monkeypatch):
+    """Sending tests must opt in; production defaults to a hard stop."""
+    monkeypatch.setenv(feishu_push.EGRESS_ENABLED_ENV, "true")
+
+
+def test_egress_is_disabled_by_default_even_with_chat_id(monkeypatch):
+    monkeypatch.delenv(feishu_push.EGRESS_ENABLED_ENV, raising=False)
+    monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
+    calls = _capture_text(monkeypatch)
+
+    result = feishu_push.push_text("news-l2-breaking", "重大新闻")
+
+    assert result == {"status": "disabled", "job_id": "news-l2-breaking"}
+    assert calls == []
+
+
 def test_not_configured_when_chat_id_unset(monkeypatch):
     monkeypatch.delenv(feishu_push.CHAT_ID_ENV, raising=False)
 

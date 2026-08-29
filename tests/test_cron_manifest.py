@@ -252,13 +252,18 @@ def test_auction_chain_watchdog_is_registered_and_survives_a_broken_chain():
     assert job["enabled"] is True
     assert job["context_from"] == []
     assert "dependency_policy" not in job
-    # 2026-08-20：飞书全关之后，只有两个「故障告警」类作业放行回 feishu_direct。
-    # 看门狗存在的全部理由就是链路挂掉时有人知道；只落盘等于它自己也不可见。
-    assert job["deliver"] == "feishu_direct"
+    assert job["deliver"] == "local"
     assert job["silent_when_no_signal"] is True
     assert "scripts/cron_failure_watch.py" in _run_command(job)
     # 09:35 竞价链应已收口，10:35 复查一次做双保险
     assert job["schedule"] == "35 9,10 * * 1-5"
+
+
+def test_all_cron_jobs_have_zero_feishu_chat_egress():
+    with open(MANIFEST_PATH, encoding="utf-8") as handle:
+        jobs = json.load(handle)["jobs"]
+
+    assert [job["id"] for job in jobs if job.get("deliver") == "feishu_direct"] == []
 
 
 def test_run_env_cannot_override_runner_owned_keys():

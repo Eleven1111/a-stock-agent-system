@@ -469,7 +469,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "feishu_direct",
+      "deliver": "local",
       "max_output_chars": 2000,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
@@ -487,7 +487,7 @@
         "timeout_seconds": 60,
         "timeout_tier": "short"
       },
-      "external_note": "08:05 开盘前体检：配置/状态根/注册漂移/推送目标/竞价数据源/网关认证余额端口；全绿静默"
+      "external_note": "08:05 开盘前体检：配置/状态根/注册漂移/竞价数据源/网关认证余额端口；仅落盘"
     },
     {
       "id": "hot-money-context-backfill",
@@ -902,7 +902,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "feishu_direct",
+      "deliver": "local",
       "max_output_chars": 1500,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
@@ -920,7 +920,7 @@
         "timeout_seconds": 30,
         "timeout_tier": "short"
       },
-      "external_note": "09:35 与 10:35 各查一次竞价链 5 个作业当日 artifact；全绿静默，missing 与 failed 分开报。只读，不得有 context_from —— 链路挂掉时它必须照跑"
+      "external_note": "09:35 与 10:35 各查一次竞价链 5 个作业当日 artifact；异常仅落盘，missing 与 failed 分开记录。只读，不得有 context_from"
     },
     {
       "id": "daily-diagnostics",
@@ -3237,6 +3237,6 @@
   "external_dependencies": {
     "hermes_agent": "Cron 调度运行时",
     "serpapi": "新闻搜索 API key",
-    "feishu": "飞书 CLI（lark-cli）— 仅 serenity_to_feishu.py"
+    "feishu": "飞书出口默认关闭；仅 A_STOCK_FEISHU_EGRESS_ENABLED=true 时允许消息或文档写入"
   }
 }
