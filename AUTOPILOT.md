@@ -15,7 +15,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（71 个作业，当前 57 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（72 个作业，当前 59 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -325,6 +325,24 @@ reconstruction 都直接报错；同日已有产物但输入 hash 不同
 `evaluation_time`，即把「当日封上板」等同于「该标的已确认」。没封板的行不给
 `confirmed`，龙头保持不可判定。这条等价关系取自原案例形态，**未经样本外验证**；
 读 S4 结果前先确认你接受它。
+
+### 四维权重影子研究（four-dim-scorer / four-dim-weight-shadow）
+
+两条作业只积累和评估四维评分研究样本，不改变生产权重。`four-dim-scorer` 按
+trend / daban 配额读取当日不可变候选池和本地缓存；`four-dim-weight-shadow` 在每条
+lane 满 60 个有效交易日时冻结模型，再前向积累最早 60 个未见交易日作为 OOS。
+
+| 项 | 值 |
+|---|---|
+| ids | `four-dim-scorer`、`four-dim-weight-shadow`（均 `enabled: true`） |
+| 调度 | `15:18` 评分；`23:30` 标签与权重影子评估 |
+| 外部请求 | 无；只读 dated candidate pool、`history.sqlite3`、催化与 Serenity 缓存 |
+| 产物 | append-only observation v2、冻结模型、标签、shadow 报告与回滚说明 |
+| 生产影响 | `live_effect=none`；禁止自动修改 `config/scoring.yaml` |
+| 停止 | manifest 里将两条作业的 `enabled` 改为 `false` |
+
+冻结产物的 `fit_cutoff`、训练集哈希、模型哈希和权重一旦生成，后续运行只能追加
+cutoff 之后的 OOS；不得滚动重拟合，也不得把第 61 个以后日期替换进首个 60 日 OOS。
 
 ### S4 盘前表构建（preleader-pretable-build）
 

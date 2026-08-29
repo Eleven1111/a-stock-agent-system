@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Tuple
@@ -19,8 +21,8 @@ import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import four_dim_scorer  # noqa: E402
 import four_dim_score_log  # noqa: E402
+import local_market_history  # noqa: E402
 from paths import data_file  # noqa: E402
-from state_store import read_json  # noqa: E402
 
 
 Target = Mapping[str, Any] | Tuple[str, str]
@@ -53,16 +55,48 @@ def _target_sector(target: Target) -> str | None:
     return str(target.get("sector")) if isinstance(target, Mapping) and target.get("sector") else None
 
 
+def _dated_pool_path(asof: str) -> str:
+    return data_file("stock-triage", os.path.join("candidate_pools", f"{asof}.json"))
+
+
+def _supports_lane(target: Mapping[str, Any], lane: str) -> bool:
+    for key in ("open_selected_by", "auction_selected_by", "selected_by"):
+        selected = target.get(key)
+        if isinstance(selected, Mapping) and selected.get(lane):
+            return True
+    return isinstance(target.get(f"{lane}_score"), (int, float))
+
+
+def _lane_targets(candidates: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+    quotas = {"trend": (limit + 1) // 2, "daban": limit // 2}
+    expanded: List[Dict[str, Any]] = []
+    for lane in ("trend", "daban"):
+        eligible = [item for item in candidates if _supports_lane(item, lane)]
+        eligible.sort(key=lambda item: (item.get(f"{lane}_rank") is None, item.get(f"{lane}_rank", 10**9)))
+        strategy_id = "trend_pullback" if lane == "trend" else "daban:first_board_reseal"
+        for item in eligible[:quotas[lane]]:
+            expanded.append({**item, "strategy_id": strategy_id, "research_lane": lane})
+    return expanded
+
+
 def load_pool_targets(limit: int = 20, asof: str | None = None) -> List[Dict[str, Any]]:
-    pool = read_json(data_file("stock-triage", "candidate_pool_latest.json"), {})
     expected_asof = asof or date.today().isoformat()
+    try:
+        with open(_dated_pool_path(expected_asof), encoding="utf-8") as handle:
+            pool = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        pool = {}
     if (
         not isinstance(pool, dict)
         or pool.get("status") != "ready"
         or pool.get("asof") != expected_asof
     ):
         return []
-    return [dict(item) for item in pool.get("candidates", [])[:limit] if item.get("code")]
+    candidates = [
+        {**item, "snapshot_asof": pool["asof"]}
+        for item in pool.get("candidates", []) if item.get("code")
+    ]
+    return _lane_targets(candidates, max(0, limit))
 
 
 def parse_targets(
@@ -99,7 +133,31 @@ def _prefetch_quotes(targets: List[Target]) -> Dict[str, Any]:
         return {}
 
 
-def score_targets(targets: List[Target], max_workers: int = 5) -> Dict[str, Any]:
+def _cached_quote(target: Target, asof: str) -> Dict[str, Any]:
+    if not isinstance(target, Mapping):
+        return {"provider": "cache_only_missing_snapshot_fields"}
+    quote = dict(target)
+    quote_asof = target.get("asof") or target.get("fetched_at") or target.get("snapshot_asof")
+    if quote_asof:
+        quote["asof"] = str(quote_asof)
+    else:
+        quote.pop("asof", None)
+    quote["provider"] = str(target.get("provider") or target.get("quote_source") or "candidate_pool_snapshot")
+    return quote
+
+
+def _cached_klines(code: str, asof: str) -> List[Dict[str, Any]]:
+    try:
+        rows = local_market_history.get_daily_bars([code], asof, 60, adjust_flag="qfq")
+    except (OSError, sqlite3.Error, ValueError):
+        return []
+    return [{**row, "date": str(row.get("trading_date") or row.get("date") or "")} for row in rows]
+
+
+def score_targets(
+    targets: List[Target], max_workers: int = 5, *, cache_only: bool = False, asof: str | None = None,
+) -> Dict[str, Any]:
+    event_asof = str(asof or date.today().isoformat())
     if not targets:
         return {
             "schema": "four_dim_batch_v1",
@@ -112,21 +170,28 @@ def score_targets(targets: List[Target], max_workers: int = 5) -> Dict[str, Any]
             "research_candidates": [],
             "research_candidate_count": 0,
             "results": [],
+            "cache_only": cache_only,
+            "research_only": True,
+            "live_effect": "none",
         }
-    quote_map = _prefetch_quotes(targets)
+    quote_map = {} if cache_only else _prefetch_quotes(targets)
 
     def _one(target: Target) -> Dict[str, Any]:
         code, name = _target_code_name(target)
-        q = quote_map.get(f"{_market_of(code)}{code}")
-        if not (isinstance(q, dict) and q.get("price") is not None):
+        q = _cached_quote(target, event_asof) if cache_only else quote_map.get(f"{_market_of(code)}{code}")
+        if not cache_only and not (isinstance(q, dict) and q.get("price") is not None):
             q = None  # 预取未命中/不完整 → 让 score_stock 自抓，保留原 error 处理
+        klines = _cached_klines(code, event_asof) if cache_only else None
         try:
             return four_dim_scorer.score_stock(
                 code,
                 name,
                 quote=q,
+                klines=klines,
                 strategy_id=_target_strategy_id(target),
                 sector=_target_sector(target),
+                asof=event_asof,
+                cache_only=cache_only,
             )
         except Exception as exc:  # noqa: BLE001
             return {"code": code, "name": name, "status": "failed", "error": str(exc)}
@@ -158,6 +223,9 @@ def score_targets(targets: List[Target], max_workers: int = 5) -> Dict[str, Any]
         "research_candidates": research_candidates,
         "research_candidate_count": len(research_candidates),
         "results": results,
+        "cache_only": cache_only,
+        "research_only": True,
+        "live_effect": "none",
     }
 
 
@@ -179,14 +247,20 @@ def main() -> None:
     parser.add_argument("--targets", help="逗号分隔 code:name，如 600519:贵州茅台")
     parser.add_argument("--limit", type=int, default=20, help="从动态候选池读取的标的上限")
     parser.add_argument("--asof", default=date.today().isoformat(), help="动态候选池交易日")
+    parser.add_argument("--cache-only", action="store_true", help="只读候选快照、本地日线和研究缓存")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    result = score_targets(parse_targets(args.targets, limit=args.limit, asof=args.asof))
+    result = score_targets(
+        parse_targets(args.targets, limit=args.limit, asof=args.asof),
+        cache_only=args.cache_only,
+        asof=args.asof,
+    )
     # Instrumentation (T5): persist four_dim sub-scores keyed by (code, asof) so
     # they can later be joined with settled candidate_lifecycle outcomes. Never
     # blocks the scorer's own output.
-    four_dim_score_log.record_scores(result, asof=args.asof)
+    snapshot_path = None if args.targets else _dated_pool_path(args.asof)
+    four_dim_score_log.record_scores(result, asof=args.asof, input_snapshot_path=snapshot_path)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), default=str))
     else:
