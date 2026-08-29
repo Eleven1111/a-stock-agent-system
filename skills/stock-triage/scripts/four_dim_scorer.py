@@ -14,11 +14,12 @@ Usage:
   python3 four_dim_scorer.py 600519 贵州茅台 --json
 """
 
+import hashlib
 import json
 import sys
 import os
 from datetime import date, datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Mapping, Optional, Tuple
 
 # ========== 路径 ==========
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -689,7 +690,7 @@ def score_sentiment(code: str, name: str, quote: Optional[Dict[str, Any]] = None
     }
 
 
-def score_catalyst(code: str, name: str) -> Dict[str, Any]:
+def score_catalyst(code: str, name: str, *, cache_only: bool = False) -> Dict[str, Any]:
     """催化面评分（0-10）——分级关键词权重 × 新闻新鲜度衰减。
 
     升级说明：旧版关键词平权 ±0.8 且不看新闻日期——一个月前的"利好"和今早的
@@ -697,9 +698,8 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
     新闻时间衰减（≤3天全额，>30天两折），更贴合打板/高成长对催化时效的要求。
     """
     cached_news = read_catalyst_events(code)
-    raw_news = fetch_serper_news(
-        f"{name} {code} 公告 澄清 风险提示 政策 业绩",
-        num=5,
+    raw_news = None if cache_only else fetch_serper_news(
+        f"{name} {code} 公告 澄清 风险提示 政策 业绩", num=5,
     )
     live_available = raw_news is not None   # None=数据源不可用；[]=可用但无新闻
     source_available = live_available or bool(cached_news)
@@ -737,6 +737,7 @@ def score_catalyst(code: str, name: str) -> Dict[str, Any]:
         "available": source_available,
         "source_status": source_status,
         "cache_count": len(cached_news),
+        "input_sha256": _stable_hash(news),
         "catalysts": catalysts[:3],
         "detail": (
             "; ".join(scored["signals"][:3])
@@ -773,7 +774,7 @@ def _fetch_eps_consensus(code: str) -> dict[str, Any]:
             "eps_coverage_count": eps.get("coverage_count", 0),
             "eps_latest_report_date": eps.get("latest_report_date"),
         }
-    except Exception:  # noqa: BLE001 — graceful fallback
+    except Exception:  # noqa: BLE001 — preserve the scorer's graceful fallback contract
         return {
             "eps_consensus_current": None,
             "eps_consensus_next": None,
@@ -834,82 +835,83 @@ def _excluded_deep_payload(deep: Dict[str, Any], raw: float, age: int,
     }
 
 
-def score_deep(code: str, name: str, quote: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """深度面评分（0-10）——优先读 Serenity 投研缓存，过期衰减，缺失回退 PE 快照。
+def _empty_eps_consensus() -> Dict[str, Any]:
+    return {
+        "eps_consensus_current": None,
+        "eps_consensus_next": None,
+        "eps_consensus_after_next": None,
+        "eps_coverage_count": 0,
+        "eps_latest_report_date": None,
+    }
 
-    升级：新增长期 EPS 一致预期作为基本面前瞻指标，附加 0~2 分。
-    当 PE 估值与 EPS 预期给出一致方向时提升置信度。
-    """
+
+def _serenity_deep_payload(
+    deep: Dict[str, Any], *, pe: Optional[float], cap: Optional[float],
+    pe_score: float, eps_data: Dict[str, Any], eps_bonus: float,
+) -> Dict[str, Any]:
+    raw = deep["deep_score"]
+    age = deep.get("age_days") or 0
+    severe_threshold = _DEEP_DEFAULT_MAX_AGE_DAYS + DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS
+    if bool(deep.get("stale")) and age > severe_threshold:
+        return _excluded_deep_payload(deep, raw, age, pe, cap)
+    if deep.get("stale"):
+        score = decay_stale_score(raw, pe_score, age)
+        source, tag = "serenity_deep_stale", f"⚠️过期{age}天 "
+    else:
+        score, source, tag = raw, "serenity_deep", ""
+    score = round(min(score + eps_bonus, 10.0), 1)
+    up = deep.get("valuation_upside_pct")
+    up_str = f", 中性赔率{up:+.0f}%" if isinstance(up, (int, float)) else ""
+    pe_str = f"; PE={pe:.1f}" if pe is not None else ""
+    eps_str = f"; EPS预期{eps_data['eps_consensus_current']}/{eps_data['eps_consensus_next']}" if eps_data["eps_consensus_current"] else ""
+    return {
+        "score": score, "source": source, "stale": bool(deep.get("stale")),
+        "asof": deep.get("asof"), "age_days": age,
+        "scorecard_total": deep.get("scorecard_total"), "rating": deep.get("rating"),
+        "valuation_upside_pct": up, "dimensions": deep.get("dimensions", {}),
+        "pe": pe, "market_cap_yi": round(cap, 1) if cap else None,
+        "eps_bonus": eps_bonus, **eps_data,
+        "detail": f"{tag}投研{deep.get('rating') or ''}"
+                  f"({deep.get('scorecard_total')}/100→{raw}){up_str}{pe_str}{eps_str}",
+    }
+
+
+def _valuation_deep_payload(
+    *, pe: Optional[float], cap: Optional[float], pe_score: float,
+    eps_data: Dict[str, Any], eps_bonus: float,
+) -> Dict[str, Any]:
+    detail = f"PE={pe:.1f}" if pe is not None else "PE缺失"
+    if cap:
+        detail += f", 市值={cap:.0f}亿"
+    if eps_data["eps_consensus_current"]:
+        detail += f"; 预期EPS={eps_data['eps_consensus_current']}/{eps_data['eps_consensus_next']}"
+    return {
+        "score": round(min(pe_score + eps_bonus, 10.0), 1),
+        "source": "valuation_snapshot", "stale": False, "pe": pe,
+        "market_cap_yi": round(cap, 1) if cap else None,
+        "eps_bonus": eps_bonus, **eps_data,
+        "detail": detail + "（无深研缓存，估值快照）",
+    }
+
+
+def score_deep(
+    code: str, name: str, quote: Optional[Dict[str, Any]] = None, *, cache_only: bool = False,
+) -> Dict[str, Any]:
+    """深度面评分；cache_only 时禁止实时行情和 EPS 外部请求。"""
     market = "sz" if code.startswith(("0", "3")) else "sh"
-    rt = quote if quote is not None else fetch_tencent_realtime(code, market)
-    pe = rt.get("pe")
-    cap = rt.get("market_cap")
+    rt = quote if quote is not None else ({} if cache_only else fetch_tencent_realtime(code, market))
+    pe, cap = rt.get("pe"), rt.get("market_cap")
     pe_score = _pe_snapshot_score(pe)
-
-    # ── EPS 一致预期（前瞻基本面）──
-    eps_data = _fetch_eps_consensus(code)
+    eps_data = _empty_eps_consensus() if cache_only else _fetch_eps_consensus(code)
     eps_bonus = _eps_score(eps_data["eps_consensus_current"], eps_data["eps_consensus_next"])
-
     deep = read_deep_research(code)
     if deep and deep.get("deep_score") is not None:
-        raw = deep["deep_score"]
-        age = deep.get("age_days") or 0
-        # fail-closed 过期治理阶梯：新鲜（stale=False）满权重；轻度过期（stale=True 但
-        # 未超过 max_age_days + exclude_after_extra_days）沿用衰减、仍满权重参与合成；
-        # 重度过期（超过阶梯上限）deep 维度退出合成加权，见 score_stock 的 scoring_available。
-        severe_threshold = _DEEP_DEFAULT_MAX_AGE_DAYS + DEEP_STALENESS_EXCLUDE_AFTER_EXTRA_DAYS
-        if bool(deep.get("stale")) and age > severe_threshold:
-            return _excluded_deep_payload(deep, raw, age, pe, cap)
-        if deep.get("stale"):
-            score = decay_stale_score(raw, pe_score, age)
-            source = "serenity_deep_stale"
-            tag = f"⚠️过期{age}天 "
-        else:
-            score = raw
-            source = "serenity_deep"
-            tag = ""
-        # EPS bonus 叠加
-        score = round(min(score + eps_bonus, 10.0), 1)
-        up = deep.get("valuation_upside_pct")
-        up_str = f", 中性赔率{up:+.0f}%" if isinstance(up, (int, float)) else ""
-        pe_str = f"; PE={pe:.1f}" if pe is not None else ""
-        eps_str = f"; EPS预期{eps_data['eps_consensus_current']}/{eps_data['eps_consensus_next']}" if eps_data['eps_consensus_current'] else ""
-        return {
-            "score": round(score, 1),
-            "source": source,
-            "stale": bool(deep.get("stale")),
-            "asof": deep.get("asof"),
-            "age_days": age,
-            "scorecard_total": deep.get("scorecard_total"),
-            "rating": deep.get("rating"),
-            "valuation_upside_pct": up,
-            "dimensions": deep.get("dimensions", {}),
-            "pe": pe,
-            "market_cap_yi": round(cap, 1) if cap else None,
-            "eps_bonus": eps_bonus,
-            **eps_data,
-            "detail": f"{tag}投研{deep.get('rating') or ''}"
-                      f"({deep.get('scorecard_total')}/100→{raw}){up_str}{pe_str}{eps_str}",
-        }
-
-    # 回退：PE 估值快照 + EPS 预期
-    signals_detail = f"PE={pe:.1f}" if pe is not None else "PE缺失"
-    if cap:
-        signals_detail += f", 市值={cap:.0f}亿"
-    score = round(min(pe_score + eps_bonus, 10.0), 1)
-    eps_str = f"; 预期EPS={eps_data['eps_consensus_current']}/{eps_data['eps_consensus_next']}" if eps_data['eps_consensus_current'] else ""
-    signals_detail += eps_str
-    signals_detail += "（无深研缓存，估值快照）"
-    return {
-        "score": score,
-        "source": "valuation_snapshot",
-        "stale": False,
-        "pe": pe,
-        "market_cap_yi": round(cap, 1) if cap else None,
-        "eps_bonus": eps_bonus,
-        **eps_data,
-        "detail": signals_detail,
-    }
+        return _serenity_deep_payload(
+            deep, pe=pe, cap=cap, pe_score=pe_score, eps_data=eps_data, eps_bonus=eps_bonus,
+        )
+    return _valuation_deep_payload(
+        pe=pe, cap=cap, pe_score=pe_score, eps_data=eps_data, eps_bonus=eps_bonus,
+    )
 
 
 # ========== 汇总 ==========
@@ -1151,32 +1153,103 @@ def _load_historical_reference(
         return None
 
 
+def _source_day(value: Any) -> Optional[str]:
+    text = str(value or "")
+    try:
+        return date.fromisoformat(text[:10]).isoformat()
+    except ValueError:
+        return None
+
+
+def _stable_hash(value: Any) -> str:
+    payload = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _dimension_provenance(
+    *, quote: Mapping[str, Any], klines: List[Dict[str, Any]],
+    catalyst: Mapping[str, Any], deep: Mapping[str, Any], asof: str,
+) -> Dict[str, Dict[str, Any]]:
+    quote_asof = _source_day(quote.get("asof") or quote.get("date") or quote.get("fetched_at"))
+    last_bar = klines[-1] if klines else {}
+    bar_asof = _source_day(_bar_asof(last_bar))
+    quote_source = str(quote.get("provider") or quote.get("source") or "snapshot_quote")
+    bar_source = str(last_bar.get("source") or last_bar.get("provider") or "local_history")
+    catalyst_dates = [
+        day for item in catalyst.get("catalysts", [])
+        if isinstance(item, Mapping) and (day := _source_day(item.get("date")))
+    ]
+    catalyst_asof = max(catalyst_dates) if catalyst_dates else None
+    deep_has_snapshot = deep.get("pe") is not None
+    deep_asof = _source_day(deep.get("asof"))
+    if deep_asof is None and deep_has_snapshot:
+        deep_asof = quote_asof
+    return {
+        "technical": {
+            "status": "available" if quote_asof and bar_asof else "degraded",
+            "source": f"{quote_source}+{bar_source}",
+            "asof": max(day for day in (quote_asof, bar_asof) if day) if quote_asof or bar_asof else None,
+        },
+        "sentiment": {
+            "status": "available" if quote_asof else "degraded",
+            "source": quote_source,
+            "asof": quote_asof,
+        },
+        "catalyst": {
+            "status": "available" if catalyst.get("available") else "degraded",
+            "source": str(catalyst.get("source_status") or "unavailable"),
+            "asof": catalyst_asof,
+        },
+        "deep": {
+            "status": (
+                "excluded" if deep.get("excluded")
+                else "available" if deep_asof and (
+                    str(deep.get("source", "")).startswith("serenity") or deep_has_snapshot
+                ) else "degraded"
+            ),
+            "source": str(deep.get("source") or "unavailable"),
+            "asof": deep_asof,
+        },
+    }
+
+
 def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
                 klines: Optional[List[Dict]] = None,
                 market_ctx: Optional[Dict[str, Any]] = None,
                 strategy_id: str = "four_dim",
                 temperature_tier: Optional[str] = None,
-                sector: Optional[str] = None) -> Dict[str, Any]:
+                sector: Optional[str] = None,
+                asof: Optional[str] = None,
+                cache_only: bool = False) -> Dict[str, Any]:
     """完整四维评分。quote/klines 可由批量调用方预取注入，同票只抓一次（4→1）；
     market_ctx 为大盘上下文，缺省时自读缓存，用于出分后叠加大盘 overlay。
     strategy_id 决定权重通道（default/daban/trend），temperature_tier 叠加情绪偏移。"""
     print(f"🔍 正在分析 {name}({code})...", file=sys.stderr)
     market = "sz" if code.startswith(("0", "3")) else "sh"
+    event_asof = str(asof or date.today().isoformat())
     if quote is None:
-        quote = fetch_tencent_realtime(code, market)
+        quote = {} if cache_only else fetch_tencent_realtime(code, market)
     if klines is None:
-        klines = fetch_tencent_kline(code, market, 60)
+        klines = [] if cache_only else fetch_tencent_kline(code, market, 60)
 
     technical = score_technical(code, name, quote=quote, klines=klines)
     print(f"  技术面: {technical['score']}/10", file=sys.stderr)
 
-    sentiment = score_sentiment(code, name, quote=quote)
+    # Cache-only observations must not depend on mutable contexts that are not
+    # represented in the v2 input contract. Their absence is conservative and
+    # reproducible; the quote still supplies the directly observed sentiment fields.
+    sentiment_ctx = {} if cache_only else None
+    sentiment = score_sentiment(
+        code, name, quote=quote, signal_ctx=sentiment_ctx, asof=event_asof,
+    )
     print(f"  情绪面: {sentiment['score']}/10", file=sys.stderr)
 
-    catalyst = score_catalyst(code, name)
+    catalyst = score_catalyst(code, name, cache_only=cache_only)
     print(f"  催化面: {catalyst['score']}/10", file=sys.stderr)
 
-    deep = score_deep(code, name, quote=quote)
+    deep = score_deep(code, name, quote=quote, cache_only=cache_only)
     print(f"  深度面: {deep['score']}/10", file=sys.stderr)
 
     scores = {"technical": technical, "sentiment": sentiment,
@@ -1302,6 +1375,19 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "policy_status": "not_evaluated",
         "weights": {k: f"{v*100:.0f}%" for k, v in active_weights.items()},
         "effective_weights": {k: f"{eff.get(k, 0)*100:.0f}%" for k in active_weights},
+        "weight_values": {k: round(v, 8) for k, v in active_weights.items()},
+        "effective_weight_values": {k: round(eff.get(k, 0), 8) for k in active_weights},
+        "dimension_provenance": _dimension_provenance(
+            quote=quote, klines=klines, catalyst=catalyst, deep=deep, asof=event_asof,
+        ),
+        "input_fingerprint_sha256": _stable_hash({
+            "asof": event_asof,
+            "quote": quote,
+            "klines": klines,
+            "catalyst": catalyst,
+            "deep": deep,
+        }),
+        "cache_only": cache_only,
         "excluded_dims": excluded,
         "degraded_dims": degraded,
         "deep_excluded": deep_excluded,
@@ -1312,7 +1398,7 @@ def score_stock(code: str, name: str, quote: Optional[Dict[str, Any]] = None,
         "sector": sector,
     }
 
-    ctx = market_ctx if market_ctx is not None else read_market_context()
+    ctx = market_ctx if market_ctx is not None else ({} if cache_only else read_market_context())
     return apply_market_overlay(result, ctx)
 
 
