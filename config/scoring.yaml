@@ -37,6 +37,16 @@ scoring:
   deep_staleness:
     exclude_after_extra_days: 30
 
+  # 四维权重研究只产生 shadow 产物。每条 lane 独立满足 60 个拟合交易日，随后
+  # 再冻结 60 个未见交易日做 OOS；任何结果都不得自动覆盖本文件中的生产权重。
+  weight_shadow:
+    method: "dirichlet_simplex_student_t_importance_shadow_v1"
+    minimum_fit_trading_days: 60
+    minimum_unseen_oos_trading_days: 60
+    assumed_notional: 20000
+    live_effect: "none"
+    automatic_promotion: false
+
 risk:
   stop_loss_atr_mult: 2.0
   stop_loss_atr_mult_daban: 1.2

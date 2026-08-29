@@ -162,6 +162,38 @@ def test_calibration_four_dim_join_reports_ok_once_paired(tmp_path, monkeypatch)
     assert fd["ic_by_dimension"]["technical"]["t3_close_ret"]["ic"] == 1.0
 
 
+def test_calibration_four_dim_join_supports_v2_rows(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    records = [
+        _rec(f"{i:06d}", stage_events=[("discovery", True)], current_stage="watch_pool",
+             t3=float(i), mg=float(i))
+        for i in range(12)
+    ]
+    _write_day(tmp_path, "2026-06-25", records)
+    log = tmp_path / "four_dim_v2.jsonl"
+    log.write_text("\n".join(
+        json.dumps({
+            "schema": "four_dim_observation_v2", "code": f"{i:06d}",
+            "trading_date": "2026-06-25",
+            "dimensions": {
+                "technical": {"score": float(i)},
+                "sentiment": {"score": 5.0},
+                "catalyst": {"score": 5.0},
+                "deep": {"score": 5.0},
+            },
+        })
+        for i in range(12)
+    ), encoding="utf-8")
+
+    fd = scr.build_report(
+        days=["2026-06-25"], four_dim_log_path=str(log),
+    )["four_dim_calibration"]
+
+    assert fd["status"] == "ok"
+    assert fd["paired_rows"] == 12
+    assert fd["ic_by_dimension"]["technical"]["t3_close_ret"]["ic"] == 1.0
+
+
 def test_feedback_stats_absent_signal_ledger_is_insufficient_data(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     ledger_file = str(tmp_path / "no_such_ledger.jsonl")

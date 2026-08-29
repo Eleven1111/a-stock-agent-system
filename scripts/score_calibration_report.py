@@ -99,7 +99,7 @@ def _four_dim_join(records, outcomes, log_path=None):
     outcome_by_key = {(r.get("asof"), la._code(r.get("code"))): r for r in records}
     joined = []
     for row in logged:
-        key = (row.get("date"), la._code(row.get("code")))
+        key = (row.get("trading_date") or row.get("date"), la._code(row.get("code")))
         settled = outcome_by_key.get(key)
         if settled is None:
             continue
@@ -117,7 +117,17 @@ def _four_dim_join(records, outcomes, log_path=None):
     for dim in fdl.DIMENSIONS:
         # Attach the sub-score onto a copy of the settled lifecycle record so the
         # shared IC helper reads score (top level) and outcome (under "outcome").
-        rows = [{**j["_outcome_record"], dim: j.get(dim)} for j in joined]
+        rows = [
+            {
+                **j["_outcome_record"],
+                dim: (
+                    ((j.get("dimensions") or {}).get(dim) or {}).get("score")
+                    if j.get("schema") == fdl.SCHEMA
+                    else j.get(dim)
+                ),
+            }
+            for j in joined
+        ]
         ic[dim] = _ic_by_outcome(rows, dim, outcomes)
     return {"status": "ok", "paired_rows": len(joined), "ic_by_dimension": ic}
 

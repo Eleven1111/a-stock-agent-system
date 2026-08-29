@@ -22,16 +22,23 @@ def test_batch_four_dim_targets_parse_pool_and_custom(tmp_path, monkeypatch):
     monkeypatch.delenv("A_STOCK_STATE_HOME", raising=False)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     batch = load_module("batch_four_dim_scorer_test", "skills/stock-triage/scripts/batch_four_dim_scorer.py")
-    pool_path = tmp_path / "skills" / "stock-triage" / "data" / "candidate_pool_latest.json"
+    pool_path = (
+        tmp_path / "skills" / "stock-triage" / "data" / "candidate_pools"
+        / f"{date.today().isoformat()}.json"
+    )
     pool_path.parent.mkdir(parents=True)
     pool_path.write_text(
         f'{{"status":"ready","asof":"{date.today().isoformat()}","candidates":['
-        '{"code":"002156","name":"通富微电"},'
-        '{"code":"600011","name":"华能国际"}]}',
+        '{"code":"002156","name":"通富微电","trend_score":8,"trend_rank":1},'
+        '{"code":"600011","name":"华能国际","daban_score":7,"daban_rank":1}]}',
         encoding="utf-8",
     )
 
-    assert batch.parse_targets(None, limit=1) == [{"code": "002156", "name": "通富微电"}]
+    assert batch.parse_targets(None, limit=1) == [{
+        "code": "002156", "name": "通富微电", "trend_score": 8,
+        "trend_rank": 1, "snapshot_asof": date.today().isoformat(),
+        "strategy_id": "trend_pullback", "research_lane": "trend",
+    }]
     assert batch.parse_targets("002156:通富微电,600011:华能国际") == [
         {"code": "002156", "name": "通富微电", "strategy_id": "four_dim"},
         {"code": "600011", "name": "华能国际", "strategy_id": "four_dim"},

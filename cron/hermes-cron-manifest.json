@@ -1107,6 +1107,41 @@
       "external_note": "只读当日 strategy_evidence_daily_v1，逐一运行六个研究策略；S6 只跑一条市场级事件，缺证据标 unavailable。SHADOW ONLY：不调用 strategy_registry、不改变排序/仓位、不写 portfolio、不产生 signal.opened。"
     },
     {
+      "id": "four-dim-weight-shadow",
+      "name": "四维权重贝叶斯影子评估",
+      "schedule": "30 23 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "required",
+      "command_argv": ["python", "scripts/run_agent_dag.py", "four-dim-weight-shadow", "--emit-target"],
+      "cwd": ".",
+      "enabled": true,
+      "external": false,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1200,
+      "context_from": [],
+      "dependency_policy": {"trading_date": "same_trading_date", "max_age_minutes": 600},
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/four_dim_weight_shadow/",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/four_dim_weight_shadow_latest.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/four_dim_weight_shadow_rollback.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/four_dim_weight_shadow_freeze.json",
+        "$A_STOCK_STATE_HOME/cron/output/four-dim-weight-shadow/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": ["python", "scripts/four_dim_weight_shadow.py", "--json"],
+        "cwd": ".",
+        "timeout_seconds": 180,
+        "timeout_tier": "standard"
+      },
+      "external_note": "只读 append-only four_dim observation v2 与本地 history.sqlite3，输出 T+1/T+3 基准及成本后同日期对照、Student-t 后验区间和回滚产物。至少 60 日拟合 + 60 日未见 OOS；永远 live_effect=none，不改 scoring.yaml。"
+    },
+    {
       "id": "preleader-pretable-build",
       "name": "S4 先于龙头套利盘前表构建",
       "schedule": "40 16 * * 1-5",
@@ -1724,8 +1759,8 @@
         "--emit-target"
       ],
       "cwd": ".",
-      "enabled": false,
-      "external": true,
+      "enabled": true,
+      "external": false,
       "expected_output": "json",
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
@@ -1743,6 +1778,7 @@
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/four_dim_observations_v2.jsonl",
         "$A_STOCK_STATE_HOME/cron/output/four-dim-scorer/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
@@ -1751,13 +1787,15 @@
           "python",
           "skills/stock-triage/scripts/batch_four_dim_scorer.py",
           "--limit",
-          "20"
+          "20",
+          "--cache-only",
+          "--json"
         ],
         "cwd": ".",
         "timeout_seconds": 180,
         "timeout_tier": "standard"
       },
-      "external_note": "复核动态观察池前20只；结果进入收盘 Triage context_from"
+      "external_note": "只读动态候选快照、本地 history.sqlite3、催化缓存与 Serenity 缓存，为前20只生成 append-only PIT observation v2；禁止外部请求，SHADOW ONLY，live_effect=none。"
     },
     {
       "id": "portfolio-check",

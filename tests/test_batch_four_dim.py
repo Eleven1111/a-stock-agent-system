@@ -93,7 +93,7 @@ def test_load_pool_targets_rejects_stale_pool(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     stale = (date.today() - timedelta(days=1)).isoformat()
     atomic_write_json(
-        batch.data_file("stock-triage", "candidate_pool_latest.json"),
+        batch._dated_pool_path(date.today().isoformat()),
         {
             "status": "ready",
             "asof": stale,
@@ -102,3 +102,64 @@ def test_load_pool_targets_rejects_stale_pool(tmp_path, monkeypatch):
     )
 
     assert batch.load_pool_targets() == []
+
+
+def test_load_pool_targets_uses_dated_snapshot_and_balances_lanes(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    asof = "2026-07-02"
+    candidates = [
+        {
+            "code": f"6000{index:02d}", "name": str(index),
+            "trend_rank": index + 1, "trend_score": 9 - index,
+            "daban_rank": 6 - index, "daban_score": 4 + index,
+        }
+        for index in range(6)
+    ]
+    atomic_write_json(batch._dated_pool_path(asof), {
+        "status": "ready", "asof": asof, "candidates": candidates,
+    })
+    atomic_write_json(batch.data_file("stock-triage", "candidate_pool_latest.json"), {
+        "status": "ready", "asof": asof, "candidates": [],
+    })
+
+    targets = batch.load_pool_targets(limit=6, asof=asof)
+
+    assert [target["research_lane"] for target in targets].count("trend") == 3
+    assert [target["research_lane"] for target in targets].count("daban") == 3
+    assert {target["strategy_id"].split(":")[0] for target in targets} == {"trend_pullback", "daban"}
+
+
+def test_cache_only_scoring_never_prefetches_or_falls_back_to_network(monkeypatch):
+    calls = {}
+
+    monkeypatch.setattr(
+        batch,
+        "_prefetch_quotes",
+        lambda targets: (_ for _ in ()).throw(AssertionError("network prefetch")),
+    )
+    monkeypatch.setattr(
+        batch.local_market_history,
+        "get_daily_bars",
+        lambda codes, end_date, lookback, adjust_flag="qfq": [
+            {"code": codes[0], "trading_date": "2026-07-02", "close": 10.0}
+        ],
+    )
+
+    def fake_score(code, name, **kwargs):
+        calls.update(kwargs)
+        return {"code": code, "name": name, "weighted": 5, "grade": "B", "confidence": "low"}
+
+    monkeypatch.setattr(batch.four_dim_scorer, "score_stock", fake_score)
+    out = batch.score_targets(
+        [{"code": "600011", "name": "华能国际", "price": 10.0, "provider": "candidate_snapshot"}],
+        cache_only=True,
+        asof="2026-07-02",
+    )
+
+    assert out["cache_only"] is True
+    assert out["research_only"] is True
+    assert out["live_effect"] == "none"
+    assert calls["cache_only"] is True
+    assert calls["asof"] == "2026-07-02"
+    assert calls["quote"]["price"] == 10.0
+    assert calls["klines"][0]["date"] == "2026-07-02"
