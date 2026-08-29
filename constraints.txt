@@ -9,6 +9,6 @@ pyyaml==6.0.3
 pypdf==6.16.2
 pytest==9.1.1
 ruff==0.16.4
-easy-tdx==1.20.6
+easy-tdx==1.20.8
 mootdx==0.11.7
 tdxpy==0.2.7
