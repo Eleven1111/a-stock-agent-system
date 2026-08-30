@@ -161,6 +161,15 @@ def forward_settlement_eligible(strategy_result: Mapping[str, Any]) -> bool:
         return False
     if strategy_result.get("strategy_id") == "divergence_reseal":
         return all(row.get("forward_settlement_eligible") is True for row in signals)
+    if strategy_result.get("strategy_id") == "ice_point_reversal":
+        return all(
+            row.get("forward_settlement_eligible") is True
+            and isinstance(row.get("tradeable_leader_binding"), Mapping)
+            and str(row["tradeable_leader_binding"].get("code") or "")
+            == str(row.get("code") or "")
+            and row["tradeable_leader_binding"].get("leader_confirmed") is True
+            for row in signals
+        )
     return True
 
 
@@ -193,12 +202,15 @@ def _run_one(
     *, pretable: Mapping[str, Any] | None = None, pretable_reason: str = "ok",
 ) -> dict[str, Any]:
     if not records:
-        return _unavailable(strategy_id, "input_records_empty")
+        reason = (
+            "tradeable_leader_binding_unavailable"
+            if strategy_id == "ice_point_reversal" else "input_records_empty"
+        )
+        return _unavailable(strategy_id, reason)
     if strategy_id == "preleader_arbitrage" and pretable is None:
         # 缺盘前表就是缺证据，报 unavailable 并带上具体原因；传一张空表进去会让
         # 它输出 no_signal，把"没数据"伪装成"明确不满足"。
         return _unavailable(strategy_id, pretable_reason)
-    market_records = [{"code": "MARKET", "date": records[0].get("date")}] if records else []
     runners: dict[str, Callable[[], list[dict[str, Any]]]] = {
         "rank_surprise": lambda: rank_surprise.evaluate_universe(records, market_state=market_state),
         "divergence_reseal": lambda: divergence_reseal.evaluate_universe(records),
@@ -207,7 +219,7 @@ def _run_one(
             _preleader_records(records), pretable=pretable),
         "reverse_volume": lambda: reverse_volume.evaluate_universe(records, market_state=market_state),
         "ice_point_reversal": lambda: ice_point_reversal.evaluate_universe(
-            market_records, market_state=market_state),
+            records, market_state=market_state),
     }
     modules = {
         "rank_surprise": rank_surprise, "divergence_reseal": divergence_reseal,
@@ -258,11 +270,18 @@ def run(input_path: str, *, asof: str | None = None) -> dict[str, Any]:
         payload, sidecars = _merge_auction_evidence(payload, requested_asof)
     records = _records(payload, requested_asof)
     raw_strategy_records = payload.get("strategy_records") if canonical_schema else None
-    strategy_records = {
-        sid: _records({"records": (raw_strategy_records or {}).get(sid) or []}, requested_asof)
-        if isinstance(raw_strategy_records, Mapping) else records
-        for sid in STRATEGY_IDS
-    }
+    strategy_records = {}
+    for sid in STRATEGY_IDS:
+        if isinstance(raw_strategy_records, Mapping):
+            selected = (raw_strategy_records or {}).get(sid) or []
+            strategy_records[sid] = _records({"records": selected}, requested_asof)
+        elif canonical_schema and sid == "ice_point_reversal":
+            # Legacy canonical artifacts only carried a market boolean and no
+            # security-level Tradeable Leader Binding. Never fan that state out
+            # over the generic candidate pool.
+            strategy_records[sid] = []
+        else:
+            strategy_records[sid] = records
     market_state = payload.get("market_state") if isinstance(payload, Mapping) else None
     if canonical_schema:
         raw_pretable = payload.get("preleader_pretable")

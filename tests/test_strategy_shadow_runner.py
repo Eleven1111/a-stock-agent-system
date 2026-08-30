@@ -58,7 +58,8 @@ def test_canonical_strategy_evidence_is_consumed_without_remerging_sidecars(tmp_
     assert result["canonical_forward"] is True
     assert result["evidence_sidecars"] == []
     assert result["evidence_coverage"]["rank_surprise"]["ready_records"] == 0
-    assert len(result["strategies"]["ice_point_reversal"]["results"]) == 1
+    assert result["strategies"]["ice_point_reversal"]["status"] == "unavailable"
+    assert result["strategies"]["ice_point_reversal"]["results"] == []
 
 
 def test_mixed_dataset_runs_canonical_strategies_but_blocks_reconstructed_sentiment(tmp_path, monkeypatch):
@@ -107,6 +108,27 @@ def test_non_s2_canonical_signal_is_forward_settleable():
         "results": [{"code": "600001", "status": "signal"}],
     }
     assert runner.forward_settlement_eligible(result) is True
+
+
+def test_s6_requires_explicit_tradeable_leader_binding_marker_to_settle():
+    legacy_market = {
+        "strategy_id": "ice_point_reversal", "status": "signal",
+        "results": [{"code": "MARKET", "status": "signal"}],
+    }
+    bare_security = {
+        "strategy_id": "ice_point_reversal", "status": "signal",
+        "results": [{"code": "600001", "status": "signal"}],
+    }
+    bound_security = {
+        "strategy_id": "ice_point_reversal", "status": "signal",
+        "results": [{
+            "code": "600001", "status": "signal", "forward_settlement_eligible": True,
+            "tradeable_leader_binding": {"code": "600001", "leader_confirmed": True},
+        }],
+    }
+    assert runner.forward_settlement_eligible(legacy_market) is False
+    assert runner.forward_settlement_eligible(bare_security) is False
+    assert runner.forward_settlement_eligible(bound_security) is True
 
 
 def test_noncanonical_evidence_is_rejected(tmp_path, monkeypatch):

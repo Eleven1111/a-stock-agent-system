@@ -62,6 +62,16 @@ may enter the research gate. Pending and terminal-unresolved predictions stay
 in the coverage denominator. Settled Forward Samples never enter the signal
 ledger and cannot affect ranking, positions or orders.
 
+### Tradeable Leader Binding
+
+The point-in-time security identity that turns S6's market-level ice-point
+condition into a settleable prediction. It must name a real six-digit A-share
+candidate whose leader confirmation and qualifying shadow score were already
+present in the Strategy Evidence Dataset. `MARKET`, an inferred proxy, or a
+bare code supplied later by Strategy Shadow is never a Tradeable Leader
+Binding. Without the binding S6 is `unavailable` and creates no Settled
+Forward Sample.
+
 ### Daily-Bar Source Health
 
 The per-run account of how the historical daily-bar cache was populated. It
@@ -71,6 +81,40 @@ concentration. A successful fallback run remains operationally successful but
 its source health is `degraded`; it must never imply that BaoStock was healthy.
 If no second provider was sampled, cross-source consistency is explicitly
 `unavailable` rather than inferred from a single source.
+
+### Four-Dimension PIT Replay
+
+The research-only point-in-time replay of Four-Dimension inputs. Its first
+version exposes only the technical dimension reconstructed from local QFQ
+daily bars: a decision on session D may read bars dated no later than D, enters
+at the D+1 open reference, and settles T+1/T+3 closes against CSI300 over the
+same sessions with estimated costs and bilateral slippage.
+
+The technical Adapter uses the canonical scorer's 60-session input window.
+Chan structure is disabled in historical replay because today's research-gate
+registry is not point-in-time evidence; with every Chan rule ineligible its
+numeric delta and score lock are already zero, so skipping its display-only
+analysis preserves the numeric technical score and its scoring indicators while
+avoiding repeated work.
+The Adapter also omits observable-proxy and emotion-cycle payload construction:
+neither participates in the technical score, and neither is published by this
+replay artifact.
+The default exploratory policy evaluates five held-out sessions per
+walk-forward fold across the full cached cross-section; this sparse schedule
+keeps the initial 268-session replay bounded and must be disclosed rather than
+presented as continuous daily coverage.
+Variants are defined by interpretable daily rank capacity (`top5`, `top10`,
+`top20`, `top50`). Duplicate policy signatures are invalid. If distinct
+signatures still realise the same candidate/outcome set, the artifact marks
+the comparison `redundant` and makes it ineligible for parameter comparison;
+identical metrics must never be presented as independent evidence.
+
+Sentiment, catalyst and deep-research dimensions remain `unavailable` until
+their own historical point-in-time snapshots exist; current caches must never
+be used to fill historical decisions. The Module emits immutable
+`exploratory_reconstruction` artifacts under purged walk-forward splits. They
+cannot enter the research gate, generate an Order, or automatically change
+live Four-Dimension weights.
 
 ## Relationships
 
@@ -84,6 +128,10 @@ frozen daily artifacts + official close event pool + bounded minute snapshot
 ```
 
 Exploratory Reconstruction is deliberately outside that promotion path.
+
+local QFQ daily bars -> Four-Dimension PIT Replay -> exploratory threshold diagnostics
+
+That replay path remains deliberately outside the canonical promotion path.
 
 ## Example dialogue
 

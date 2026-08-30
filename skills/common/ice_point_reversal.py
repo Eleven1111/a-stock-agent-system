@@ -61,6 +61,7 @@ SCHEMA = "ice_point_reversal_signal_v1"
 STATUS_SIGNAL = "signal"
 STATUS_NO_SIGNAL = "no_signal"
 STATUS_UNAVAILABLE = "unavailable"
+LEADER_SCORE_MIN = 80.0
 
 # 四项合取条件 id —— 报告/测试按 id 逐条断言，避免用中文串匹配。
 COND_PREV_SCORE_EXTREME = "prev_score_extreme_below_threshold"
@@ -87,6 +88,29 @@ def _bool(value: Any) -> Optional[bool]:
     if isinstance(value, bool):
         return value
     return None
+
+
+def _tradeable_leader_binding(
+    record: Mapping[str, Any],
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Validate the security identity attached by Strategy Evidence.
+
+    S6's conditions are market-level, but a Settled Forward Sample requires a
+    real security. A bare ``MARKET`` row or a caller-supplied code is therefore
+    insufficient: the point-in-time leader binding must travel with the record.
+    """
+    code = str(record.get("code") or "").strip()
+    binding = record.get("ice_point_leader_binding")
+    score = _num(binding.get("leader_score_shadow")) if isinstance(binding, Mapping) else None
+    threshold = _num(binding.get("leader_score_threshold")) if isinstance(binding, Mapping) else None
+    if (len(code) != 6 or not code.isdigit()
+            or record.get("ice_point_leader_candidate") is not True
+            or not isinstance(binding, Mapping)
+            or str(binding.get("code") or "") != code
+            or binding.get("leader_confirmed") is not True
+            or score is None or threshold != LEADER_SCORE_MIN or score < threshold):
+        return None, ["tradeable_leader_binding_unavailable"]
+    return dict(binding), []
 
 
 def _condition(cid: str, ok: Optional[bool], detail: str) -> dict[str, Any]:
@@ -187,6 +211,7 @@ def evaluate(
     settings = dict(cfg) if cfg is not None else ss.load_config()
     state = dict(market_state or {})
     code = str(record.get("code") or "")
+    leader_binding, binding_reasons = _tradeable_leader_binding(record)
 
     if not settings:
         prev_cond = _condition(COND_PREV_SCORE_EXTREME, None, "情绪评分配置(scoring.yaml)不可用")
@@ -194,10 +219,13 @@ def evaluate(
         breadth_cond = _condition(COND_SECTOR_BREADTH, None, "情绪评分配置(scoring.yaml)不可用")
         leader_cond, leader_reasons = leader_confirm_condition(state.get("leader_confirm"))
         conditions = [prev_cond, delta_cond, leader_cond, breadth_cond]
-        reasons = ["sentiment_score_config_missing"] + leader_reasons
+        reasons = ["sentiment_score_config_missing"] + leader_reasons + binding_reasons
         seen: set[str] = set()
         deduped = [r for r in reasons if not (r in seen or seen.add(r))]
-        return _result(code, record.get("date"), STATUS_UNAVAILABLE, conditions, deduped)
+        return _result(
+            code, record.get("date"), STATUS_UNAVAILABLE, conditions, deduped,
+            leader_binding=leader_binding,
+        )
 
     series = state.get("sentiment_series")
     score = ss.compute_sentiment_score(list(series or []), config=settings)
@@ -209,7 +237,8 @@ def evaluate(
     breadth_cond, breadth_reasons = sector_breadth_condition(state.get("sector_breadth_top"), thresholds)
 
     conditions = [prev_cond, delta_cond, leader_cond, breadth_cond]
-    reasons = list(prev_reasons) + list(delta_reasons) + list(leader_reasons) + list(breadth_reasons)
+    reasons = (list(prev_reasons) + list(delta_reasons) + list(leader_reasons)
+               + list(breadth_reasons) + binding_reasons)
     seen = set()
     deduped_reasons = [r for r in reasons if not (r in seen or seen.add(r))]
 
@@ -220,11 +249,15 @@ def evaluate(
     else:
         status = STATUS_NO_SIGNAL
 
-    return _result(code, record.get("date"), status, conditions, deduped_reasons)
+    return _result(
+        code, record.get("date"), status, conditions, deduped_reasons,
+        leader_binding=leader_binding,
+    )
 
 
 def _result(
     code: str, date: Any, status: str, conditions: list[dict[str, Any]], reasons: list[str],
+    *, leader_binding: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
@@ -233,6 +266,8 @@ def _result(
         "status": status,
         "conditions": conditions,
         "reasons": reasons,
+        "tradeable_leader_binding": dict(leader_binding) if leader_binding is not None else None,
+        "forward_settlement_eligible": status == STATUS_SIGNAL and leader_binding is not None,
         "degraded": [],
         "influences_live_ranking": False,
         "note": (
@@ -279,7 +314,7 @@ def summarize(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 __all__ = [
-    "SCHEMA", "STATUS_SIGNAL", "STATUS_NO_SIGNAL", "STATUS_UNAVAILABLE",
+    "SCHEMA", "STATUS_SIGNAL", "STATUS_NO_SIGNAL", "STATUS_UNAVAILABLE", "LEADER_SCORE_MIN",
     "COND_PREV_SCORE_EXTREME", "COND_DELTA_IMPROVING", "COND_LEADER_CONFIRM",
     "COND_SECTOR_BREADTH", "CONDITION_IDS",
     "prev_score_extreme_condition", "delta_improving_condition",

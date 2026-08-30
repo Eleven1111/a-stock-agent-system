@@ -152,6 +152,20 @@ def _freeze(shadow: Mapping[str, Any], policy: Mapping[str, Any], policy_hash: s
             rejected["strategy_rules_unbound"] += len(rows) or 1
             continue
         for result in rows:
+            if strategy_id == "ice_point_reversal":
+                binding = result.get("tradeable_leader_binding")
+                try:
+                    score = float((binding or {}).get("leader_score_shadow"))
+                    threshold = float((binding or {}).get("leader_score_threshold"))
+                except (TypeError, ValueError):
+                    score = threshold = -1.0
+                if (result.get("forward_settlement_eligible") is not True
+                        or not isinstance(binding, Mapping)
+                        or str(binding.get("code") or "") != str(result.get("code") or "")
+                        or binding.get("leader_confirmed") is not True
+                        or threshold != 80.0 or score < threshold):
+                    rejected["tradeable_leader_binding_unavailable"] += 1
+                    continue
             code = _six_digit_code(result.get("code"))
             if code is None:
                 rejected["non_tradeable_entity"] += 1

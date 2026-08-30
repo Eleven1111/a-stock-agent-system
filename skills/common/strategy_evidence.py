@@ -20,6 +20,7 @@ import reverse_volume
 import daban_config
 import sentiment_score
 import rank_surprise
+import ice_point_reversal
 
 
 SCHEMA = "strategy_evidence_daily_v1"
@@ -350,16 +351,18 @@ def _coverage(
             for field in ("leader_confirm", "sector_breadth_top"):
                 if market_state.get(field) is None:
                     market_missing.append(f"market_state.{field}")
-            ready = 1 if not market_missing else 0
+            if not records:
+                market_missing.append("market_state.tradeable_leader_binding")
+            ready = len(records) if not market_missing else 0
         if strategy == "preleader_arbitrage" and not pretable_ready:
             market_missing.append("preleader_pretable")
         if market_missing:
             ready = 0
         output[strategy] = {
-            "record_count": 1 if strategy == "ice_point_reversal" else len(records),
+            "record_count": len(records),
             "ready_records": ready,
             "coverage_ratio": round(
-                ready / (1 if strategy == "ice_point_reversal" else len(records)), 4
+                ready / len(records), 4
             ) if records else 0.0,
             "missing_fields": sorted(missing + market_missing),
             "source_missing_fields": sorted({
@@ -630,11 +633,36 @@ def build_evidence(
         market_median_change=None,
         back_row_history=sentiment_series,
     )
-    confirmed_scores = [
-        _number((row.get("leader_score_shadow") or {}).get("score"))
-        for row in records if row.get("leader_confirmed") is True
+    leader_candidates: list[dict[str, Any]] = []
+    for row in records:
+        code = naked_code(row.get("code"))
+        score = _number((row.get("leader_score_shadow") or {}).get("score"))
+        if len(code) != 6 or not code.isdigit():
+            continue
+        if (row.get("leader_confirmed") is not True or score is None
+                or score < ice_point_reversal.LEADER_SCORE_MIN):
+            continue
+        candidate = dict(row)
+        candidate["ice_point_leader_candidate"] = True
+        candidate["ice_point_leader_binding"] = {
+            "code": code,
+            "leader_score_shadow": score,
+            "leader_score_threshold": ice_point_reversal.LEADER_SCORE_MIN,
+            "leader_confirmed": True,
+            "confirmation_source": row.get("event_source"),
+            "confirmation_time": _time(row.get("first_seal_time") or row.get("first_seal")),
+        }
+        leader_candidates.append(candidate)
+    leader_candidates.sort(
+        key=lambda row: (
+            -float((row.get("ice_point_leader_binding") or {}).get("leader_score_shadow") or 0),
+            str(row.get("code") or ""),
+        )
+    )
+    market["leader_confirm"] = bool(leader_candidates)
+    market["tradeable_leader_bindings"] = [
+        dict(row["ice_point_leader_binding"]) for row in leader_candidates
     ]
-    market["leader_confirm"] = any(score is not None and score >= 80 for score in confirmed_scores)
     rank_records = _rank_universe(
         asof=asof, codes=codes, records=records, candidates=candidate_by_code,
         auction=auction_by_code, bars=bars,
@@ -645,7 +673,7 @@ def build_evidence(
         "assist_arbitrage": [row for row in records if _number(row.get("board_height")) is not None],
         "preleader_arbitrage": [row for row in records if row.get("event_source") == "eastmoney_zt_pool"],
         "reverse_volume": [row for row in records if row.get("code") in tracked],
-        "ice_point_reversal": [{"code": "MARKET", "date": asof}],
+        "ice_point_reversal": leader_candidates,
     }
     coverage = _coverage(
         strategy_records, market,

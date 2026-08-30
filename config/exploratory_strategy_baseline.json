@@ -1,0 +1,58 @@
+{
+  "schema": "exploratory_strategy_baseline_policy_v1",
+  "benchmark": {"code": "000300", "name": "CSI300"},
+  "adjust_flag": "qfq",
+  "minimum_history_bars": 65,
+  "walk_forward": {
+    "train_size": 100,
+    "calibration_size": 20,
+    "test_size": 20,
+    "step": 20,
+    "purge": 3,
+    "embargo": 3,
+    "mode": "expanding",
+    "minimum_selection_samples": 8
+  },
+  "cost_model": {
+    "commission_rate": 0.00025,
+    "stamp_tax_rate": 0.0005,
+    "entry_slippage_bps": 20.0,
+    "exit_slippage_bps": 20.0
+  },
+  "regime": {"lookback_sessions": 20, "up_threshold": 0.02, "down_threshold": -0.02},
+  "strategies": {
+    "reverse_volume_daily_proxy": {
+      "source_strategy": "reverse_volume",
+      "primary_horizon": 3,
+      "variants": [
+        {"id": "s5_loose", "drawdown_min": 0.20, "drawdown_max": 0.45, "volume_percentile_max": 0.40, "volatility_ratio_max": 0.80},
+        {"id": "s5_base", "drawdown_min": 0.25, "drawdown_max": 0.40, "volume_percentile_max": 0.30, "volatility_ratio_max": 0.65},
+        {"id": "s5_strict", "drawdown_min": 0.28, "drawdown_max": 0.38, "volume_percentile_max": 0.25, "volatility_ratio_max": 0.55}
+      ]
+    },
+    "rank_surprise_daily_proxy": {
+      "source_strategy": "rank_surprise",
+      "primary_horizon": 1,
+      "variants": [
+        {"id": "s1_loose", "prior_return_max": -0.02, "gap_min": 0.00, "volume_ratio_min": 1.10},
+        {"id": "s1_base", "prior_return_max": -0.04, "gap_min": 0.005, "volume_ratio_min": 1.30},
+        {"id": "s1_strict", "prior_return_max": -0.06, "gap_min": 0.01, "volume_ratio_min": 1.50}
+      ]
+    },
+    "assist_strength_daily_proxy": {
+      "source_strategy": "assist_arbitrage",
+      "primary_horizon": 1,
+      "variants": [
+        {"id": "s3_loose", "relative_strength_quantile": 0.80, "breakout_lookback": 10, "volume_ratio_min": 1.00},
+        {"id": "s3_base", "relative_strength_quantile": 0.90, "breakout_lookback": 20, "volume_ratio_min": 1.20},
+        {"id": "s3_strict", "relative_strength_quantile": 0.95, "breakout_lookback": 30, "volume_ratio_min": 1.40}
+      ]
+    }
+  },
+  "qualification": {
+    "evidence_class": "exploratory_reconstruction",
+    "research_gate_eligible": false,
+    "registry_eligible": false,
+    "live_weight_eligible": false
+  }
+}

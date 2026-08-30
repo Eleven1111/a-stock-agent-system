@@ -70,7 +70,17 @@ def _score_ok(previous_score=15.0, delta=12.0):
 
 
 def _record(code="600000", date="2026-06-03"):
-    return {"code": code, "date": date}
+    return {
+        "code": code,
+        "date": date,
+        "ice_point_leader_candidate": True,
+        "ice_point_leader_binding": {
+            "code": code,
+            "leader_score_shadow": 88.0,
+            "leader_score_threshold": 80.0,
+            "leader_confirmed": True,
+        },
+    }
 
 
 def _full_state():
@@ -92,6 +102,18 @@ def test_full_conjunction_produces_signal(monkeypatch):
     result = ipr.evaluate(_record(), market_state=_full_state(), cfg=_sentiment_cfg())
     assert result["status"] == ipr.STATUS_SIGNAL, result
     assert all(c["ok"] is True for c in result["conditions"])
+    assert result["forward_settlement_eligible"] is True
+    assert result["tradeable_leader_binding"]["code"] == "600000"
+
+
+def test_market_or_unbound_code_cannot_become_a_settleable_signal(monkeypatch):
+    monkeypatch.setattr(ipr.ss, "compute_sentiment_score", lambda series, config=None: _score_ok())
+    for record in ({"code": "MARKET", "date": "2026-06-03"},
+                   {"code": "600000", "date": "2026-06-03"}):
+        result = ipr.evaluate(record, market_state=_full_state(), cfg=_sentiment_cfg())
+        assert result["status"] == ipr.STATUS_UNAVAILABLE
+        assert result["forward_settlement_eligible"] is False
+        assert "tradeable_leader_binding_unavailable" in result["reasons"]
 
 
 @pytest.mark.parametrize("drop_field", [

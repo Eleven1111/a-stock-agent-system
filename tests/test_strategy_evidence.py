@@ -170,6 +170,64 @@ def test_reconstructed_sentiment_is_strategy_scoped_exploratory_not_dataset_cano
     assert "canonical_forward" not in sentiment[0]
 
 
+def test_s6_preserves_the_confirmed_security_binding_instead_of_market_proxy(monkeypatch):
+    def scored(rows, *_args, **_kwargs):
+        output = []
+        for raw in rows:
+            row = dict(raw)
+            row["leader_score_shadow"] = {"status": "ok", "score": 88.0}
+            output.append(row)
+        return output
+
+    monkeypatch.setattr(evidence.hot_money_selection, "apply_leader_score_shadow", scored)
+    artifact = evidence.build_evidence(
+        "2026-08-22",
+        candidates=[_candidate()],
+        auction={"asof": "2026-08-22", "shortlist": [{"code": "600001"}]},
+        selection={"asof": "2026-08-22"},
+        limitup_rows=[{
+            "代码": "600001", "所属行业": "通信设备", "首次封板时间": "09:35",
+        }],
+        minute_rows={}, daily_bars=_bars(), sentiment_series=[],
+    )
+
+    rows = artifact["strategy_records"]["ice_point_reversal"]
+    assert len(rows) == 1
+    assert rows[0]["code"] == "600001"
+    assert rows[0]["ice_point_leader_candidate"] is True
+    assert rows[0]["ice_point_leader_binding"] == {
+        "code": "600001",
+        "leader_score_shadow": 88.0,
+        "leader_score_threshold": 80,
+        "leader_confirmed": True,
+        "confirmation_source": "eastmoney_zt_pool",
+        "confirmation_time": "000935",
+    }
+    assert artifact["market_state"]["tradeable_leader_bindings"] == [
+        rows[0]["ice_point_leader_binding"]
+    ]
+
+
+def test_s6_without_qualified_leader_is_unavailable_and_has_no_market_row(monkeypatch):
+    def weak_score(rows, *_args, **_kwargs):
+        return [{**row, "leader_score_shadow": {"status": "ok", "score": 79.9}}
+                for row in rows]
+
+    monkeypatch.setattr(evidence.hot_money_selection, "apply_leader_score_shadow", weak_score)
+    artifact = evidence.build_evidence(
+        "2026-08-22", candidates=[_candidate()],
+        auction={"asof": "2026-08-22", "shortlist": [{"code": "600001"}]},
+        selection={"asof": "2026-08-22"},
+        limitup_rows=[{"代码": "600001", "首次封板时间": "09:35"}],
+        minute_rows={}, daily_bars=_bars(), sentiment_series=[],
+    )
+    assert artifact["strategy_records"]["ice_point_reversal"] == []
+    assert artifact["market_state"]["tradeable_leader_bindings"] == []
+    coverage = artifact["coverage"]["ice_point_reversal"]
+    assert coverage["ready_records"] == 0
+    assert "market_state.tradeable_leader_binding" in coverage["missing_fields"]
+
+
 def test_asof_mismatch_fails_closed():
     with pytest.raises(ValueError, match="auction asof mismatch"):
         evidence.build_evidence(

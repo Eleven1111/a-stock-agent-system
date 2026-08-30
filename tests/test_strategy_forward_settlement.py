@@ -112,7 +112,7 @@ def test_run_freezes_only_canonical_settleable_security_predictions(tmp_path, mo
 
     assert report["schema"] == "strategy_forward_settlement_run_v1"
     assert report["frozen"] == 1
-    assert report["rejected"] == {"non_tradeable_entity": 1}
+    assert report["rejected"] == {"tradeable_leader_binding_unavailable": 1}
     predictions = forward.load_predictions()
     assert [(row["strategy_id"], row["entity_id"]) for row in predictions] == [
         ("rank_surprise", "600001")
@@ -139,8 +139,50 @@ def test_run_rejects_exploratory_reconstruction_even_if_top_level_flags_claim_ca
     )
     assert report["frozen"] == 0
     assert report["rejected"] == {"evidence_not_canonical_forward": 1,
-                                   "non_tradeable_entity": 1}
+                                   "tradeable_leader_binding_unavailable": 1}
     assert forward.load_predictions() == []
+
+
+def test_s6_bound_security_freezes_and_reuses_t3_settlement_semantics(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
+    policy = _policy(tmp_path)
+    shadow = _shadow(tmp_path)
+    payload = json.loads(shadow.read_text(encoding="utf-8"))
+    payload["strategies"]["ice_point_reversal"]["results"] = [{
+        "code": "600001",
+        "date": "2026-08-24",
+        "status": "signal",
+        "tradeable_leader_binding": {
+            "code": "600001", "leader_confirmed": True, "leader_score_shadow": 88.0,
+            "leader_score_threshold": 80.0,
+        },
+        "forward_settlement_eligible": True,
+    }]
+    shadow.write_text(json.dumps(payload), encoding="utf-8")
+
+    frozen = forward.run("2026-08-24", str(shadow), policy_path=str(policy))
+    assert frozen["frozen"] == 2
+    assert frozen["rejected"] == {}
+    s6_prediction = next(
+        row for row in forward.load_predictions()
+        if row["strategy_id"] == "ice_point_reversal"
+    )
+    assert s6_prediction["entity_id"] == "600001"
+    assert s6_prediction["primary_horizon"] == 3
+    assert s6_prediction["entry_rule"] == "next_trading_session_open_reference"
+
+    _seed_bars()
+    forward.run("2026-08-27", str(shadow), policy_path=str(policy))
+    s6_samples = [
+        row for row in forward.load_settlements()
+        if row["strategy_id"] == "ice_point_reversal"
+    ]
+    assert [row["horizon_sessions"] for row in s6_samples] == [1, 3]
+    t3 = s6_samples[1]
+    assert t3["is_primary_horizon"] is True
+    assert (t3["entry_date"], t3["exit_date"]) == ("2026-08-25", "2026-08-27")
+    assert t3["benchmark"]["entry_date"] == t3["entry_date"]
+    assert t3["benchmark"]["exit_date"] == t3["exit_date"]
 
 
 def _seed_bars():
