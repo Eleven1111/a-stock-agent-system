@@ -794,6 +794,14 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert manifest["default_trading_day_policy"] == "required"
     for job_id in ("institution-weekly", "event-calendar", "performance-weekly", "official-policy-watch", "news-l1-scan", "news-monitor-weekend"):
         assert jobs[job_id]["trading_day_policy"] == "calendar_day"
+    assert any(
+        "scan_cursors/institution-weekly/" in path
+        for path in jobs["institution-weekly"]["allowed_state_writes"]
+    )
+    assert any(
+        "scan_cursors/event-calendar/" in path
+        for path in jobs["event-calendar"]["allowed_state_writes"]
+    )
     assert "pulse_engine" not in manifest.get("external_dependencies", {})
     assert "builderpulse" not in manifest.get("external_dependencies", {})
 

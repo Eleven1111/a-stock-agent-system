@@ -260,12 +260,17 @@ _PEERS = [
     ("600105", "103000", "103200", 1, 11.60),   # 目标票：竞价最强、回封最早、封板最晚
 ]
 TARGET = "600105"
-# 合成表专供、真实管道拿不到的两个字段（都需要分钟线）——这里显式注入，
+# 合成表专供、真实管道拿不到的分钟证据——这里显式注入，
 # 是为了证明"补齐后 S1/S2 确实能命中"，不是宣称真实数据里有。
+# S2 的基准必须是过去 20 日「相同时刻累计换手率」；事件表原有的
+# turnover_baseline_median 是全天日线口径，不能复用或冒充。
 SYNTHETIC_MINUTE_FIELDS = {
     "volume_ratio": 2.0,                 # S1 条件3：09:45 前量比
     "volume_ratio_source": "synthetic_fixture_intraday_0945",
     "pre_reseal_turnover_pct": 8.0,      # S2 条件4：封板前累计换手（基准 4.0 → 倍数 2.0）
+    "turnover_baseline_median": 4.0,
+    "turnover_baseline_sample_days": 20,
+    "turnover_baseline_semantics": "historical_same_clock_minute_turnover_v1",
 }
 
 
@@ -418,16 +423,20 @@ def test_never_opened_board_keeps_not_applicable_even_with_minute_rows():
     assert event["volume_ratio"] is not None      # 量比与回封无关，仍应算出来
 
 
-def test_s1_and_s2_fire_on_a_table_fed_by_the_real_derivation_layer():
-    """端到端（合成分钟行、真实派生层）：两个字段由管道算出后 S1/S2 必须真的命中。"""
+def test_real_derivation_without_historical_same_clock_panel_only_fires_s1():
+    """事件日分钟行不能冒充 20 日同刻分钟基线；S2 必须保持 unavailable。"""
     events = _v4_table_with_real_minute_rows()
     s1_report = s1.run(events, market_state={"available": True, "dominant_state": "S3"},
                        hold_mode="board_overnight")
     s2_report = s2.run(events, hold_mode="board_overnight")
     assert s1_report["universe_count"] == len(_PEERS), "样本非空断言"
     assert s1_report["signal_count"] >= 1, s1_report["signal_summary"]
-    assert s2_report["signal_count"] >= 1, s2_report["signal_summary"]
-    assert s1_report["returns"]["n"] >= 1 and s2_report["returns"]["n"] >= 1
+    assert s1_report["returns"]["n"] >= 1
+    assert s2_report["signal_count"] == 0
+    reasons = s2_report["signal_summary"]["unavailable_reasons"]
+    assert reasons["turnover_baseline_semantics_invalid"] == len(_PEERS)
+    target = next(event for event in events if event["code"] == TARGET)
+    assert target.get("turnover_baseline_semantics") is None
 
 
 # --------------------------------------------------------------------------- #

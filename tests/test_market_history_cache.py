@@ -57,6 +57,7 @@ def test_non_trading_day_skips_without_touching_cache_or_provider(monkeypatch):
         "upserted": 0,
         "failed": [],
         "cache_stats": {},
+        "source_health": module._new_source_health(),
     }
 
 
@@ -121,6 +122,17 @@ def test_run_fetches_missing_bars_and_upserts(monkeypatch):
 
     assert result["status"] == "ok"
     assert result["fetched"] == result["upserted"] == 2
+    assert result["source_health"]["status"] == "healthy"
+    assert result["source_health"]["fallback_used"] is False
+    assert result["source_health"]["single_source"] is True
+    assert result["source_health"]["contributions"] == [{
+        "provider": "baostock", "row_count": 2, "stock_count": 2,
+        "row_ratio": 1.0,
+    }]
+    assert result["source_health"]["cross_source_consistency"] == {
+        "status": "unavailable", "sample_size": 0,
+        "reason": "secondary_provider_not_sampled",
+    }
     # Fetch order is staleness-first (see fetch_order); with both symbols
     # uncached the tiebreak is the code itself, so it stays deterministic.
     assert [row[0]["code"] for row in calls] == ["000001", "600000"]
@@ -208,6 +220,122 @@ class _MissingSession:
 
     def __exit__(self, *args):
         return None
+
+
+def test_successful_fallback_is_explicitly_degraded_not_primary_healthy(monkeypatch):
+    class PrimaryDown:
+        def __enter__(self):
+            raise RuntimeError("baostock_login_failed:timeout")
+
+        def __exit__(self, *args):
+            return None
+
+    class Tdx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def fetch(self, code, start_date, end_date):
+            return [{
+                "code": code, "trading_date": end_date,
+                "source": "easy_tdx_qfq", "close": 10.0,
+            }]
+
+    monkeypatch.setattr(module.history, "ensure_schema", lambda: None)
+    monkeypatch.setattr(module.history, "cache_stats", lambda: {"row_count": 0})
+    monkeypatch.setattr(module.history, "get_latest_daily_bars", lambda codes, asof: [])
+    monkeypatch.setattr(module.history, "upsert_daily_bars", lambda rows: len(rows))
+    monkeypatch.setattr(module, "BaoStockSession", PrimaryDown)
+    monkeypatch.setattr(module, "EasyTdxSession", Tdx)
+
+    result = module.run(asof="2026-08-18", codes=["600000", "000001"])
+
+    health = result["source_health"]
+    assert result["status"] == "ok"
+    assert result["provider"] == "easy_tdx_qfq"
+    assert result["provider_fallback_reason"] == "baostock_login_failed:timeout"
+    assert health["status"] == "degraded"
+    assert health["degraded"] is True
+    assert health["fallback_used"] is True
+    assert health["active_provider"] == "easy_tdx_qfq"
+    assert health["providers"][0] == {
+        "provider": "baostock", "role": "primary", "status": "failed",
+        "reason": "baostock_login_failed:timeout",
+    }
+    assert health["contributions"] == [{
+        "provider": "easy_tdx_qfq", "row_count": 2, "stock_count": 2,
+        "row_ratio": 1.0,
+    }]
+    assert health["single_source"] is True
+    assert health["cross_source_consistency"]["status"] == "unavailable"
+    assert health["cross_source_consistency"]["reason"] == "primary_source_unavailable"
+
+
+def test_primary_symbol_errors_degrade_source_health(monkeypatch):
+    _stub_run(
+        monkeypatch,
+        latest_rows=[],
+        fetch=lambda code, start, end, *, session: (
+            (_ for _ in ()).throw(RuntimeError("query timeout"))
+            if code == "600000"
+            else [{
+                "code": code, "trading_date": end, "source": "baostock",
+            }]
+        ),
+    )
+
+    result = module.run(asof="2026-08-18", codes=["600000", "000001"])
+
+    health = result["source_health"]
+    assert result["status"] == "partial"
+    assert health["status"] == "degraded"
+    assert health["fallback_used"] is False
+    assert health["providers"][0]["status"] == "partial"
+    assert health["providers"][0]["failed_stock_count"] == 1
+    assert health["providers"][0]["failure_samples"] == ["query timeout"]
+    assert health["cross_source_consistency"]["reason"] == "primary_source_fetch_errors"
+
+
+def test_fallback_with_only_failed_requests_is_source_unavailable(monkeypatch):
+    class PrimaryDown:
+        def __enter__(self):
+            raise RuntimeError("baostock_login_failed:timeout")
+
+        def __exit__(self, *args):
+            return None
+
+    class Tdx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def fetch(self, code, start_date, end_date):
+            raise RuntimeError("tdx_query_failed")
+
+    monkeypatch.setattr(module.history, "ensure_schema", lambda: None)
+    monkeypatch.setattr(module.history, "cache_stats", lambda: {"row_count": 0})
+    monkeypatch.setattr(module.history, "get_latest_daily_bars", lambda codes, asof: [])
+    monkeypatch.setattr(module.history, "upsert_daily_bars", lambda rows: len(rows))
+    monkeypatch.setattr(module, "BaoStockSession", PrimaryDown)
+    monkeypatch.setattr(module, "EasyTdxSession", Tdx)
+
+    result = module.run(asof="2026-08-18", codes=["600000", "000001"])
+
+    health = result["source_health"]
+    assert result["status"] == "partial"
+    assert health["status"] == "unavailable"
+    assert health["degraded"] is False
+    assert health["contributions"] == []
+    assert health["providers"][1]["status"] == "failed"
+    assert health["providers"][1]["failed_stock_count"] == 2
+    assert health["cross_source_consistency"] == {
+        "status": "unavailable", "sample_size": 0,
+        "reason": "no_provider_successful_output",
+    }
 
 
 def test_empty_cache_seeds_a_bounded_window_in_one_session(monkeypatch):

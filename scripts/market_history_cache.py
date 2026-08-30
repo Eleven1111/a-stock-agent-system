@@ -60,6 +60,149 @@ FETCH_BUDGET_RATIO = 0.8
 # prefix cannot be inferred from the six digits alone (000300 is Shanghai).
 INDEX_BENCHMARK_SYMBOLS = {"000300": "sh.000300"}
 
+PROVIDER_CHAIN = (
+    ("baostock", "primary"),
+    ("easy_tdx_qfq", "fallback"),
+    ("tencent_qfqday", "fallback"),
+)
+
+
+def _new_source_health() -> dict[str, Any]:
+    """Create the honest provider-health envelope returned by every run.
+
+    A cache hit or non-trading day does not prove that BaoStock is healthy, so
+    those paths deliberately remain ``not_checked``.  Likewise, a successful
+    fallback keeps the job successful while the source health is
+    ``degraded`` rather than laundering the fallback into a green primary.
+    """
+    return {
+        "status": "not_checked",
+        "degraded": False,
+        "primary_provider": "baostock",
+        "active_provider": None,
+        "fallback_used": False,
+        "providers": [
+            {"provider": provider, "role": role, "status": "not_attempted"}
+            for provider, role in PROVIDER_CHAIN
+        ],
+        "contributions": [],
+        "total_rows": 0,
+        "single_source": None,
+        "dominant_provider": None,
+        "dominant_row_ratio": None,
+        "cross_source_consistency": {
+            "status": "unavailable",
+            "sample_size": 0,
+            "reason": "not_sampled",
+        },
+    }
+
+
+def _provider_state(source_health: dict[str, Any], provider: str) -> dict[str, Any]:
+    return next(
+        item for item in source_health["providers"] if item["provider"] == provider
+    )
+
+
+def _mark_provider(
+    source_health: dict[str, Any], provider: str, status: str, reason: str | None = None
+) -> None:
+    item = _provider_state(source_health, provider)
+    item["status"] = status
+    if reason:
+        item["reason"] = reason
+
+
+def _record_provider_failure(
+    source_health: dict[str, Any], provider: str, reason: str
+) -> None:
+    item = _provider_state(source_health, provider)
+    if item["status"] == "ok":
+        item["status"] = "partial"
+    item["failed_stock_count"] = int(item.get("failed_stock_count") or 0) + 1
+    item.setdefault("failure_samples", [])
+    if len(item["failure_samples"]) < 3:
+        item["failure_samples"].append(reason)
+
+
+def _record_provider_rows(
+    contribution_codes: dict[str, set[str]],
+    contribution_rows: dict[str, int],
+    provider: str,
+    rows: Iterable[Mapping[str, Any]],
+) -> None:
+    """Count returned rows/codes by their actual source identity."""
+    for row in rows:
+        source = str(row.get("source") or provider)
+        contribution_rows[source] = contribution_rows.get(source, 0) + 1
+        code = _code(row.get("code"))
+        if code:
+            contribution_codes.setdefault(source, set()).add(code)
+
+
+def _finalize_source_health(
+    source_health: dict[str, Any],
+    contribution_codes: Mapping[str, set[str]],
+    contribution_rows: Mapping[str, int],
+) -> None:
+    total_rows = sum(contribution_rows.values())
+    contributions = []
+    for provider in sorted(
+        contribution_rows,
+        key=lambda item: (-contribution_rows[item], item),
+    ):
+        rows = contribution_rows[provider]
+        contributions.append(
+            {
+                "provider": provider,
+                "row_count": rows,
+                "stock_count": len(contribution_codes.get(provider, set())),
+                "row_ratio": round(rows / total_rows, 6) if total_rows else 0.0,
+            }
+        )
+    source_health["contributions"] = contributions
+    source_health["total_rows"] = total_rows
+    populated = [item for item in contributions if item["row_count"] > 0]
+    source_health["single_source"] = len(populated) == 1 if populated else None
+    if populated:
+        source_health["dominant_provider"] = populated[0]["provider"]
+        source_health["dominant_row_ratio"] = populated[0]["row_ratio"]
+
+    active_provider = source_health.get("active_provider")
+    if active_provider:
+        active = _provider_state(source_health, active_provider)
+        if active["status"] == "partial" and not any(
+            item["provider"] == active_provider for item in populated
+        ):
+            active["status"] = "failed"
+    primary = _provider_state(source_health, "baostock")
+    active = (
+        _provider_state(source_health, active_provider) if active_provider else None
+    )
+    if primary["status"] == "ok":
+        source_health["status"] = "healthy"
+    elif active is not None and active["status"] in {"ok", "partial"}:
+        source_health["status"] = "degraded"
+        source_health["degraded"] = True
+    elif any(item["status"] == "failed" for item in source_health["providers"]):
+        source_health["status"] = "unavailable"
+
+    consistency = source_health["cross_source_consistency"]
+    if source_health["status"] == "degraded":
+        consistency["reason"] = (
+            "primary_source_unavailable"
+            if source_health["fallback_used"]
+            else "primary_source_fetch_errors"
+        )
+    elif source_health["status"] == "healthy":
+        consistency["reason"] = "secondary_provider_not_sampled"
+    elif source_health["status"] == "unavailable":
+        consistency["reason"] = (
+            "no_provider_successful_output"
+            if active_provider
+            else "no_provider_available"
+        )
+
 
 def fetch_budget_seconds() -> float | None:
     """Wall-clock fetch budget, or ``None`` when running outside cron.
@@ -441,7 +584,13 @@ def fetch_baostock(
 
 def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: bool = False, full_backfill: bool | None = None) -> dict[str, Any]:
     target_date = _asof(asof)
-    result: dict[str, Any] = {"status": "ok", "asof": target_date, "fetched": 0, "upserted": 0, "failed": [], "cache_stats": {}}
+    source_health = _new_source_health()
+    contribution_codes: dict[str, set[str]] = {}
+    contribution_rows: dict[str, int] = {}
+    result: dict[str, Any] = {
+        "status": "ok", "asof": target_date, "fetched": 0, "upserted": 0,
+        "failed": [], "cache_stats": {}, "source_health": source_health,
+    }
     try:
         trading_day = a_share_rules.is_trading_day(target_date)
     except a_share_rules.CalendarCoverageError as exc:
@@ -519,17 +668,32 @@ def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: boo
             try:
                 session = provider_stack.enter_context(BaoStockSession())
                 result["provider"] = "baostock"
-            except RuntimeError as exc:
+                source_health["active_provider"] = "baostock"
+                _mark_provider(source_health, "baostock", "ok")
+            except Exception as exc:
                 result["provider_fallback_reason"] = str(exc)
+                source_health["fallback_used"] = True
+                _mark_provider(source_health, "baostock", "failed", str(exc))
                 try:
                     session = provider_stack.enter_context(EasyTdxSession())
                     fetcher = lambda code, start, end, *, session: session.fetch(code, start, end)
                     result["provider"] = "easy_tdx_qfq"
+                    source_health["active_provider"] = "easy_tdx_qfq"
+                    _mark_provider(source_health, "easy_tdx_qfq", "ok")
                 except Exception as tdx_exc:
-                    session = provider_stack.enter_context(TencentSession())
-                    fetcher = lambda code, start, end, *, session: session.fetch(code, start, end)
-                    result["provider"] = "tencent_qfqday"
                     result["easy_tdx_fallback_reason"] = str(tdx_exc)
+                    _mark_provider(source_health, "easy_tdx_qfq", "failed", str(tdx_exc))
+                    try:
+                        session = provider_stack.enter_context(TencentSession())
+                        fetcher = lambda code, start, end, *, session: session.fetch(code, start, end)
+                        result["provider"] = "tencent_qfqday"
+                        source_health["active_provider"] = "tencent_qfqday"
+                        _mark_provider(source_health, "tencent_qfqday", "ok")
+                    except Exception as tencent_exc:
+                        _mark_provider(
+                            source_health, "tencent_qfqday", "failed", str(tencent_exc)
+                        )
+                        raise
             if result["provider"] == "tencent_qfqday":
                 pool = ThreadPoolExecutor(max_workers=TENCENT_FALLBACK_WORKERS)
                 futures = {
@@ -551,11 +715,18 @@ def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: boo
                         attempted.add(code)
                         try:
                             rows = future.result()
+                            _record_provider_rows(
+                                contribution_codes, contribution_rows,
+                                result["provider"], rows,
+                            )
                             result["fetched"] += len(rows)
                             if not dry_run:
                                 result["upserted"] += history.upsert_daily_bars(rows)
                         except Exception as exc:
                             result["failed"].append({"code": code, "reason": str(exc)})
+                            _record_provider_failure(
+                                source_health, result["provider"], str(exc)
+                            )
                         result["processed"] += 1
                         result["remaining"] = len(ordered) - result["processed"]
                 except FuturesTimeout:
@@ -585,16 +756,24 @@ def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: boo
                         target_date,
                         session=session,
                     )
+                    _record_provider_rows(
+                        contribution_codes, contribution_rows,
+                        result["provider"], rows,
+                    )
                     result["fetched"] += len(rows)
                     if not dry_run:
                         result["upserted"] += history.upsert_daily_bars(rows)
                 except Exception as exc:  # one symbol must not abort the batch
                     result["failed"].append({"code": code, "reason": str(exc)})
+                    _record_provider_failure(
+                        source_health, result["provider"], str(exc)
+                    )
                 result["processed"] = index + 1
                 result["remaining"] = len(ordered) - result["processed"]
-    except RuntimeError as exc:
+    except Exception as exc:
         result["failed"].append({"code": "*", "reason": str(exc)})
         result.update(status="blocked", reason=str(exc))
+    _finalize_source_health(source_health, contribution_codes, contribution_rows)
     result["cache_stats"] = history.cache_stats()
     coverage_after = history.coverage_by_code(selected, target_date)
     deferred = set(ordered) - attempted

@@ -62,6 +62,16 @@ may enter the research gate. Pending and terminal-unresolved predictions stay
 in the coverage denominator. Settled Forward Samples never enter the signal
 ledger and cannot affect ranking, positions or orders.
 
+### Daily-Bar Source Health
+
+The per-run account of how the historical daily-bar cache was populated. It
+distinguishes BaoStock primary health from fallback completion, reports the
+actual row and stock contribution of each provider, and discloses source
+concentration. A successful fallback run remains operationally successful but
+its source health is `degraded`; it must never imply that BaoStock was healthy.
+If no second provider was sampled, cross-source consistency is explicitly
+`unavailable` rather than inferred from a single source.
+
 ## Relationships
 
 ```text

@@ -52,6 +52,8 @@ HEALTHY = frozenset({
     "success",
 })
 
+CHINA_TZ = dt.timezone(dt.timedelta(hours=8))
+
 #: 证据摘录的封顶，避免一条巨大的 traceback 把整份报告撑爆。
 STDERR_TAIL_CHARS = 1500
 LOG_TAIL_LINES = 40
@@ -117,6 +119,13 @@ def read_json(path: str, default: Any) -> Any:
             return json.load(handle)
     except (OSError, ValueError):
         return default
+
+
+def _day_epoch_bounds_ms(day: str) -> tuple[int, int]:
+    """Return the half-open Shanghai-local day as epoch milliseconds."""
+    start = dt.datetime.combine(dt.date.fromisoformat(day), dt.time(), tzinfo=CHINA_TZ)
+    end = start + dt.timedelta(days=1)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
 
 
 def _run(argv: list[str], cwd: Optional[str] = None) -> str:
@@ -212,18 +221,55 @@ def collect_hermes(state_home: str, day: str) -> tuple[list[dict[str, Any]], dic
         if etype.startswith("delivery."):
             delivery[(etype, str(event.get("status")))] += 1
 
-    return rows, {"events": len(trace), "delivery": delivery}
+    return rows, {"events": len(trace), "delivery": delivery, "trace_events": trace}
 
 
-def section_hermes(rows: list[dict[str, Any]], meta: dict[str, Any]) -> list[str]:
-    alerts = [r for r in rows if r["unhealthy"] or r["never_started"]]
+def section_hermes(
+    rows: list[dict[str, Any]],
+    meta: dict[str, Any],
+    executions: Optional[list[dict[str, Any]]] = None,
+    execution_evidence: Optional[dict[str, Any]] = None,
+) -> list[str]:
+    trace_alerts = [r for r in rows if r["unhealthy"] or r["never_started"]]
+    execution_alerts = [
+        row for row in (executions or []) if row.get("status") != "success"
+    ]
+    alert_count = len(execution_alerts) if executions is not None else len(trace_alerts)
+    if execution_evidence and execution_evidence.get("status") != "ok":
+        alert_count += 1
     lines = [
         "## 2. Hermes 侧运行结果",
         "",
         f"当日 trace 事件 {meta['events']} 条，涉及 {len(rows)} 个作业；"
-        f"**异常 {len(alerts)} 个**。",
+        f"**异常 {alert_count} 个**。",
         "",
     ]
+    if executions is not None:
+        lines += [
+            "### Job Execution Interface（跨来源终态）",
+            "",
+            "> `success` 必须有业务台账或 execution trace 终态；"
+            "OpenClaw 外壳单独报 `ok` 只能得到 `no-evidence`。",
+            "",
+            "| 作业 | 统一状态 | job ledger | trace 事件 | OpenClaw run | 原因 |",
+            "|---|---|---:|---:|---:|---|",
+        ]
+        for item in executions:
+            evidence = item["evidence"]
+            lines.append(
+                f"| `{item['job_id']}` | {item['status']} | "
+                f"{evidence['job_ledger']} | {evidence['execution_trace']} | "
+                f"{evidence['openclaw']} | {item['reason']} |"
+            )
+        if not executions:
+            reason = (
+                (execution_evidence or {}).get("reason")
+                or "当日无可用执行证据"
+            )
+            lines.append(f"| - | no-evidence | 0 | 0 | 0 | {reason} |")
+        lines.append("")
+
+    alerts = trace_alerts
     if alerts:
         lines += ["### 异常作业", "", "| 作业 | 现象 | 最长耗时 |", "|---|---|---|"]
         for row in alerts:
@@ -276,7 +322,13 @@ def section_hermes(rows: list[dict[str, Any]], meta: dict[str, Any]) -> list[str
 
 def collect_openclaw(db_path: str, day: str) -> dict[str, Any]:
     """读 OpenClaw 的结构化 run 台账。文本日志只在拿不到它时才退而求其次。"""
-    result: dict[str, Any] = {"available": False, "path": db_path, "runs": [], "jobs": []}
+    result: dict[str, Any] = {
+        "available": False,
+        "runs_available": False,
+        "path": db_path,
+        "runs": [],
+        "jobs": [],
+    }
     if not os.path.exists(db_path):
         result["error"] = "sqlite 不存在"
         return result
@@ -290,26 +342,91 @@ def collect_openclaw(db_path: str, day: str) -> dict[str, Any]:
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
+            if "cron_jobs" in names:
+                result["jobs"] = [dict(r) for r in conn.execute("SELECT * FROM cron_jobs")]
+                for row in result["jobs"]:
+                    row["canonical_job_id"] = _openclaw_canonical_job_id(row)
+
             if "cron_run_logs" in names:
-                cols = {r[1] for r in conn.execute("PRAGMA table_info(cron_run_logs)")}
+                column_rows = list(conn.execute("PRAGMA table_info(cron_run_logs)"))
+                cols = {str(r[1]): str(r[2] or "") for r in column_rows}
                 time_col = next(
-                    (c for c in ("started_at", "created_at", "ran_at", "finished_at")
+                    (c for c in (
+                        "started_at", "ts", "run_at_ms", "created_at",
+                        "ran_at", "finished_at",
+                    )
                      if c in cols),
                     None,
                 )
-                query = "SELECT * FROM cron_run_logs"
-                params: tuple[Any, ...] = ()
                 if time_col:
-                    query += f" WHERE {time_col} LIKE ? ORDER BY {time_col}"
-                    params = (f"{day}%",)
-                result["runs"] = [dict(r) for r in conn.execute(query, params)]
-                result["time_col"] = time_col
-            if "cron_jobs" in names:
-                result["jobs"] = [dict(r) for r in conn.execute("SELECT * FROM cron_jobs")]
+                    query = "SELECT * FROM cron_run_logs"
+                    declared_type = cols[time_col].upper()
+                    if "INT" in declared_type:
+                        start_ms, end_ms = _day_epoch_bounds_ms(day)
+                        maximum = conn.execute(
+                            f"SELECT MAX({time_col}) FROM cron_run_logs"
+                        ).fetchone()[0]
+                        millisecond_scale = not isinstance(maximum, (int, float)) or maximum > 10**11
+                        start, end = (
+                            (start_ms, end_ms)
+                            if millisecond_scale
+                            else (start_ms // 1000, end_ms // 1000)
+                        )
+                        query += f" WHERE {time_col} >= ? AND {time_col} < ? ORDER BY {time_col}"
+                        params: tuple[Any, ...] = (start, end)
+                        result["time_format"] = (
+                            "epoch_milliseconds" if millisecond_scale else "epoch_seconds"
+                        )
+                    else:
+                        query += f" WHERE {time_col} LIKE ? ORDER BY {time_col}"
+                        params = (f"{day}%",)
+                        result["time_format"] = "text"
+                    result["runs"] = [dict(r) for r in conn.execute(query, params)]
+                    result["time_col"] = time_col
+                    result["runs_available"] = True
+                    by_uuid = {
+                        str(row.get("job_id")): row.get("canonical_job_id")
+                        for row in result["jobs"]
+                        if row.get("job_id")
+                    }
+                    for row in result["runs"]:
+                        row["canonical_job_id"] = (
+                            by_uuid.get(str(row.get("job_id")))
+                            or _openclaw_canonical_job_id(row)
+                        )
+                else:
+                    result["runs_error"] = "cron_run_logs 没有可识别的时间列"
+            else:
+                result["runs_error"] = "cron_run_logs 表不存在"
             result["available"] = True
     except sqlite3.Error as exc:
         result["error"] = f"sqlite 读取失败: {exc}"
     return result
+
+
+def _openclaw_canonical_job_id(row: dict[str, Any]) -> Optional[str]:
+    """Resolve an OpenClaw UUID row to the manifest job id in its command payload."""
+    raw = row.get("payload_message")
+    if isinstance(raw, str) and raw:
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            argv = payload.get("argv")
+            if isinstance(argv, list):
+                for index, value in enumerate(argv[:-1]):
+                    if str(value).endswith("run_agent_dag.py"):
+                        candidate = str(argv[index + 1]).strip()
+                        if candidate:
+                            return candidate
+    name = str(_pick(row, "name", "display_name") or "").strip()
+    if name.lower().startswith("a-stock:"):
+        return name.split(":", 1)[1].strip() or None
+    job_id = str(row.get("job_id") or "").strip()
+    if job_id and not re.fullmatch(r"[0-9a-fA-F-]{32,36}", job_id):
+        return job_id
+    return None
 
 
 def _pick(row: dict[str, Any], *names: str) -> Any:
@@ -319,6 +436,156 @@ def _pick(row: dict[str, Any], *names: str) -> Any:
     return None
 
 
+def collect_job_run_ledger(state_home: str, day: str) -> dict[str, Any]:
+    """Read the runtime-neutral canonical job ledger for one wall-clock day."""
+    path = os.path.join(state_home, "cron", "output", "job_runs.json")
+    result: dict[str, Any] = {"available": False, "path": path, "runs": []}
+    if not os.path.exists(path):
+        result["error"] = "job_runs.json 不存在"
+        return result
+    payload = read_json(path, None)
+    if not isinstance(payload, list):
+        result["error"] = "job_runs.json 不是列表"
+        return result
+    result["available"] = True
+    result["runs"] = [
+        row for row in payload
+        if isinstance(row, dict)
+        and str(_pick(row, "started_at", "finished_at") or "")[:10] == day
+    ]
+    return result
+
+
+def _execution_status(value: Any) -> str:
+    status = str(value or "").strip().lower().replace("_", "-")
+    if "timeout" in status or "timed-out" in status:
+        return "timeout"
+    if status in {item.replace("_", "-") for item in HEALTHY}:
+        return "success"
+    if status in {"", "running", "started", "claimed", "pending"}:
+        return "incomplete"
+    return "failed"
+
+
+def build_job_execution_interface(
+    *,
+    trace_events: list[dict[str, Any]],
+    ledger: dict[str, Any],
+    openclaw: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Reconcile all available evidence into a fail-closed per-job status.
+
+    The OpenClaw row certifies only that the scheduler command exited.  A
+    business ``success`` requires a terminal event from ``job_runs.json`` or
+    ``execution_trace``.  Any failure, timeout, or unfinished trace wins over
+    a later green scheduler status so the daily report cannot become green by
+    looking only at ``lastStatus``.
+    """
+    source_rows: dict[str, dict[str, list[Any]]] = collections.defaultdict(
+        lambda: {"job_ledger": [], "execution_trace": [], "openclaw": []}
+    )
+    trace_counts: collections.Counter[str] = collections.Counter()
+    trace_runs: dict[tuple[str, str], dict[str, bool]] = collections.defaultdict(
+        lambda: {"claimed": False, "started": False, "finished": False}
+    )
+
+    for row in ledger.get("runs") or []:
+        job = str(row.get("job_id") or "").strip()
+        if job:
+            source_rows[job]["job_ledger"].append(row.get("status"))
+
+    for index, event in enumerate(trace_events):
+        job = str(event.get("job_id") or "").strip()
+        if not job:
+            continue
+        event_type = str(event.get("event_type") or "")
+        run_id = str(event.get("run_id") or f"event-{index}")
+        key = (job, run_id)
+        if event_type == "dispatch.claimed":
+            trace_runs[key]["claimed"] = True
+        elif event_type == "job.started":
+            trace_runs[key]["started"] = True
+        elif event_type == "job.finished":
+            trace_runs[key]["finished"] = True
+            source_rows[job]["execution_trace"].append(event.get("status"))
+        trace_counts[job] += 1
+
+    for row in openclaw.get("runs") or []:
+        job = str(row.get("canonical_job_id") or "").strip()
+        if job:
+            source_rows[job]["openclaw"].append(
+                _pick(row, "status", "state", "result")
+            )
+
+    incomplete_jobs = {
+        job for (job, _run_id), lifecycle in trace_runs.items()
+        if (lifecycle["claimed"] or lifecycle["started"]) and not lifecycle["finished"]
+    }
+    observations: list[dict[str, Any]] = []
+    for job in sorted(source_rows):
+        statuses = source_rows[job]
+        canonical = [
+            _execution_status(value)
+            for value in statuses["job_ledger"] + statuses["execution_trace"]
+        ]
+        scheduler = [_execution_status(value) for value in statuses["openclaw"]]
+        combined = canonical + scheduler
+        if "timeout" in combined:
+            status = "timeout"
+            reason = "任一执行证据记录 timeout"
+        elif "failed" in combined:
+            status = "failed"
+            reason = "任一执行证据记录 failed"
+        elif "incomplete" in combined or job in incomplete_jobs:
+            status = "incomplete"
+            reason = "执行证据处于非终态，或 trace 有启动但没有完成"
+        elif canonical and all(value == "success" for value in canonical):
+            status = "success"
+            reason = "业务台账或 execution trace 有健康终态"
+        elif scheduler and all(value == "success" for value in scheduler):
+            status = "no-evidence"
+            reason = "OpenClaw 只证明调度外壳成功，没有业务终态证据"
+        else:
+            status = "no-evidence"
+            reason = "没有可证明业务终态的执行证据"
+        observations.append({
+            "schema": "job_execution_observation_v1",
+            "job_id": job,
+            "status": status,
+            "source_statuses": {
+                name: sorted({str(value) for value in values if value not in (None, "")})
+                for name, values in statuses.items()
+            },
+            "evidence": {
+                "job_ledger": len(statuses["job_ledger"]),
+                "execution_trace": trace_counts[job],
+                "openclaw": len(statuses["openclaw"]),
+            },
+            "reason": reason,
+        })
+    return observations
+
+
+def job_execution_evidence_health(
+    *,
+    trace_events: list[dict[str, Any]],
+    ledger: dict[str, Any],
+    openclaw: dict[str, Any],
+    executions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """State whether the Interface had enough evidence to make any observation."""
+    sources = {
+        "job_ledger": bool(ledger.get("available")),
+        "execution_trace": bool(trace_events),
+        "openclaw_runs": bool(openclaw.get("runs_available")),
+    }
+    return {
+        "status": "ok" if executions else "no-evidence",
+        "sources": sources,
+        "reason": None if executions else "当日没有任何可归属的作业执行证据",
+    }
+
+
 def section_openclaw(data: dict[str, Any]) -> list[str]:
     lines = ["## 3. OpenClaw 侧运行结果", ""]
     if not data["available"]:
@@ -326,6 +593,14 @@ def section_openclaw(data: dict[str, Any]) -> list[str]:
             f"未能读取 `{data['path']}`：{data.get('error', '未知原因')}。",
             "",
             "> 若本机不跑 OpenClaw，这一段为空属正常。",
+            "",
+        ]
+        return lines
+
+    if not data.get("runs_available", True):
+        lines += [
+            f"注册表可读，但当日 run 台账不可用："
+            f"{data.get('runs_error', '未知原因')}。",
             "",
         ]
         return lines
@@ -739,6 +1014,36 @@ def _gateway_findings(gateway: dict[str, Any]) -> list[dict[str, Any]]:
     return findings
 
 
+def _execution_findings(
+    executions: list[dict[str, Any]], dependents: dict[str, list[str]]
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for row in executions:
+        status = str(row.get("status") or "no-evidence")
+        if status == "success":
+            continue
+        job = str(row.get("job_id") or "?")
+        if status in {"timeout", "failed"}:
+            key = f"job_unhealthy:{job}:{status}"
+            kind = "job_unhealthy"
+        elif status == "incomplete":
+            key = f"job_incomplete:{job}"
+            kind = "job_incomplete"
+        else:
+            key = f"job_no_evidence:{job}"
+            kind = "job_no_evidence"
+        findings.append({
+            "key": key,
+            "kind": kind,
+            "subject": job,
+            "severity": _job_severity(job, dependents),
+            "detail": f"作业 {job} 统一执行状态为 {status}：{row.get('reason')}",
+            "count": 1,
+            "downstream": dependents.get(job, []),
+        })
+    return findings
+
+
 def collect_findings(
     *,
     rows: list[dict[str, Any]],
@@ -747,19 +1052,34 @@ def collect_findings(
     drift: dict[str, Any],
     gateway: dict[str, Any],
     dependents: dict[str, list[str]],
+    executions: Optional[list[dict[str, Any]]] = None,
+    execution_evidence: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     """把当天各来源的异常压成一组带稳定 key 的 finding。
 
     key 必须跨天稳定，否则聚合会把同一个问题算成每天都是新问题。
     因此 key 只由「类别 + 主体 + 现象」构成，不含日期、run_id、耗时。
     """
+    job_findings = (
+        _execution_findings(executions, dependents)
+        if executions is not None
+        else [*_job_findings(rows, dependents), *_openclaw_findings(openclaw)]
+    )
     findings = [
-        *_job_findings(rows, dependents),
+        *job_findings,
         *_delivery_findings(meta),
-        *_openclaw_findings(openclaw),
         *_drift_findings(drift),
         *_gateway_findings(gateway),
     ]
+    if execution_evidence and execution_evidence.get("status") != "ok":
+        findings.append({
+            "key": "job_execution_evidence:no-evidence",
+            "kind": "job_execution_no_evidence",
+            "subject": "job-execution-interface",
+            "severity": "P1",
+            "detail": str(execution_evidence.get("reason") or "执行证据不可用"),
+            "count": 1,
+        })
     merged: dict[str, dict[str, Any]] = {}
     for finding in findings:
         existing = merged.get(finding["key"])
@@ -783,6 +1103,18 @@ def collect_all(
     manifest_path = os.path.join(ROOT, "cron", "hermes-cron-manifest.json")
     rows, meta = collect_hermes(state_home, day)
     openclaw = collect_openclaw(openclaw_db, day)
+    ledger = collect_job_run_ledger(state_home, day)
+    executions = build_job_execution_interface(
+        trace_events=meta.get("trace_events") or [],
+        ledger=ledger,
+        openclaw=openclaw,
+    )
+    execution_evidence = job_execution_evidence_health(
+        trace_events=meta.get("trace_events") or [],
+        ledger=ledger,
+        openclaw=openclaw,
+        executions=executions,
+    )
     return {
         "day": day,
         "state_home": state_home,
@@ -791,6 +1123,9 @@ def collect_all(
         "rows": rows,
         "meta": meta,
         "openclaw": openclaw,
+        "job_ledger": ledger,
+        "executions": executions,
+        "execution_evidence": execution_evidence,
         "drift": collect_drift(manifest_path, openclaw),
         "gateway": collect_gateway_errors(log_dir, day),
         "dependents": required_dependents(manifest_path),
@@ -809,9 +1144,12 @@ def build_structured_report(
     rows, meta = bundle["rows"], bundle["meta"]
     openclaw, drift = bundle["openclaw"], bundle["drift"]
     gateway, dependents = bundle["gateway"], bundle["dependents"]
+    executions = bundle.get("executions")
     findings = collect_findings(
         rows=rows, meta=meta, openclaw=openclaw,
         drift=drift, gateway=gateway, dependents=dependents,
+        executions=executions,
+        execution_evidence=bundle.get("execution_evidence"),
     )
     severity_counts = collections.Counter(item["severity"] for item in findings)
     return {
@@ -821,9 +1159,26 @@ def build_structured_report(
         "state_home": state_home,
         # 「这一天到底观测到了哪些作业」—— 聚合判定「已修复」时必须用它兜底：
         # 一个问题消失，可能是修好了，也可能是那个作业当天压根没跑。
-        "observed_subjects": sorted({str(row["job_id"]) for row in rows}),
+        "observed_subjects": sorted(
+            {
+                str(row["job_id"])
+                for row in (executions or [])
+                if row.get("status") == "success"
+            }
+            if executions is not None
+            else {str(row["job_id"]) for row in rows}
+        ),
         "trace_events": int(meta.get("events") or 0),
         "openclaw_available": bool(openclaw.get("available")),
+        "openclaw_runs_available": bool(openclaw.get("runs_available")),
+        "job_ledger_available": bool(bundle.get("job_ledger", {}).get("available")),
+        "job_execution_status_counts": dict(collections.Counter(
+            str(row.get("status")) for row in (executions or [])
+        )),
+        "job_executions": executions or [],
+        "job_execution_evidence": bundle.get("execution_evidence") or {
+            "status": "unavailable"
+        },
         "drift_status": drift.get("status"),
         "gateway_status": gateway.get("status"),
         "severity_counts": {
@@ -986,7 +1341,12 @@ def build_report(
 
     out: list[str] = [f"# A股系统每日运行诊断 · {day}", ""]
     out += section_environment(state_home, day)
-    out += section_hermes(rows, meta)
+    out += section_hermes(
+        rows,
+        meta,
+        bundle.get("executions"),
+        bundle.get("execution_evidence"),
+    )
     out += section_openclaw(openclaw)
     out += section_drift(manifest_path, openclaw)
     out += section_evidence(state_home, day, rows)

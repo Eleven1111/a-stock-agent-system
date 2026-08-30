@@ -2502,7 +2502,8 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/institution-weekly/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/scan_cursors/institution-weekly/"
       ],
       "run": {
         "argv": [
@@ -2541,7 +2542,8 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/event-calendar/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/scan_cursors/event-calendar/"
       ],
       "run": {
         "argv": [
