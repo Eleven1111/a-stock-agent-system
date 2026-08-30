@@ -124,3 +124,43 @@ def test_output_declares_it_is_research_only(state_home):
 
     assert result["research_only"] is True
     assert result["trading_action"] == "none"
+
+
+def test_forward_gate_datasets_are_materialized_per_strategy_and_remain_research_only(
+    state_home, monkeypatch,
+):
+    contract = dataset_contract.resolve_dataset(CATALOG, "settled_forward_samples_v1")
+    row = {
+        "entity_id": "600001", "strategy_id": "rank_surprise",
+        "decision_id": "d" * 64, "src": "2026-08-24",
+        "decision_available_at": "2026-08-24T23:40:00+08:00",
+        "entry_date": "2026-08-25", "dst": "2026-08-25",
+        "outcome_available_at": "2026-08-25T15:00:00+08:00",
+        "horizon_sessions": 1, "is_primary_horizon": True,
+        "gross_forward_return": 0.03, "net_forward_return": 0.027,
+        "benchmark_forward_return": 0.01, "gross_alpha": 0.02, "net_alpha": 0.017,
+        "prediction_ref": "d" * 64, "prediction_sha256": "p" * 64,
+        "shadow_sha256": "s" * 64, "evidence_sha256": "e" * 64,
+        "strategy_rules_sha256": "r" * 64,
+        "settlement_policy_sha256": "q" * 64, "bar_snapshot_sha256": "b" * 64,
+    }
+
+    def fake(strategy_id, **kwargs):
+        if strategy_id != "rank_surprise":
+            raise ValueError("no_eligible_forward_predictions")
+        return {
+            "schema": "settled_forward_samples_v1", "dataset_id": contract["dataset_id"],
+            "contract_hash": contract["contract_hash"], "catalog_hash": CATALOG["catalog_hash"],
+            "strategy_id": strategy_id, "rows": [row], "considered": 1,
+            "coverage_ratio": 1.0, "research_only": True,
+        }
+
+    monkeypatch.setattr(builder.forward, "build_gate_dataset", fake)
+    result = builder.build_forward_datasets(CATALOG, "2026-08-27")
+    assert result["status"] == "written"
+    assert result["record_count"] == 1
+    assert result["research_only"] is True
+    assert result["strategies"][0]["strategy_id"] == "rank_surprise"
+    with open(result["strategies"][0]["path"], encoding="utf-8") as handle:
+        persisted = json.load(handle)
+    assert persisted["rows"] == [row]

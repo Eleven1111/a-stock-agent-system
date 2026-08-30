@@ -40,6 +40,7 @@ def _record(code, *, sector="X", date="2026-06-03", breadth=5.0, fast=3.0,
         "reseal_time": reseal_time, "pre_reseal_turnover_pct": turnover,
         "turnover_baseline_median_pct": baseline_median,
         "turnover_baseline_sample_days": baseline_days,
+        "turnover_baseline_semantics": "historical_same_clock_minute_turnover_v1",
     }
     record.update(extra)
     return record
@@ -80,6 +81,7 @@ def _event(code, *, one_word, gap_pct_value, t1_close, seal="093000",
         "reseal_time": reseal_time, "pre_reseal_turnover_pct": turnover,
         "turnover_baseline_median_pct": baseline_median,
         "turnover_baseline_sample_days": baseline_days,
+        "turnover_baseline_semantics": "historical_same_clock_minute_turnover_v1",
         **bar,
     }
 
@@ -222,6 +224,17 @@ def test_turnover_baseline_missing_sample_is_unavailable_not_no_signal():
     result = dr.evaluate(target, peers=peers)
     assert result["status"] == dr.STATUS_UNAVAILABLE
     assert any("turnover_baseline_sample_insufficient" in r for r in result["reasons"])
+
+
+def test_legacy_daily_turn_baseline_is_rejected_and_cannot_settle():
+    peers = _group()
+    target = next(p for p in peers if p["code"] == "600000")
+    target.pop("turnover_baseline_semantics")
+    result = dr.evaluate(target, peers=peers)
+    assert result["status"] == dr.STATUS_UNAVAILABLE
+    assert "turnover_baseline_semantics_invalid" in result["reasons"]
+    assert result["forward_settlement_eligible"] is False
+    assert result["evidence_invalidation"] == "legacy_daily_turn_baseline_rejected"
 
 
 def test_turnover_ratio_helper_never_degrades_missing_to_zero():

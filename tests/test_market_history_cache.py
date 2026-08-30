@@ -4,12 +4,35 @@ from pathlib import Path
 import sys
 import types
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("market_history_cache", ROOT / "scripts" / "market_history_cache.py")
 module = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = module
 SPEC.loader.exec_module(module)
+
+
+@pytest.fixture(autouse=True)
+def _covered_history_by_default(monkeypatch):
+    """Legacy orchestration tests are about incrementality, not coverage.
+
+    New coverage-specific tests override this with deliberately shallow rows.
+    """
+    monkeypatch.setattr(
+        module.history,
+        "coverage_by_code",
+        lambda codes, end_date, **kwargs: {
+            code: {
+                "code": code,
+                "bar_count": 180,
+                "min_date": "2025-12-01",
+                "max_date": end_date,
+            }
+            for code in codes
+        },
+    )
 
 
 def test_non_trading_day_skips_without_touching_cache_or_provider(monkeypatch):
@@ -130,12 +153,53 @@ def test_missing_baostock_is_a_non_fatal_blocked_result(monkeypatch):
     monkeypatch.setattr(module.history, "cache_stats", lambda: {})
     monkeypatch.setattr(module.history, "get_latest_daily_bars", lambda codes, asof: [])
     monkeypatch.setattr(module, "BaoStockSession", lambda: _MissingSession())
+    monkeypatch.setattr(module, "EasyTdxSession", lambda: _MissingSession())
+    monkeypatch.setattr(module, "TencentSession", lambda: _MissingSession())
 
     result = module.run(asof="2026-08-18", codes=["600000"])
 
     assert result["status"] == "blocked"
     assert result["reason"] == "baostock_not_installed"
     assert result["failed"] == [{"code": "*", "reason": "baostock_not_installed"}]
+
+
+def test_tencent_qfq_fallback_normalizes_volume_and_preserves_contract(monkeypatch):
+    monkeypatch.setattr(module, "http_get_json", lambda *args, **kwargs: {
+        "data": {"sz000001": {"qfqday": [
+            ["2026-08-17", "10", "11", "12", "9", "123"],
+            ["2026-08-18", "11", "12", "13", "10", "456"],
+        ]}}
+    })
+
+    rows = module.TencentSession().fetch("000001", "2026-08-17", "2026-08-18")
+
+    assert rows[1]["volume"] == 45600.0
+    assert rows[1]["preclose"] == 11.0
+    assert rows[1]["pct_chg"] == pytest.approx(100 / 11)
+    assert rows[1]["adjust_flag"] == "qfq"
+    assert rows[1]["source"] == "tencent_qfqday"
+    assert rows[1]["amount"] is None
+
+
+def test_easy_tdx_maps_hs300_to_shanghai_market(monkeypatch):
+    calls = []
+
+    class Frame:
+        def to_dict(self, orient):
+            return []
+
+    session = module.EasyTdxSession()
+    session.client = types.SimpleNamespace(
+        get_stock_kline=lambda market, code, *args, **kwargs: calls.append(
+            (market, code, kwargs.get("adjust"))
+        ) or Frame()
+    )
+    fake = types.SimpleNamespace(Adjust=types.SimpleNamespace(QFQ=1), Period=types.SimpleNamespace(DAILY=4))
+    monkeypatch.setitem(sys.modules, "easy_tdx", fake)
+
+    session.fetch("000300", "2025-01-01", "2026-08-28")
+
+    assert calls == [(1, "000300", 1)]
 
 
 class _MissingSession:
@@ -178,7 +242,7 @@ def test_empty_cache_seeds_a_bounded_window_in_one_session(monkeypatch):
     result = module.run(asof="2026-08-18", codes=["600000", "000001"])
 
     assert result["full_backfill"] is False
-    assert calls["starts"] == ["2025-12-21", "2025-12-21"]  # asof - 240 days
+    assert calls["starts"] == ["2025-07-14", "2025-07-14"]  # asof - 400 days
     assert calls["login"] == calls["logout"] == 1
 
 
@@ -290,6 +354,40 @@ def _stub_run(monkeypatch, *, latest_rows, fetch, row_count=500):
 
 
 class TestPerSymbolBackfill:
+    def test_a_current_single_day_seed_is_backfilled_backwards(self, monkeypatch):
+        """A latest row must not masquerade as 180 days of usable history."""
+        starts = []
+        coverage_calls = 0
+
+        def coverage(codes, end_date, **kwargs):
+            nonlocal coverage_calls
+            coverage_calls += 1
+            count = 1 if coverage_calls == 1 else 180
+            return {
+                "600000": {
+                    "code": "600000",
+                    "bar_count": count,
+                    "min_date": "2026-08-19" if count == 1 else "2025-11-01",
+                    "max_date": end_date,
+                }
+            }
+
+        _stub_run(
+            monkeypatch,
+            latest_rows=[{"code": "600000", "trading_date": "2026-08-19"}],
+            fetch=lambda code, start, end, *, session: starts.append(start) or [
+                {"code": code, "trading_date": end}
+            ],
+        )
+        monkeypatch.setattr(module.history, "coverage_by_code", coverage)
+
+        result = module.run(asof="2026-08-19", codes=["600000"])
+
+        assert starts == ["2025-07-15"]  # 400 calendar days, safely >180 sessions
+        assert result["status"] == "ok"
+        assert result["coverage"]["complete"] == 1
+        assert result["coverage"]["remaining"] == 0
+
     def test_an_uncached_symbol_is_backfilled_even_when_others_are_current(self, monkeypatch):
         """The gap that never closed and never surfaced.
 
@@ -312,12 +410,107 @@ class TestPerSymbolBackfill:
         module.run(asof="2026-08-19", codes=["600000", "000001"])
 
         assert starts["600000"] == "2026-08-19"   # cached: resume from latest+1
-        assert starts["000001"] == "2025-12-22"   # uncached: asof - 240 days
+        assert starts["000001"] == "2025-07-15"   # uncached: asof - 400 days
 
     def test_start_date_is_a_pure_function_of_that_symbols_own_state(self):
-        assert module._start_date(None, "2026-08-19") == "2025-12-22"
+        assert module._start_date(None, "2026-08-19") == "2025-07-15"
         assert module._start_date("2026-08-18", "2026-08-19") == "2026-08-19"
+        assert module._start_date(
+            "2026-08-19", "2026-08-19", bar_count=1
+        ) == "2025-07-15"
         assert module._start_date(None, "2026-08-19", full_backfill=True) == "1990-01-01"
+
+
+class TestCoverageDisclosure:
+    def test_under_covered_symbols_are_explicitly_classified(self, monkeypatch):
+        monkeypatch.setattr(
+            module.history,
+            "coverage_by_code",
+            lambda codes, end_date, **kwargs: {
+                "600000": {
+                    "code": "600000", "bar_count": 12,
+                    "min_date": "2026-08-01", "max_date": "2026-08-19",
+                }
+            },
+        )
+        _stub_run(
+            monkeypatch,
+            latest_rows=[{"code": "600000", "trading_date": "2026-08-19"}],
+            fetch=lambda *args, **kwargs: [],
+        )
+        monkeypatch.setattr(
+            module, "load_universe_metadata",
+            lambda: {"600000": {"listed_date": "1999-11-10"}},
+        )
+
+        result = module.run(asof="2026-08-19", codes=["600000"])
+
+        assert result["status"] == "partial"
+        assert result["coverage"]["remaining"] == 1
+        assert result["coverage"]["limited"] == 0
+        assert result["coverage"]["classifications"] == {"source_insufficient": 1}
+
+    def test_recent_listing_is_not_reported_as_a_failed_backfill(self, monkeypatch):
+        monkeypatch.setattr(
+            module.history,
+            "coverage_by_code",
+            lambda codes, end_date, **kwargs: {
+                "688999": {
+                    "code": "688999", "bar_count": 12,
+                    "min_date": "2026-08-01", "max_date": "2026-08-19",
+                }
+            },
+        )
+        _stub_run(
+            monkeypatch,
+            latest_rows=[{"code": "688999", "trading_date": "2026-08-19"}],
+            fetch=lambda *args, **kwargs: [],
+        )
+        monkeypatch.setattr(
+            module, "load_universe_metadata",
+            lambda: {"688999": {"listed_date": "2026-08-01"}},
+        )
+
+        result = module.run(asof="2026-08-19", codes=["688999"])
+
+        assert result["coverage"]["remaining"] == 0
+        assert result["coverage"]["limited"] == 1
+        assert result["coverage"]["classifications"] == {"ipo": 1}
+
+    def test_stale_long_listed_symbol_is_classified_as_suspended(self):
+        coverage = {
+            "600001": {
+                "code": "600001", "bar_count": 20,
+                "min_date": "2025-07-15", "max_date": "2026-06-01",
+            }
+        }
+
+        result = module._coverage_result(
+            ["600001"], coverage, target_date="2026-08-19",
+            attempted={"600001"}, failed_codes=set(), deferred=set(),
+            metadata={"600001": {"listed_date": "1998-01-01"}},
+        )
+
+        assert result["classifications"] == {"suspended": 1}
+        assert result["limited"] == 1
+        assert result["remaining"] == 0
+
+    def test_provider_failure_is_distinct_from_insufficient_data(self):
+        coverage = {
+            "600002": {
+                "code": "600002", "bar_count": 1,
+                "min_date": "2026-08-18", "max_date": "2026-08-18",
+            }
+        }
+
+        result = module._coverage_result(
+            ["600002"], coverage, target_date="2026-08-19",
+            attempted={"600002"}, failed_codes={"600002"}, deferred=set(),
+            metadata={"600002": {"listed_date": "1998-01-01"}},
+        )
+
+        assert result["classifications"] == {"source_error": 1}
+        assert result["remaining"] == 1
 
 
 class TestFetchOrder:
@@ -485,3 +678,26 @@ def test_a_failed_login_restores_stdout_instead_of_leaking_the_redirect(monkeypa
         assert "baostock_login_failed" in str(exc)
 
     assert sys.stdout is before, "stdout stayed redirected after a failed login"
+
+
+def test_baostock_login_has_a_hard_socket_timeout_and_restores_default(monkeypatch):
+    """BaoStock otherwise blocks forever in recv() when its server goes mute."""
+    seen = []
+
+    class Login:
+        error_code = "10002001"
+        error_msg = "network timeout"
+
+    fake = types.SimpleNamespace(
+        login=lambda: seen.append(module.socket.getdefaulttimeout()) or Login(),
+        logout=lambda: None,
+    )
+    monkeypatch.setitem(sys.modules, "baostock", fake)
+    before = module.socket.getdefaulttimeout()
+
+    with pytest.raises(RuntimeError, match="baostock_login_failed"):
+        with module.BaoStockSession():
+            pass
+
+    assert seen == [module.BAOSTOCK_SOCKET_TIMEOUT_SECONDS]
+    assert module.socket.getdefaulttimeout() == before

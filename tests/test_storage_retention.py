@@ -587,3 +587,31 @@ def test_a_truncated_ledger_keeps_the_references_it_did_yield(tmp_path):
         gc_index.index_path(tmp_path).read_text(encoding="utf-8")
     )["sections"]
     assert str(ledger) not in sections.get("references", {})
+
+
+def test_large_json_reference_scan_does_not_build_the_whole_object(tmp_path, monkeypatch):
+    referenced = _write_snapshot(
+        tmp_path,
+        dataset="large-state",
+        snapshot_id="referenced-large",
+        captured_at="2026-01-01T00:00:00+00:00",
+    )
+    state = tmp_path / "state" / "large.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(
+        '{"padding":"' + ("x" * 2_000_000) + '","snapshot_path":'
+        + json.dumps(str(referenced)) + "}",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        storage_retention,
+        "_read_json",
+        lambda path: pytest.fail("reference scan must stay streaming"),
+    )
+    found = set()
+
+    storage_retention._read_references_into(
+        state, found, state_home=tmp_path
+    )
+
+    assert referenced.resolve() in found

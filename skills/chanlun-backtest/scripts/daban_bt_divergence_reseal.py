@@ -88,6 +88,7 @@ def event_record(event: Dict[str, Any]) -> Dict[str, Any]:
         "turnover_baseline_median_pct": _first(event, "turnover_baseline_median",
                                                "turnover_baseline_median_pct"),
         "turnover_baseline_sample_days": event.get("turnover_baseline_sample_days"),
+        "turnover_baseline_semantics": event.get("turnover_baseline_semantics"),
     }
 
 

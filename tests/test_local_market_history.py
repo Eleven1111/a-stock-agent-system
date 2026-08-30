@@ -45,6 +45,29 @@ def test_upsert_is_idempotent_and_updates_existing_bar(tmp_path, monkeypatch):
     assert history.get_latest_daily_bars(["600000"])[0]["close"] == 11.0
 
 
+def test_partial_fallback_does_not_erase_richer_existing_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    original = _bar()
+    history.upsert_daily_bars([original])
+
+    history.upsert_daily_bars([{
+        "code": "600000", "trading_date": "2026-08-18",
+        "open": 10.5, "high": 12.0, "low": 10.0, "close": 11.0,
+        "volume": 45600.0, "amount": None, "turn": None,
+        "source": "tencent_qfqday",
+        "source_version": "ifzq-fqkline-qfq-v1",
+    }])
+
+    row = history.get_latest_daily_bars(["600000"])[0]
+    assert (row["open"], row["high"], row["low"], row["close"], row["volume"]) == (
+        10.5, 12.0, 10.0, 11.0, 45600.0,
+    )
+    assert row["amount"] == original["amount"]
+    assert row["turn"] == original["turn"]
+    assert row["source"] == "tencent_qfqday"
+    assert row["source_version"] == "ifzq-fqkline-qfq-v1"
+
+
 def test_lookback_returns_recent_rows_per_code_in_sorted_order(tmp_path, monkeypatch):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     history.upsert_daily_bars([
@@ -77,3 +100,26 @@ def test_state_home_isolates_databases(tmp_path, monkeypatch):
 
     assert history.cache_stats()["row_count"] == 0
     assert (second / "market" / "history.sqlite3").exists()
+
+
+def test_coverage_by_code_includes_missing_and_shallow_symbols(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    history.upsert_daily_bars([
+        _bar("600000", "2026-08-17"),
+        _bar("600000", "2026-08-18"),
+        _bar("000001", "2026-08-18"),
+    ])
+
+    coverage = history.coverage_by_code(
+        ["600000", "000001", "300750"], "2026-08-18"
+    )
+
+    assert coverage["600000"] == {
+        "code": "600000", "bar_count": 2,
+        "min_date": "2026-08-17", "max_date": "2026-08-18",
+    }
+    assert coverage["000001"]["bar_count"] == 1
+    assert coverage["300750"] == {
+        "code": "300750", "bar_count": 0,
+        "min_date": None, "max_date": None,
+    }

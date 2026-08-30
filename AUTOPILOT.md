@@ -15,7 +15,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（72 个作业，当前 59 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（73 个作业，当前 60 个 enabled） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -243,10 +243,10 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 | id | `market-history-cache`（`enabled: true`） |
 | 调度 | `10 15 * * 1-5`（收盘后 10 分钟） |
 | 执行 | `python scripts/market_history_cache.py --json` |
-| 数据源 | BaoStock（全市场个股 + `sh.000300` 指数基准）；**未安装时输出 `status: blocked`**，不报错、不影响其他作业 |
+| 数据源 | BaoStock → easy_tdx 前复权日K → 腾讯 qfq；全市场个股 + `000300` 指数基准。主源登录失败会在 30s 内切换，不再无限挂起 |
 | 产物 | `$A_STOCK_STATE_HOME/market/history.sqlite3` |
 | 交付 | `local`（只写本地产物，不推送） |
-| 超时 | 300s（`standard` 档；全市场按缺失日增量，单票失败只记 `failed` 不中断批次） |
+| 超时 | 1200s（`long` 档；全市场按缺失日增量，低于 180 个交易日的标的按 400 日历日窗口预算化回补；单票失败只记 `failed` 不中断批次） |
 | 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
 
 **手动跑（先空跑看范围，再实写）：**
@@ -255,6 +255,9 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc \
   .venv/bin/python scripts/market_history_cache.py --dry-run --json
 ```
+
+输出中的 `coverage` 会披露 `complete`、`under_target`、`remaining`，并把
+近期 IPO、停牌、数据源不足/错误和预算延期分开计数；不会为无法取得的交易日伪造 K 线。
 
 ### 六策略统一证据数据集（strategy-evidence-daily）
 
@@ -332,6 +335,24 @@ lane 满 60 个有效交易日时冻结模型，再前向积累最早 60 个未�
 
 冻结产物的 `fit_cutoff`、训练集哈希、模型哈希和权重一旦生成，后续运行只能追加
 cutoff 之后的 OOS；不得滚动重拟合，也不得把第 61 个以后日期替换进首个 60 日 OOS。
+
+### 六策略前向样本冻结与结算（strategy-forward-settlement-daily）
+
+| 项 | 值 |
+|---|---|
+| id | `strategy-forward-settlement-daily`（`enabled: true`） |
+| 调度 | `50 23 * * 1-5`（紧接 `strategy-shadow-daily`） |
+| 执行 | `python scripts/strategy_forward_settlement.py --json` |
+| 入场/结果 | D 后下一交易日 open；同时结算 T+1/T+3，CSI300 同 session |
+| 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_forward/`（append-only） |
+| 隔离 | research-only；不写 signal ledger、registry、portfolio 或订单 |
+| 停止 | manifest 里把该作业 `enabled` 改为 `false` |
+
+只冻结 `status=signal`、策略级 Evidence Qualification 为 `canonical_forward`、
+`forward_settlement_eligible=true` 且代码为六位证券代码的结果；`MARKET` 明确拒绝。
+相同 hash 重跑幂等，同一自然键出现不同内容则拒绝覆盖。Gate 只投影 final、primary
+horizon、已批准 policy/rules hash 的样本；pending 和 terminal-unresolved 留在覆盖率
+分母中，防止用成功子集制造假绿。
 
 ### S4 盘前表构建（preleader-pretable-build）
 

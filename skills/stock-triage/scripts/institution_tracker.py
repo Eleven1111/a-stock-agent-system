@@ -26,11 +26,25 @@ from http_client import DataSourceError
 from stock_intelligence import read_cache as read_stock_intelligence
 import runtime_targets
 
+# Production measurement (2026-08-30): six targets took 83.6s against a 90s
+# cron budget.  Five preserves a real retry/jitter margin instead of treating a
+# one-off pass six seconds below SIGTERM as healthy.
+MAX_STOCK_TARGETS = 5
+
+
+def prioritized_runtime_targets() -> list[dict]:
+    """Return holdings first, then monitored names, without mutating source state."""
+    targets = runtime_targets.load_stock_targets()
+    return (
+        [target for target in targets if target.get("source") == "portfolio"]
+        + [target for target in targets if target.get("source") != "portfolio"]
+    )
+
 
 def load_runtime_targets() -> Dict[str, str]:
     return {
         target["code"]: target["name"]
-        for target in runtime_targets.load_stock_targets()
+        for target in prioritized_runtime_targets()[:MAX_STOCK_TARGETS]
     }
 
 
@@ -89,8 +103,23 @@ def fetch_serper_inst_news(code: str, name: str) -> List[Dict]:
 
 
 def collect_institution_data(targets: Dict[str, str] | None = None) -> Dict:
-    targets = load_runtime_targets() if targets is None else targets
-    result = {"timestamp": datetime.now().isoformat(), "stocks": [], "alerts": []}
+    if targets is None:
+        all_targets = prioritized_runtime_targets()
+        targets_total = len(all_targets)
+        targets = {
+            target["code"]: target["name"]
+            for target in all_targets[:MAX_STOCK_TARGETS]
+        }
+    else:
+        targets_total = len(targets)
+    result = {
+        "timestamp": datetime.now().isoformat(),
+        "stocks": [],
+        "alerts": [],
+        "targets_total": targets_total,
+        "targets_scanned": len(targets),
+        "targets_truncated": max(0, targets_total - len(targets)),
+    }
 
     for code, name in targets.items():
         stock = {"code": code, "name": name, "research_visits": [], "analyst_reports": [],

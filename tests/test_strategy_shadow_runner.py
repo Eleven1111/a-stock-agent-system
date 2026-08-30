@@ -29,6 +29,8 @@ def test_all_six_strategies_run_and_remain_non_live(tmp_path, monkeypatch):
     assert all(item["research_only"] for item in result["strategies"].values())
     assert all(item["execution_eligible"] is False for item in result["strategies"].values())
     assert any(item["status"] == "unavailable" for item in result["strategies"].values())
+    assert set(result["strategy_rule_bindings"]) == set(runner.STRATEGY_IDS)
+    assert all(len(item["sha256"]) == 64 for item in result["strategy_rule_bindings"].values())
 
 
 def test_canonical_strategy_evidence_is_consumed_without_remerging_sidecars(tmp_path, monkeypatch):
@@ -42,6 +44,10 @@ def test_canonical_strategy_evidence_is_consumed_without_remerging_sidecars(tmp_
         "records": [{"code": "600001", "date": "2026-08-26", "sector": "通信"}],
         "market_state": {"available": True, "dominant_state": "S2"},
         "coverage": {"rank_surprise": {"ready_records": 0}},
+        "evidence_qualification": {
+            sid: {"class": "canonical_forward", "canonical_forward_eligible": True, "reasons": []}
+            for sid in runner.STRATEGY_IDS
+        },
         "research_only": True,
         "execution_eligible": False,
     }), encoding="utf-8")
@@ -53,6 +59,54 @@ def test_canonical_strategy_evidence_is_consumed_without_remerging_sidecars(tmp_
     assert result["evidence_sidecars"] == []
     assert result["evidence_coverage"]["rank_surprise"]["ready_records"] == 0
     assert len(result["strategies"]["ice_point_reversal"]["results"]) == 1
+
+
+def test_mixed_dataset_runs_canonical_strategies_but_blocks_reconstructed_sentiment(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
+    path = tmp_path / "evidence.json"
+    qualifications = {
+        sid: {"class": "canonical_forward", "canonical_forward_eligible": True, "reasons": []}
+        for sid in runner.STRATEGY_IDS
+    }
+    qualifications["ice_point_reversal"] = {
+        "class": "exploratory_reconstruction", "canonical_forward_eligible": False,
+        "reasons": ["sentiment_series_contains_exploratory_reconstruction"],
+    }
+    path.write_text(json.dumps({
+        "schema": "strategy_evidence_daily_v1", "asof": "2026-08-26",
+        "canonical_forward": True,  # untrusted legacy self-report; must not override qualification
+        "evidence_class": "mixed", "evidence_qualification": qualifications,
+        "records": [{"code": "600001", "date": "2026-08-26", "sector": "通信"}],
+        "strategy_records": {sid: [{"code": "600001", "date": "2026-08-26", "sector": "通信"}]
+                             for sid in runner.STRATEGY_IDS},
+        "market_state": {"available": True, "dominant_state": "S2"},
+        "coverage": {},
+    }), encoding="utf-8")
+
+    result = runner.run(str(path), asof="2026-08-26")
+    assert result["canonical_forward"] is False
+    assert result["strategies"]["ice_point_reversal"]["status"] == "unavailable"
+    assert result["strategies"]["ice_point_reversal"]["reasons"] == [
+        "sentiment_series_contains_exploratory_reconstruction"
+    ]
+
+
+def test_legacy_s2_shadow_signal_without_explicit_marker_cannot_settle():
+    legacy = {
+        "strategy_id": "divergence_reseal",
+        "status": "signal",
+        "results": [{"code": "600001", "status": "signal"}],
+    }
+    assert runner.forward_settlement_eligible(legacy) is False
+
+
+def test_non_s2_canonical_signal_is_forward_settleable():
+    result = {
+        "strategy_id": "rank_surprise",
+        "status": "signal",
+        "results": [{"code": "600001", "status": "signal"}],
+    }
+    assert runner.forward_settlement_eligible(result) is True
 
 
 def test_noncanonical_evidence_is_rejected(tmp_path, monkeypatch):

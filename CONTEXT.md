@@ -29,11 +29,38 @@ Approximate historical evidence reconstructed from lower-resolution data. It
 can support bias audits and exploratory research, but cannot enter canonical
 forward samples or the research gate.
 
+### Evidence Qualification
+
+The derived, strategy-scoped classification of observed inputs as
+`canonical_forward`, `exploratory_reconstruction`, or `unavailable`. It is
+computed from field provenance (`observed_at` and source identity), never from
+a producer-supplied boolean. A Strategy Evidence Dataset may therefore be
+`mixed`; only strategies classified `canonical_forward` may create settleable
+forward samples.
+
+For S2, `turnover_baseline_median_pct` specifically means cumulative turnover
+at the same clock minute as the reseal across prior sessions. Full-day daily
+`turn` is a different measure and is rejected as legacy-invalid evidence.
+
 ### Strategy Shadow
 
 The non-live evaluation lane that consumes the Strategy Evidence Dataset. A
 shadow result cannot affect ranking, positions, the signal ledger, or orders.
 Missing evidence is `unavailable`, never `no_signal`.
+
+### Settled Forward Sample
+
+An immutable, research-only outcome joined to one eligible Strategy Shadow
+prediction after that prediction was frozen. Entry is the next trading
+session's open reference; T+1 and T+3 use market sessions, with CSI300 measured
+over exactly the same sessions. The sample owns its prediction, rules, policy,
+bar-snapshot and evidence hashes plus explicit estimated costs and slippage.
+
+Only `final`, primary-horizon samples whose Evidence Qualification is
+`canonical_forward` and whose rules and settlement policy hashes are approved
+may enter the research gate. Pending and terminal-unresolved predictions stay
+in the coverage denominator. Settled Forward Samples never enter the signal
+ledger and cannot affect ranking, positions or orders.
 
 ## Relationships
 

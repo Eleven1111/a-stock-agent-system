@@ -25,6 +25,20 @@ from http_client import DataSourceError
 from paths import data_file
 import runtime_targets
 
+# Production measurement (2026-08-30): sixteen targets took 166.3s against a
+# 180s budget.  Fourteen keeps the scan useful while leaving transport jitter
+# and one provider retry inside the job deadline.
+MAX_STOCK_TARGETS = 14
+
+
+def prioritized_runtime_targets() -> list[dict]:
+    """Return holdings first, then monitored names, without mutating source state."""
+    targets = runtime_targets.load_stock_targets()
+    return (
+        [target for target in targets if target.get("source") == "portfolio"]
+        + [target for target in targets if target.get("source") != "portfolio"]
+    )
+
 
 def load_portfolio_codes() -> Optional[Dict[str, str]]:
     """从 portfolio.json 读取持仓标的"""
@@ -43,7 +57,10 @@ def load_portfolio_codes() -> Optional[Dict[str, str]]:
 
 
 def load_runtime_codes() -> Dict[str, str]:
-    return runtime_targets.stock_map()
+    return {
+        target["code"]: target["name"]
+        for target in prioritized_runtime_targets()[:MAX_STOCK_TARGETS]
+    }
 
 
 def reporting_windows(year: int) -> List[tuple[str, str, str]]:
@@ -82,7 +99,14 @@ def get_upcoming_policy_windows(
 def collect_events(codes: Optional[Dict[str, str]] = None) -> Dict:
     """采集事件。codes=None 时读取持仓与动态监控订阅。"""
     if codes is None:
-        codes = load_runtime_codes()
+        all_targets = prioritized_runtime_targets()
+        targets_total = len(all_targets)
+        codes = {
+            target["code"]: target["name"]
+            for target in all_targets[:MAX_STOCK_TARGETS]
+        }
+    else:
+        targets_total = len(codes)
     if not codes:
         return {
             "timestamp": datetime.now().isoformat(),
@@ -90,6 +114,9 @@ def collect_events(codes: Optional[Dict[str, str]] = None) -> Dict:
             "stocks": [],
             "policy_windows": get_upcoming_policy_windows(30),
             "alerts": [],
+            "targets_total": targets_total,
+            "targets_scanned": 0,
+            "targets_truncated": 0,
         }
 
     result = {
@@ -98,6 +125,9 @@ def collect_events(codes: Optional[Dict[str, str]] = None) -> Dict:
         "stocks": [],
         "policy_windows": get_upcoming_policy_windows(30),
         "alerts": [],
+        "targets_total": targets_total,
+        "targets_scanned": len(codes),
+        "targets_truncated": max(0, targets_total - len(codes)),
     }
 
     for code, name in codes.items():

@@ -98,8 +98,11 @@ def upsert_daily_bars(rows: Sequence[Mapping[str, Any]]) -> int:
 
     ensure_schema()
     placeholders = ", ".join("?" for _ in _COLUMNS)
+    # Partial fallback rows (for example Tencent has no amount/turn) must not
+    # erase richer BaoStock values already stored for the same session.
     updates = ", ".join(
-        f"{column}=excluded.{column}" for column in _COLUMNS[3:]
+        f"{column}=COALESCE(excluded.{column}, daily_bars.{column})"
+        for column in _COLUMNS[3:]
     )
     with _connect() as connection:
         connection.executemany(
@@ -173,6 +176,39 @@ def get_latest_daily_bars(
     if trading_date is not None:
         parameters.append(str(trading_date))
     return _query_rows(sql, parameters)
+
+
+def coverage_by_code(
+    codes: Sequence[str], end_date: str, adjust_flag: str = "qfq"
+) -> dict[str, dict[str, Any]]:
+    """Return honest per-symbol row coverage through ``end_date``.
+
+    Missing symbols are included with a zero count.  Callers must not infer
+    history depth from a latest row: a one-day quote seed and a 180-session
+    history both have an equally current ``MAX(trading_date)``.
+    """
+    code_list = _normalise_codes(codes)
+    marks = ", ".join("?" for _ in code_list)
+    rows = _query_rows(
+        f"""
+        SELECT code, COUNT(*) AS bar_count,
+               MIN(trading_date) AS min_date, MAX(trading_date) AS max_date
+        FROM daily_bars
+        WHERE code IN ({marks}) AND trading_date <= ? AND adjust_flag = ?
+        GROUP BY code
+        """,
+        [*code_list, str(end_date), adjust_flag],
+    )
+    found = {str(row["code"]): row for row in rows}
+    return {
+        code: {
+            "code": code,
+            "bar_count": int(found.get(code, {}).get("bar_count") or 0),
+            "min_date": found.get(code, {}).get("min_date"),
+            "max_date": found.get(code, {}).get("max_date"),
+        }
+        for code in code_list
+    }
 
 
 def trading_dates_between(

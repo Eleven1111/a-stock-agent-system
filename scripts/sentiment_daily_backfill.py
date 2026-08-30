@@ -64,8 +64,11 @@ def bootstrap(*, min_days: int, end_date: str) -> dict[str, Any]:
         earlier = [day for day in earlier if day < earliest]
         if not earlier:
             return {
-                "status": "blocked", "reason": "no_history_before_forward_rows",
+                "status": "ok", "skipped": True,
+                "reason": "no_history_before_forward_rows",
+                "bootstrap_exhausted": True,
                 "observed_days": len(existing), "required_days": int(min_days),
+                "shortfall_days": max(0, int(min_days) - len(existing)),
             }
         bootstrap_end = earlier[-1]
     result = backfill(

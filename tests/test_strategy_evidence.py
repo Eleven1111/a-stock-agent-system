@@ -32,6 +32,7 @@ def _bars(code="600001"):
             "low": 8.8 + day / 10,
             "volume": 1000 + day,
             "pct_chg": float(day),
+            "turn": 3.0,
         })
     return rows
 
@@ -118,8 +119,13 @@ def test_build_maps_only_observed_sources_and_records_provenance():
     assert row["volume_ratio_source"] == "tencent_minute_intraday:09:45"
     assert row["breakout_time"] is None  # first seal is not silently relabelled
     assert row["evidence_provenance"]["reseal_time"]["source"] == "eastmoney_zt_pool"
-    assert artifact["canonical_forward"] is True
-    assert artifact["exploratory_reconstruction"] is False
+    assert row["evidence_provenance"]["reseal_time"]["observed_at"] == "2026-08-22T15:00:00+08:00"
+    assert row["evidence_provenance"]["reseal_time"]["source_identity"] == "eastmoney_zt_pool"
+    # 日线的全天 turn 不是「过去 20 日相同回封时刻累计换手」；绝不能代替。
+    assert row["turnover_baseline_median_pct"] is None
+    assert row["turnover_baseline_sample_days"] is None
+    assert row["turnover_baseline_semantics"] == "unavailable"
+    assert artifact["evidence_qualification"]["divergence_reseal"]["class"] == "unavailable"
     assert artifact["research_only"] is True
     assert artifact["execution_eligible"] is False
 
@@ -140,6 +146,28 @@ def test_missing_source_stays_unavailable_in_coverage_not_a_negative_observation
     assert row["volume_ratio"] is None
     assert "volume_ratio" in artifact["coverage"]["rank_surprise"]["source_missing_fields"]
     assert artifact["coverage"]["rank_surprise"]["ready_records"] == 0
+
+
+def test_reconstructed_sentiment_is_strategy_scoped_exploratory_not_dataset_canonical():
+    sentiment = [{
+        "trading_date": f"2026-01-{day:02d}",
+        "observed_at": f"2026-01-{day:02d}T15:00:00+08:00",
+        "source": "local_history_cache",
+        "status": "ok",
+    } for day in range(1, 21)]
+    artifact = evidence.build_evidence(
+        "2026-08-22", candidates=[_candidate()], auction={"asof": "2026-08-22"},
+        selection={"asof": "2026-08-22"},
+        limitup_rows=[{"代码": "600001", "所属行业": "通信设备"}],
+        minute_rows={}, daily_bars=_bars(), sentiment_series=sentiment,
+    )
+
+    assert artifact["canonical_forward"] is False
+    assert artifact["evidence_class"] == "mixed"
+    assert artifact["evidence_qualification"]["ice_point_reversal"]["class"] == "exploratory_reconstruction"
+    assert artifact["evidence_qualification"]["ice_point_reversal"]["canonical_forward_eligible"] is False
+    # Qualification is derived from source identity, not a caller-provided boolean.
+    assert "canonical_forward" not in sentiment[0]
 
 
 def test_asof_mismatch_fails_closed():

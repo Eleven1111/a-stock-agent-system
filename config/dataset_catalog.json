@@ -457,6 +457,72 @@
         "coverage_ratio is recorded per record and days below coverage.minimum_ratio are stamped coverage_status=partial rather than dropped; consumers must not read a partial day as a full-universe count.",
         "Metrics are shadow research inputs carrying calibrated=false semantics; they have never been validated against realised returns."
       ]
+    },
+    {
+      "schema": "dataset_contract_v1",
+      "dataset_id": "settled_forward_samples_v1",
+      "version": "1.0.0",
+      "description": "Immutable canonical Strategy Shadow predictions settled from next-session open through a locked primary horizon.",
+      "provider": {
+        "id": "internal:strategy_forward_settlement",
+        "adapter_version": "strategy-forward-settlement-v1"
+      },
+      "source_rank": "derived_internal",
+      "frequency": "per_settled_shadow_prediction",
+      "timezone": "Asia/Shanghai",
+      "currency": "CNY",
+      "adjustment": "pre_adjusted",
+      "point_in_time": {
+        "feature_cutoff_field": "src",
+        "feature_available_at_field": "decision_available_at",
+        "outcome_period_end_field": "dst",
+        "outcome_available_at_field": "outcome_available_at",
+        "snapshot_ref_field": "prediction_ref"
+      },
+      "coverage": {
+        "universe": "approved_canonical_forward_shadow_predictions",
+        "minimum_ratio": 0.95,
+        "missing_policy": "fail_closed"
+      },
+      "lineage": {
+        "producer": "strategy_forward_settlement",
+        "producer_version": "strategy-forward-settlement-v1",
+        "inputs": [
+          "strategy_shadow_daily_v1",
+          "local_market_history_qfq",
+          "execution_model"
+        ]
+      },
+      "fields": [
+        {"name": "entity_id", "type": "string", "semantic": "security_code", "unit": "text", "nullable": false},
+        {"name": "strategy_id", "type": "string", "semantic": "strategy_identity", "unit": "text", "nullable": false},
+        {"name": "decision_id", "type": "string", "semantic": "decision_identity", "unit": "text", "nullable": false},
+        {"name": "src", "type": "date", "semantic": "feature_cutoff_date", "unit": "date", "nullable": false},
+        {"name": "decision_available_at", "type": "datetime", "semantic": "feature_available_at", "unit": "timestamp", "nullable": false},
+        {"name": "entry_date", "type": "date", "semantic": "entry_session", "unit": "date", "nullable": false},
+        {"name": "dst", "type": "date", "semantic": "outcome_period_end_date", "unit": "date", "nullable": false},
+        {"name": "outcome_available_at", "type": "datetime", "semantic": "outcome_available_at", "unit": "timestamp", "nullable": false},
+        {"name": "horizon_sessions", "type": "integer", "semantic": "trading_session_horizon", "unit": "sessions", "nullable": false},
+        {"name": "is_primary_horizon", "type": "boolean", "semantic": "primary_horizon", "unit": "boolean", "nullable": false},
+        {"name": "gross_forward_return", "type": "float", "semantic": "forward_return", "unit": "decimal_return", "nullable": false},
+        {"name": "net_forward_return", "type": "float", "semantic": "net_forward_return", "unit": "decimal_return", "nullable": false},
+        {"name": "benchmark_forward_return", "type": "float", "semantic": "forward_return", "unit": "decimal_return", "nullable": false},
+        {"name": "gross_alpha", "type": "float", "semantic": "forward_return", "unit": "decimal_return", "nullable": false},
+        {"name": "net_alpha", "type": "float", "semantic": "net_forward_return", "unit": "decimal_return", "nullable": false},
+        {"name": "prediction_ref", "type": "string", "semantic": "market_snapshot_ref", "unit": "text", "nullable": false},
+        {"name": "prediction_sha256", "type": "string", "semantic": "artifact_digest", "unit": "sha256", "nullable": false},
+        {"name": "shadow_sha256", "type": "string", "semantic": "artifact_digest", "unit": "sha256", "nullable": false},
+        {"name": "evidence_sha256", "type": "string", "semantic": "artifact_digest", "unit": "sha256", "nullable": false},
+        {"name": "strategy_rules_sha256", "type": "string", "semantic": "artifact_digest", "unit": "sha256", "nullable": false},
+        {"name": "settlement_policy_sha256", "type": "string", "semantic": "artifact_digest", "unit": "sha256", "nullable": false},
+        {"name": "bar_snapshot_sha256", "type": "string", "semantic": "artifact_digest", "unit": "sha256", "nullable": false}
+      ],
+      "validators": ["strict_fields", "point_in_time_split", "coverage_ratio"],
+      "known_limitations": [
+        "The entry is an analytical next-session open reference, not proof that a live order filled.",
+        "Only final primary-horizon samples bound to approved policy and strategy-rule hashes may enter the research gate.",
+        "Estimated fees and slippage use a fixed notional; broker statements remain authoritative."
+      ]
     }
   ]
 }
