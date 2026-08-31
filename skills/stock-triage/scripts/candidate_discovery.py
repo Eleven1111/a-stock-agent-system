@@ -849,10 +849,11 @@ def load_signal_context_for_discovery(
         )
 
         signal_ctx = read_signal_context() or {}
+        allowed_age_days = hot_money_selection.allowed_ladder_age_days(asof)
         temperature = temperature_from_context(
             signal_ctx,
             event_asof=asof,
-            max_age_days=1,
+            max_age_days=allowed_age_days if allowed_age_days is not None else 0,
         )
         ranking_ctx = dict(signal_ctx) if temperature.get("context_fresh") else {}
         if not temperature.get("context_fresh"):

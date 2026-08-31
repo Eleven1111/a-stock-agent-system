@@ -6,6 +6,13 @@ from pathlib import Path
 import struct
 
 import auction_data_provider as provider
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _disable_live_tencent_book_requests(monkeypatch):
+    """Provider contract tests must never depend on the live quote endpoint."""
+    monkeypatch.setattr(provider, "fetch_tencent_snapshot", lambda codes: {})
 
 
 def test_easy_tdx_rows_are_normalized_from_shares_to_lots_and_windowed():
@@ -328,6 +335,70 @@ def test_batch_can_skip_history_for_full_market_intelligence(monkeypatch):
     assert not failures
     assert snapshots["600519"][0]["matched"] == 100
     assert "prev_day_volume" not in snapshots["600519"][0]
+
+
+def test_batch_fuses_tencent_book_without_replacing_easy_tdx_auction_volume(monkeypatch):
+    _fake_easy_tdx(monkeypatch)
+    monkeypatch.setattr(
+        provider,
+        "fetch_tencent_snapshot",
+        lambda codes: {
+            "sh600519": {
+                "bids": [(10.0, 5000.0)],
+                "asks": [(10.01, 3000.0)],
+                "volume": 999_999.0,
+                "provider": "tencent",
+                "provider_version": "fixture-v1",
+                "fetched_at": "2026-08-31T09:25:00+08:00",
+            }
+        },
+        raising=False,
+    )
+
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        ["sh600519"],
+        asof="2026-08-31",
+        previous_day_metrics={
+            "600519": {
+                "prev_day_volume": 10_000.0,
+                "prev_close": 9.9,
+            }
+        },
+    )
+
+    assert failures == {}
+    row = snapshots["600519"][0]
+    assert row["volume"] == 1.0
+    assert row["matched"] == 100
+    assert row["bids"] == [(10.0, 5000.0)]
+    assert row["asks"] == [(10.01, 3000.0)]
+    assert row["book_provider"] == "tencent"
+    assert row["book_status"] == "ok"
+
+
+def test_tencent_book_failure_degrades_book_only(monkeypatch):
+    _fake_easy_tdx(monkeypatch)
+    monkeypatch.setattr(
+        provider,
+        "fetch_tencent_snapshot",
+        lambda codes: (_ for _ in ()).throw(RuntimeError("quote down")),
+    )
+
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        ["sh600519"],
+        previous_day_metrics={
+            "600519": {"prev_day_volume": 10_000.0, "prev_close": 9.9}
+        },
+    )
+
+    assert failures == {}
+    row = snapshots["600519"][0]
+    assert row["matched"] == 100
+    assert row["volume"] == 1.0
+    assert row["book_status"] == "unavailable"
+    assert "quote down" in row["book_failure_reason"]
+    assert row["bids"] == []
+    assert row["asks"] == []
 
 
 def test_mootdx_daily_adapter_requests_count_with_offset(monkeypatch):

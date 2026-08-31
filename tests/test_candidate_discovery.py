@@ -825,6 +825,44 @@ def test_discovery_ignores_stale_hot_money_context(monkeypatch):
     assert temperature["context_fresh"] is False
 
 
+def test_discovery_accepts_previous_friday_ladder_on_monday(monkeypatch):
+    import signal_context
+
+    monkeypatch.setattr(
+        signal_context,
+        "read_signal_context",
+        lambda: {
+            "ladder_asof": "2026-08-28",
+            "lianban_ladder": {"600001": {"lianban": 2}},
+            "prev_lianban_ladder": {"600001": {"lianban": 1}},
+        },
+    )
+
+    signal_ctx, temperature = discovery.load_signal_context_for_discovery("2026-08-31")
+
+    assert temperature["context_fresh"] is True
+    assert signal_ctx["lianban_ladder"]["600001"]["lianban"] == 2
+
+
+def test_discovery_accepts_previous_trading_day_ladder_after_long_holiday(monkeypatch):
+    import signal_context
+
+    monkeypatch.setattr(
+        signal_context,
+        "read_signal_context",
+        lambda: {
+            "ladder_asof": "2026-02-13",
+            "lianban_ladder": {"600001": {"lianban": 3}},
+            "prev_lianban_ladder": {"600001": {"lianban": 2}},
+        },
+    )
+
+    signal_ctx, temperature = discovery.load_signal_context_for_discovery("2026-02-23")
+
+    assert temperature["context_fresh"] is True
+    assert signal_ctx["lianban_ladder"]["600001"]["lianban"] == 3
+
+
 def test_discovery_keeps_same_day_social_attention_when_ladder_is_stale(monkeypatch):
     import signal_context
 
