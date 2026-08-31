@@ -3,28 +3,18 @@
   "waivers": [
     {
       "expires_on": "2026-10-31",
-      "reason": "pre-existing module-level sys.path bootstrap in signal_context.py, unrelated to the information-flow freshness change (ladder rollover / capital-flow targets) that touched this file",
-      "violation_id": "06cf4349f0093f96fd6f"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing long build_social_attention_snapshot in social_attention.py; the freshness change only added the theme_attention_evidence projection (now decomposed into helpers) and did not lengthen this snapshot builder",
-      "violation_id": "8601cd804c83f75a018c"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing 1-line-over-budget apply_leader_identity in hot_money_selection.py (already 81 lines at HEAD); the daban strategy-optimization P0 change only threaded board_height/is_mid_position through the existing per-candidate loop via a new extracted helper (_board_position), it did not grow the function's own logic",
-      "violation_id": "1137efc91356aca708f7"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing broad-except around the optional `import yaml` guard in daban_config.py; the daban P1 change only added the emotion_cycle/index_trend default blocks and did not touch this exception handler",
-      "violation_id": "a1f78d7b29c7687d7087"
-    },
-    {
-      "expires_on": "2026-10-31",
       "reason": "pre-existing sys.path mutation in chanlun_gate_evaluation.py, unrelated to the T6 --lineage v2 output-path change that touched this file",
       "violation_id": "02a08608b84dfc62d469"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "02c93e1ddcad007cdb55"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "03bedce22fdfd4ca7e7a"
     },
     {
       "expires_on": "2026-10-31",
@@ -35,6 +25,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing long evaluate_decision in decision_policy.py; the issue #172 change only added two reason codes to the guardrail mapping table",
       "violation_id": "042bb6dbd72e68cab84b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing module-level sys.path bootstrap in signal_context.py, unrelated to the information-flow freshness change (ladder rollover / capital-flow targets) that touched this file",
+      "violation_id": "06cf4349f0093f96fd6f"
     },
     {
       "expires_on": "2026-10-31",
@@ -53,13 +48,53 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "0c2ec7ea34c332d9b183"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "violation_id": "0c6094140c617b5efa7e",
+      "reason": "_run_one 的 catch-all 是 fail-closed 设计的一部分：单个策略抛错要记成该策略 unavailable 并保留异常类型进 artifact，收窄异常类型会让未预期错误击穿整个 shadow 批次"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "0c7bb541ac06ebf2bb84"
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "0c85c36c86e6f48d36bb"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "100158091da68e1c6a45"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing 1-line-over-budget apply_leader_identity in hot_money_selection.py (already 81 lines at HEAD); the daban strategy-optimization P0 change only threaded board_height/is_mid_position through the existing per-candidate loop via a new extracted helper (_board_position), it did not grow the function's own logic",
+      "violation_id": "1137efc91356aca708f7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "12bd9dd3f610b609194c"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in recommendation_audit.py touched by tail-close audit integration",
       "violation_id": "1402f83c9305fcbc794f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "15993869da2bdf7854b5"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "1609f47b14853e8b9e5b"
     },
     {
       "expires_on": "2026-10-31",
@@ -70,6 +105,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing sys.path mutation in chan_signal_backtest.py, unrelated to the T6 v2 lineage parametrization that touched this file",
       "violation_id": "16e6781a28e487494538"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "16e6f84499a6ceef0ced"
     },
     {
       "expires_on": "2026-10-31",
@@ -89,7 +129,17 @@
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "195f4482294cb1c8d16d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "1a4ca28d2bf6f834c573"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "1a88c5218fc87728a344"
     },
     {
       "expires_on": "2026-10-31",
@@ -100,6 +150,31 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "1bedcefe44fa24e0a061"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "1c27e4a5aaafb10a4f42"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "1d0e1115f85f775920f8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "preopen-preflight (PR issue #239 T4): the health-check guard must survive any single probe raising, and the easy_tdx TCP probe cannot enumerate its exception types",
+      "violation_id": "1edc58c9bd354baa8fa3"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "1fafca36887e304a4376"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "212310aebcf74b565964"
     },
     {
       "expires_on": "2026-10-31",
@@ -118,6 +193,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "25e9c3337f710d506165"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "new skill entrypoint announcement-radar/radar.py: sys.path bootstrap matching the existing skill-script convention (news-to-sector etc.); budget raised 119->121 alongside",
       "violation_id": "27b1d71d015d8f94c03a"
     },
@@ -128,13 +208,68 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "28df4c1b8dde54e32b1c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "298a9fe8f661cada7c9a"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in chan_structure.py touched by the chanlun T1 笔/分型 split into chan_kline.py",
       "violation_id": "2a0dc78a1cdd2b67af56"
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "new script scripts/eod_anomaly_fast.py: per-stock minute fetch in the scan loop is best-effort; one stock's failure must not abort the batch",
+      "violation_id": "2a110950024b9c05cc65"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "2b4abcae09da2c4f7db4"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "2b7f53bf283ffc86dc6f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing long build_execution_plan in recommendation_quality.py (already over budget at HEAD); the periodic-disclosure exemption fix only touched scan_announcement_risks and added a module-level helper, it did not lengthen this function",
+      "violation_id": "2b9dce6d2a9af927bc06"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "2d6a253ad86df0efa729"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "2d8a2e8de0e5f580df81"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "2da842248f385fcef1d6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "2e7012c745cb001fb7eb"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "2ef6dcf42e87a54ca02a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "3194719b80df1d45fd8b"
     },
     {
       "expires_on": "2026-10-31",
@@ -153,8 +288,38 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "33cc8fd28a03632038f4"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
       "violation_id": "37eb11a6a14ff8e0202a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "3854e46176e54c7ee3eb"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "385d912763f3cb8c46d2"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "395fce6d923d42603151"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "3b5e5218eea36f8d7659"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "3b7eb3e6a25e7ab890f2"
     },
     {
       "expires_on": "2026-10-31",
@@ -193,8 +358,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "453c696adfb70ee5212b"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "46009e43e1ac0732e46d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "493a756e0f750979e6c8"
     },
     {
       "expires_on": "2026-10-31",
@@ -208,8 +383,63 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "4eb487ad6bb283afe412"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "new script scripts/eod_anomaly_fast.py: sys.path bootstrap to skills/common and stock-triage scripts, the repository-wide convention for every scripts/ entrypoint (budget raised 36->39 alongside)",
+      "violation_id": "4ffe980eb2ed80687fc4"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "545c8bb69c7e4dda22c9"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "546a5594a771cf140593"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in skills/stock-triage/scripts/intraday_monitor.py touched by #115 sector-monitor degradation notice",
       "violation_id": "5514a8644c3abcd824e0"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "5529876c6d58167d17ef"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "55c56d3ac650c196d55a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "5673bd7cbf3d8ad8fa74"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "56c7e62fb4747729caff"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "573196c39dd10a612dc0"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "575407b26479adca4a97"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "581207980d51fa8c2045"
     },
     {
       "expires_on": "2026-10-31",
@@ -238,6 +468,16 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing 166-line cleanup_storage in a file modified by issue #239 T8 (snapshot-gc fact cache). The PR adds ~10 lines of cache wiring and does not restructure the deletion plan; splitting the function that decides what gets deleted is deferred to its own change so it can be reviewed on its own.",
+      "violation_id": "5d5bff98e8713dc4113a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "5dbede5ed5dc6903f794"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "5f46a797893280aee2eb"
     },
@@ -253,8 +493,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "627634acb57ed5834fb4"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "628ca709910d9be859df"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "638df5a4d1846c2f2f24"
     },
     {
       "expires_on": "2026-10-31",
@@ -263,8 +513,23 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "665fde66d81ad9de33c4"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "668b2de12594eac05bba"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "66fb1cd6691f47b7c2ee"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "6741c777cdfa93684eb6"
     },
     {
       "expires_on": "2026-10-31",
@@ -273,13 +538,38 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "6969157f368e61a79edf"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "6c0bd34a1b61f9cf5506"
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "6c6fc4c10913a47c6443"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
       "violation_id": "6d5483b1ae4be283b73f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "6dc070d33ac9d34e812e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "6dd94cff1a319ef5fc52"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "6e4e0cffa72d75561318"
     },
     {
       "expires_on": "2026-10-31",
@@ -290,6 +580,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "72ad698a7dc9bdcfd220"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "72bc11fe62edefb1d869"
     },
     {
       "expires_on": "2026-10-31",
@@ -328,8 +623,23 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "7ddd8e03a4d8549b04dc"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "7e015c59801a4241d473"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "7e70ae577267fe04b288"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "7f55a0942c19571ff711"
     },
     {
       "expires_on": "2026-10-31",
@@ -348,8 +658,33 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing long build_social_attention_snapshot in social_attention.py; the freshness change only added the theme_attention_evidence projection (now decomposed into helpers) and did not lengthen this snapshot builder",
+      "violation_id": "8601cd804c83f75a018c"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "867479147f5a037cbb7b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "89643a26e312df6a9393"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "8a0dc0384a03c15a52ae"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "8aef716f23e30ba1fa1b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "8b3e6ae33170b44d7639"
     },
     {
       "expires_on": "2026-10-31",
@@ -363,6 +698,21 @@
     },
     {
       "expires_on": "2026-10-31",
+      "violation_id": "8d1fbf46ac75bc68a33f",
+      "reason": "strategy_shadow_runner 用与 scripts/ 下其余入口一致的 module-level sys.path 引导加载 skills/common；绝对包导入方案本仓已证伪，不重试"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "8e525f0d0c6211461451"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "91d2005ad666b2a07b29"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "research_gate.py CLI 入口的既有 sys.path bootstrap，与横截面方向检验无关",
       "violation_id": "926a09ce04ed5f5f6f3c"
     },
@@ -370,6 +720,16 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing broad except in extract_pdf_text (best-effort PDF text); file modified only to reuse the shared cninfo_client transport",
       "violation_id": "92c312f3a611ab9c422b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "93c8390e0c7ad128958a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "9406458385eea9c0b16d"
     },
     {
       "expires_on": "2026-10-31",
@@ -398,6 +758,21 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "97564abc9bc01be686b6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "9798c9ff4046be38314f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "9852cf812d50a3281003"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "987bb9e9545a5776f9e0"
     },
@@ -408,8 +783,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "992f52259e26b838fe31"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
       "violation_id": "9ab3af0ec61591283fc7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "9afc70d8d8782cf6bb4c"
     },
     {
       "expires_on": "2026-10-31",
@@ -418,8 +803,23 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "9beac2583258cb497d5f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "9c0a2f5c8df4611bc77c"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in skills/daban-stock-picker/scripts/open_confirmation.py touched by #112/#113 fail-closed fix",
       "violation_id": "9d1eb6cfb5766b61fe83"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "9d79a8d3f47002853b75"
     },
     {
       "expires_on": "2026-10-31",
@@ -429,7 +829,22 @@
     {
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "9f9c98fddc0b1a951d5e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "a074fd7c3b60a9ade47a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "new script scripts/eod_anomaly_fast.py: sys.path bootstrap to skills/common and stock-triage scripts, the repository-wide convention for every scripts/ entrypoint (budget raised 36->39 alongside)",
+      "violation_id": "a084c296fd847fae04c7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a0d416ddc99599b4921a"
     },
     {
       "expires_on": "2026-10-31",
@@ -440,6 +855,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in skills/daban-stock-picker/scripts/open_confirmation.py touched by #112/#113 fail-closed fix",
       "violation_id": "a1e37e884eb5e7a51a1e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing broad-except around the optional `import yaml` guard in daban_config.py; the daban P1 change only added the emotion_cycle/index_trend default blocks and did not touch this exception handler",
+      "violation_id": "a1f78d7b29c7687d7087"
     },
     {
       "expires_on": "2026-10-31",
@@ -463,8 +883,38 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a4f445540da3829fa9f9"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a61d19bdd3f74c9db7df"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "a6397a707953b0d5b948"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a656e3dedc12a92f8240"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing module-level sys.path bootstrap in theme_strength.py, unrelated to the P2 ThemeScore additions (novelty/timing dimensions) that touched this file",
+      "violation_id": "a66a3c933b5d6f0cf2c3"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "a71f29d1e30a119305a7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "a8473d3184bfe3691edb"
     },
     {
       "expires_on": "2026-10-31",
@@ -478,8 +928,38 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "abb14991f6b3f828d4a8"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "ac592c4d56d23899547d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "ad3d4e53f06e57becb1d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "aeb3a98d20d18ccea23f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "aec76663423d51223b2c"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "af2bc6f5da834fb80962"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "af6f59226b1aec4485ed"
     },
     {
       "expires_on": "2026-10-31",
@@ -488,8 +968,33 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "afc3b32a19c16a9daaba"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "new script scripts/eod_anomaly_fast.py: main() orchestrates the multi-step fast EOD scan (spot -> screen -> minute -> filter -> positions -> output); splitting it would obscure the pipeline order",
+      "violation_id": "b0c6de9c114c752d5b79"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "harness convergence (trace + typed command): pre-existing debt in a touched file",
       "violation_id": "b2fb962378b17c6508fa"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "b34735953c4c4477c7aa"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "b3702b1b156547b0a6c7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "b389a6fa135a482fdb70"
     },
     {
       "expires_on": "2026-10-31",
@@ -503,8 +1008,28 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
+      "violation_id": "b7aa0228d7215f72908e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "ba26eb517a6cb7d57dca"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "ba3143b3e3c34d296c8e"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "ba8636e9c01807b7c348"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "bac2dcd9cc8c2a13a458"
     },
     {
       "expires_on": "2026-10-31",
@@ -513,8 +1038,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "bcae1b234c2041542cfb"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "bcd3c1fe5508a8389536"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "new script scripts/eod_anomaly_fast.py: sys.path bootstrap to skills/common and stock-triage scripts, the repository-wide convention for every scripts/ entrypoint (budget raised 36->39 alongside)",
+      "violation_id": "bd3ffe2ac9b8f7c30878"
     },
     {
       "expires_on": "2026-10-31",
@@ -528,8 +1063,28 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "be165d20f820fdeee1f3"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "bece682b4beb3bb3f26d"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "bf92a2e73363a34d122c"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "研究闸门里两处 sys.path 插入合并为单一 _ensure_common_on_path；总量未增（仍为 121），仅因宿主符号改变导致 violation id 变化",
       "violation_id": "c0db5a0c6def99dedbc9"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "c12f5e073f480684edb7"
     },
     {
       "expires_on": "2026-10-31",
@@ -543,8 +1098,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "c26f5103a2759450ed06"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
       "violation_id": "c278ad8408021bf75f3f"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "c36714ea06da7d63c194"
     },
     {
       "expires_on": "2026-10-31",
@@ -563,8 +1128,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "c72dd0956aa58cbfc93f"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing long _apply_prices in portfolio_manager.py, untouched by the issue #172 reclassify backfill",
       "violation_id": "c77a3593ffbe6db0fcaa"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "c7aa94dce0dd4b77bf63"
     },
     {
       "expires_on": "2026-10-31",
@@ -578,8 +1153,18 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "c9c4aa5a723819e7660c"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt (sys.path bootstrap) in serenity_to_feishu.py touched by the feishu disclosure footer change",
       "violation_id": "c9d57a5c8be7d257d2b6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "cbd9558c313a89143d1e"
     },
     {
       "expires_on": "2026-10-31",
@@ -588,8 +1173,38 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "cc745661207f8f8a1766"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "cca233e629576868b8c2"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in candidate_discovery.py touched by the candidate-preopen auction-window quote caching fix",
       "violation_id": "cce0d92fcafac1dc1eda"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "cd83ade8e6e9bcfc154b"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "cf179fed0a33a840a2b7"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "cf27be5b01a48a68d1c2"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "d0efa26fa793b5e159d6"
     },
     {
       "expires_on": "2026-10-31",
@@ -598,8 +1213,28 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "d1ef5deec865e7f1371d"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in eod_anomaly_scanner.py touched by source-schema resilience fix",
       "violation_id": "d34ed81d0d5438e5e63a"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "d357225b0edd6ea23221"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "d43682ac34feb88644ce"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "d4c038f7814dde495e6c"
     },
     {
       "expires_on": "2026-10-31",
@@ -608,13 +1243,33 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "d6920284d7fb7e709d47"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "d6a5b606d51a8b3995da"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in scripts/market_intelligence_brief.py touched by #112/#113 fail-closed fix",
       "violation_id": "d7e8dccc1c34c398f486"
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "d98e846ce36c85f9effc"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in skills/daban-stock-picker/scripts/auction_collector.py touched by #112/#113 fail-closed fix",
       "violation_id": "db074870deffd506aaef"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "db56b070f5d9be3e1c51"
     },
     {
       "expires_on": "2026-10-31",
@@ -628,8 +1283,23 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "ddafff897072f5fc0ff8"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
       "violation_id": "ddf40dc31ea55741f4bd"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "def9992f55397c605ed6"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "e028ac884aff6b9e884b"
     },
     {
       "expires_on": "2026-10-31",
@@ -643,6 +1313,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "e160bee14f3574659ad8"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing debt (broad except around lark-cli subprocess) in serenity_to_feishu.py touched by the feishu disclosure footer change",
       "violation_id": "e3d8728aa2958c257f62"
     },
@@ -650,6 +1325,11 @@
       "expires_on": "2026-10-31",
       "reason": "pre-existing debt in skills/daban-stock-picker/scripts/auction_collector.py touched by #112/#113 fail-closed fix",
       "violation_id": "e4381a7b9fa29e3d8ca2"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "e45bf204a4a007d4f014"
     },
     {
       "expires_on": "2026-10-31",
@@ -673,8 +1353,23 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "e94558f92e17fd129d34"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "eaddc059822a8d4319f8"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing long add_position in portfolio_manager.py, untouched by the issue #172 reclassify backfill",
       "violation_id": "ec0b9c2bc761f473b794"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "eca920e6f12af73518ca"
     },
     {
       "expires_on": "2026-10-31",
@@ -693,8 +1388,63 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "ee12d49991b21a68c6ae"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
+      "violation_id": "eec004136bb8e95f5972"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "pre-existing broad except in refresh_prices, untouched by the issue #172 reclassify backfill",
       "violation_id": "f052567e5b5fdc07a15e"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
+      "violation_id": "f30305b7aa2b49979151"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt carried along when the module moved into skills/common",
+      "violation_id": "f31ead08c4c8af82c0ba"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "f477ee1894cac623abaf"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "http_client.py request_bytes: push2delay mirror is best-effort by design; any mirror failure must be wrapped into DataSourceError with the primary error, never surface raw (noqa BLE001)",
+      "violation_id": "f550321680423a7a7a01"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "f6ed6a80c6314df4e502"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "new script scripts/eod_anomaly_fast.py: position_60d per-stock fetch is best-effort; a single stock's kline failure must return None, not abort the scan",
+      "violation_id": "f70fd10cf45ff9c63bad"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "preopen-preflight (PR issue #239 T4): the health-check guard must survive any single probe raising, and the easy_tdx TCP probe cannot enumerate its exception types",
+      "violation_id": "f73c7d58d875fe58b821"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "f9c129e8ef590184fbbf"
+    },
+    {
+      "expires_on": "2026-10-31",
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "f9dd2e48b70dbaacaa2e"
     },
     {
       "expires_on": "2026-10-31",
@@ -708,473 +1458,8 @@
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "industry_map.refresh: pre-existing — a build failure must degrade to keeping the prior cache (stale_cache) rather than raising, so a bad data source never erases a usable map",
-      "violation_id": "fd05f5a7b7f710f8b9f0"
-    },
-    {
-      "expires_on": "2026-10-31",
       "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
-      "violation_id": "fee0fda7fb28d94c38d1"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "d1ef5deec865e7f1371d"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "aec76663423d51223b2c"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "3194719b80df1d45fd8b"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "0c2ec7ea34c332d9b183"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "4eb487ad6bb283afe412"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "ba3143b3e3c34d296c8e"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "ac592c4d56d23899547d"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "d357225b0edd6ea23221"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "db56b070f5d9be3e1c51"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "212310aebcf74b565964"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "cca233e629576868b8c2"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "1c27e4a5aaafb10a4f42"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "9798c9ff4046be38314f"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "ad3d4e53f06e57becb1d"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "b389a6fa135a482fdb70"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "66fb1cd6691f47b7c2ee"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "f30305b7aa2b49979151"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "89643a26e312df6a9393"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "9406458385eea9c0b16d"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "16e6f84499a6ceef0ced"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "2d6a253ad86df0efa729"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "9d79a8d3f47002853b75"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "bf92a2e73363a34d122c"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "7ddd8e03a4d8549b04dc"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the evidence-governance change (PR #192)",
-      "violation_id": "12bd9dd3f610b609194c"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "6e4e0cffa72d75561318"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "7e015c59801a4241d473"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "1fafca36887e304a4376"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "0c85c36c86e6f48d36bb"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "c36714ea06da7d63c194"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "9c0a2f5c8df4611bc77c"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "a4f445540da3829fa9f9"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "afc3b32a19c16a9daaba"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "cc745661207f8f8a1766"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "9beac2583258cb497d5f"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "af6f59226b1aec4485ed"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "f477ee1894cac623abaf"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "1609f47b14853e8b9e5b"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "ba26eb517a6cb7d57dca"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "581207980d51fa8c2045"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "9852cf812d50a3281003"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "aeb3a98d20d18ccea23f"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "9afc70d8d8782cf6bb4c"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "03bedce22fdfd4ca7e7a"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "867479147f5a037cbb7b"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "6dd94cff1a319ef5fc52"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "8b3e6ae33170b44d7639"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "395fce6d923d42603151"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "be165d20f820fdeee1f3"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "fb9aa52b3e95f3c95ca2"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "a656e3dedc12a92f8240"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "992f52259e26b838fe31"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "e45bf204a4a007d4f014"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "c12f5e073f480684edb7"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "627634acb57ed5834fb4"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "a61d19bdd3f74c9db7df"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "ee12d49991b21a68c6ae"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "ddafff897072f5fc0ff8"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "5673bd7cbf3d8ad8fa74"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "575407b26479adca4a97"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "638df5a4d1846c2f2f24"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "7f55a0942c19571ff711"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "cd83ade8e6e9bcfc154b"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "c26f5103a2759450ed06"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "abb14991f6b3f828d4a8"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "6969157f368e61a79edf"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "bcae1b234c2041542cfb"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "d6a5b606d51a8b3995da"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "573196c39dd10a612dc0"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "d0efa26fa793b5e159d6"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "97564abc9bc01be686b6"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "eca920e6f12af73518ca"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "28df4c1b8dde54e32b1c"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "8e525f0d0c6211461451"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "665fde66d81ad9de33c4"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "545c8bb69c7e4dda22c9"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "5dbede5ed5dc6903f794"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "1a88c5218fc87728a344"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "eaddc059822a8d4319f8"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "3854e46176e54c7ee3eb"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "25e9c3337f710d506165"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "a0d416ddc99599b4921a"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "f9c129e8ef590184fbbf"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "298a9fe8f661cada7c9a"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "e160bee14f3574659ad8"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "5529876c6d58167d17ef"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "100158091da68e1c6a45"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "55c56d3ac650c196d55a"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "bac2dcd9cc8c2a13a458"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "02c93e1ddcad007cdb55"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "a71f29d1e30a119305a7"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
-      "violation_id": "453c696adfb70ee5212b"
+      "violation_id": "faf70c2871d4ded48ed7"
     },
     {
       "expires_on": "2026-10-31",
@@ -1183,203 +1468,28 @@
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
-      "violation_id": "91d2005ad666b2a07b29"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
-      "violation_id": "a8473d3184bfe3691edb"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
-      "violation_id": "2e7012c745cb001fb7eb"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
-      "violation_id": "b7aa0228d7215f72908e"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
-      "violation_id": "6dc070d33ac9d34e812e"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt in a file touched by the stage-2 path consolidation",
-      "violation_id": "493a756e0f750979e6c8"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt carried along when the module moved into skills/common",
-      "violation_id": "f31ead08c4c8af82c0ba"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt carried along when the module moved into skills/common",
-      "violation_id": "3b5e5218eea36f8d7659"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt carried along when the module moved into skills/common",
-      "violation_id": "d4c038f7814dde495e6c"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt carried along when the module moved into skills/common",
-      "violation_id": "3b7eb3e6a25e7ab890f2"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt carried along when the module moved into skills/common",
-      "violation_id": "d98e846ce36c85f9effc"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing debt carried along when the module moved into skills/common",
-      "violation_id": "6741c777cdfa93684eb6"
-    },
-    {
-      "expires_on": "2026-10-31",
       "reason": "pre-existing debt carried along when the module moved into skills/common",
       "violation_id": "fb823aaf4bd4a9fde0fa"
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "new script scripts/eod_anomaly_fast.py: sys.path bootstrap to skills/common and stock-triage scripts, the repository-wide convention for every scripts/ entrypoint (budget raised 36->39 alongside)",
-      "violation_id": "4ffe980eb2ed80687fc4"
+      "reason": "pre-existing debt in a file touched by the skills/common packaging change",
+      "violation_id": "fb9aa52b3e95f3c95ca2"
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "new script scripts/eod_anomaly_fast.py: sys.path bootstrap to skills/common and stock-triage scripts, the repository-wide convention for every scripts/ entrypoint (budget raised 36->39 alongside)",
-      "violation_id": "a084c296fd847fae04c7"
+      "reason": "industry_map.refresh: pre-existing — a build failure must degrade to keeping the prior cache (stale_cache) rather than raising, so a bad data source never erases a usable map",
+      "violation_id": "fd05f5a7b7f710f8b9f0"
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "new script scripts/eod_anomaly_fast.py: sys.path bootstrap to skills/common and stock-triage scripts, the repository-wide convention for every scripts/ entrypoint (budget raised 36->39 alongside)",
-      "violation_id": "bd3ffe2ac9b8f7c30878"
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "fe354b77aa37566d1df6"
     },
     {
       "expires_on": "2026-10-31",
-      "reason": "new script scripts/eod_anomaly_fast.py: position_60d per-stock fetch is best-effort; a single stock's kline failure must return None, not abort the scan",
-      "violation_id": "f70fd10cf45ff9c63bad"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "new script scripts/eod_anomaly_fast.py: main() orchestrates the multi-step fast EOD scan (spot -> screen -> minute -> filter -> positions -> output); splitting it would obscure the pipeline order",
-      "violation_id": "b0c6de9c114c752d5b79"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "new script scripts/eod_anomaly_fast.py: per-stock minute fetch in the scan loop is best-effort; one stock's failure must not abort the batch",
-      "violation_id": "2a110950024b9c05cc65"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "http_client.py request_bytes: push2delay mirror is best-effort by design; any mirror failure must be wrapped into DataSourceError with the primary error, never surface raw (noqa BLE001)",
-      "violation_id": "f550321680423a7a7a01"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "2b7f53bf283ffc86dc6f"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "93c8390e0c7ad128958a"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "2b4abcae09da2c4f7db4"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "1d0e1115f85f775920f8"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "d43682ac34feb88644ce"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "eec004136bb8e95f5972"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "b34735953c4c4477c7aa"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "def9992f55397c605ed6"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "c7aa94dce0dd4b77bf63"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "cbd9558c313a89143d1e"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "e028ac884aff6b9e884b"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "c9c4aa5a723819e7660c"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "auction data-provider fallback chain / local market-history cache introduced by PR #240: third-party source guards degrade instead of crashing",
-      "violation_id": "2d8a2e8de0e5f580df81"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "preopen-preflight (PR issue #239 T4): the health-check guard must survive any single probe raising, and the easy_tdx TCP probe cannot enumerate its exception types",
-      "violation_id": "f73c7d58d875fe58b821"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "preopen-preflight (PR issue #239 T4): the health-check guard must survive any single probe raising, and the easy_tdx TCP probe cannot enumerate its exception types",
-      "violation_id": "1edc58c9bd354baa8fa3"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing 166-line cleanup_storage in a file modified by issue #239 T8 (snapshot-gc fact cache). The PR adds ~10 lines of cache wiring and does not restructure the deletion plan; splitting the function that decides what gets deleted is deferred to its own change so it can be reviewed on its own.",
-      "violation_id": "5d5bff98e8713dc4113a"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing module-level sys.path bootstrap in theme_strength.py, unrelated to the P2 ThemeScore additions (novelty/timing dimensions) that touched this file",
-      "violation_id": "a66a3c933b5d6f0cf2c3"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "violation_id": "8d1fbf46ac75bc68a33f",
-      "reason": "strategy_shadow_runner 用与 scripts/ 下其余入口一致的 module-level sys.path 引导加载 skills/common；绝对包导入方案本仓已证伪，不重试"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "violation_id": "0c6094140c617b5efa7e",
-      "reason": "_run_one 的 catch-all 是 fail-closed 设计的一部分：单个策略抛错要记成该策略 unavailable 并保留异常类型进 artifact，收窄异常类型会让未预期错误击穿整个 shadow 批次"
-    },
-    {
-      "expires_on": "2026-10-31",
-      "reason": "pre-existing long build_execution_plan in recommendation_quality.py (already over budget at HEAD); the periodic-disclosure exemption fix only touched scan_announcement_risks and added a module-level helper, it did not lengthen this function",
-      "violation_id": "2b9dce6d2a9af927bc06"
+      "reason": "pre-existing debt in a risk-boundary file modified by audit remediation",
+      "violation_id": "fee0fda7fb28d94c38d1"
     }
   ]
 }
