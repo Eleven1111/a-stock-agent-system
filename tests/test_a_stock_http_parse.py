@@ -3,7 +3,12 @@
 from http_client import HttpResult
 
 import a_stock_http
-from a_stock_http import parse_tencent_minute_response, parse_tencent_quote_line, _TENCENT_FIELDS
+from a_stock_http import (
+    _TENCENT_FIELDS,
+    parse_sina_snapshot_line,
+    parse_tencent_minute_response,
+    parse_tencent_quote_line,
+)
 
 
 def _build_line(code="sz002156"):
@@ -117,4 +122,49 @@ def test_snapshot_uses_https_and_is_directionally_eligible(monkeypatch):
 
     assert requested["url"].startswith("https://")
     assert quote["transport_trust"] == "authenticated"
+    assert quote["directional_eligible"] is True
+
+
+def _build_sina_line(code="sh600519"):
+    parts = [""] * 33
+    parts[0:10] = [
+        "贵州茅台", "1297.99", "1297.40", "1296.08", "1305.00",
+        "1286.00", "1295.90", "1296.09", "1300157", "1678884022",
+    ]
+    bids = [(1295.90, 500), (1295.83, 100), (1295.80, 100), (1295.57, 2100), (1295.56, 100)]
+    asks = [(1296.09, 200), (1296.17, 100), (1296.19, 200), (1296.25, 200), (1296.28, 100)]
+    for index, (price, volume) in enumerate(bids):
+        parts[10 + index * 2] = str(volume)
+        parts[11 + index * 2] = str(price)
+    for index, (price, volume) in enumerate(asks):
+        parts[20 + index * 2] = str(volume)
+        parts[21 + index * 2] = str(price)
+    parts[30] = "2026-08-31"
+    parts[31] = "11:30:00"
+    return f'var hq_str_{code}="' + ",".join(parts) + '";'
+
+
+def test_parse_sina_snapshot_exposes_five_levels():
+    parsed = parse_sina_snapshot_line(_build_sina_line())
+
+    assert parsed["code"] == "sh600519"
+    assert parsed["bids"][0] == (1295.90, 500.0)
+    assert parsed["bids"][4] == (1295.56, 100.0)
+    assert parsed["asks"][0] == (1296.09, 200.0)
+    assert parsed["asks"][4] == (1296.28, 100.0)
+
+
+def test_sina_snapshot_uses_referer_and_authenticated_https(monkeypatch):
+    requested = {}
+
+    def fake_request_text(url, **kwargs):
+        requested.update(url=url, kwargs=kwargs)
+        return HttpResult(_build_sina_line(), "2026-08-31T03:30:00+00:00", 1)
+
+    monkeypatch.setattr(a_stock_http, "request_text", fake_request_text)
+    quote = a_stock_http.fetch_sina_snapshot(["sh600519"])["sh600519"]
+
+    assert requested["url"].startswith("https://")
+    assert requested["kwargs"]["headers"]["Referer"] == "https://finance.sina.com.cn/"
+    assert quote["provider"] == "sina"
     assert quote["directional_eligible"] is True

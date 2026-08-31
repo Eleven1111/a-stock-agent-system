@@ -34,6 +34,8 @@ from provider_contract import transport_contract
 
 TENCENT_QUOTE_ADAPTER_VERSION = "tencent-adapter-v3"
 TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
+SINA_QUOTE_ADAPTER_VERSION = "sina-orderbook-adapter-v1"
+SINA_QUOTE_URL = "https://hq.sinajs.cn/list="
 
 
 def load_hermes_env() -> Dict[str, str]:
@@ -152,9 +154,10 @@ def parse_tencent_orderbook_line(line: str) -> Optional[Dict[str, Any]]:
 
 def tencent_symbol(code: str) -> str:
     normalized = str(code).strip().lower()
-    if normalized.startswith(("sh", "sz", "hk")):
+    if normalized.startswith(("sh", "sz", "bj", "hk")):
         return normalized
-    return ("sh" if normalized.startswith("6") else "sz") + normalized.zfill(6)
+    market = "sh" if normalized.startswith("6") else "bj" if normalized.startswith(("4", "8")) else "sz"
+    return market + normalized.zfill(6)
 
 
 def fetch_tencent_quotes_result(
@@ -264,6 +267,80 @@ def fetch_tencent_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
             "asks": book["asks"],
             "provider": "tencent",
             "provider_version": TENCENT_QUOTE_ADAPTER_VERSION,
+            "fetched_at": response.fetched_at,
+            "transport_trust": transport["trust"],
+            "transport_reason": transport["reason"],
+            "directional_eligible": transport["directional_eligible"],
+        }
+    return results
+
+
+def parse_sina_snapshot_line(line: str) -> Optional[Dict[str, Any]]:
+    """Parse one detailed Sina quote row, including five bid/ask levels."""
+    if "=" not in line:
+        return None
+    code_raw, data = line.split("=", 1)
+    code = code_raw.replace("var hq_str_", "").strip()
+    parts = data.strip().rstrip(";").strip().strip('"').split(",")
+    if len(parts) < 32 or not code:
+        return None
+    bids = [(_f(parts, 11 + 2 * i), _f(parts, 10 + 2 * i)) for i in range(5)]
+    asks = [(_f(parts, 21 + 2 * i), _f(parts, 20 + 2 * i)) for i in range(5)]
+    return {
+        "code": code,
+        "name": parts[0] or None,
+        "open": _f(parts, 1),
+        "prev_close": _f(parts, 2),
+        "price": _f(parts, 3),
+        "high": _f(parts, 4),
+        "low": _f(parts, 5),
+        "volume": _f(parts, 8),
+        "amount": _f(parts, 9),
+        "bids": bids,
+        "asks": asks,
+        "quote_date": parts[30] or None,
+        "quote_time": parts[31] or None,
+    }
+
+
+def fetch_sina_snapshot(codes: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Fetch Sina detailed A-share quotes with five-level order books."""
+    symbols = [tencent_symbol(code) for code in codes]
+    url = SINA_QUOTE_URL + ",".join(symbols)
+    try:
+        response = request_text(
+            url,
+            source="sina",
+            timeout=10,
+            max_attempts=2,
+            encoding="gbk",
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://finance.sina.com.cn/",
+            },
+        )
+    except DataSourceError as exc:
+        raise DataSourceError(
+            "sina",
+            f"行情请求失败: {exc.message}",
+            exc,
+            error_type=exc.error_type,
+            attempts=exc.attempts,
+            timestamp=exc.timestamp,
+            status_code=exc.status_code,
+        ) from exc
+
+    results: Dict[str, Dict[str, Any]] = {}
+    transport = transport_contract(url)
+    for line in response.data.strip().splitlines():
+        parsed = parse_sina_snapshot_line(line)
+        if not parsed:
+            continue
+        code = str(parsed.pop("code"))
+        results[code] = {
+            **parsed,
+            "provider": "sina",
+            "provider_version": SINA_QUOTE_ADAPTER_VERSION,
             "fetched_at": response.fetched_at,
             "transport_trust": transport["trust"],
             "transport_reason": transport["reason"],

@@ -3,7 +3,7 @@
 本模块是 auction collector 的唯一数据入口：
 
 * 集合竞价量价：``easy_tdx.MacClient.get_auction``，协议命令为 ``0x123D``；
-* 五档盘口：腾讯实时快照，仅合并 ``bids``/``asks``，不采用其成交量；
+* 五档盘口：腾讯实时快照，失败后回退新浪；仅合并 ``bids``/``asks``，不采用其成交量；
 * 昨日量额：优先读取本地历史库，缺失后使用 ``mootdx_adapter``，最后使用腾讯历史 K 线；
 * 任一竞价关键字段缺失都返回 ``blocked``；五档失败单独降级并保留原因。
 
@@ -21,7 +21,8 @@ from time import monotonic
 from typing import Any, Callable, Iterable, Mapping
 
 from market_adapters import fetch_tencent_kline
-from a_stock_http import fetch_tencent_snapshot, tencent_symbol
+from a_stock_http import fetch_sina_snapshot, fetch_tencent_snapshot, tencent_symbol
+from http_client import DataSourceError
 from mootdx_adapter import fetch_mootdx_bars
 import local_market_history
 
@@ -30,7 +31,7 @@ PROVIDER = "easy_tdx_mac_0x123d"
 AUCTION_START = time(9, 15)
 AUCTION_END = time(9, 25)
 PREVIOUS_DAY_WORKERS = 12
-TENCENT_BOOK_BATCH_SIZE = 80
+ORDER_BOOK_BATCH_SIZE = 80
 _EASY_TDX_KLINE_LOCK = threading.Lock()
 
 
@@ -140,71 +141,82 @@ def _has_valid_book(snapshot: Mapping[str, Any]) -> bool:
     return has_level(snapshot.get("bids")) and has_level(snapshot.get("asks"))
 
 
-def _book_fields(snapshot: Mapping[str, Any] | None, reason: str | None = None) -> dict[str, Any]:
+def _book_fields(
+    snapshot: Mapping[str, Any] | None,
+    reason: str | None = None,
+    *,
+    provider: str = "tencent+sina",
+) -> dict[str, Any]:
     if snapshot is not None and _has_valid_book(snapshot):
-        fetched_at = snapshot.get("fetched_at")
+        selected_provider = str(snapshot.get("provider") or provider)
         return {
             "bids": list(snapshot.get("bids") or []),
             "asks": list(snapshot.get("asks") or []),
-            "book_provider": "tencent",
+            "book_provider": selected_provider,
             "book_status": "ok",
             "book_failure_reason": None,
             "book_provenance": {
-                "provider": "tencent",
+                "provider": selected_provider,
                 "provider_version": snapshot.get("provider_version"),
-                "fetched_at": fetched_at,
+                "fetched_at": snapshot.get("fetched_at"),
             },
-            "book_observation_provenance": {
-                "observation_kind": "observed",
-                "observed_at": fetched_at,
-                "provider": "tencent",
-            },
-            "book_is_imputed": False,
         }
     return {
         "bids": [],
         "asks": [],
-        "book_provider": "tencent",
+        "book_provider": provider,
         "book_status": "unavailable",
-        "book_failure_reason": reason or "腾讯实时快照缺少有效五档盘口",
-        "book_provenance": {"provider": "tencent"},
-        "book_observation_provenance": {
-            "observation_kind": "unavailable",
-            "provider": "tencent",
-        },
-        "book_is_imputed": None,
+        "book_failure_reason": reason or "腾讯与新浪均缺少有效五档盘口",
+        "book_provenance": {"provider_chain": ["tencent", "sina"]},
     }
 
 
-def _fetch_tencent_books(
+def _fetch_order_books(
     codes: Iterable[str],
     *,
     budget_exhausted: Callable[[], bool] | None = None,
     deadline_seconds: float | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Fetch books in bounded batches and return one auditable result per code."""
+    """Fetch Tencent books and fill only missing symbols from Sina."""
     normalized = list(dict.fromkeys(_bare_code(code) for code in codes if _bare_code(code)))
     books: dict[str, dict[str, Any]] = {}
-    for offset in range(0, len(normalized), TENCENT_BOOK_BATCH_SIZE):
-        batch = normalized[offset:offset + TENCENT_BOOK_BATCH_SIZE]
+    for offset in range(0, len(normalized), ORDER_BOOK_BATCH_SIZE):
+        batch = normalized[offset:offset + ORDER_BOOK_BATCH_SIZE]
         if budget_exhausted is not None and budget_exhausted():
             reason = _budget_reason(deadline_seconds)
             books.update({code: _book_fields(None, reason) for code in batch})
             continue
         symbols = [tencent_symbol(code) for code in batch]
+        errors: list[str] = []
         try:
-            raw_books = fetch_tencent_snapshot(symbols)
-        except Exception as exc:
-            reason = f"腾讯五档不可用: {type(exc).__name__}: {exc}"
-            books.update({code: _book_fields(None, reason) for code in batch})
-            continue
-        by_code = {
+            primary = fetch_tencent_snapshot(symbols)
+        except DataSourceError as exc:
+            primary = {}
+            errors.append(f"腾讯五档不可用: {type(exc).__name__}: {exc}")
+        primary_by_code = {
             _bare_code(raw_code): snapshot
-            for raw_code, snapshot in raw_books.items()
+            for raw_code, snapshot in primary.items()
             if isinstance(snapshot, Mapping)
         }
+        missing = [code for code in batch if not _has_valid_book(primary_by_code.get(code) or {})]
+        fallback_by_code: dict[str, Mapping[str, Any]] = {}
+        if missing:
+            try:
+                fallback = fetch_sina_snapshot([tencent_symbol(code) for code in missing])
+            except DataSourceError as exc:
+                fallback = {}
+                errors.append(f"新浪五档不可用: {type(exc).__name__}: {exc}")
+            fallback_by_code = {
+                _bare_code(raw_code): snapshot
+                for raw_code, snapshot in fallback.items()
+                if isinstance(snapshot, Mapping)
+            }
         for code in batch:
-            books[code] = _book_fields(by_code.get(code))
+            selected = primary_by_code.get(code)
+            if not _has_valid_book(selected or {}):
+                selected = fallback_by_code.get(code)
+            reason = "; ".join(errors) if errors else "腾讯与新浪均缺少有效五档盘口"
+            books[code] = _book_fields(selected, reason)
     return books
 
 
@@ -218,7 +230,6 @@ def _merge_book_into_rows(
         for key in (
             "bids", "asks", "book_provider", "book_status",
             "book_failure_reason", "book_provenance",
-            "book_observation_provenance", "book_is_imputed",
         )
     }
     return [{**dict(row), **fields} for row in rows]
@@ -462,7 +473,7 @@ def fetch_real_auction_observation(
             "reason": "prev_day_volume 缺失或无效（mootdx 与腾讯历史 K 线均失败）",
             "snapshots": [],
         }
-    book = _fetch_tencent_books([code]).get(_bare_code(code), _book_fields(None))
+    book = _fetch_order_books([code]).get(_bare_code(code), _book_fields(None))
     snapshots = _merge_book_into_rows(({**row, **previous} for row in rows), book)
     return {
         "status": "ok",
@@ -548,7 +559,7 @@ def fetch_real_auction_snapshots(
                     auction_rows[_bare_code(code)] = rows
 
             valid_codes = [code for code in unique if _bare_code(code) in auction_rows]
-            books = _fetch_tencent_books(
+            books = _fetch_order_books(
                 valid_codes,
                 budget_exhausted=_budget_exhausted,
                 deadline_seconds=deadline_seconds,
