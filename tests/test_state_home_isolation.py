@@ -16,9 +16,8 @@ import paths
 
 
 def _real_home_candidates():
-    """用户真实 home 目录及其常见状态根，隔离后的路径不得落在这些目录下。"""
+    """真实生产状态根；隔离路径可以位于 OpenClaw 管理的用户级 tmp。"""
     return {
-        os.path.expanduser("~"),
         os.path.expanduser("~/.hermes"),
     }
 

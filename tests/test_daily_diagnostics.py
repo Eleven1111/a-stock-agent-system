@@ -157,6 +157,146 @@ class TestOpenclawLedger:
         assert "error" in data
         assert dd.section_openclaw(data)  # 仍能产出一段说明而非崩溃
 
+    def test_integer_millisecond_timestamp_is_filtered_by_shanghai_day(self, tmp_path):
+        """OpenClaw 新库的 ``ts`` 是 epoch ms，不能用 ``LIKE '日期%'``。"""
+        db = tmp_path / "openclaw.sqlite"
+        start_ms, end_ms = dd._day_epoch_bounds_ms("2026-08-06")
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "CREATE TABLE cron_run_logs "
+                "(store_key TEXT, job_id TEXT, seq INT, ts INTEGER, status TEXT, "
+                "duration_ms INT, entry_json TEXT, created_at INTEGER)"
+            )
+            conn.execute(
+                "CREATE TABLE cron_jobs "
+                "(job_id TEXT, name TEXT, payload_message TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO cron_jobs VALUES (?, ?, ?)",
+                (
+                    "uuid-1",
+                    "A-stock: snapshot-gc",
+                    json.dumps({"argv": ["python", "scripts/run_agent_dag.py", "snapshot-gc"]}),
+                ),
+            )
+            conn.executemany(
+                "INSERT INTO cron_run_logs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    ("store", "uuid-1", 1, start_ms + 1000, "ok", 12, "{}", start_ms + 1000),
+                    ("store", "uuid-1", 2, end_ms + 1000, "error", 12, "{}", end_ms + 1000),
+                ],
+            )
+
+        data = dd.collect_openclaw(str(db), "2026-08-06")
+
+        assert data["runs_available"] is True
+        assert len(data["runs"]) == 1
+        assert data["runs"][0]["canonical_job_id"] == "snapshot-gc"
+        assert "**1** 条" in "\n".join(dd.section_openclaw(data))
+
+
+class TestJobExecutionInterface:
+    def test_scheduler_ok_without_business_terminal_evidence_is_no_evidence(self):
+        executions = dd.build_job_execution_interface(
+            trace_events=[],
+            ledger={"available": True, "runs": []},
+            openclaw={
+                "runs_available": True,
+                "runs": [{"canonical_job_id": "j1", "status": "ok"}],
+            },
+        )
+
+        assert executions == [{
+            "schema": "job_execution_observation_v1",
+            "job_id": "j1",
+            "status": "no-evidence",
+            "source_statuses": {"job_ledger": [], "execution_trace": [], "openclaw": ["ok"]},
+            "evidence": {"job_ledger": 0, "execution_trace": 0, "openclaw": 1},
+            "reason": "OpenClaw 只证明调度外壳成功，没有业务终态证据",
+        }]
+
+    def test_timeout_and_incomplete_override_a_later_scheduler_ok(self):
+        trace = [
+            {"job_id": "timeout-job", "run_id": "a", "event_type": "job.started"},
+            {
+                "job_id": "timeout-job", "run_id": "a", "event_type": "job.finished",
+                "status": "timeout",
+            },
+            {"job_id": "hung-job", "run_id": "b", "event_type": "job.started"},
+        ]
+        executions = dd.build_job_execution_interface(
+            trace_events=trace,
+            ledger={"available": True, "runs": []},
+            openclaw={
+                "runs_available": True,
+                "runs": [
+                    {"canonical_job_id": "timeout-job", "status": "ok"},
+                    {"canonical_job_id": "hung-job", "status": "ok"},
+                ],
+            },
+        )
+
+        assert {row["job_id"]: row["status"] for row in executions} == {
+            "hung-job": "incomplete",
+            "timeout-job": "timeout",
+        }
+
+    def test_canonical_job_ledger_can_prove_success_without_openclaw(self):
+        executions = dd.build_job_execution_interface(
+            trace_events=[],
+            ledger={"available": True, "runs": [{"job_id": "j1", "status": "ok"}]},
+            openclaw={"runs_available": False, "runs": []},
+        )
+
+        assert executions[0]["status"] == "success"
+        assert executions[0]["evidence"]["job_ledger"] == 1
+
+    def test_any_business_failure_wins_over_scheduler_ok(self):
+        executions = dd.build_job_execution_interface(
+            trace_events=[],
+            ledger={"available": True, "runs": [{"job_id": "j1", "status": "failed"}]},
+            openclaw={
+                "runs_available": True,
+                "runs": [{"canonical_job_id": "j1", "status": "ok"}],
+            },
+        )
+
+        assert executions[0]["status"] == "failed"
+
+    def test_empty_day_is_explicitly_no_evidence_not_green(self):
+        health = dd.job_execution_evidence_health(
+            trace_events=[],
+            ledger={"available": False, "runs": []},
+            openclaw={"runs_available": False, "runs": []},
+            executions=[],
+        )
+
+        assert health["status"] == "no-evidence"
+        assert all(value is False for value in health["sources"].values())
+
+
+class TestCanonicalJobLedger:
+    def test_filters_by_wall_clock_run_date_not_trading_date(self, tmp_path):
+        path = tmp_path / "state" / "cron" / "output"
+        path.mkdir(parents=True)
+        (path / "job_runs.json").write_text(json.dumps([
+            {
+                "job_id": "today", "status": "ok",
+                "started_at": "2026-08-06T23:59:00+08:00",
+                "trading_date": "2026-08-05",
+            },
+            {
+                "job_id": "tomorrow", "status": "ok",
+                "started_at": "2026-08-07T00:01:00+08:00",
+                "trading_date": "2026-08-06",
+            },
+        ]), encoding="utf-8")
+
+        ledger = dd.collect_job_run_ledger(str(tmp_path / "state"), "2026-08-06")
+
+        assert ledger["available"] is True
+        assert [row["job_id"] for row in ledger["runs"]] == ["today"]
+
 
 class TestArchiveRetention:
     def _seed(self, tmp_path, names):

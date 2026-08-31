@@ -1,9 +1,9 @@
 {
   "baseline_ref": "origin/main",
   "budget": {
-    "broad_exception": 159,
-    "long_function": 68,
-    "sys_path_mutation": 40
+    "broad_exception": 160,
+    "long_function": 81,
+    "sys_path_mutation": 39
   },
   "schema": "maintainability_baseline_v1",
   "violations": [
@@ -15,27 +15,6 @@
       "symbol": "<module>"
     },
     {
-      "id": "b600ef5911574a8e3efa",
-      "kind": "sys_path_mutation",
-      "line": 15,
-      "path": "scripts/agent_runtime_context.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "1991b8a5c5112983af67",
-      "kind": "sys_path_mutation",
-      "line": 15,
-      "path": "scripts/agent_state_projector.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "3de3ff0a2e2bf4bb5323",
-      "kind": "sys_path_mutation",
-      "line": 11,
-      "path": "scripts/build_portfolio_research_input.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "02a08608b84dfc62d469",
       "kind": "sys_path_mutation",
       "line": 50,
@@ -43,23 +22,9 @@
       "symbol": "<module>"
     },
     {
-      "id": "3e694118d6c4dc0904de",
-      "kind": "sys_path_mutation",
-      "line": 11,
-      "path": "scripts/config_doctor.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "8c263ab419a7ed98a0c0",
       "kind": "sys_path_mutation",
       "line": 16,
-      "path": "scripts/cron_budget_report.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "03d7ba486f46af09a10b",
-      "kind": "sys_path_mutation",
-      "line": 17,
       "path": "scripts/cron_budget_report.py",
       "symbol": "<module>"
     },
@@ -78,23 +43,37 @@
       "symbol": "_trace_module"
     },
     {
-      "id": "8c5132a372f6a53ceca5",
-      "kind": "sys_path_mutation",
-      "line": 24,
-      "path": "scripts/datasource_fallback_smoke.py",
-      "symbol": "<module>"
+      "id": "2da842248f385fcef1d6",
+      "kind": "long_function",
+      "line": 227,
+      "path": "scripts/daily_diagnostics.py",
+      "symbol": "section_hermes"
+    },
+    {
+      "id": "fe354b77aa37566d1df6",
+      "kind": "long_function",
+      "line": 323,
+      "path": "scripts/daily_diagnostics.py",
+      "symbol": "collect_openclaw"
+    },
+    {
+      "id": "15993869da2bdf7854b5",
+      "kind": "long_function",
+      "line": 470,
+      "path": "scripts/daily_diagnostics.py",
+      "symbol": "build_job_execution_interface"
     },
     {
       "id": "7e015c59801a4241d473",
       "kind": "broad_exception",
-      "line": 70,
+      "line": 68,
       "path": "scripts/datasource_fallback_smoke.py",
       "symbol": "_probe"
     },
     {
       "id": "1fafca36887e304a4376",
       "kind": "broad_exception",
-      "line": 99,
+      "line": 97,
       "path": "scripts/datasource_fallback_smoke.py",
       "symbol": "_concurrent_kline_probe"
     },
@@ -106,27 +85,6 @@
       "symbol": "<module>"
     },
     {
-      "id": "891decf0b82bc3505ae1",
-      "kind": "sys_path_mutation",
-      "line": 25,
-      "path": "scripts/dual_runtime_audit.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "822f08a11b3e95a2499f",
-      "kind": "sys_path_mutation",
-      "line": 27,
-      "path": "scripts/evaluate_agent_harness.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "3fb4ab6f6c0d2a96df71",
-      "kind": "sys_path_mutation",
-      "line": 28,
-      "path": "scripts/execution_trace_report.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "6b93618d932116c578ee",
       "kind": "sys_path_mutation",
       "line": 13,
@@ -134,10 +92,10 @@
       "symbol": "<module>"
     },
     {
-      "id": "fc06a5c645ce235957b1",
+      "id": "b3702b1b156547b0a6c7",
       "kind": "sys_path_mutation",
-      "line": 23,
-      "path": "scripts/expert_runner.py",
+      "line": 13,
+      "path": "scripts/four_dim_pit_replay.py",
       "symbol": "<module>"
     },
     {
@@ -155,20 +113,6 @@
       "symbol": "<module>"
     },
     {
-      "id": "7990a8dbc2f93a17a2b1",
-      "kind": "sys_path_mutation",
-      "line": 23,
-      "path": "scripts/funnel_recall_report.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "84a484a484e2e16abf41",
-      "kind": "long_function",
-      "line": 135,
-      "path": "scripts/generate_openclaw_cron.py",
-      "symbol": "build_openclaw_commands"
-    },
-    {
       "id": "0d379889526bd98ed768",
       "kind": "broad_exception",
       "line": 72,
@@ -176,107 +120,135 @@
       "symbol": "probe_run_agent"
     },
     {
-      "id": "602fc42e9347f501ddbe",
-      "kind": "sys_path_mutation",
-      "line": 20,
-      "path": "scripts/hermes_job_runner.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "944712e9fab0cf807f6b",
       "kind": "long_function",
-      "line": 180,
+      "line": 286,
       "path": "scripts/hermes_job_runner.py",
       "symbol": "run_job"
     },
     {
-      "id": "d7e8dccc1c34c398f486",
-      "kind": "sys_path_mutation",
-      "line": 14,
-      "path": "scripts/market_intelligence_brief.py",
-      "symbol": "<module>"
+      "id": "4b1674792acbb6d1c4fb",
+      "kind": "broad_exception",
+      "line": 655,
+      "path": "scripts/hermes_job_runner.py",
+      "symbol": "run_job"
+    },
+    {
+      "id": "6c6fc4c10913a47c6443",
+      "kind": "long_function",
+      "line": 593,
+      "path": "scripts/market_history_cache.py",
+      "symbol": "run"
+    },
+    {
+      "id": "2b7f53bf283ffc86dc6f",
+      "kind": "broad_exception",
+      "line": 614,
+      "path": "scripts/market_history_cache.py",
+      "symbol": "run"
+    },
+    {
+      "id": "93c8390e0c7ad128958a",
+      "kind": "broad_exception",
+      "line": 624,
+      "path": "scripts/market_history_cache.py",
+      "symbol": "run"
+    },
+    {
+      "id": "2b4abcae09da2c4f7db4",
+      "kind": "broad_exception",
+      "line": 681,
+      "path": "scripts/market_history_cache.py",
+      "symbol": "run"
+    },
+    {
+      "id": "cf179fed0a33a840a2b7",
+      "kind": "broad_exception",
+      "line": 691,
+      "path": "scripts/market_history_cache.py",
+      "symbol": "run"
+    },
+    {
+      "id": "9f9c98fddc0b1a951d5e",
+      "kind": "broad_exception",
+      "line": 700,
+      "path": "scripts/market_history_cache.py",
+      "symbol": "run"
+    },
+    {
+      "id": "cf27be5b01a48a68d1c2",
+      "kind": "broad_exception",
+      "line": 733,
+      "path": "scripts/market_history_cache.py",
+      "symbol": "run"
+    },
+    {
+      "id": "385d912763f3cb8c46d2",
+      "kind": "broad_exception",
+      "line": 774,
+      "path": "scripts/market_history_cache.py",
+      "symbol": "run"
+    },
+    {
+      "id": "195f4482294cb1c8d16d",
+      "kind": "broad_exception",
+      "line": 781,
+      "path": "scripts/market_history_cache.py",
+      "symbol": "run"
     },
     {
       "id": "a0dbe4b7027e3be60c1c",
       "kind": "broad_exception",
-      "line": 51,
+      "line": 71,
       "path": "scripts/market_intelligence_brief.py",
       "symbol": "_sector_momentum_lines"
     },
     {
-      "id": "b9a4beaa06ded8475915",
-      "kind": "sys_path_mutation",
-      "line": 19,
-      "path": "scripts/market_pulse_digest.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "e539226f16e9bb143176",
-      "kind": "sys_path_mutation",
-      "line": 37,
-      "path": "scripts/migrate_monitor_ledger.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "24c1d3598cecd556fb86",
-      "kind": "sys_path_mutation",
-      "line": 26,
-      "path": "scripts/news_grader.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "a7927af44c8dce6673ec",
-      "kind": "sys_path_mutation",
-      "line": 27,
-      "path": "scripts/news_l1_scan.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "a67df1dc8cd5d26f7f6e",
-      "kind": "sys_path_mutation",
-      "line": 29,
-      "path": "scripts/news_monitor_v3.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "9c0a2f5c8df4611bc77c",
       "kind": "broad_exception",
-      "line": 155,
+      "line": 152,
       "path": "scripts/news_monitor_v3.py",
       "symbol": "fetch_sina_finance"
     },
     {
       "id": "a4f445540da3829fa9f9",
       "kind": "broad_exception",
-      "line": 178,
+      "line": 175,
       "path": "scripts/news_monitor_v3.py",
       "symbol": "fetch_eastmoney_news"
     },
     {
       "id": "afc3b32a19c16a9daaba",
       "kind": "broad_exception",
-      "line": 204,
+      "line": 201,
       "path": "scripts/news_monitor_v3.py",
       "symbol": "fetch_baidu_hot"
     },
     {
-      "id": "44207f67b2986918df5f",
-      "kind": "sys_path_mutation",
-      "line": 16,
-      "path": "scripts/provider_doctor.py",
-      "symbol": "<module>"
+      "id": "f73c7d58d875fe58b821",
+      "kind": "broad_exception",
+      "line": 72,
+      "path": "scripts/preopen_preflight.py",
+      "symbol": "_guard"
+    },
+    {
+      "id": "1edc58c9bd354baa8fa3",
+      "kind": "broad_exception",
+      "line": 196,
+      "path": "scripts/preopen_preflight.py",
+      "symbol": "check_auction_sources"
     },
     {
       "id": "cc745661207f8f8a1766",
       "kind": "broad_exception",
-      "line": 145,
+      "line": 143,
       "path": "scripts/provider_doctor.py",
       "symbol": "_run_probe"
     },
     {
       "id": "9beac2583258cb497d5f",
       "kind": "broad_exception",
-      "line": 238,
+      "line": 236,
       "path": "scripts/provider_doctor.py",
       "symbol": "_slo_ledger_summary"
     },
@@ -288,16 +260,9 @@
       "symbol": "<module>"
     },
     {
-      "id": "5e82cddcb3ee4a351f3a",
-      "kind": "sys_path_mutation",
-      "line": 27,
-      "path": "scripts/realtime_catalyst_trigger.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "af6f59226b1aec4485ed",
       "kind": "long_function",
-      "line": 172,
+      "line": 171,
       "path": "scripts/realtime_catalyst_trigger.py",
       "symbol": "run_trigger"
     },
@@ -309,32 +274,18 @@
       "symbol": "<module>"
     },
     {
-      "id": "bc7371c571980b07a9e0",
-      "kind": "sys_path_mutation",
-      "line": 28,
-      "path": "scripts/recommendation_feedback.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "9ff7ec5812403beb7262",
-      "kind": "sys_path_mutation",
-      "line": 22,
-      "path": "scripts/research_dispatch.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "7e70ae577267fe04b288",
-      "kind": "sys_path_mutation",
-      "line": 18,
-      "path": "scripts/run_agent_dag.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "ee020c32a71e38d45ff7",
       "kind": "long_function",
-      "line": 160,
+      "line": 204,
       "path": "scripts/run_agent_dag.py",
       "symbol": "execute_dag"
+    },
+    {
+      "id": "1d0e1115f85f775920f8",
+      "kind": "long_function",
+      "line": 590,
+      "path": "scripts/run_agent_dag.py",
+      "symbol": "target_output"
     },
     {
       "id": "1609f47b14853e8b9e5b",
@@ -344,39 +295,11 @@
       "symbol": "<module>"
     },
     {
-      "id": "7521859d8649ed523d3e",
-      "kind": "sys_path_mutation",
-      "line": 30,
-      "path": "scripts/score_calibration_report.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "b5b74d671f661bab5336",
-      "kind": "sys_path_mutation",
-      "line": 21,
-      "path": "scripts/serenity_coverage_report.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "f31ead08c4c8af82c0ba",
       "kind": "broad_exception",
       "line": 45,
       "path": "scripts/smoke_test.py",
       "symbol": "run"
-    },
-    {
-      "id": "a369935e25c3ca3a0b14",
-      "kind": "sys_path_mutation",
-      "line": 13,
-      "path": "scripts/snapshot_gc.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "964d71d79118debd0605",
-      "kind": "sys_path_mutation",
-      "line": 13,
-      "path": "scripts/state_doctor.py",
-      "symbol": "<module>"
     },
     {
       "id": "641dd11c3f9183e65252",
@@ -395,56 +318,42 @@
     {
       "id": "0c6094140c617b5efa7e",
       "kind": "broad_exception",
-      "line": 141,
+      "line": 231,
       "path": "scripts/strategy_shadow_runner.py",
       "symbol": "_run_one"
     },
     {
-      "id": "96ade249ffefdf83d108",
-      "kind": "sys_path_mutation",
-      "line": 29,
-      "path": "scripts/theme_strength_daily.py",
-      "symbol": "<module>"
+      "id": "56c7e62fb4747729caff",
+      "kind": "long_function",
+      "line": 250,
+      "path": "scripts/strategy_shadow_runner.py",
+      "symbol": "run"
     },
     {
       "id": "ba26eb517a6cb7d57dca",
       "kind": "broad_exception",
-      "line": 86,
+      "line": 104,
       "path": "scripts/theme_strength_daily.py",
       "symbol": "_enqueue_theme_review"
     },
     {
       "id": "581207980d51fa8c2045",
       "kind": "long_function",
-      "line": 100,
+      "line": 118,
       "path": "scripts/theme_strength_daily.py",
       "symbol": "run"
     },
     {
-      "id": "e061efe19eba948b86ef",
-      "kind": "sys_path_mutation",
-      "line": 9,
-      "path": "scripts/validate_cron_manifest.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "583a9f46e3bde094aec8",
       "kind": "long_function",
-      "line": 92,
+      "line": 143,
       "path": "scripts/validate_cron_manifest.py",
       "symbol": "validate"
     },
     {
-      "id": "d1e98dff19f2444ae325",
-      "kind": "sys_path_mutation",
-      "line": 12,
-      "path": "skills/a-stock-commands/scripts/check_alerts.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "9852cf812d50a3281003",
       "kind": "broad_exception",
-      "line": 41,
+      "line": 38,
       "path": "skills/a-stock-commands/scripts/check_alerts.py",
       "symbol": "get_price"
     },
@@ -458,79 +367,51 @@
     {
       "id": "18d41420f6ea6e9bf1c9",
       "kind": "long_function",
-      "line": 199,
+      "line": 213,
       "path": "skills/chanlun-backtest/scripts/chan_signal_backtest.py",
       "symbol": "extract_signal_events"
     },
     {
       "id": "071dd6132097bacf548d",
       "kind": "long_function",
-      "line": 364,
+      "line": 392,
       "path": "skills/chanlun-backtest/scripts/chan_signal_backtest.py",
       "symbol": "analyze_events"
     },
     {
-      "id": "2a0dc78a1cdd2b67af56",
-      "kind": "sys_path_mutation",
-      "line": 29,
-      "path": "skills/chanlun-backtest/scripts/chan_structure.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "aaeea46794a14353de59",
-      "kind": "sys_path_mutation",
-      "line": 263,
-      "path": "skills/chanlun-backtest/scripts/chan_structure.py",
-      "symbol": "_fetch_bars"
-    },
-    {
       "id": "c17badeb856071ebbf78",
       "kind": "broad_exception",
-      "line": 281,
+      "line": 176,
       "path": "skills/chanlun-backtest/scripts/chan_structure.py",
       "symbol": "main"
     },
     {
-      "id": "b7f7e8baa1d016bf4e42",
-      "kind": "sys_path_mutation",
-      "line": 22,
-      "path": "skills/chanlun-backtest/scripts/daban_bt_data.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "aeb3a98d20d18ccea23f",
       "kind": "sys_path_mutation",
-      "line": 190,
+      "line": 538,
       "path": "skills/chanlun-backtest/scripts/daban_bt_data.py",
       "symbol": "fetch_limitup_events"
     },
     {
       "id": "9afc70d8d8782cf6bb4c",
       "kind": "broad_exception",
-      "line": 203,
+      "line": 551,
       "path": "skills/chanlun-backtest/scripts/daban_bt_data.py",
       "symbol": "fetch_limitup_events"
     },
     {
       "id": "03bedce22fdfd4ca7e7a",
       "kind": "sys_path_mutation",
-      "line": 237,
+      "line": 585,
       "path": "skills/chanlun-backtest/scripts/daban_bt_data.py",
       "symbol": "control_pools_from_klines"
     },
     {
       "id": "867479147f5a037cbb7b",
       "kind": "sys_path_mutation",
-      "line": 325,
+      "line": 678,
       "path": "skills/chanlun-backtest/scripts/daban_bt_data.py",
       "symbol": "build_event_table"
-    },
-    {
-      "id": "ab52ed993b0103324c78",
-      "kind": "sys_path_mutation",
-      "line": 22,
-      "path": "skills/chanlun-backtest/scripts/daban_bt_engine.py",
-      "symbol": "<module>"
     },
     {
       "id": "3194719b80df1d45fd8b",
@@ -540,30 +421,16 @@
       "symbol": "<module>"
     },
     {
-      "id": "0c2ec7ea34c332d9b183",
-      "kind": "sys_path_mutation",
-      "line": 26,
-      "path": "skills/chanlun-backtest/scripts/daban_bt_run.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "4eb487ad6bb283afe412",
       "kind": "sys_path_mutation",
-      "line": 49,
+      "line": 62,
       "path": "skills/chanlun-backtest/scripts/daban_bt_run.py",
       "symbol": "fetch_index_benchmark"
     },
     {
-      "id": "1e97d918bb48915e056b",
-      "kind": "sys_path_mutation",
-      "line": 21,
-      "path": "skills/chanlun-backtest/scripts/fractal_chart.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "6dd94cff1a319ef5fc52",
       "kind": "broad_exception",
-      "line": 51,
+      "line": 49,
       "path": "skills/chanlun-backtest/scripts/fractal_chart.py",
       "symbol": "<module>"
     },
@@ -589,25 +456,11 @@
       "symbol": "run_portfolio"
     },
     {
-      "id": "f829862bf44b30aceb32",
-      "kind": "sys_path_mutation",
-      "line": 42,
-      "path": "skills/chanlun-backtest/scripts/research_gate.py",
-      "symbol": "_verify_evidence"
-    },
-    {
-      "id": "926a09ce04ed5f5f6f3c",
-      "kind": "sys_path_mutation",
-      "line": 334,
-      "path": "skills/chanlun-backtest/scripts/research_gate.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "e47ac2eb52768819dbe9",
-      "kind": "sys_path_mutation",
-      "line": 18,
+      "id": "d43682ac34feb88644ce",
+      "kind": "broad_exception",
+      "line": 346,
       "path": "skills/common/a_stock_http.py",
-      "symbol": "<module>"
+      "symbol": "fetch_tencent_kline"
     },
     {
       "id": "b42a2c325734d2dbdfd3",
@@ -617,18 +470,60 @@
       "symbol": "run"
     },
     {
-      "id": "01392a1f9176ad1cde14",
-      "kind": "broad_exception",
-      "line": 85,
-      "path": "skills/common/announcement_risk.py",
-      "symbol": "_extract_pdf_text"
-    },
-    {
       "id": "0b6daca4ac23566f502f",
       "kind": "broad_exception",
-      "line": 152,
+      "line": 154,
       "path": "skills/common/announcement_risk.py",
       "symbol": "scan_many._fetch"
+    },
+    {
+      "id": "8a0dc0384a03c15a52ae",
+      "kind": "broad_exception",
+      "line": 185,
+      "path": "skills/common/auction_data_provider.py",
+      "symbol": "_fetch_tencent_books"
+    },
+    {
+      "id": "eec004136bb8e95f5972",
+      "kind": "broad_exception",
+      "line": 243,
+      "path": "skills/common/auction_data_provider.py",
+      "symbol": "fetch_easy_tdx_previous_day_metrics"
+    },
+    {
+      "id": "b34735953c4c4477c7aa",
+      "kind": "broad_exception",
+      "line": 291,
+      "path": "skills/common/auction_data_provider.py",
+      "symbol": "fetch_easy_tdx_auction"
+    },
+    {
+      "id": "def9992f55397c605ed6",
+      "kind": "broad_exception",
+      "line": 375,
+      "path": "skills/common/auction_data_provider.py",
+      "symbol": "fetch_previous_day_metrics"
+    },
+    {
+      "id": "c7aa94dce0dd4b77bf63",
+      "kind": "broad_exception",
+      "line": 406,
+      "path": "skills/common/auction_data_provider.py",
+      "symbol": "fetch_previous_day_metrics"
+    },
+    {
+      "id": "cbd9558c313a89143d1e",
+      "kind": "broad_exception",
+      "line": 419,
+      "path": "skills/common/auction_data_provider.py",
+      "symbol": "fetch_previous_day_metrics"
+    },
+    {
+      "id": "e028ac884aff6b9e884b",
+      "kind": "broad_exception",
+      "line": 565,
+      "path": "skills/common/auction_data_provider.py",
+      "symbol": "fetch_real_auction_snapshots"
     },
     {
       "id": "08339fcb43c1b95479a2",
@@ -661,21 +556,21 @@
     {
       "id": "bb0e37e74689dd3f05c3",
       "kind": "long_function",
-      "line": 292,
+      "line": 656,
       "path": "skills/common/candidate_pipeline.py",
       "symbol": "rank_candidates"
     },
     {
       "id": "23626c2c4240a19fbef7",
       "kind": "long_function",
-      "line": 407,
+      "line": 805,
       "path": "skills/common/candidate_pipeline.py",
       "symbol": "build_watch_pool"
     },
     {
       "id": "a38a0d9e003f740ee375",
       "kind": "long_function",
-      "line": 528,
+      "line": 1257,
       "path": "skills/common/candidate_pipeline.py",
       "symbol": "rank_auction_shortlist"
     },
@@ -703,21 +598,14 @@
     {
       "id": "5c791ee4fbc5f8344cd4",
       "kind": "long_function",
-      "line": 250,
+      "line": 256,
       "path": "skills/common/data_access_config.py",
       "symbol": "_sanitize"
     },
     {
-      "id": "57979745ddb13e248312",
-      "kind": "long_function",
-      "line": 100,
-      "path": "skills/common/data_provider.py",
-      "symbol": "fetch_serper_news"
-    },
-    {
       "id": "042bb6dbd72e68cab84b",
       "kind": "long_function",
-      "line": 144,
+      "line": 174,
       "path": "skills/common/decision_policy.py",
       "symbol": "evaluate_decision"
     },
@@ -778,46 +666,11 @@
       "symbol": "_load_config"
     },
     {
-      "id": "3270db13f6f25b3f5eec",
-      "kind": "broad_exception",
-      "line": 263,
-      "path": "skills/common/evidence_pack.py",
-      "symbol": "_news_evidence"
-    },
-    {
-      "id": "ea80c9351b3fae464788",
-      "kind": "broad_exception",
-      "line": 287,
-      "path": "skills/common/evidence_pack.py",
-      "symbol": "_interactive_qa_evidence"
-    },
-    {
-      "id": "d650bdb21e2d4a3f11b8",
-      "kind": "broad_exception",
-      "line": 316,
-      "path": "skills/common/evidence_pack.py",
-      "symbol": "_current_regime"
-    },
-    {
-      "id": "c9a1cfdace0aee3fd46a",
-      "kind": "broad_exception",
-      "line": 344,
-      "path": "skills/common/evidence_pack.py",
-      "symbol": "_strategy_pack_hints"
-    },
-    {
-      "id": "9e28bd3cf047ce4ad44e",
-      "kind": "broad_exception",
-      "line": 395,
-      "path": "skills/common/evidence_pack.py",
-      "symbol": "_subject_data"
-    },
-    {
-      "id": "41fa81bc7bbbbef68297",
-      "kind": "broad_exception",
-      "line": 407,
-      "path": "skills/common/evidence_pack.py",
-      "symbol": "_subject_data"
+      "id": "faf70c2871d4ded48ed7",
+      "kind": "long_function",
+      "line": 331,
+      "path": "skills/common/exploratory_strategy_baseline.py",
+      "symbol": "run"
     },
     {
       "id": "dda9bb5d3d4cafba6320",
@@ -827,170 +680,212 @@
       "symbol": "_try_fetch"
     },
     {
+      "id": "546a5594a771cf140593",
+      "kind": "sys_path_mutation",
+      "line": 121,
+      "path": "skills/common/four_dim_pit_replay.py",
+      "symbol": "_canonical_score_adapter"
+    },
+    {
+      "id": "d6920284d7fb7e709d47",
+      "kind": "long_function",
+      "line": 286,
+      "path": "skills/common/four_dim_pit_replay.py",
+      "symbol": "replay"
+    },
+    {
       "id": "db56b070f5d9be3e1c51",
       "kind": "long_function",
-      "line": 190,
+      "line": 554,
       "path": "skills/common/hot_money_selection.py",
       "symbol": "build_sector_leadership"
     },
     {
+      "id": "1137efc91356aca708f7",
+      "kind": "long_function",
+      "line": 820,
+      "path": "skills/common/hot_money_selection.py",
+      "symbol": "apply_leader_identity"
+    },
+    {
       "id": "212310aebcf74b565964",
       "kind": "long_function",
-      "line": 491,
+      "line": 1363,
       "path": "skills/common/hot_money_selection.py",
       "symbol": "selection_context_for"
     },
     {
       "id": "afb8f6e8a39904a43fe7",
       "kind": "broad_exception",
-      "line": 210,
+      "line": 260,
       "path": "skills/common/http_client.py",
       "symbol": "_record_health"
     },
     {
       "id": "06d8ccfe4f39ffb9d4ea",
       "kind": "long_function",
-      "line": 213,
+      "line": 263,
+      "path": "skills/common/http_client.py",
+      "symbol": "request_bytes"
+    },
+    {
+      "id": "f550321680423a7a7a01",
+      "kind": "broad_exception",
+      "line": 374,
       "path": "skills/common/http_client.py",
       "symbol": "request_bytes"
     },
     {
       "id": "642a75fb8c5284de287d",
       "kind": "broad_exception",
-      "line": 68,
+      "line": 229,
       "path": "skills/common/industry_map.py",
       "symbol": "_default_boards_fetcher"
     },
     {
-      "id": "d64f3375bf27c703ed50",
+      "id": "e777880ed77f60251ad4",
       "kind": "broad_exception",
-      "line": 102,
+      "line": 366,
       "path": "skills/common/industry_map.py",
-      "symbol": "_members_with_retry"
+      "symbol": "_fetch_with_retry"
     },
     {
       "id": "328f6b5039c7d613ea4c",
       "kind": "broad_exception",
-      "line": 182,
+      "line": 506,
       "path": "skills/common/industry_map.py",
       "symbol": "_resolve_pace"
     },
     {
+      "id": "3d8f8b0ba3cfccb3ed93",
+      "kind": "broad_exception",
+      "line": 543,
+      "path": "skills/common/industry_map.py",
+      "symbol": "fill_industry_gaps"
+    },
+    {
+      "id": "b71c027789d2dcace93c",
+      "kind": "broad_exception",
+      "line": 573,
+      "path": "skills/common/industry_map.py",
+      "symbol": "fill_industry_gaps"
+    },
+    {
       "id": "fd05f5a7b7f710f8b9f0",
       "kind": "broad_exception",
-      "line": 210,
+      "line": 632,
       "path": "skills/common/industry_map.py",
       "symbol": "refresh"
     },
     {
       "id": "9669b6d25f7f2bbb600e",
       "kind": "sys_path_mutation",
-      "line": 309,
+      "line": 814,
       "path": "skills/common/industry_map.py",
       "symbol": "<module>"
     },
     {
       "id": "ddf40dc31ea55741f4bd",
       "kind": "broad_exception",
-      "line": 93,
+      "line": 118,
       "path": "skills/common/market_adapters.py",
       "symbol": "_cache_set"
     },
     {
       "id": "ba8636e9c01807b7c348",
       "kind": "broad_exception",
-      "line": 101,
+      "line": 126,
       "path": "skills/common/market_adapters.py",
       "symbol": "_recorded_call"
     },
     {
       "id": "18b15abfa8f067a07fb1",
       "kind": "broad_exception",
-      "line": 114,
+      "line": 139,
       "path": "skills/common/market_adapters.py",
       "symbol": "_recorded_call"
     },
     {
       "id": "40953b6c990a6b34c2e8",
       "kind": "broad_exception",
-      "line": 167,
+      "line": 192,
       "path": "skills/common/market_adapters.py",
       "symbol": "_is_non_empty"
     },
     {
       "id": "833b287919476a938883",
       "kind": "broad_exception",
-      "line": 395,
+      "line": 420,
       "path": "skills/common/market_adapters.py",
       "symbol": "_frame_records"
     },
     {
       "id": "7a0d4a82e6544417b408",
       "kind": "long_function",
-      "line": 521,
+      "line": 666,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_a_share_spot"
     },
     {
       "id": "987bb9e9545a5776f9e0",
       "kind": "broad_exception",
-      "line": 631,
+      "line": 776,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_a_share_quote"
     },
     {
       "id": "af2bc6f5da834fb80962",
       "kind": "broad_exception",
-      "line": 644,
+      "line": 794,
       "path": "skills/common/market_adapters.py",
       "symbol": "_mootdx_kline"
     },
     {
       "id": "fee0fda7fb28d94c38d1",
       "kind": "broad_exception",
-      "line": 888,
+      "line": 1039,
       "path": "skills/common/market_adapters.py",
       "symbol": "_fetch_eastmoney_push2_kline"
     },
     {
       "id": "cc665af84ba2d784cd92",
       "kind": "broad_exception",
-      "line": 1096,
+      "line": 1252,
       "path": "skills/common/market_adapters.py",
       "symbol": "_save_northbound_snapshot"
     },
     {
       "id": "72ad698a7dc9bdcfd220",
       "kind": "broad_exception",
-      "line": 1117,
+      "line": 1273,
       "path": "skills/common/market_adapters.py",
       "symbol": "_load_northbound_history"
     },
     {
       "id": "668b2de12594eac05bba",
       "kind": "broad_exception",
-      "line": 1328,
+      "line": 1519,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_hot_money_limitup_pool"
     },
     {
       "id": "1bedcefe44fa24e0a061",
       "kind": "broad_exception",
-      "line": 1337,
+      "line": 1528,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_hot_money_strong_pool"
     },
     {
       "id": "5f46a797893280aee2eb",
       "kind": "broad_exception",
-      "line": 1346,
+      "line": 1537,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_industry_catalog_ths"
     },
     {
       "id": "a3826d18ee892efa5bd0",
       "kind": "long_function",
-      "line": 1433,
+      "line": 1624,
       "path": "skills/common/market_adapters.py",
       "symbol": "fetch_concept_boards"
     },
@@ -1004,49 +899,49 @@
     {
       "id": "c1f79748e671c1604acc",
       "kind": "sys_path_mutation",
-      "line": 30,
+      "line": 32,
       "path": "skills/common/market_temperature.py",
       "symbol": "<module>"
     },
     {
       "id": "8aef716f23e30ba1fa1b",
       "kind": "broad_exception",
-      "line": 52,
+      "line": 100,
       "path": "skills/common/mootdx_adapter.py",
       "symbol": "_get_client"
     },
     {
       "id": "3caff1b13ad07da6708b",
       "kind": "broad_exception",
-      "line": 79,
+      "line": 132,
       "path": "skills/common/mootdx_adapter.py",
       "symbol": "fetch_mootdx_bars"
     },
     {
       "id": "bcd3c1fe5508a8389536",
       "kind": "broad_exception",
-      "line": 126,
+      "line": 183,
       "path": "skills/common/mootdx_adapter.py",
       "symbol": "fetch_mootdx_quote"
     },
     {
       "id": "a074fd7c3b60a9ade47a",
       "kind": "broad_exception",
-      "line": 193,
+      "line": 250,
       "path": "skills/common/mootdx_adapter.py",
       "symbol": "fetch_mootdx_spot"
     },
     {
       "id": "3b5e5218eea36f8d7659",
       "kind": "broad_exception",
-      "line": 198,
+      "line": 203,
       "path": "skills/common/mootdx_source.py",
       "symbol": "fetch_klines"
     },
     {
       "id": "d4c038f7814dde495e6c",
       "kind": "broad_exception",
-      "line": 223,
+      "line": 228,
       "path": "skills/common/mootdx_source.py",
       "symbol": "reconstruct_limitup_events"
     },
@@ -1109,35 +1004,35 @@
     {
       "id": "3b7eb3e6a25e7ab890f2",
       "kind": "long_function",
-      "line": 183,
+      "line": 227,
       "path": "skills/common/recommendation_audit.py",
       "symbol": "position_guidance"
     },
     {
       "id": "d98e846ce36c85f9effc",
       "kind": "broad_exception",
-      "line": 210,
+      "line": 255,
       "path": "skills/common/recommendation_audit.py",
       "symbol": "position_guidance"
     },
     {
       "id": "6741c777cdfa93684eb6",
       "kind": "broad_exception",
-      "line": 253,
+      "line": 299,
       "path": "skills/common/recommendation_audit.py",
       "symbol": "position_guidance"
     },
     {
       "id": "fb823aaf4bd4a9fde0fa",
       "kind": "long_function",
-      "line": 392,
+      "line": 440,
       "path": "skills/common/recommendation_audit.py",
       "symbol": "record_recommendation"
     },
     {
       "id": "2b9dce6d2a9af927bc06",
       "kind": "long_function",
-      "line": 275,
+      "line": 353,
       "path": "skills/common/recommendation_quality.py",
       "symbol": "build_execution_plan"
     },
@@ -1240,23 +1135,58 @@
       "symbol": "read_cache"
     },
     {
+      "id": "e94558f92e17fd129d34",
+      "kind": "long_function",
+      "line": 227,
+      "path": "skills/common/storage_retention.py",
+      "symbol": "_scan_recent_references"
+    },
+    {
       "id": "5d5bff98e8713dc4113a",
       "kind": "long_function",
-      "line": 216,
+      "line": 383,
       "path": "skills/common/storage_retention.py",
       "symbol": "cleanup_storage"
     },
     {
+      "id": "33cc8fd28a03632038f4",
+      "kind": "long_function",
+      "line": 600,
+      "path": "skills/common/strategy_evidence.py",
+      "symbol": "build_evidence"
+    },
+    {
+      "id": "f9dd2e48b70dbaacaa2e",
+      "kind": "long_function",
+      "line": 127,
+      "path": "skills/common/strategy_forward_settlement.py",
+      "symbol": "_freeze"
+    },
+    {
+      "id": "bece682b4beb3bb3f26d",
+      "kind": "long_function",
+      "line": 248,
+      "path": "skills/common/strategy_forward_settlement.py",
+      "symbol": "_settle_one"
+    },
+    {
+      "id": "c72dd0956aa58cbfc93f",
+      "kind": "long_function",
+      "line": 436,
+      "path": "skills/common/strategy_forward_settlement.py",
+      "symbol": "build_gate_dataset"
+    },
+    {
       "id": "cca233e629576868b8c2",
       "kind": "sys_path_mutation",
-      "line": 28,
+      "line": 29,
       "path": "skills/common/strategy_registry.py",
       "symbol": "<module>"
     },
     {
       "id": "1c27e4a5aaafb10a4f42",
       "kind": "broad_exception",
-      "line": 599,
+      "line": 725,
       "path": "skills/common/strategy_registry.py",
       "symbol": "strategy_pack_hypotheses"
     },
@@ -1289,102 +1219,67 @@
       "symbol": "_record_health"
     },
     {
-      "id": "e4381a7b9fa29e3d8ca2",
-      "kind": "sys_path_mutation",
-      "line": 28,
+      "id": "c9c4aa5a723819e7660c",
+      "kind": "long_function",
+      "line": 281,
       "path": "skills/daban-stock-picker/scripts/auction_collector.py",
-      "symbol": "<module>"
+      "symbol": "compute_auction_factors"
+    },
+    {
+      "id": "2d8a2e8de0e5f580df81",
+      "kind": "long_function",
+      "line": 780,
+      "path": "skills/daban-stock-picker/scripts/auction_collector.py",
+      "symbol": "append_snapshot"
     },
     {
       "id": "db074870deffd506aaef",
       "kind": "long_function",
-      "line": 285,
+      "line": 1027,
       "path": "skills/daban-stock-picker/scripts/auction_collector.py",
       "symbol": "finalize"
     },
     {
-      "id": "9798c9ff4046be38314f",
-      "kind": "sys_path_mutation",
-      "line": 19,
-      "path": "skills/daban-stock-picker/scripts/daban_candidate_api.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "ad3d4e53f06e57becb1d",
-      "kind": "sys_path_mutation",
-      "line": 20,
-      "path": "skills/daban-stock-picker/scripts/hot_money_checkpoint.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "b389a6fa135a482fdb70",
       "kind": "long_function",
-      "line": 96,
+      "line": 452,
       "path": "skills/daban-stock-picker/scripts/hot_money_checkpoint.py",
       "symbol": "evaluate_checkpoint"
     },
     {
       "id": "66fb1cd6691f47b7c2ee",
       "kind": "long_function",
-      "line": 201,
+      "line": 589,
       "path": "skills/daban-stock-picker/scripts/hot_money_checkpoint.py",
       "symbol": "run_checkpoint"
     },
     {
       "id": "f30305b7aa2b49979151",
       "kind": "broad_exception",
-      "line": 319,
+      "line": 710,
       "path": "skills/daban-stock-picker/scripts/hot_money_checkpoint.py",
       "symbol": "_advance_fsm_to_confirmed"
     },
     {
-      "id": "9e1d0982299dc9fc2726",
-      "kind": "sys_path_mutation",
-      "line": 19,
-      "path": "skills/daban-stock-picker/scripts/open_confirmation.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "6e999e0bcea4140e6619",
-      "kind": "sys_path_mutation",
-      "line": 20,
-      "path": "skills/daban-stock-picker/scripts/open_confirmation.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "a1e37e884eb5e7a51a1e",
-      "kind": "sys_path_mutation",
-      "line": 21,
-      "path": "skills/daban-stock-picker/scripts/open_confirmation.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "618262066dc6ea9072fe",
       "kind": "broad_exception",
-      "line": 99,
+      "line": 451,
       "path": "skills/daban-stock-picker/scripts/open_confirmation.py",
       "symbol": "_advance_fsm_to_candidate"
     },
     {
       "id": "c66285a3d1feb526a061",
       "kind": "long_function",
-      "line": 490,
+      "line": 1047,
       "path": "skills/daban-stock-picker/scripts/open_confirmation.py",
       "symbol": "rank_confirmations"
     },
     {
       "id": "9d1eb6cfb5766b61fe83",
       "kind": "long_function",
-      "line": 636,
+      "line": 1531,
       "path": "skills/daban-stock-picker/scripts/open_confirmation.py",
       "symbol": "build_confirmation"
-    },
-    {
-      "id": "d63244f25ef1ec944a8c",
-      "kind": "sys_path_mutation",
-      "line": 26,
-      "path": "skills/global-market-monitor/scripts/monitor.py",
-      "symbol": "<module>"
     },
     {
       "id": "8b3e6ae33170b44d7639",
@@ -1480,168 +1375,112 @@
     {
       "id": "575407b26479adca4a97",
       "kind": "broad_exception",
-      "line": 1120,
+      "line": 1117,
       "path": "skills/global-market-monitor/scripts/monitor.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "89643a26e312df6a9393",
-      "kind": "sys_path_mutation",
-      "line": 23,
-      "path": "skills/hot-money-tactics/scripts/analyze.py",
       "symbol": "<module>"
     },
     {
       "id": "9406458385eea9c0b16d",
       "kind": "broad_exception",
-      "line": 53,
+      "line": 51,
       "path": "skills/hot-money-tactics/scripts/analyze.py",
       "symbol": "get_zt_pool"
     },
     {
       "id": "16e6f84499a6ceef0ced",
       "kind": "broad_exception",
-      "line": 61,
+      "line": 59,
       "path": "skills/hot-money-tactics/scripts/analyze.py",
       "symbol": "get_strong_pool"
     },
     {
       "id": "2d6a253ad86df0efa729",
       "kind": "broad_exception",
-      "line": 70,
+      "line": 68,
       "path": "skills/hot-money-tactics/scripts/analyze.py",
       "symbol": "get_all_stocks"
     },
     {
       "id": "9d79a8d3f47002853b75",
       "kind": "long_function",
-      "line": 260,
+      "line": 258,
       "path": "skills/hot-money-tactics/scripts/analyze.py",
       "symbol": "analyze_rotation"
     },
     {
       "id": "bf92a2e73363a34d122c",
       "kind": "broad_exception",
-      "line": 443,
+      "line": 447,
       "path": "skills/hot-money-tactics/scripts/analyze.py",
       "symbol": "cache_signal_context"
     },
     {
       "id": "7ddd8e03a4d8549b04dc",
       "kind": "broad_exception",
-      "line": 454,
+      "line": 458,
       "path": "skills/hot-money-tactics/scripts/analyze.py",
       "symbol": "_is_trading_day_failclosed"
     },
     {
       "id": "12bd9dd3f610b609194c",
       "kind": "long_function",
-      "line": 513,
+      "line": 517,
       "path": "skills/hot-money-tactics/scripts/analyze.py",
       "symbol": "main"
     },
     {
-      "id": "252c6436751559a64c2e",
-      "kind": "sys_path_mutation",
-      "line": 31,
-      "path": "skills/hot-money-tactics/scripts/dragon_tiger.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "638df5a4d1846c2f2f24",
       "kind": "broad_exception",
-      "line": 126,
+      "line": 123,
       "path": "skills/hot-money-tactics/scripts/dragon_tiger.py",
       "symbol": "fetch_lhb_detail"
     },
     {
       "id": "7f55a0942c19571ff711",
       "kind": "broad_exception",
-      "line": 135,
+      "line": 132,
       "path": "skills/hot-money-tactics/scripts/dragon_tiger.py",
       "symbol": "fetch_seats"
     },
     {
-      "id": "cd83ade8e6e9bcfc154b",
-      "kind": "sys_path_mutation",
-      "line": 15,
-      "path": "skills/news-to-sector/scripts/main.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "6ea78fb4a642ee2da069",
-      "kind": "sys_path_mutation",
-      "line": 18,
-      "path": "skills/news-to-sector/scripts/main.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "c26f5103a2759450ed06",
       "kind": "long_function",
-      "line": 127,
+      "line": 123,
       "path": "skills/news-to-sector/scripts/main.py",
       "symbol": "analyze_news"
     },
     {
-      "id": "abb14991f6b3f828d4a8",
-      "kind": "sys_path_mutation",
-      "line": 22,
-      "path": "skills/news-to-sector/scripts/scheduled_monitor.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "1be15286b42ce39ce40c",
-      "kind": "sys_path_mutation",
-      "line": 23,
-      "path": "skills/news-to-sector/scripts/scheduled_monitor.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "6969157f368e61a79edf",
       "kind": "long_function",
-      "line": 244,
+      "line": 278,
       "path": "skills/news-to-sector/scripts/scheduled_monitor.py",
       "symbol": "run_monitor"
     },
     {
       "id": "bcae1b234c2041542cfb",
       "kind": "broad_exception",
-      "line": 296,
+      "line": 362,
       "path": "skills/news-to-sector/scripts/scheduled_monitor.py",
       "symbol": "run_monitor"
     },
     {
-      "id": "23a89000ce899ff04c77",
-      "kind": "sys_path_mutation",
-      "line": 28,
-      "path": "skills/policy-intent-decoder/scripts/watch_official_policy.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "d6a5b606d51a8b3995da",
       "kind": "broad_exception",
-      "line": 320,
+      "line": 319,
       "path": "skills/policy-intent-decoder/scripts/watch_official_policy.py",
       "symbol": "fetch_source"
     },
     {
       "id": "573196c39dd10a612dc0",
       "kind": "long_function",
-      "line": 358,
+      "line": 363,
       "path": "skills/policy-intent-decoder/scripts/watch_official_policy.py",
       "symbol": "build_watch_result"
     },
     {
-      "id": "5295f9811dda2ae0e76b",
-      "kind": "sys_path_mutation",
-      "line": 22,
-      "path": "skills/serenity-investment-research/scripts/cninfo_fetch.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "d0efa26fa793b5e159d6",
       "kind": "broad_exception",
-      "line": 87,
+      "line": 84,
       "path": "skills/serenity-investment-research/scripts/cninfo_fetch.py",
       "symbol": "millis_to_date"
     },
@@ -1653,13 +1492,6 @@
       "symbol": "extract_with_pypdf"
     },
     {
-      "id": "d87a9b0dafe297944d25",
-      "kind": "sys_path_mutation",
-      "line": 16,
-      "path": "skills/social-sentiment/scripts/collect.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "fb049d2e1a55ff77c264",
       "kind": "sys_path_mutation",
       "line": 22,
@@ -1667,191 +1499,128 @@
       "symbol": "<module>"
     },
     {
-      "id": "72dae03a61fa0f15d2b3",
-      "kind": "sys_path_mutation",
-      "line": 23,
-      "path": "skills/stock-analyst/analyst.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "91d2005ad666b2a07b29",
       "kind": "broad_exception",
-      "line": 151,
+      "line": 150,
       "path": "skills/stock-analyst/analyst.py",
       "symbol": "cmd_compare"
     },
     {
-      "id": "9dabec415fa12c777df3",
-      "kind": "sys_path_mutation",
-      "line": 9,
-      "path": "skills/stock-analyst/scripts/chart.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "a8473d3184bfe3691edb",
       "kind": "long_function",
-      "line": 15,
+      "line": 12,
       "path": "skills/stock-analyst/scripts/chart.py",
       "symbol": "draw_kline_chart"
     },
     {
-      "id": "73f7e6491bc78cf1de03",
-      "kind": "sys_path_mutation",
-      "line": 22,
-      "path": "skills/stock-analyst/scripts/data_cache.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "97564abc9bc01be686b6",
       "kind": "broad_exception",
-      "line": 372,
+      "line": 370,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_kline_from_akshare_tx"
     },
     {
       "id": "eca920e6f12af73518ca",
       "kind": "broad_exception",
-      "line": 411,
+      "line": 409,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_kline_from_baostock"
     },
     {
       "id": "28df4c1b8dde54e32b1c",
       "kind": "broad_exception",
-      "line": 544,
+      "line": 542,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_zt_pool"
     },
     {
       "id": "8e525f0d0c6211461451",
       "kind": "broad_exception",
-      "line": 570,
+      "line": 568,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_sectors_ths"
     },
     {
       "id": "665fde66d81ad9de33c4",
       "kind": "broad_exception",
-      "line": 618,
+      "line": 616,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_stock_info_xq"
     },
     {
       "id": "545c8bb69c7e4dda22c9",
       "kind": "broad_exception",
-      "line": 671,
+      "line": 669,
       "path": "skills/stock-analyst/scripts/data_cache.py",
       "symbol": "fetch_stock_list"
     },
     {
-      "id": "5dbede5ed5dc6903f794",
-      "kind": "sys_path_mutation",
-      "line": 14,
-      "path": "skills/stock-analyst/scripts/fundamentals.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "f4e6a1171afb0fa200ce",
-      "kind": "sys_path_mutation",
-      "line": 17,
-      "path": "skills/stock-analyst/scripts/fundamentals.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "1a88c5218fc87728a344",
       "kind": "broad_exception",
-      "line": 52,
+      "line": 49,
       "path": "skills/stock-analyst/scripts/fundamentals.py",
       "symbol": "_extract_json"
     },
     {
       "id": "eaddc059822a8d4319f8",
       "kind": "broad_exception",
-      "line": 92,
+      "line": 89,
       "path": "skills/stock-analyst/scripts/fundamentals.py",
       "symbol": "_baostock_query"
     },
     {
       "id": "3854e46176e54c7ee3eb",
       "kind": "broad_exception",
-      "line": 135,
+      "line": 132,
       "path": "skills/stock-analyst/scripts/fundamentals.py",
       "symbol": "get_stock_basic"
     },
     {
       "id": "25e9c3337f710d506165",
       "kind": "broad_exception",
-      "line": 186,
+      "line": 183,
       "path": "skills/stock-analyst/scripts/fundamentals.py",
       "symbol": "get_profit_data"
     },
     {
       "id": "a0d416ddc99599b4921a",
       "kind": "broad_exception",
-      "line": 228,
+      "line": 225,
       "path": "skills/stock-analyst/scripts/fundamentals.py",
       "symbol": "get_dupont_data"
     },
     {
       "id": "f9c129e8ef590184fbbf",
       "kind": "broad_exception",
-      "line": 303,
+      "line": 300,
       "path": "skills/stock-analyst/scripts/fundamentals.py",
       "symbol": "get_full_analysis"
     },
     {
-      "id": "40639a598f122fddb64a",
-      "kind": "sys_path_mutation",
-      "line": 13,
-      "path": "skills/stock-analyst/scripts/news.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "1c4251954801f55a8fe3",
-      "kind": "sys_path_mutation",
-      "line": 45,
-      "path": "skills/stock-analyst/scripts/screener.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "2e7012c745cb001fb7eb",
       "kind": "broad_exception",
-      "line": 238,
+      "line": 235,
       "path": "skills/stock-analyst/scripts/screener.py",
       "symbol": "get_all_stocks"
     },
     {
       "id": "b7aa0228d7215f72908e",
       "kind": "broad_exception",
-      "line": 276,
+      "line": 273,
       "path": "skills/stock-analyst/scripts/screener.py",
       "symbol": "screen_by_conditions"
     },
     {
-      "id": "c31982ccf641c0be85c6",
-      "kind": "sys_path_mutation",
-      "line": 20,
-      "path": "skills/stock-analyst/scripts/sector_scan.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "b60824868fbefd08339d",
-      "kind": "sys_path_mutation",
-      "line": 21,
-      "path": "skills/stock-analyst/scripts/sector_scan.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "6dc070d33ac9d34e812e",
       "kind": "long_function",
-      "line": 26,
+      "line": 23,
       "path": "skills/stock-analyst/scripts/sector_scan.py",
       "symbol": "scan_from_zt_pool"
     },
     {
       "id": "493a756e0f750979e6c8",
       "kind": "broad_exception",
-      "line": 63,
+      "line": 60,
       "path": "skills/stock-analyst/scripts/sector_scan.py",
       "symbol": "scan_from_zt_pool"
     },
@@ -1863,109 +1632,74 @@
       "symbol": "analyze_stock"
     },
     {
-      "id": "298a9fe8f661cada7c9a",
-      "kind": "sys_path_mutation",
-      "line": 21,
-      "path": "skills/stock-triage/scripts/batch_four_dim_scorer.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "425f56665646c2236a8f",
-      "kind": "sys_path_mutation",
-      "line": 22,
-      "path": "skills/stock-triage/scripts/batch_four_dim_scorer.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "e160bee14f3574659ad8",
       "kind": "broad_exception",
-      "line": 102,
+      "line": 132,
       "path": "skills/stock-triage/scripts/batch_four_dim_scorer.py",
       "symbol": "_prefetch_quotes"
     },
     {
       "id": "5529876c6d58167d17ef",
       "kind": "broad_exception",
-      "line": 135,
+      "line": 196,
       "path": "skills/stock-triage/scripts/batch_four_dim_scorer.py",
       "symbol": "score_targets._one"
     },
     {
-      "id": "c278ad8408021bf75f3f",
-      "kind": "sys_path_mutation",
-      "line": 31,
-      "path": "skills/stock-triage/scripts/candidate_discovery.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "cce0d92fcafac1dc1eda",
       "kind": "broad_exception",
-      "line": 309,
+      "line": 422,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "fetch_exchange_universe"
     },
     {
       "id": "37eb11a6a14ff8e0202a",
       "kind": "broad_exception",
-      "line": 520,
+      "line": 667,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "fetch_candidate_klines"
     },
     {
       "id": "c8aef5dd2e90bf188c87",
       "kind": "broad_exception",
-      "line": 632,
+      "line": 779,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "_advance_fsm_to_watching"
     },
     {
       "id": "945681d3993cd661fa62",
       "kind": "broad_exception",
-      "line": 726,
+      "line": 900,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "load_signal_context_for_discovery"
     },
     {
       "id": "1bc7a234815725b2c818",
       "kind": "long_function",
-      "line": 830,
+      "line": 1076,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "run_discovery"
     },
     {
       "id": "d1d324ab8b1ca8daea09",
       "kind": "broad_exception",
-      "line": 862,
+      "line": 1115,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "run_discovery"
     },
     {
       "id": "d5031f4d3d87a874335f",
       "kind": "broad_exception",
-      "line": 1351,
+      "line": 1774,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "_run_warmup_cache"
     },
     {
       "id": "aac7454d408a58aa7f5b",
       "kind": "broad_exception",
-      "line": 1423,
+      "line": 1846,
       "path": "skills/stock-triage/scripts/candidate_discovery.py",
       "symbol": "main"
-    },
-    {
-      "id": "d5435c6d352a842ae1ed",
-      "kind": "sys_path_mutation",
-      "line": 26,
-      "path": "skills/stock-triage/scripts/candidate_fsm_sweep.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "596721ffb119aa0829e6",
-      "kind": "sys_path_mutation",
-      "line": 19,
-      "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
-      "symbol": "<module>"
     },
     {
       "id": "75d639b53e5b53ad0358",
@@ -1977,324 +1711,226 @@
     {
       "id": "628ca709910d9be859df",
       "kind": "broad_exception",
-      "line": 325,
+      "line": 450,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "_fetch_sector_board_page"
     },
     {
       "id": "2ef6dcf42e87a54ca02a",
       "kind": "broad_exception",
-      "line": 365,
+      "line": 490,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "fetch_index_return_5d"
     },
     {
       "id": "1a4ca28d2bf6f834c573",
       "kind": "long_function",
-      "line": 430,
+      "line": 555,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "collect_flow_data"
     },
     {
       "id": "0c7bb541ac06ebf2bb84",
       "kind": "broad_exception",
-      "line": 591,
+      "line": 756,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "collect_flow_data"
     },
     {
       "id": "98fa622dc596dd4fa005",
       "kind": "broad_exception",
-      "line": 714,
+      "line": 929,
       "path": "skills/stock-triage/scripts/capital_flow_monitor.py",
       "symbol": "cache_signal_context"
     },
     {
-      "id": "0320aa84a69afa2c1161",
-      "kind": "sys_path_mutation",
-      "line": 19,
-      "path": "skills/stock-triage/scripts/context_digest.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "100158091da68e1c6a45",
-      "kind": "sys_path_mutation",
-      "line": 23,
-      "path": "skills/stock-triage/scripts/discipline_review.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "2157721e03043bf195a4",
-      "kind": "sys_path_mutation",
-      "line": 24,
-      "path": "skills/stock-triage/scripts/discipline_review.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "d34ed81d0d5438e5e63a",
-      "kind": "sys_path_mutation",
-      "line": 41,
-      "path": "skills/stock-triage/scripts/eod_anomaly_scanner.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "7b9ab9919cfbde4e77c2",
-      "kind": "broad_exception",
-      "line": 214,
-      "path": "skills/stock-triage/scripts/eod_anomaly_scanner.py",
-      "symbol": "_fetch_universe_with_retry"
-    },
-    {
-      "id": "a32b579a5512ec09e419",
-      "kind": "broad_exception",
-      "line": 233,
-      "path": "skills/stock-triage/scripts/eod_anomaly_scanner.py",
-      "symbol": "_fetch_minute_signals"
-    },
-    {
-      "id": "edd0b9f49168851c1581",
-      "kind": "broad_exception",
-      "line": 251,
-      "path": "skills/stock-triage/scripts/eod_anomaly_scanner.py",
-      "symbol": "_fetch_60d_positions"
-    },
-    {
-      "id": "7f4a4c70c001657d0f80",
-      "kind": "sys_path_mutation",
-      "line": 22,
-      "path": "skills/stock-triage/scripts/event_calendar.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "55c56d3ac650c196d55a",
       "kind": "broad_exception",
-      "line": 39,
+      "line": 57,
       "path": "skills/stock-triage/scripts/event_calendar.py",
       "symbol": "load_portfolio_codes"
     },
     {
+      "id": "72bc11fe62edefb1d869",
+      "kind": "long_function",
+      "line": 105,
+      "path": "skills/stock-triage/scripts/event_calendar.py",
+      "symbol": "collect_events"
+    },
+    {
       "id": "fa4fa719166da01a91c3",
       "kind": "sys_path_mutation",
-      "line": 26,
+      "line": 27,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "<module>"
     },
     {
       "id": "e4c72bdfbfb1792139d4",
       "kind": "sys_path_mutation",
-      "line": 49,
+      "line": 50,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "<module>"
     },
     {
       "id": "c566b0878530007b5956",
       "kind": "broad_exception",
-      "line": 52,
+      "line": 53,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "<module>"
     },
     {
       "id": "9b909ac56a3494f8e7c3",
       "kind": "broad_exception",
-      "line": 92,
+      "line": 158,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "fetch_tencent_realtime"
     },
     {
       "id": "46009e43e1ac0732e46d",
       "kind": "broad_exception",
-      "line": 100,
+      "line": 166,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "fetch_tencent_kline"
     },
     {
       "id": "16e1534ef9958fa25300",
       "kind": "long_function",
-      "line": 164,
+      "line": 418,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "score_technical"
     },
     {
       "id": "5cf254dd067c7bf5e3b1",
       "kind": "broad_exception",
-      "line": 322,
+      "line": 579,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "score_technical"
     },
     {
       "id": "7f791a9a66b47ec3c3ab",
       "kind": "broad_exception",
-      "line": 510,
+      "line": 777,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "_fetch_eps_consensus"
     },
     {
       "id": "77b6dc84e656ca810a80",
       "kind": "broad_exception",
-      "line": 624,
+      "line": 926,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "_load_scoring_config"
     },
     {
       "id": "6c0bd34a1b61f9cf5506",
       "kind": "broad_exception",
-      "line": 828,
+      "line": 1152,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "_load_historical_reference"
     },
     {
       "id": "27cfc837fe4e5f54521d",
       "kind": "long_function",
-      "line": 832,
+      "line": 1218,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "score_stock"
     },
     {
       "id": "74cd5e53532376f53efa",
       "kind": "long_function",
-      "line": 989,
+      "line": 1405,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "format_report"
     },
     {
       "id": "a6397a707953b0d5b948",
       "kind": "long_function",
-      "line": 1100,
+      "line": 1540,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "score_short_term_entry"
     },
     {
       "id": "4ad836575e2290248a01",
       "kind": "broad_exception",
-      "line": 1154,
+      "line": 1595,
       "path": "skills/stock-triage/scripts/four_dim_scorer.py",
       "symbol": "score_short_term_entry"
     },
     {
-      "id": "1cb87ef8e2279afd3632",
-      "kind": "sys_path_mutation",
-      "line": 22,
-      "path": "skills/stock-triage/scripts/hk_a_linkage.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "bac2dcd9cc8c2a13a458",
       "kind": "long_function",
-      "line": 114,
+      "line": 110,
       "path": "skills/stock-triage/scripts/hk_a_linkage.py",
       "symbol": "collect_hk_a_data"
     },
     {
       "id": "02c93e1ddcad007cdb55",
       "kind": "broad_exception",
-      "line": 132,
+      "line": 128,
       "path": "skills/stock-triage/scripts/hk_a_linkage.py",
       "symbol": "collect_hk_a_data"
     },
     {
-      "id": "7f72d91ceafc4c802753",
-      "kind": "sys_path_mutation",
-      "line": 20,
+      "id": "f6ed6a80c6314df4e502",
+      "kind": "long_function",
+      "line": 112,
       "path": "skills/stock-triage/scripts/institution_tracker.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "67cd13c2f5709fbccbc9",
-      "kind": "sys_path_mutation",
-      "line": 19,
-      "path": "skills/stock-triage/scripts/intraday_monitor.py",
-      "symbol": "<module>"
+      "symbol": "collect_institution_data"
     },
     {
       "id": "41c94388cc72d82f72a4",
       "kind": "long_function",
-      "line": 300,
+      "line": 357,
       "path": "skills/stock-triage/scripts/intraday_monitor.py",
       "symbol": "check_intraday"
     },
     {
       "id": "5514a8644c3abcd824e0",
       "kind": "broad_exception",
-      "line": 415,
+      "line": 477,
       "path": "skills/stock-triage/scripts/intraday_monitor.py",
       "symbol": "check_intraday"
     },
     {
-      "id": "7bddbdae0f2ca9d9ca73",
-      "kind": "sys_path_mutation",
-      "line": 19,
-      "path": "skills/stock-triage/scripts/market_pulse.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "a71f29d1e30a119305a7",
       "kind": "broad_exception",
-      "line": 76,
+      "line": 72,
       "path": "skills/stock-triage/scripts/market_pulse.py",
       "symbol": "fetch_indices"
     },
     {
       "id": "453c696adfb70ee5212b",
       "kind": "broad_exception",
-      "line": 91,
+      "line": 87,
       "path": "skills/stock-triage/scripts/market_pulse.py",
       "symbol": "fetch_group_snapshot"
     },
     {
-      "id": "b3e44a2375874adf533f",
-      "kind": "sys_path_mutation",
-      "line": 11,
-      "path": "skills/stock-triage/scripts/monitor_manager.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "3219b91b88a26545f3cf",
       "kind": "sys_path_mutation",
-      "line": 36,
-      "path": "skills/stock-triage/scripts/performance_tracker.py",
-      "symbol": "<module>"
-    },
-    {
-      "id": "b2fb962378b17c6508fa",
-      "kind": "sys_path_mutation",
-      "line": 38,
+      "line": 44,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "<module>"
     },
     {
       "id": "6d5483b1ae4be283b73f",
       "kind": "long_function",
-      "line": 272,
+      "line": 289,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "update_outcomes"
     },
     {
       "id": "9ab3af0ec61591283fc7",
       "kind": "long_function",
-      "line": 569,
+      "line": 669,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "compute_stats"
     },
     {
-      "id": "dd8050b60d8c27c0b09f",
-      "kind": "sys_path_mutation",
-      "line": 744,
-      "path": "skills/stock-triage/scripts/performance_tracker.py",
-      "symbol": "apply_strategy_gating"
-    },
-    {
       "id": "fa3d2cd7ea6d9371e4f6",
       "kind": "long_function",
-      "line": 793,
+      "line": 905,
       "path": "skills/stock-triage/scripts/performance_tracker.py",
       "symbol": "format_stats"
-    },
-    {
-      "id": "74ceadaeb2c58fbbdcf2",
-      "kind": "sys_path_mutation",
-      "line": 28,
-      "path": "skills/stock-triage/scripts/portfolio_manager.py",
-      "symbol": "<module>"
     },
     {
       "id": "ec0b9c2bc761f473b794",
@@ -2306,44 +1942,30 @@
     {
       "id": "94e2f9ad425b9c91ffd1",
       "kind": "long_function",
-      "line": 989,
+      "line": 1102,
       "path": "skills/stock-triage/scripts/portfolio_manager.py",
       "symbol": "close_position"
     },
     {
       "id": "c77a3593ffbe6db0fcaa",
       "kind": "long_function",
-      "line": 1152,
+      "line": 1265,
       "path": "skills/stock-triage/scripts/portfolio_manager.py",
       "symbol": "_apply_prices"
     },
     {
       "id": "f052567e5b5fdc07a15e",
       "kind": "broad_exception",
-      "line": 1391,
+      "line": 1504,
       "path": "skills/stock-triage/scripts/portfolio_manager.py",
       "symbol": "refresh_prices"
     },
     {
-      "id": "c9d57a5c8be7d257d2b6",
-      "kind": "sys_path_mutation",
-      "line": 20,
-      "path": "skills/stock-triage/scripts/serenity_to_feishu.py",
-      "symbol": "<module>"
-    },
-    {
       "id": "e3d8728aa2958c257f62",
       "kind": "broad_exception",
-      "line": 83,
+      "line": 137,
       "path": "skills/stock-triage/scripts/serenity_to_feishu.py",
       "symbol": "create_feishu_doc"
-    },
-    {
-      "id": "431fb1b4f394fa55e35f",
-      "kind": "sys_path_mutation",
-      "line": 17,
-      "path": "skills/stock-triage/scripts/stock_intelligence_refresh.py",
-      "symbol": "<module>"
     }
   ]
 }

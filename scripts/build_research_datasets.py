@@ -37,6 +37,7 @@ from market_adapters import fetch_tencent_kline  # noqa: E402
 from paths import data_file  # noqa: E402
 import portfolio_research_history  # noqa: E402
 import signal_ledger  # noqa: E402
+import strategy_forward_settlement as forward  # noqa: E402
 from state_store import atomic_write_json, read_json  # noqa: E402
 
 
@@ -47,6 +48,11 @@ SNAPSHOT_LOOKBACK_DAYS = 30
 # performance_tracker 的历史文件路径。此处重算而非 import 那个脚本模块——
 # 跨 skill 导入脚本要改 sys.path，而 sys_path_mutation 是维护性预算的计数项。
 HISTORY_FILENAME = "signal_history.json"
+FORWARD_POLICY_PATH = os.path.join(ROOT, "config", "strategy_forward_settlement.json")
+FORWARD_STRATEGY_IDS = (
+    "rank_surprise", "divergence_reseal", "assist_arbitrage",
+    "preleader_arbitrage", "reverse_volume", "ice_point_reversal",
+)
 
 
 def _market(code: str) -> str:
@@ -131,11 +137,56 @@ def build_direction_dataset(catalog: Mapping[str, Any], asof: str) -> dict[str, 
     return _persist(payload, asof)
 
 
+def build_forward_datasets(catalog: Mapping[str, Any], asof: str) -> dict[str, Any]:
+    """Persist one gate-qualified Settled Forward Samples artifact per strategy."""
+    contract = dataset_contract.resolve_dataset(catalog, "settled_forward_samples_v1")
+    written: list[dict[str, Any]] = []
+    blocked: list[dict[str, str]] = []
+    for strategy_id in FORWARD_STRATEGY_IDS:
+        try:
+            payload = forward.build_gate_dataset(
+                strategy_id, policy_path=FORWARD_POLICY_PATH
+            )
+            validation = dataset_contract.validate_records(
+                payload["rows"], contract, coverage_ratio=float(payload["coverage_ratio"])
+            )
+        except (ValueError, dataset_contract.DatasetContractError) as exc:
+            blocked.append({"strategy_id": strategy_id, "reason": str(exc)})
+            continue
+        path = data_file(
+            "stock-triage",
+            f"dataset_settled_forward_samples_v1_{strategy_id}_{asof}.json",
+        )
+        atomic_write_json(path, {**payload, "asof": asof, "validation": validation})
+        written.append({
+            "strategy_id": strategy_id, "path": path,
+            "record_count": len(payload["rows"]),
+            "coverage_ratio": float(payload["coverage_ratio"]),
+        })
+    if not written:
+        reason = "; ".join(
+            f"{item['strategy_id']}:{item['reason']}" for item in blocked
+        ) or "no_eligible_forward_predictions"
+        return {
+            "dataset_id": "settled_forward_samples_v1", "status": "skipped",
+            "reason": reason, "strategies": [], "blocked_strategies": blocked,
+            "research_only": True,
+        }
+    return {
+        "dataset_id": "settled_forward_samples_v1", "status": "written",
+        "record_count": sum(item["record_count"] for item in written),
+        "coverage_ratio": min(item["coverage_ratio"] for item in written),
+        "considered": len(written), "strategies": written,
+        "blocked_strategies": blocked, "research_only": True,
+    }
+
+
 def build_all(asof: str, *, include_direction: bool = True) -> dict[str, Any]:
     catalog = dataset_contract.load_catalog(CATALOG_PATH)
     results = [build_settled_dataset(catalog, asof)]
     if include_direction:
         results.append(build_direction_dataset(catalog, asof))
+    results.append(build_forward_datasets(catalog, asof))
     written = [item for item in results if item["status"] == "written"]
     return {
         "schema": "research_dataset_build_v1",

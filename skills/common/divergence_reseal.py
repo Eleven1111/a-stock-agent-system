@@ -270,6 +270,9 @@ def evaluate(
     peer_list = list(peers or [])
     code = str(record.get("code") or "")
     reasons: list[str] = []
+    baseline_semantics = str(record.get("turnover_baseline_semantics") or "")
+    if baseline_semantics != "historical_same_clock_minute_turnover_v1":
+        reasons.append("turnover_baseline_semantics_invalid")
     if not str(record.get("sector") or "").strip():
         reasons.append("sector_missing")
 
@@ -308,6 +311,11 @@ def evaluate(
         "reasons": reasons,
         "degraded": degraded,
         "peer_count": len(peer_list),
+        "forward_settlement_eligible": status == STATUS_SIGNAL and not reasons,
+        "evidence_invalidation": (
+            "legacy_daily_turn_baseline_rejected"
+            if "turnover_baseline_semantics_invalid" in reasons else None
+        ),
         "influences_live_ranking": False,
         "note": "S2 未在 strategy_registry 注册；输出仅供研究/回测，不得进入实盘排序或仓位",
     }

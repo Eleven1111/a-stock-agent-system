@@ -93,6 +93,10 @@ def test_merge_auction_series_preserves_stable_fields_on_lightweight_late_quote(
         "prev_day_volume": 1000.0,
         "prev_day_amount": 10000.0,
         "volume": 12.0,
+        "bids": [(10.5, 5000.0)],
+        "asks": [(10.51, 3000.0)],
+        "book_provider": "tencent",
+        "book_status": "ok",
     }]
     incoming = [{"t": "09:24:00", "price": 10.6, "volume": 13.0}]
 
@@ -102,6 +106,151 @@ def test_merge_auction_series_preserves_stable_fields_on_lightweight_late_quote(
     assert merged[-1]["prev_close"] == 10.0
     assert merged[-1]["prev_day_volume"] == 1000.0
     assert merged[-1]["prev_day_amount"] == 10000.0
+    assert merged[-1]["bids"] == [(10.5, 5000.0)]
+    assert merged[-1]["asks"] == [(10.51, 3000.0)]
+    assert merged[-1]["book_provider"] == "tencent"
+    assert merged[-1]["book_status"] == "ok"
+
+
+def test_merge_auction_series_keeps_last_good_book_when_later_poll_fails():
+    existing = [{
+        "t": "09:25:00",
+        "price": 10.5,
+        "bids": [(10.5, 5000.0)],
+        "asks": [(10.51, 3000.0)],
+        "book_provider": "tencent",
+        "book_status": "ok",
+        "book_failure_reason": None,
+    }]
+    incoming = [{
+        "t": "09:25:00",
+        "price": 10.6,
+        "bids": [],
+        "asks": [],
+        "book_provider": "tencent",
+        "book_status": "unavailable",
+        "book_failure_reason": "腾讯五档超时",
+    }]
+
+    merged = ac._merge_auction_series(existing, incoming)
+
+    assert merged[-1]["price"] == 10.6
+    assert merged[-1]["bids"] == [(10.5, 5000.0)]
+    assert merged[-1]["asks"] == [(10.51, 3000.0)]
+    assert merged[-1]["book_status"] == "stale_last_good"
+    assert merged[-1]["book_failure_reason"] == "腾讯五档超时"
+
+
+def test_easy_tdx_with_failed_tencent_book_reports_missing_book():
+    snapshots = [
+        {
+            "t": f"09:{minute:02d}:00",
+            "volume": 1.0,
+            "provider": "easy_tdx_mac_0x123d",
+            "book_provider": "tencent",
+            "book_status": "unavailable",
+            "book_failure_reason": "腾讯实时快照缺少有效五档盘口",
+            "bids": [],
+            "asks": [],
+        }
+        for minute in range(15, 26)
+    ]
+
+    quality = ac._quality_for_snapshots(snapshots)
+
+    assert quality["book_coverage_required"] is True
+    assert quality["book_coverage_status"] == "missing"
+    assert quality["status"] == "unavailable"
+    assert "五档盘口无有效覆盖" in quality["reasons"]
+
+
+def test_quality_time_coverage_is_not_diluted_by_number_of_stocks():
+    snapshots = [
+        {
+            "t": f"09:{minute:02d}:00",
+            "volume": 1.0,
+            "provider": "book_capable_fixture",
+            "bids": [(10.0, 100.0)],
+            "asks": [(10.1, 120.0)],
+        }
+        for _code in range(3)
+        for minute in range(15, 26)
+    ]
+
+    quality = ac._quality_for_snapshots(snapshots)
+
+    assert quality["time_coverage_rate"] == 1.0
+    assert quality["window_coverage_rate"] == 1.0
+    assert quality["status"] == "ok"
+
+
+def test_quality_requires_coverage_across_the_auction_window():
+    quality = ac._quality_for_snapshots([{
+        "t": "09:25:00",
+        "volume": 1.0,
+        "provider": "book_capable_fixture",
+        "bids": [(10.0, 100.0)],
+        "asks": [(10.1, 120.0)],
+    }])
+
+    assert quality["time_coverage_rate"] == 1.0
+    assert quality["window_coverage_rate"] < ac.QUALITY_MIN_TIME_COVERAGE
+    assert quality["status"] == "unavailable"
+    assert "竞价窗口覆盖率低于质量门槛" in quality["reasons"]
+
+
+def test_quality_does_not_require_order_book_from_easy_tdx_auction_contract():
+    snapshots = [
+        {
+            "t": f"09:{minute:02d}:00",
+            "volume": 1.0,
+            "provider": "easy_tdx_mac_0x123d",
+        }
+        for minute in range(15, 26)
+    ]
+
+    quality = ac._quality_for_snapshots(snapshots)
+
+    assert quality["status"] == "ok"
+    assert quality["book_coverage_required"] is False
+    assert quality["book_coverage_status"] == "not_supported"
+    assert "五档盘口无有效覆盖" not in quality["reasons"]
+
+
+def test_quality_still_fails_closed_when_book_capable_source_omits_order_book():
+    snapshots = [
+        {
+            "t": f"09:{minute:02d}:00",
+            "volume": 1.0,
+            "provider": "book_capable_fixture",
+        }
+        for minute in range(15, 26)
+    ]
+
+    quality = ac._quality_for_snapshots(snapshots)
+
+    assert quality["status"] == "unavailable"
+    assert quality["book_coverage_required"] is True
+    assert quality["book_coverage_status"] == "missing"
+    assert "五档盘口无有效覆盖" in quality["reasons"]
+
+
+def test_sparse_easy_tdx_change_series_is_valid_for_single_stock_factors():
+    factor = ac.compute_auction_factors([{
+        "t": "09:25:00",
+        "price": 10.2,
+        "prev_close": 10.0,
+        "volume": 100.0,
+        "matched": 10_000,
+        "unmatched": 0,
+        "prev_day_volume": 100_000.0,
+        "provider": "easy_tdx_mac_0x123d",
+    }], "sh600001", "测试股票")
+
+    quality = factor["auction_data_quality"]
+    assert quality["status"] == "ok"
+    assert quality["window_coverage_required"] is False
+    assert quality["window_coverage_rate"] < ac.QUALITY_MIN_TIME_COVERAGE
 
 
 def test_enrich_snapshot_names_fills_missing_names_without_overwriting_provider_name():
@@ -197,6 +346,46 @@ def test_build_result_shape():
     assert len(r["factors"]) == 1
     assert "chanlun-backtest" in r["note"]
     assert "不是涨停概率" in r["note"]
+
+
+def test_build_result_separates_raw_observations_from_computable_factors():
+    valid_series = [
+        {
+            "t": f"09:{minute:02d}:00",
+            "price": 10.2,
+            "prev_close": 10.0,
+            "volume": 100.0,
+            "matched": 10_000,
+            "unmatched": 0,
+            "prev_day_volume": 100_000.0,
+            "provider": "easy_tdx_mac_0x123d",
+        }
+        for minute in range(15, 26)
+    ]
+    raw_observation_without_reference = [{
+        "t": "09:25:00",
+        "price": 8.8,
+        "volume": 50.0,
+        "matched": 5_000,
+        "unmatched": 100,
+        "provider": "easy_tdx_mac_0x123d",
+        "snapshot_scope": "full_market",
+    }]
+
+    result = ac._build_result(
+        {
+            "sh600001": valid_series,
+            "sh600002": raw_observation_without_reference,
+        },
+        "2026-08-31",
+    )
+
+    assert [factor["code"] for factor in result["factors"]] == ["sh600001"]
+    assert len(result["factor_failures"]) == 1
+    assert result["factor_failures"][0]["code"] == "sh600002"
+    assert result["factor_failures"][0]["error"] == "缺少现价/昨收，无法计算竞价因子"
+    assert result["auction_quality"]["status"] == "ok"
+    assert "至少一个标的竞价质量不可用" not in result["auction_quality"]["reasons"]
 
 
 def test_build_result_fills_missing_name_from_universe_quotes_cache(monkeypatch):

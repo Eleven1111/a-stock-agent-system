@@ -1,0 +1,35 @@
+{
+  "schema": "strategy_forward_settlement_policy_v1",
+  "version": "cn-a-shadow-forward-v1",
+  "entry_rule": "next_trading_session_open_reference",
+  "horizons": [1, 3],
+  "primary_horizon_by_strategy": {
+    "rank_surprise": 1,
+    "divergence_reseal": 1,
+    "assist_arbitrage": 1,
+    "preleader_arbitrage": 1,
+    "reverse_volume": 3,
+    "ice_point_reversal": 3
+  },
+  "benchmark": {
+    "code": "000300",
+    "name": "CSI300"
+  },
+  "cost_model": {
+    "assumed_notional": 20000.0,
+    "entry_slippage_bps": 10.0,
+    "exit_slippage_bps": 10.0
+  },
+  "terminal_grace_sessions": 5,
+  "minimum_coverage_ratio": 0.95,
+  "maximum_terminal_ambiguity_ratio": 0.02,
+  "approved_strategy_rule_hashes": {
+    "rank_surprise": ["c2f0db4b042b02babfbf570da8a8f48544a4c2b5783a03572485debc5be7e975"],
+    "divergence_reseal": ["a5e209212c255439c5686259ea049e71dad21d700da7fcc77ad69e6f9772b8f4"],
+    "assist_arbitrage": ["d1e70108c004359b89a6c7152d75824fbe90a44d85a10d7b2cdccc7536f33d9b"],
+    "preleader_arbitrage": ["d6edb28b3298d29b998b29c7384313695c9e8fccd901f24a83ed0f586a6d5f3c"],
+    "reverse_volume": ["99fbf3be9f6cd70e283e026cf2640c950636d167c0c933a7e9a54c7fa0a0849e"],
+    "ice_point_reversal": ["a8ec86ac37d423e69c805489fe4f56c1e6d17c5734c5ed7d39a261086db9e75a"]
+  },
+  "approved_policy_hashes": ["c38b7cb71481c2f2dd368285f393aa296ea716142bcdca8f8e4a6ff81229847a"]
+}

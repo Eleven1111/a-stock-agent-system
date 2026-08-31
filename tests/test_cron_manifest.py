@@ -102,6 +102,19 @@ def test_strategy_shadow_daily_is_isolated_and_after_close():
     assert _run_command(job) == "python scripts/strategy_shadow_runner.py --json"
     writes = " ".join(job["allowed_state_writes"])
     assert "strategy_shadow" in writes
+
+
+def test_strategy_forward_settlement_runs_after_shadow_and_cannot_write_live_state():
+    job = _manifest_job("strategy-forward-settlement-daily")
+    assert job["schedule"] == "50 23 * * 1-5"
+    assert job["context_from"] == ["strategy-shadow-daily", "market-history-cache"]
+    assert _run_command(job) == "python scripts/strategy_forward_settlement.py --json"
+    writes = " ".join(job["allowed_state_writes"])
+    assert "strategy_forward" in writes
+    assert "signal_ledger" not in writes
+    assert "strategy_registry" not in writes
+    assert "portfolio" not in writes
+    assert job["external_note"].find("next-session open") >= 0
     assert "portfolio" not in writes
     assert "signal_ledger" not in writes
 
@@ -781,6 +794,14 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert manifest["default_trading_day_policy"] == "required"
     for job_id in ("institution-weekly", "event-calendar", "performance-weekly", "official-policy-watch", "news-l1-scan", "news-monitor-weekend"):
         assert jobs[job_id]["trading_day_policy"] == "calendar_day"
+    assert any(
+        "scan_cursors/institution-weekly/" in path
+        for path in jobs["institution-weekly"]["allowed_state_writes"]
+    )
+    assert any(
+        "scan_cursors/event-calendar/" in path
+        for path in jobs["event-calendar"]["allowed_state_writes"]
+    )
     assert "pulse_engine" not in manifest.get("external_dependencies", {})
     assert "builderpulse" not in manifest.get("external_dependencies", {})
 

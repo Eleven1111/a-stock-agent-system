@@ -9,9 +9,10 @@ implementations only consume its normalized records.  No reconstructed
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date, datetime, time
 from math import sqrt
-from statistics import median
 from typing import Any, Iterable, Mapping, Sequence
+from zoneinfo import ZoneInfo
 
 import hot_money_selection
 import minute_derived
@@ -19,10 +20,16 @@ import reverse_volume
 import daban_config
 import sentiment_score
 import rank_surprise
+import ice_point_reversal
 
 
 SCHEMA = "strategy_evidence_daily_v1"
 DEFAULT_MAX_CODES = 160
+SHANGHAI = ZoneInfo("Asia/Shanghai")
+CANONICAL_CLASS = "canonical_forward"
+EXPLORATORY_CLASS = "exploratory_reconstruction"
+UNAVAILABLE_CLASS = "unavailable"
+RECONSTRUCTED_SOURCES = {"local_history_cache"}
 
 REQUIRED_FIELDS = {
     "rank_surprise": (
@@ -268,7 +275,12 @@ def _field(row: dict[str, Any], name: str, value: Any, source: str, asof: str) -
     row[name] = value
     row.setdefault("evidence_provenance", {})[name] = {
         "source": source if value is not None else "unavailable",
+        "source_identity": source if value is not None else None,
         "asof": asof if value is not None else None,
+        "observed_at": (
+            datetime.combine(date.fromisoformat(asof), time(15, 0), tzinfo=SHANGHAI).isoformat()
+            if value is not None else None
+        ),
     }
 
 
@@ -339,16 +351,18 @@ def _coverage(
             for field in ("leader_confirm", "sector_breadth_top"):
                 if market_state.get(field) is None:
                     market_missing.append(f"market_state.{field}")
-            ready = 1 if not market_missing else 0
+            if not records:
+                market_missing.append("market_state.tradeable_leader_binding")
+            ready = len(records) if not market_missing else 0
         if strategy == "preleader_arbitrage" and not pretable_ready:
             market_missing.append("preleader_pretable")
         if market_missing:
             ready = 0
         output[strategy] = {
-            "record_count": 1 if strategy == "ice_point_reversal" else len(records),
+            "record_count": len(records),
             "ready_records": ready,
             "coverage_ratio": round(
-                ready / (1 if strategy == "ice_point_reversal" else len(records)), 4
+                ready / len(records), 4
             ) if records else 0.0,
             "missing_fields": sorted(missing + market_missing),
             "source_missing_fields": sorted({
@@ -413,14 +427,12 @@ def _attach_minute_evidence(
     )
     _field(row, "pre_reseal_turnover_pct", turnover.get("value"),
            "tencent_minute_intraday+eastmoney_zt_pool", asof)
-    prior_turn = [
-        _number(item.get("turn")) for item in bars.get(str(row["code"]), [])
-        if str(item.get("trading_date")) < asof and _number(item.get("turn")) is not None
-    ][-20:]
-    _field(row, "turnover_baseline_median_pct",
-           median(prior_turn) if len(prior_turn) >= 15 else None, "local_market_history", asof)
-    _field(row, "turnover_baseline_sample_days",
-           len(prior_turn) if len(prior_turn) >= 15 else None, "local_market_history", asof)
+    # Daily ``turn`` is full-session turnover. S2 needs cumulative turnover at
+    # D0's same reseal clock minute across prior sessions. No such panel exists
+    # yet, so fail closed instead of substituting a different denominator.
+    _field(row, "turnover_baseline_median_pct", None, "unavailable", asof)
+    _field(row, "turnover_baseline_sample_days", None, "unavailable", asof)
+    row["turnover_baseline_semantics"] = "unavailable"
     up_peak, second_up, down_peak, pullback_down = _directional_peaks(raw_minutes)
     _field(row, "max_up_minute_volume", up_peak, "tencent_minute_intraday", asof)
     _field(row, "second_max_up_minute_volume", second_up, "tencent_minute_intraday", asof)
@@ -441,6 +453,21 @@ def _market_evidence(
     market = dict(selection_state.get("market_state") or {})
     market.setdefault("available", bool(market.get("dominant_state")))
     market["sentiment_series"] = list(sentiment_series)
+    market["sentiment_provenance"] = [
+        {
+            "trading_date": str(row.get("trading_date") or ""),
+            "observed_at": row.get("observed_at"),
+            "source_identity": row.get("source"),
+            "evidence_class": (
+                EXPLORATORY_CLASS
+                if str(row.get("source") or "") in RECONSTRUCTED_SOURCES
+                else CANONICAL_CLASS
+                if row.get("observed_at") and row.get("source")
+                else UNAVAILABLE_CLASS
+            ),
+        }
+        for row in sentiment_series
+    ]
     market["sector_breadth_top"] = max((len(value) for value in sector_events.values()), default=None)
     score = sentiment_score.compute_sentiment_score(list(sentiment_series))
     delta = _number(score.get("delta"))
@@ -452,6 +479,38 @@ def _market_evidence(
         )
     market["sentiment_score_status"] = score.get("status")
     return selection_state, market
+
+
+def _qualification(
+    coverage: Mapping[str, Mapping[str, Any]], market: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Derive strategy eligibility from observed inputs, never caller booleans."""
+    output: dict[str, dict[str, Any]] = {}
+    for strategy in REQUIRED_FIELDS:
+        reasons: list[str] = []
+        klass = CANONICAL_CLASS
+        if int((coverage.get(strategy) or {}).get("ready_records") or 0) <= 0:
+            klass = UNAVAILABLE_CLASS
+            reasons.append("required_strategy_evidence_unavailable")
+        if strategy == "divergence_reseal":
+            klass = UNAVAILABLE_CLASS
+            reasons = ["historical_same_clock_turnover_baseline_unavailable"]
+        if strategy == "ice_point_reversal":
+            provenance = list(market.get("sentiment_provenance") or [])
+            if any(row.get("evidence_class") == EXPLORATORY_CLASS for row in provenance):
+                klass = EXPLORATORY_CLASS
+                reasons = ["sentiment_series_contains_exploratory_reconstruction"]
+            elif not provenance or any(
+                row.get("evidence_class") != CANONICAL_CLASS for row in provenance
+            ):
+                klass = UNAVAILABLE_CLASS
+                reasons = ["sentiment_series_provenance_incomplete"]
+        output[strategy] = {
+            "class": klass,
+            "canonical_forward_eligible": klass == CANONICAL_CLASS,
+            "reasons": reasons,
+        }
+    return output
 
 
 def _rank_universe(
@@ -574,11 +633,36 @@ def build_evidence(
         market_median_change=None,
         back_row_history=sentiment_series,
     )
-    confirmed_scores = [
-        _number((row.get("leader_score_shadow") or {}).get("score"))
-        for row in records if row.get("leader_confirmed") is True
+    leader_candidates: list[dict[str, Any]] = []
+    for row in records:
+        code = naked_code(row.get("code"))
+        score = _number((row.get("leader_score_shadow") or {}).get("score"))
+        if len(code) != 6 or not code.isdigit():
+            continue
+        if (row.get("leader_confirmed") is not True or score is None
+                or score < ice_point_reversal.LEADER_SCORE_MIN):
+            continue
+        candidate = dict(row)
+        candidate["ice_point_leader_candidate"] = True
+        candidate["ice_point_leader_binding"] = {
+            "code": code,
+            "leader_score_shadow": score,
+            "leader_score_threshold": ice_point_reversal.LEADER_SCORE_MIN,
+            "leader_confirmed": True,
+            "confirmation_source": row.get("event_source"),
+            "confirmation_time": _time(row.get("first_seal_time") or row.get("first_seal")),
+        }
+        leader_candidates.append(candidate)
+    leader_candidates.sort(
+        key=lambda row: (
+            -float((row.get("ice_point_leader_binding") or {}).get("leader_score_shadow") or 0),
+            str(row.get("code") or ""),
+        )
+    )
+    market["leader_confirm"] = bool(leader_candidates)
+    market["tradeable_leader_bindings"] = [
+        dict(row["ice_point_leader_binding"]) for row in leader_candidates
     ]
-    market["leader_confirm"] = any(score is not None and score >= 80 for score in confirmed_scores)
     rank_records = _rank_universe(
         asof=asof, codes=codes, records=records, candidates=candidate_by_code,
         auction=auction_by_code, bars=bars,
@@ -589,13 +673,27 @@ def build_evidence(
         "assist_arbitrage": [row for row in records if _number(row.get("board_height")) is not None],
         "preleader_arbitrage": [row for row in records if row.get("event_source") == "eastmoney_zt_pool"],
         "reverse_volume": [row for row in records if row.get("code") in tracked],
-        "ice_point_reversal": [{"code": "MARKET", "date": asof}],
+        "ice_point_reversal": leader_candidates,
     }
+    coverage = _coverage(
+        strategy_records, market,
+        pretable_ready=preleader_pretable is not None and preleader_pretable_status == "ok",
+        source_records=records,
+    )
+    qualification = _qualification(coverage, market)
+    classes = {item["class"] for item in qualification.values()}
+    evidence_class = next(iter(classes)) if len(classes) == 1 else "mixed"
     return {
         "schema": SCHEMA,
         "asof": asof,
-        "canonical_forward": True,
-        "exploratory_reconstruction": False,
+        "canonical_forward": all(
+            item["canonical_forward_eligible"] for item in qualification.values()
+        ),
+        "exploratory_reconstruction": any(
+            item["class"] == EXPLORATORY_CLASS for item in qualification.values()
+        ),
+        "evidence_class": evidence_class,
+        "evidence_qualification": qualification,
         "cohort_policy": "official_limitup+auction_shortlist+tracked_leaders",
         "cohort_count": len(codes),
         "cohort_budget": int(max_codes),
@@ -605,11 +703,7 @@ def build_evidence(
         "market_state": market,
         "preleader_pretable": dict(preleader_pretable) if preleader_pretable is not None else None,
         "preleader_pretable_status": preleader_pretable_status,
-        "coverage": _coverage(
-            strategy_records, market,
-            pretable_ready=preleader_pretable is not None and preleader_pretable_status == "ok",
-            source_records=records,
-        ),
+        "coverage": coverage,
         "research_only": True,
         "execution_eligible": False,
         "live_order_sent": False,

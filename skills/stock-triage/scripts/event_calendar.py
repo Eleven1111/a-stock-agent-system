@@ -22,8 +22,28 @@ import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 from eastmoney_intelligence import fetch_dividend as _fetch_dividend
 from eastmoney_intelligence import fetch_lockups
 from http_client import DataSourceError
+from fair_target_rotation import plan_fair_rotation, persist_rotation_cursor, rotation_metrics
 from paths import data_file
 import runtime_targets
+
+# Production measurement (2026-08-30): sixteen targets took 166.3s against a
+# 180s budget.  Fourteen keeps the scan useful while leaving transport jitter
+# and one provider retry inside the job deadline.
+MAX_STOCK_TARGETS = 14
+ROTATION_JOB_ID = "event-calendar"
+
+
+def rotation_cursor_file() -> str:
+    return data_file("stock-triage", "scan_cursors/event-calendar/cursor.json")
+
+
+def runtime_target_plan() -> dict:
+    return plan_fair_rotation(
+        runtime_targets.load_stock_targets(),
+        max_targets=MAX_STOCK_TARGETS,
+        job_id=ROTATION_JOB_ID,
+        cursor_path=rotation_cursor_file(),
+    )
 
 
 def load_portfolio_codes() -> Optional[Dict[str, str]]:
@@ -43,7 +63,10 @@ def load_portfolio_codes() -> Optional[Dict[str, str]]:
 
 
 def load_runtime_codes() -> Dict[str, str]:
-    return runtime_targets.stock_map()
+    return {
+        target["code"]: target["name"]
+        for target in runtime_target_plan()["targets"]
+    }
 
 
 def reporting_windows(year: int) -> List[tuple[str, str, str]]:
@@ -81,16 +104,38 @@ def get_upcoming_policy_windows(
 
 def collect_events(codes: Optional[Dict[str, str]] = None) -> Dict:
     """采集事件。codes=None 时读取持仓与动态监控订阅。"""
+    plan = None
     if codes is None:
-        codes = load_runtime_codes()
+        plan = runtime_target_plan()
+        codes = {
+            target["code"]: target["name"]
+            for target in plan["targets"]
+        }
+        target_metrics = rotation_metrics(plan)
+    else:
+        target_metrics = {
+            "targets_total": len(codes),
+            "targets_scanned": len(codes),
+            "targets_deferred": 0,
+            "priority_scanned": None,
+            "cursor_before": None,
+            "cursor_after": None,
+            "cursor_state": "explicit_targets",
+        }
     if not codes:
-        return {
+        result = {
             "timestamp": datetime.now().isoformat(),
             "today": date.today().isoformat(),
             "stocks": [],
             "policy_windows": get_upcoming_policy_windows(30),
             "alerts": [],
+            **target_metrics,
+            "targets_truncated": target_metrics["targets_deferred"],
         }
+        if plan is not None:
+            persist_rotation_cursor(plan)
+            result["cursor_persisted"] = True
+        return result
 
     result = {
         "timestamp": datetime.now().isoformat(),
@@ -98,6 +143,8 @@ def collect_events(codes: Optional[Dict[str, str]] = None) -> Dict:
         "stocks": [],
         "policy_windows": get_upcoming_policy_windows(30),
         "alerts": [],
+        **target_metrics,
+        "targets_truncated": target_metrics["targets_deferred"],
     }
 
     for code, name in codes.items():
@@ -131,6 +178,14 @@ def collect_events(codes: Optional[Dict[str, str]] = None) -> Dict:
                 })
 
         result["stocks"].append(stock)
+
+    if plan is not None:
+        try:
+            persist_rotation_cursor(plan)
+            result["cursor_persisted"] = True
+        except OSError as exc:
+            result["cursor_persisted"] = False
+            result["cursor_error"] = str(exc)
 
     return result
 
@@ -204,7 +259,7 @@ if __name__ == "__main__":
             print("⚠️ portfolio.json 无持仓数据")
             sys.exit(0)
     else:
-        codes = load_runtime_codes()
+        codes = None
 
     data = collect_events(codes)
     if args.json:

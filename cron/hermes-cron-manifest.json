@@ -624,9 +624,9 @@
         "cwd": ".",
         "timeout_seconds": 1200,
         "timeout_tier": "long",
-        "timeout_rationale": "5206 只全市场增量日K，2026-08-20 实测 0.125s/只（40 只跨市场抽样）→ 单次全量约 649s；300s 标准档只够覆盖 37%，每次必被 SIGKILL，1200s 长档留约 1.5 倍余量。脚本内另有 80% 墙钟预算（A_STOCK_JOB_TIMEOUT_SECONDS），超预算按 partial 收口并报 remaining，下次从最陈旧的标的续跑，不再被硬杀。空缓存首轮按 240 天播种成本更高，允许一次 partial 后收敛。"
+        "timeout_rationale": "5206 只全市场增量日K，2026-08-20 实测 0.125s/只（40 只跨市场抽样）→ 单次全量约 649s；300s 标准档只够覆盖 37%，每次必被 SIGKILL，1200s 长档留约 1.5 倍余量。脚本内另有 80% 墙钟预算（A_STOCK_JOB_TIMEOUT_SECONDS），超预算按 partial 收口并报 remaining，下次从最陈旧的标的续跑，不再被硬杀。浅历史按 400 日历日回补以可靠覆盖至少 180 个交易日，IPO、停牌和数据源不足会单独披露。"
       },
-      "external_note": "15:10 收盘历史日K增量缓存；BaoStock 未安装时输出 blocked，不破坏现有任务"
+      "external_note": "15:10 收盘历史日K增量缓存；数据源链 BaoStock → easy_tdx QFQ → Tencent qfq，主源登录30秒硬超时，浅历史自动回补至至少180个交易日"
     },
     {
       "id": "auction-snapshot",
@@ -1140,6 +1140,38 @@
         "timeout_tier": "standard"
       },
       "external_note": "只读 append-only four_dim observation v2 与本地 history.sqlite3，输出 T+1/T+3 基准及成本后同日期对照、Student-t 后验区间和回滚产物。至少 60 日拟合 + 60 日未见 OOS；永远 live_effect=none，不改 scoring.yaml。"
+    },
+    {
+      "id": "strategy-forward-settlement-daily",
+      "name": "六策略前向样本冻结与结算",
+      "schedule": "50 23 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "required",
+      "command_argv": ["python", "scripts/run_agent_dag.py", "strategy-forward-settlement-daily", "--emit-target"],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1600,
+      "context_from": ["strategy-shadow-daily", "market-history-cache"],
+      "dependency_policy": {"trading_date": "same_trading_date", "max_age_minutes": 600},
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_forward/",
+        "$A_STOCK_STATE_HOME/cron/output/strategy-forward-settlement-daily/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": ["python", "scripts/strategy_forward_settlement.py", "--json"],
+        "cwd": ".",
+        "timeout_seconds": 120,
+        "timeout_tier": "standard"
+      },
+      "external_note": "SHADOW ONLY：冻结当日 canonical signal，统一按 next-session open 入场参考结算 T+1/T+3；同 session CSI300 基准，显式费用/滑点。append-only，不写 signal ledger、registry、portfolio 或订单。"
     },
     {
       "id": "preleader-pretable-build",
@@ -2470,7 +2502,8 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/institution-weekly/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/scan_cursors/institution-weekly/"
       ],
       "run": {
         "argv": [
@@ -2509,7 +2542,8 @@
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/event-calendar/",
-        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/scan_cursors/event-calendar/"
       ],
       "run": {
         "argv": [

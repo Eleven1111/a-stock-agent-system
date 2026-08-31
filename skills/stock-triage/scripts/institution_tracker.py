@@ -23,14 +23,35 @@ from eastmoney_intelligence import (
     fetch_research_visits as _fetch_research_visits,
 )
 from http_client import DataSourceError
+from fair_target_rotation import plan_fair_rotation, persist_rotation_cursor, rotation_metrics
+from paths import data_file
 from stock_intelligence import read_cache as read_stock_intelligence
 import runtime_targets
+
+# Production measurement (2026-08-30): six targets took 83.6s against a 90s
+# cron budget.  Five preserves a real retry/jitter margin instead of treating a
+# one-off pass six seconds below SIGTERM as healthy.
+MAX_STOCK_TARGETS = 5
+ROTATION_JOB_ID = "institution-weekly"
+
+
+def rotation_cursor_file() -> str:
+    return data_file("stock-triage", "scan_cursors/institution-weekly/cursor.json")
+
+
+def runtime_target_plan() -> dict:
+    return plan_fair_rotation(
+        runtime_targets.load_stock_targets(),
+        max_targets=MAX_STOCK_TARGETS,
+        job_id=ROTATION_JOB_ID,
+        cursor_path=rotation_cursor_file(),
+    )
 
 
 def load_runtime_targets() -> Dict[str, str]:
     return {
         target["code"]: target["name"]
-        for target in runtime_targets.load_stock_targets()
+        for target in runtime_target_plan()["targets"]
     }
 
 
@@ -89,8 +110,31 @@ def fetch_serper_inst_news(code: str, name: str) -> List[Dict]:
 
 
 def collect_institution_data(targets: Dict[str, str] | None = None) -> Dict:
-    targets = load_runtime_targets() if targets is None else targets
-    result = {"timestamp": datetime.now().isoformat(), "stocks": [], "alerts": []}
+    plan = None
+    if targets is None:
+        plan = runtime_target_plan()
+        targets = {
+            target["code"]: target["name"]
+            for target in plan["targets"]
+        }
+        target_metrics = rotation_metrics(plan)
+    else:
+        target_metrics = {
+            "targets_total": len(targets),
+            "targets_scanned": len(targets),
+            "targets_deferred": 0,
+            "priority_scanned": None,
+            "cursor_before": None,
+            "cursor_after": None,
+            "cursor_state": "explicit_targets",
+        }
+    result = {
+        "timestamp": datetime.now().isoformat(),
+        "stocks": [],
+        "alerts": [],
+        **target_metrics,
+        "targets_truncated": target_metrics["targets_deferred"],
+    }
 
     for code, name in targets.items():
         stock = {"code": code, "name": name, "research_visits": [], "analyst_reports": [],
@@ -153,6 +197,14 @@ def collect_institution_data(targets: Dict[str, str] | None = None) -> Dict:
 
         result["stocks"].append(stock)
 
+    if plan is not None:
+        try:
+            persist_rotation_cursor(plan)
+            result["cursor_persisted"] = True
+        except OSError as exc:
+            result["cursor_persisted"] = False
+            result["cursor_error"] = str(exc)
+
     return result
 
 
@@ -200,7 +252,7 @@ if __name__ == "__main__":
             if code:
                 targets[code.zfill(6)] = name or code.zfill(6)
     else:
-        targets = load_runtime_targets()
+        targets = None
     data = collect_institution_data(targets)
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2, default=str))

@@ -174,3 +174,26 @@ def test_bootstrap_backfills_only_before_existing_forward_rows(state_home, monke
         "start_date": "1990-01-01", "end_date": "2026-08-19", "limit_days": 3
     }
     assert result["preserved_forward_days"] == 1
+
+
+def test_bootstrap_finishes_when_forward_boundary_has_no_earlier_cache(
+    state_home, monkeypatch
+):
+    script = _backfill_script()
+    monkeypatch.setattr(sd, "load_summary", lambda: [
+        {"trading_date": f"2026-08-{day:02d}"} for day in range(1, 17)
+    ])
+    monkeypatch.setattr(history, "trading_dates_between", lambda start, end: [])
+    monkeypatch.setattr(script, "backfill", lambda **kwargs: pytest.fail("must not overwrite"))
+
+    result = script.bootstrap(min_days=18, end_date="2026-08-31")
+
+    assert result == {
+        "status": "ok",
+        "skipped": True,
+        "reason": "no_history_before_forward_rows",
+        "bootstrap_exhausted": True,
+        "observed_days": 16,
+        "required_days": 18,
+        "shortfall_days": 2,
+    }

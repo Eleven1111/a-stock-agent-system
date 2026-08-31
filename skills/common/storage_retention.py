@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import gzip
 import json
+import mmap
 import os
 import shutil
+import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -21,6 +23,50 @@ SNAPSHOT_SCHEMA = "market_snapshot_v1"
 
 SNAPSHOT_SECTION = "snapshots"
 REFERENCE_SECTION = "references"
+
+_SNAPSHOT_PATH_KEY = b'"snapshot_path"'
+
+
+def _snapshot_path_tokens(payload: mmap.mmap):
+    """Yield JSON string tokens assigned to ``snapshot_path`` in mapped bytes.
+
+    ``mmap.find`` uses the platform's fast byte search.  A regex with an
+    arbitrary-length JSON-string branch was surprisingly quadratic on the
+    multi-MiB state files that contain no reference at all.
+    """
+    position = 0
+    size = len(payload)
+    while True:
+        key_at = payload.find(_SNAPSHOT_PATH_KEY, position)
+        if key_at < 0:
+            return
+        cursor = key_at + len(_SNAPSHOT_PATH_KEY)
+        while cursor < size and payload[cursor] in b" \t\r\n":
+            cursor += 1
+        if cursor >= size or payload[cursor] != ord(":"):
+            position = cursor + 1
+            continue
+        cursor += 1
+        while cursor < size and payload[cursor] in b" \t\r\n":
+            cursor += 1
+        if cursor >= size or payload[cursor] != ord('"'):
+            position = cursor + 1
+            continue
+        start = cursor
+        cursor += 1
+        escaped = False
+        while cursor < size:
+            byte = payload[cursor]
+            if escaped:
+                escaped = False
+            elif byte == ord("\\"):
+                escaped = True
+            elif byte == ord('"'):
+                yield payload[start:cursor + 1]
+                cursor += 1
+                break
+            cursor += 1
+        position = max(cursor, key_at + len(_SNAPSHOT_PATH_KEY))
 
 
 @dataclass(frozen=True)
@@ -159,7 +205,23 @@ def _read_references_into(path: Path, found: set[Path], *, state_home: Path) -> 
                         json.loads(line), found, state_home=state_home
                     )
         return
-    _extract_snapshot_paths(_read_json(path), found, state_home=state_home)
+    # State snapshots can be tens of megabytes and the recent-reference corpus
+    # is multiple GiB.  Building every JSON object merely to find one leaf key
+    # made snapshot-gc exceed its 120s budget before it could persist its fact
+    # index.  Scan the immutable bytes instead; mmap keeps memory bounded and
+    # JSON-decodes only the matched string token (so escaped paths still work).
+    with path.open("rb") as handle:
+        if os.fstat(handle.fileno()).st_size == 0:
+            return
+        with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as payload:
+            for token in _snapshot_path_tokens(payload):
+                try:
+                    child = json.loads(token.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                _extract_snapshot_paths(
+                    {"snapshot_path": child}, found, state_home=state_home
+                )
 
 
 def _scan_recent_references(
@@ -177,11 +239,54 @@ def _scan_recent_references(
     # Skipped whether or not the index is in use, so that ``use_index=False``
     # stays a true equivalent rather than a run that also scans the cache.
     index_file = gc_index_path(state_home)
-    for path in state_home.rglob("*"):
-        if not path.is_file() or path.suffix not in {".json", ".jsonl"}:
-            continue
-        if _is_within(path, snapshot_dir):
-            continue
+    # A cold index used to parse every recent JSON file (2.88 GiB in
+    # production) just to discover that almost none contained this field.
+    # ripgrep is a safe prefilter: it only decides which files need Python's
+    # exact path-token parser.  If unavailable or interrupted, fall back to a
+    # portable walk with identical semantics.
+    candidate_paths: list[Path] | None = None
+    rg = shutil.which("rg")
+    if rg:
+        try:
+            searched = subprocess.run(
+                [
+                    rg, "--files-with-matches", "--fixed-strings", "--no-messages",
+                    "--glob", "*.json", "--glob", "*.jsonl",
+                    "--glob", "!market/snapshots/**", '"snapshot_path"', ".",
+                ],
+                cwd=state_home,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            searched = None
+        if searched is not None and searched.returncode in {0, 1}:
+            candidate_paths = [
+                (state_home / line.strip()).resolve(strict=False)
+                for line in searched.stdout.splitlines()
+                if line.strip()
+            ]
+    if candidate_paths is None:
+        candidate_paths = []
+        for current, directories, filenames in os.walk(state_home):
+            current_path = Path(current)
+            if current_path == snapshot_dir:
+                directories.clear()
+                continue
+            directories[:] = [
+                name for name in directories
+                if current_path / name != snapshot_dir
+            ]
+            candidate_paths.extend(
+                current_path / name
+                for name in filenames
+                if Path(name).suffix in {".json", ".jsonl"}
+            )
+
+    for path in candidate_paths:
         try:
             stat = path.stat()
             if datetime.fromtimestamp(stat.st_mtime, timezone.utc) < cutoff:

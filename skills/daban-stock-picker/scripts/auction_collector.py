@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-集合竞价采集器 — 9:15-9:25 真竞价微观结构因子
-=================================================
-腾讯 qt.gtimg.cn 全天候免费、不受 ClashX TUN 影响，且其报文 parts[9..28] 自带
-五档盘口（原 data_sources.md 漏记）。竞价期间这五档反映累积委买/委卖，是免费源
-最接近 L2 的竞价信号。
+集合竞价采集器 — 9:15-9:25 真竞价量价因子
+===========================================
+竞价量价主数据源为 easy_tdx MAC ``0x123D``，五档盘口由腾讯实时快照补充。
+两类字段按来源融合：腾讯成交量绝不替代真实竞价量或昨日量。
 
 本采集器把单一手填的 `auction_gap_pct` 升级为 6 个可审计的真竞价因子，
 输出可直接并入 daban_candidate_api 的候选字段，不替代回测闸门，不自动下单。
@@ -63,6 +62,7 @@ AUCTION_EXPECTED_TIMEPOINTS = AUCTION_WINDOW_END_MINUTE - AUCTION_WINDOW_START_M
 QUALITY_MIN_NONZERO_RATE = 0.5
 QUALITY_MAX_MIRROR_RATE = 0.5
 QUALITY_MIN_TIME_COVERAGE = 0.5
+ORDER_BOOK_UNSUPPORTED_PROVIDERS = frozenset({"easy_tdx_mac_0x123d"})
 DEFAULT_SHORTLIST_LIMIT = int(
     load_registered("candidate_selection")["pipeline"]["auction_shortlist_limit"]
 )
@@ -122,31 +122,52 @@ def _has_valid_book(snap: Mapping[str, Any]) -> bool:
     return has_level(snap.get("bids")) and has_level(snap.get("asks"))
 
 
-def _quality_for_snapshots(snapshots: List[Dict[str, Any]]) -> AuctionQuality:
+def _quality_for_snapshots(
+    snapshots: List[Dict[str, Any]],
+    *,
+    require_window_coverage: bool = True,
+) -> AuctionQuality:
     total = len(snapshots)
     nonzero_count = sum(1 for snap in snapshots if (snap.get("volume") or 0) > 0)
     book_count = sum(1 for snap in snapshots if _has_valid_book(snap))
     mirror_count = sum(1 for snap in snapshots if _is_mirrored_book(snap))
-    slots = {_minute_slot(snap.get("t")) for snap in snapshots}
-    slots.discard(None)
+    providers = {
+        str(snap.get("provider") or "").strip()
+        for snap in snapshots
+        if str(snap.get("provider") or "").strip()
+    }
+    book_contract_present = any(
+        "book_status" in snap or "book_provider" in snap for snap in snapshots
+    )
+    book_coverage_required = book_contract_present or not providers or not providers.issubset(
+        ORDER_BOOK_UNSUPPORTED_PROVIDERS
+    )
+    valid_slots = [
+        slot
+        for snap in snapshots
+        if (slot := _minute_slot(snap.get("t"))) is not None
+    ]
+    slots = set(valid_slots)
     nonzero_rate = nonzero_count / total if total else 0.0
     mirror_rate = mirror_count / book_count if book_count else None
     # Coverage is the fraction of supplied observations with a valid auction
     # timestamp. The window-relative value is also retained for operations;
     # a one-shot quote is valid data but is not mistaken for a full 09:15-09:25
     # series.
-    time_coverage_rate = len(slots) / total if total else 0.0
+    time_coverage_rate = len(valid_slots) / total if total else 0.0
     window_coverage_rate = len(slots) / AUCTION_EXPECTED_TIMEPOINTS
     reasons: List[str] = []
     # L1 免费源不提供竞价成交量，量能非零率恒低是数据源局限而非信号缺失；
     # 不再作为质量门禁（2026-08-14，Master 确认仅 L1 数据，去掉该门槛）。
     # nonzero_rate 仍保留在输出字段中供审计，但不参与 unavailable 判定。
-    if mirror_rate is None:
+    if book_coverage_required and mirror_rate is None:
         reasons.append("五档盘口无有效覆盖")
-    elif mirror_rate > QUALITY_MAX_MIRROR_RATE:
+    elif book_coverage_required and mirror_rate > QUALITY_MAX_MIRROR_RATE:
         reasons.append("五档委买卖镜像率超过质量门槛")
     if time_coverage_rate < QUALITY_MIN_TIME_COVERAGE:
         reasons.append("竞价时点覆盖率低于质量门槛")
+    if require_window_coverage and window_coverage_rate < QUALITY_MIN_TIME_COVERAGE:
+        reasons.append("竞价窗口覆盖率低于质量门槛")
     status = "unavailable" if reasons else "ok"
     return AuctionQuality({
         "status": status,
@@ -158,8 +179,15 @@ def _quality_for_snapshots(snapshots: List[Dict[str, Any]]) -> AuctionQuality:
         "nonzero_volume_count": nonzero_count,
         "book_count": book_count,
         "mirrored_book_count": mirror_count,
+        "book_coverage_required": book_coverage_required,
+        "book_coverage_status": (
+            "available" if book_count
+            else "missing" if book_coverage_required
+            else "not_supported"
+        ),
         "timepoints_covered": len(slots),
         "expected_timepoints": AUCTION_EXPECTED_TIMEPOINTS,
+        "window_coverage_required": require_window_coverage,
         "reasons": reasons,
     })
 
@@ -289,7 +317,10 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     )
 
     quality_notes = _data_quality_notes(snapshots, volume)
-    quality = _quality_for_snapshots(snapshots)
+    # easy_tdx 0x123D emits per-symbol state-change points, not a fixed
+    # minute-by-minute grid. Window coverage is meaningful for the aggregate
+    # collector run, but sparse yet valid single-symbol series must not fail it.
+    quality = _quality_for_snapshots(snapshots, require_window_coverage=False)
 
     seal_ratio_pct = None
     if at_limit and market_cap_yi:
@@ -330,6 +361,9 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
         "auction_seal_stability": last.get("auction_seal_stability"),
         "auction_bid_ask_ratio": round(bid_vol / ask_vol, 2) if ask_vol else None,
         "auction_net_bid_delta": _net_bid_delta(snapshots),
+        "auction_book_provider": last.get("book_provider"),
+        "auction_book_status": last.get("book_status"),
+        "auction_book_failure_reason": last.get("book_failure_reason"),
         "board_status": board_status,
         "seal_amount_ratio_pct": seal_ratio_pct,
         "snapshots_used": len(snapshots),
@@ -348,10 +382,10 @@ def take_snapshot_with_failures(
     require_previous_day_metrics: bool = True,
     deadline_seconds: float | None = None,
 ) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, str]]:
-    """抓取 easy_tdx 0x123D 竞价序列并附昨日量能快照，同时带回逐股失败原因。
+    """抓取 easy_tdx 竞价量价、腾讯五档及昨日量能，同时带回逐股失败原因。
 
     provider 已经按 09:15-09:25 返回逐时点数据；失败标的不进 series，
-    由 finalize 的空/缺量门禁统一 fail-closed，不回退到免费五档。
+    由 finalize 的空/缺量门禁统一 fail-closed；腾讯只补盘口，不补竞价量。
     失败原因必须一路带到 artifact —— 只报「采到几只」没法区分
     「池子本来就小」和「数据源挂了」。
     """
@@ -502,9 +536,19 @@ def _merge_auction_series(
             # The 09:24 full-market pass intentionally omits historical
             # fields.  Do not let that lightweight row erase fields already
             # captured by the executable 09:15-09:23 pass.
-            merged = dict(by_time.get(timestamp) or {})
+            previous = dict(by_time.get(timestamp) or {})
+            merged = dict(previous)
             merged.update(dict(row))
-            for key, value in by_time.get(timestamp, {}).items():
+            # A transient Tencent failure must not erase a valid book already
+            # captured for the same auction point. Keep it as explicitly stale
+            # evidence while retaining the latest failure reason for audit.
+            if _has_valid_book(previous) and not _has_valid_book(merged):
+                merged["bids"] = previous.get("bids")
+                merged["asks"] = previous.get("asks")
+                merged["book_provider"] = previous.get("book_provider")
+                merged["book_provenance"] = previous.get("book_provenance")
+                merged["book_status"] = "stale_last_good"
+            for key, value in previous.items():
                 if merged.get(key) is None and value is not None:
                     merged[key] = value
             by_time[timestamp] = merged
@@ -522,6 +566,20 @@ def _merge_auction_series(
         for key, value in stable_values.items():
             if row.get(key) is None and value is not None:
                 row[key] = value
+    last_good_book = next(
+        (row for row in reversed(rows) if _has_valid_book(row)),
+        None,
+    )
+    if last_good_book is not None:
+        for row in rows:
+            if _has_valid_book(row):
+                continue
+            explicitly_unavailable = row.get("book_status") == "unavailable"
+            row["bids"] = last_good_book.get("bids")
+            row["asks"] = last_good_book.get("asks")
+            row["book_provider"] = last_good_book.get("book_provider")
+            row["book_provenance"] = last_good_book.get("book_provenance")
+            row["book_status"] = "stale_last_good" if explicitly_unavailable else "ok"
     return rows
 
 
@@ -807,6 +865,7 @@ def append_snapshot(
         producer="auction-snapshot",
         source_versions={
             "auction": "easy_tdx_mac_0x123d",
+            "order_book": "tencent_quote_v1",
             "previous_day_volume": _previous_day_source_version(raw_quotes),
         },
     )
@@ -1235,7 +1294,7 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
 
 def _build_result(series: Dict[str, List[Dict[str, Any]]], asof: str) -> Dict[str, Any]:
     names_by_code = _load_universe_names()
-    factors = [
+    computed = [
         compute_auction_factors(
             snaps,
             code,
@@ -1244,38 +1303,32 @@ def _build_result(series: Dict[str, List[Dict[str, Any]]], asof: str) -> Dict[st
         )
         for code, snaps in series.items()
     ]
+    factor_failures = [factor for factor in computed if factor.get("error")]
+    factors = [factor for factor in computed if not factor.get("error")]
     quality = _quality_for_snapshots([
         snap for snapshots in series.values() for snap in snapshots
     ])
-    factor_quality_reasons = [
-        reason
-        for factor in factors
-        for reason in (
-            factor.get("auction_data_quality")
-            if isinstance(factor.get("auction_data_quality"), Mapping)
-            else {}
-        ).get("reasons", [])
-    ]
-    if any(
-        _quality_status(factor.get("auction_data_quality")) == "unavailable"
-        for factor in factors
-    ):
-        quality["status"] = "unavailable"
-        quality["reasons"] = list(dict.fromkeys(
-            list(quality.get("reasons") or [])
-            + factor_quality_reasons
-            + ["至少一个标的竞价质量不可用"]
-        ))
+    quality["factor_summary"] = {
+        "observation_count": len(computed),
+        "factor_count": len(factors),
+        "failure_count": len(factor_failures),
+        "unavailable_count": sum(
+            _quality_status(factor.get("auction_data_quality")) == "unavailable"
+            for factor in factors
+        ),
+    }
     return {
         "schema": "auction_factors_v1",
         "asof": asof,
         "generated_at": datetime.now().isoformat(),
         "note": (
-            "免费腾讯五档竞价因子；auction_score 为 0-100 启发式排序分，"
+            "easy_tdx 0x123D 真竞价因子（该接口不提供五档盘口）；"
+            "auction_score 为 0-100 启发式排序分，"
             "不是涨停概率或收益概率；量能关键字段缺失时拒绝进入可交易短名单；"
             "撤单率类信号需 L2；阈值须经 chanlun-backtest 验证后方可实盘"
         ),
         "factors": factors,
+        "factor_failures": factor_failures,
         "auction_quality": quality,
         "auction_quality_report": quality,
     }
