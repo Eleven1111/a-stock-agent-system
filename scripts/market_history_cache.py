@@ -569,6 +569,14 @@ class EasyTdxSession:
                 continue
         return rows
 
+
+def _fetch_from_session(
+    code: str, start_date: str, end_date: str, *, session: Any,
+) -> list[dict[str, Any]]:
+    """Adapt a stateful fallback session to the common fetcher signature."""
+    return session.fetch(code, start_date, end_date)
+
+
 def fetch_baostock(
     code: str, start_date: str, end_date: str, *, session: BaoStockSession | None = None
 ) -> list[dict[str, Any]]:
@@ -676,7 +684,7 @@ def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: boo
                 _mark_provider(source_health, "baostock", "failed", str(exc))
                 try:
                     session = provider_stack.enter_context(EasyTdxSession())
-                    fetcher = lambda code, start, end, *, session: session.fetch(code, start, end)
+                    fetcher = _fetch_from_session
                     result["provider"] = "easy_tdx_qfq"
                     source_health["active_provider"] = "easy_tdx_qfq"
                     _mark_provider(source_health, "easy_tdx_qfq", "ok")
@@ -685,7 +693,7 @@ def run(*, asof: str | None = None, codes: list[str] | None = None, dry_run: boo
                     _mark_provider(source_health, "easy_tdx_qfq", "failed", str(tdx_exc))
                     try:
                         session = provider_stack.enter_context(TencentSession())
-                        fetcher = lambda code, start, end, *, session: session.fetch(code, start, end)
+                        fetcher = _fetch_from_session
                         result["provider"] = "tencent_qfqday"
                         source_health["active_provider"] = "tencent_qfqday"
                         _mark_provider(source_health, "tencent_qfqday", "ok")
