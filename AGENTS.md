@@ -97,6 +97,8 @@ Core ownership:
 
 ## Change Protocol
 
+- Read `docs/falsified-approaches.md` before proposing a design: it records what
+  was tried, failed, and why. Append entries; never rewrite or delete them.
 - Prefer existing adapters and shared state modules over new local helpers.
 - Do not add dependencies without an explicit requirement.
 - Keep changes scoped and preserve unrelated local work.
