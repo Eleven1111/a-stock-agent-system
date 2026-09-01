@@ -1,11 +1,37 @@
 from __future__ import annotations
 
 import pathlib
+import re
 
 import yaml
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+# 职责重叠、最容易被误路由的四个技能：都触及涨停与短线。
+OVERLAPPING_SKILLS = (
+    "hot-money-tactics",
+    "daban-stock-picker",
+    "stock-triage",
+    "research-committee",
+)
+WHEN_NOT_HEADING = "## 何时不用本技能"
+# 反引号里长得像技能名的 token：kebab-case，不含路径、调用、赋值或下划线。
+SKILL_NAME_SHAPE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$")
+
+
+def _installed_skills() -> set[str]:
+    return {path.parent.name for path in ROOT.glob("skills/*/SKILL.md")}
+
+
+def _when_not_section(skill: str) -> str:
+    """Return the body of the skill's 何时不用 section, heading excluded."""
+    text = (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+    start = text.find(WHEN_NOT_HEADING)
+    assert start != -1, f"{skill} 缺少「{WHEN_NOT_HEADING}」段"
+    rest = text[start + len(WHEN_NOT_HEADING):]
+    following = re.search(r"^## ", rest, re.MULTILINE)
+    return (rest[: following.start()] if following else rest).strip()
 
 
 def test_public_repository_has_required_governance_files():
@@ -97,6 +123,47 @@ def test_codeql_is_pinned_and_covers_pull_requests_and_main():
         if value.startswith("github/codeql-action/analyze@")
     )
     assert init_revision == analyze_revision
+
+
+def test_overlapping_skills_document_when_not_to_apply():
+    """四个职责重叠的技能必须写明「何时不用」，且该段不能被掏空。
+
+    段落被删、被清空、或退化成一张没有路由行的空表，都要变红——否则文档漂移
+    不会有任何信号。
+    """
+    installed = _installed_skills()
+    assert installed, "skills/*/SKILL.md 一个都没扫到，样本为空则下面的断言恒真"
+    missing = [name for name in OVERLAPPING_SKILLS if name not in installed]
+    assert not missing, f"待校验技能不存在: {missing}"
+
+    for skill in OVERLAPPING_SKILLS:
+        body = _when_not_section(skill)
+        rows = [
+            line
+            for line in body.splitlines()
+            if line.startswith("|") and "---" not in line
+        ]
+        # 首行是表头，其余是路由行。
+        assert len(rows) >= 4, f"{skill} 的何时不用段路由行不足: {len(rows) - 1}"
+        assert len(body) >= 200, f"{skill} 的何时不用段被掏空: {len(body)} 字符"
+
+
+def test_when_not_sections_only_route_to_skills_that_exist():
+    """路由目标必须真实存在，否则改名或删技能会留下指向空气的指路牌。"""
+    installed = _installed_skills()
+    assert installed, "skills/*/SKILL.md 一个都没扫到，样本为空则下面的断言恒真"
+
+    for skill in OVERLAPPING_SKILLS:
+        body = _when_not_section(skill)
+        referenced = {
+            token
+            for token in re.findall(r"`([^`]+)`", body)
+            if SKILL_NAME_SHAPE.match(token)
+        }
+        dangling = sorted(referenced - installed)
+        assert not dangling, f"{skill} 的何时不用段指向不存在的技能: {dangling}"
+        # 「不要用我」必须同时回答「那用什么」，只否定不导流等于没写。
+        assert referenced - {skill}, f"{skill} 的何时不用段没有指向任何其他技能"
 
 
 def test_versioned_main_ruleset_has_no_bypass_and_requires_ci_and_pr():
