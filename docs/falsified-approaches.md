@@ -17,6 +17,29 @@
   同样念头时，应该被什么拦住。
 - **只写可公开的工程事实。** 持仓、生产数据、策略 edge 的推理过程不进本文件。
 
+## 本文件只进提案路径，不进执行路径
+
+**读者是「要改动这个系统的人」，不是「正在跑的作业」。**
+
+- ✅ 提案与评审：`AGENTS.md` 的 Change Protocol、PR 评审、设计讨论。
+- ❌ 执行：专家 profile（`config/*.json` 的 `profile` 路径与
+  `skills/research-committee/experts/*.md`）、`skills/*/SKILL.md`、
+  `cron/hermes-cron-manifest.json`、evidence pack。
+
+把它接进执行侧看起来是「让 agent 更懂事」，实际有害，两条独立理由：
+
+1. **实测会掉分。** WikiSkill (arXiv:2608.27454) Table 3 做了这个消融：让提案方读知识库
+   是 48.7 → 63.7（+15.0），但**再让执行方也读，反而 63.7 → 60.9**。原因是执行方会绕过
+   既有流程、直接用知识库里的结论作答，于是产生的轨迹对改进流程不再有信息量 ——
+   知识库反而堵死了它自己的更新来源。
+2. **本仓库的上下文预算。** 执行侧上下文膨胀是已知问题（`AGENTS.md` 有 140 行硬预算、
+   evidence pack 有硬字符预算、artifact 早已改为只存引用）。本文件只增不减，接进执行侧
+   等于给每次作业挂一个无上界的负担。
+
+`expert_runner._profile_text()` 会把 `profile` 指向的**整个文件**注入专家轮次，
+因此在 `config/*.json` 里把 `profile` 指向本文件是最容易发生的一种接错。
+`tests/test_repository_governance.py` 有一条测试守着上述执行侧入口不出现本文件的引用。
+
 ## 索引
 
 一行一条，足以判断是否与当前工作相关，不需要读详情。

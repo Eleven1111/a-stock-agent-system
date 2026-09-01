@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 
@@ -207,6 +208,64 @@ def test_every_falsified_entry_says_what_not_to_retry():
     for entry_id, body in bodies.items():
         assert "别再试" in body, f"{entry_id} 没有写「别再试」"
         assert len(body.strip()) >= 200, f"{entry_id} 详情被掏空: {len(body.strip())} 字符"
+
+
+# 执行侧上下文入口：这些内容会进入正在跑的作业或模型轮次。
+EXECUTION_CONTEXT_FILES = (
+    "cron/hermes-cron-manifest.json",
+    "config/research_committee.json",
+    "config/news_pipeline.json",
+)
+EXPERT_PROFILE_DIR = "skills/research-committee/experts"
+
+
+def _profile_paths(payload: object) -> list[str]:
+    if isinstance(payload, dict):
+        found = []
+        for key, value in payload.items():
+            if key == "profile" and isinstance(value, str):
+                found.append(value)
+            else:
+                found.extend(_profile_paths(value))
+        return found
+    if isinstance(payload, list):
+        return [item for value in payload for item in _profile_paths(value)]
+    return []
+
+
+def test_falsified_ledger_never_enters_the_execution_path():
+    """台账只进提案路径。
+
+    接进执行侧看着像「让 agent 更懂事」，实则有害：执行方会绕过既有流程直接用台账里的
+    结论作答，产生的轨迹对改进流程不再有信息量；而且本文件只增不减，等于给每次作业挂
+    一个无上界的上下文负担。
+    """
+    surfaces = [ROOT / name for name in EXECUTION_CONTEXT_FILES]
+    surfaces += sorted(ROOT.glob("skills/**/*.md"))
+    present = [path for path in surfaces if path.is_file()]
+    assert len(present) >= len(EXECUTION_CONTEXT_FILES), "执行侧入口没扫到，断言会恒真"
+
+    leaked = [
+        str(path.relative_to(ROOT))
+        for path in present
+        if "falsified-approaches" in path.read_text(encoding="utf-8")
+    ]
+    assert not leaked, f"台账被接进了执行侧上下文: {leaked}"
+
+
+def test_expert_profiles_resolve_inside_the_profile_directory():
+    """`expert_runner._profile_text()` 会把 profile 指向的整个文件注入专家轮次，
+    因此 profile 只能指向 profile 目录——否则任何文档都能被灌进执行侧。"""
+    paths: list[str] = []
+    for name in ("config/research_committee.json", "config/news_pipeline.json"):
+        paths.extend(_profile_paths(json.loads((ROOT / name).read_text(encoding="utf-8"))))
+
+    assert paths, "一个 profile 都没扫到，下面的断言会恒真"
+    for relative in paths:
+        assert relative.startswith(f"{EXPERT_PROFILE_DIR}/"), (
+            f"profile 指向了 {EXPERT_PROFILE_DIR}/ 之外: {relative}"
+        )
+        assert (ROOT / relative).is_file(), f"profile 指向不存在的文件: {relative}"
 
 
 def test_versioned_main_ruleset_has_no_bypass_and_requires_ci_and_pr():
