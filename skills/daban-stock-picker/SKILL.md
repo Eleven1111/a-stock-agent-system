@@ -17,6 +17,20 @@ metadata:
 本技能把涨停梯队、集合竞价和开盘报价转换为可审计候选。它不替代
 `hot-money-tactics` 的情绪判断，也不绕过 `stock-triage` 的组合风险 Policy。
 
+## 何时不用本技能
+
+| 场景 | 改用 | 原因 |
+| --- | --- | --- |
+| 创业板（300/301）、科创板（688）、北交所、ST 或退市整理标的 | `hot-money-tactics` 看情绪，`stock-analyst` 看个股 | 股票池第一层 `candidate_pipeline.is_main_board_10cm()` 只放行 `000/001/002/003/600/601/603/605`，名称含 `ST` 或「退」直接排除。问这些标的得到的是空结果，不是「没有机会」 |
+| 要市场情绪、板块热度、连板梯队全景 | `hot-money-tactics` | 本技能只处理已进入候选流程的标的，不做全市场情绪聚合 |
+| 要仓位、集中度、组合层面的加减仓决策 | `stock-triage` | 本技能的持仓闸门只判断「这个候选能不能开」，不产出组合层面的加减仓结论 |
+| 要「涨停概率」或收益预期 | 无 | `auction_score` 是 0-100 启发式排序分，不是概率，也不是已验证 edge |
+
+另有两种误用：
+
+- **竞价量能缺失时不要取可交易结论。** `auction_volume` 或 `prev_day_volume` 缺失/无效时执行入口 fail-closed，此时输出只是研究证据，不得进入可交易短名单、开盘前决策或推荐推送。
+- **不要用本技能的输出反推阈值。** 阈值单一事实源是 `config/daban_thresholds.yaml`；新增阈值或权重必须先过 `chanlun-backtest/scripts/research_gate.py` 的样本外验证。
+
 ## 运行顺序
 
 ```text
