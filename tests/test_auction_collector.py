@@ -436,6 +436,17 @@ def test_auction_scan_codes_prefer_full_eligible_universe():
     ]
 
 
+def test_auction_scan_codes_bounded_enhancement_ignores_full_market_recall_universe():
+    pool = {
+        "full_market_codes": [f"sh600{i:03d}" for i in range(3361)],
+        "auction_scan_codes": ["sh600001", "sz000811"],
+    }
+
+    assert ac.auction_scan_codes(
+        pool, full_universe=False, bounded_universe=True
+    ) == ["sh600001", "sz000811"]
+
+
 def test_auction_scan_codes_falls_back_when_weak_regime_empties_candidates():
     """弱市门禁把候选降级为 research_only 时 candidates 为空，不能扫 0 只股票。"""
     pool = {
@@ -796,9 +807,9 @@ def test_finalize_marks_research_only_when_delivery_gate_clears_the_pool(tmp_pat
 
     result = ac.finalize(event_asof, shortlist_limit=5)
 
-    # 采集是成功的（8 只全部有观测并被逐项判定），但门禁清零了池子
-    assert result["status"] == "ready"
-    assert result["outcome_status"] == "ok_research_only"
+    # 采集有观测，但单点快照不足以满足整体竞价窗口质量门槛；必须全局降级。
+    assert result["status"] == "degraded"
+    assert result["outcome_status"] == "failed_data"
     assert result["input_count"] == 8
     assert result["research_count"] == 8
     assert result["execution_count"] == 0
@@ -811,6 +822,7 @@ def test_finalize_marks_research_only_when_delivery_gate_clears_the_pool(tmp_pat
     assert result["execution_candidates"] == []
     assert result["research_only"] is True
     assert result["preopen_decisions"] == []
+    assert result["reason_code"] == "auction_quality_insufficient"
     # 没有可交付候选就不得注册监控
     assert ac.monitor_registry.active_entries("stock", asof=event_asof) == []
 

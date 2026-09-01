@@ -720,14 +720,15 @@
           "python",
           "skills/daban-stock-picker/scripts/auction_collector.py",
           "--snapshot",
-          "--full-universe",
+          "--bounded-universe",
           "--json"
         ],
         "cwd": ".",
         "timeout_seconds": 240,
-        "timeout_tier": "standard"
+        "timeout_tier": "standard",
+        "timeout_rationale": "09:24仅扫描auction_scan_codes预备池（约200只），保留取数与快照落盘余量，必须在09:27简报前完成"
       },
-      "external_note": "09:24 对全部合格股票做一次轻量竞价扫描；池外结果仅进入研究情报，不进入执行排名"
+      "external_note": "09:24仅对auction_scan_codes预备池（约200只）做增强竞价扫描；不读取full_market_codes，记录范围/请求数/完成数/时间戳，池外结果仅进入研究情报"
     },
     {
       "id": "auction-finalize",

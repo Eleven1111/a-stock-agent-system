@@ -746,6 +746,7 @@ def auction_scan_codes(
     pool: Mapping[str, Any],
     *,
     full_universe: bool,
+    bounded_universe: bool = False,
 ) -> List[str]:
     """Return deep-pool codes or the full eligible one-shot scan universe.
 
@@ -763,6 +764,10 @@ def auction_scan_codes(
         if full_universe
         else None
     )
+    if bounded_universe:
+        # The 09:24 enhancement is deliberately bounded. ``full_market_codes``
+        # is a recall universe, not a pre-open SLA input.
+        source = pool.get("auction_scan_codes") or pool.get("auction_scan_universe")
     if not source:
         codes = watch_pool_codes(pool)
         if codes:
@@ -782,6 +787,7 @@ def append_snapshot(
     asof: str,
     *,
     full_universe: bool = False,
+    bounded_universe: bool = False,
 ) -> Dict[str, Any]:
     """事务式把一次快照追加到当日状态文件（单锁 read-modify-write）。"""
     try:
@@ -888,6 +894,11 @@ def append_snapshot(
         if full_universe:
             state["full_market_snapshot_at"] = datetime.now().isoformat(timespec="seconds")
             state["full_market_snapshot_count"] = len(quotes)
+        if bounded_universe:
+            state["bounded_auction_snapshot_at"] = datetime.now().isoformat(timespec="seconds")
+            state["bounded_auction_snapshot_requested_count"] = len(codes)
+            state["bounded_auction_snapshot_count"] = len(quotes)
+            state["bounded_auction_snapshot_scope"] = "auction_scan_codes"
         # 只保留本次采集的失败画像：它回答的是「这一分钟的窗口发生了什么」，
         # 跨快照累积会把早已恢复的失败一直挂在 artifact 上。
         state["snapshot_failures"] = failure_summary
@@ -1064,12 +1075,11 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     )
     ranking_quality = result.get("auction_quality", {}).get("ranking_summary", {})
     critical_volume_missing = int(ranking_quality.get("critical_volume_missing_count") or 0)
-    result["status"] = "degraded" if critical_volume_missing else "ready"
-    if critical_volume_missing:
+    global_quality_status = _quality_status(result.get("auction_quality"))
+    result["status"] = "degraded" if global_quality_status == "unavailable" else "ready"
+    if global_quality_status == "unavailable":
         result["collection_status"] = "insufficient_quality"
-        result["degraded_reasons"] = [
-            f"{critical_volume_missing} 只候选缺少竞价量能关键字段，拒绝输出可执行结论"
-        ]
+        result["degraded_reasons"] = ["竞价整体质量不足，拒绝输出可执行结论"]
     # 空短名单（弱市门禁清零候选池）时不得伪装成可执行结论：
     # research_only=True + decision_count=0 让下游明确区分"无机会"与"无观测"。
     result["research_only"] = len(result["shortlist"]) == 0
@@ -1089,7 +1099,7 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
         result["outcome_status"] = "failed_data"
         if stale.get("stale"):
             result["reason_code"] = "stale_candidate_pool"
-        elif critical_volume_missing:
+        elif global_quality_status == "unavailable":
             result["reason_code"] = "auction_quality_insufficient"
         else:
             result["reason_code"] = "auction_collection_degraded"
@@ -1421,6 +1431,42 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
     return report
 
 
+def _run_snapshot_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    codes = [c.strip() for c in args.codes.split(",")] if args.codes else []
+    if not codes:
+        try:
+            codes = auction_scan_codes(
+                load_watch_pool(args.asof),
+                full_universe=args.full_universe,
+                bounded_universe=args.bounded_universe,
+            )
+        except DataSourceError as e:
+            print(json.dumps({"status": "insufficient_data", "error": str(e)}, ensure_ascii=False))
+            sys.exit(1)
+    try:
+        state = append_snapshot(
+            codes,
+            args.asof,
+            full_universe=args.full_universe,
+            bounded_universe=args.bounded_universe,
+        )
+    except DataSourceError as e:
+        print(json.dumps({"error": str(e)}, ensure_ascii=False))
+        sys.exit(1)
+    print(json.dumps({
+        "ok": True,
+        "asof": args.asof,
+        "snapshot_counts": {c: len(s) for c, s in state.get("series", {}).items()},
+        # 「采到几只」必须和「剩下的怎么了」一起出现，否则窗口出问题时
+        # 分不清是池子小还是数据源挂了。
+        "snapshot_failures": state.get("snapshot_failures"),
+        "snapshot_scope": state.get("bounded_auction_snapshot_scope")
+        or ("full_market" if args.full_universe else "auction_pool"),
+        "snapshot_requested_count": state.get("bounded_auction_snapshot_requested_count"),
+        "snapshot_completed_count": state.get("bounded_auction_snapshot_count"),
+    }, ensure_ascii=False))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="A股集合竞价真竞价因子采集器")
     parser.add_argument("--codes", help="逗号分隔，带市场前缀，如 sh600519,sz000001")
@@ -1430,6 +1476,11 @@ def main() -> None:
         "--full-universe",
         action="store_true",
         help="仅本次快照覆盖候选发现的全部合格股票；用于09:24轻量异动扫描",
+    )
+    parser.add_argument(
+        "--bounded-universe",
+        action="store_true",
+        help="09:24增强扫描仅使用auction_scan_codes预备池，不扫描full_market_codes",
     )
     parser.add_argument("--finalize", action="store_true", help="读当日快照算因子")
     parser.add_argument("--once", action="store_true", help="单次抓取+计算，不落盘（调试）")
@@ -1457,29 +1508,7 @@ def main() -> None:
             sys.exit(1)
         result = _build_result(series, args.asof)
     elif args.snapshot:
-        if not codes:
-            try:
-                codes = auction_scan_codes(
-                    load_watch_pool(args.asof),
-                    full_universe=args.full_universe,
-                )
-            except DataSourceError as e:
-                print(json.dumps({"status": "insufficient_data", "error": str(e)}, ensure_ascii=False))
-                sys.exit(1)
-        try:
-            state = append_snapshot(codes, args.asof, full_universe=args.full_universe)
-        except DataSourceError as e:
-            print(json.dumps({"error": str(e)}, ensure_ascii=False))
-            sys.exit(1)
-        counts = {c: len(s) for c, s in state.get("series", {}).items()}
-        print(json.dumps({
-            "ok": True,
-            "asof": args.asof,
-            "snapshot_counts": counts,
-            # 「采到几只」必须和「剩下的怎么了」一起出现，否则窗口出问题时
-            # 分不清是池子小还是数据源挂了。
-            "snapshot_failures": state.get("snapshot_failures"),
-        }, ensure_ascii=False))
+        _run_snapshot_cli(args, parser)
         return
     elif args.finalize:
         try:
