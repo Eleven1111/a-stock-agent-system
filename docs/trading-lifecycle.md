@@ -74,10 +74,22 @@ python scripts/agent_runtime_context.py
 
 `mfi_overheat` 会记录版本、状态、reason code、阈值、证据与车道扣分。打板车道对
 末端加速保留竞价确认机会，趋势车道扣分更重；过热候选的 09:25 五档必须
-`book_quality=ok`、不是 `stale_last_good`，且竞价金额达到最低门槛，否则 fail-closed，
-不能因先验高分进入可交易短名单。09:35 还会拒绝高开回落、撤单增加或跌破竞价价，
-并输出结构化 `cooldown_wait`（MFI 65–80、连续至少 2 日下降、缩量且回踩企稳），
-禁止追高。所有候选分均标记为启发式排序分，不代表上涨、涨停或收益概率。
+`book_coverage_status=available`（`auction_collector` 的 `AuctionQuality` 字段，
+表示至少一个竞价快照带有效五档）、因子上的 `auction_book_status` 不是
+`stale_last_good`/`unavailable`，且竞价金额达到最低门槛，否则 fail-closed，
+不能因先验高分进入可交易短名单。这三个键必须与采集器实际写出的字段名一致：
+`tests/test_candidate_pipeline.py` 里有一条直接拿采集器生成的质量报告喂门控的
+契约测试，字段改名或错位即变红——上一版门控读的 `book_quality` 没有任何生产
+写入方，使得每一个过热候选无论盘口多好都被拒。
+
+09:35 还会拒绝高开回落、撤单增加或跌破竞价价，并输出结构化 `cooldown_wait`
+（MFI 65–80、连续至少 2 日下降、缩量且回踩企稳），禁止追高。其中「撤单增加」读
+`order_cancel_increase_pct`（含 `cancel_rate_increase_pct` 等别名）：判定逻辑与
+测试都在位，但当前免费 L1 行情源不提供撤单数据，没有任何 provider 写入该字段，
+因此这一条在生产中恒不触发，接入 L2 盘口前不要把它当作已生效的保护。高开回落
+与跌破竞价价两条使用的是实有字段，正常生效。
+
+所有候选分均标记为启发式排序分，不代表上涨、涨停或收益概率。
 
 ## 打板交易纪律熔断
 
