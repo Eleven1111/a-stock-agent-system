@@ -360,6 +360,10 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
         "vwap_above_time_ratio": _rounded(vwap_ratio),
         "open_15m_drawdown_pct": _rounded(dd15),
         "open_30m_drawdown_pct": _rounded(dd30),
+        "order_cancel_increase_pct": _rounded(_as_float(_direct((
+            "order_cancel_increase_pct", "cancel_rate_increase_pct",
+            "撤单增加比例", "撤单率增幅",
+        )))),
     }
     return {
         **_observation_metadata(rows, metric_values),
@@ -371,6 +375,8 @@ def derive_open_metrics(factor: Mapping[str, Any], quote: Mapping[str, Any]) -> 
         "drawdown_15m_pct": metric_values["open_15m_drawdown_pct"],
         "open_30m_drawdown_pct": metric_values["open_30m_drawdown_pct"],
         "drawdown_30m_pct": metric_values["open_30m_drawdown_pct"],
+        "order_cancel_increase_pct": metric_values["order_cancel_increase_pct"],
+        "cancel_rate_increase_pct": metric_values["order_cancel_increase_pct"],
         **_sector_open_metrics(_direct),
     }
 
@@ -716,10 +722,13 @@ def _open_action(
     change_pct: Any,
     indicative_reliable: Optional[bool],
     indicative_deviation_pct: Optional[float],
+    execution_rejections: Sequence[str] = (),
 ) -> Tuple[str, List[str]]:
     """Classify the 09:35 open into an action plus its human-readable reasons."""
     action = "skip"
     reasons: List[str] = []
+    if execution_rejections:
+        reasons.extend(execution_rejections)
     if indicative_reliable is False:
         reasons.append(
             f"09:25竞价指示价与实际开盘价偏差{indicative_deviation_pct:+.2f}%，"
@@ -734,6 +743,8 @@ def _open_action(
         return action, reasons
     if factor.get("error"):
         reasons.append(factor["error"])
+    elif execution_rejections:
+        action = "skip"
     elif tradeability.get("tradeable") is False:
         action = "not_buyable"
         reasons.append(tradeability.get("reason", "不可成交"))
@@ -754,6 +765,26 @@ def _open_action(
     return action, reasons
 
 
+def _overheat_execution_rejections(
+    factor: Mapping[str, Any], quote: Mapping[str, Any], metrics: Mapping[str, Any]
+) -> List[str]:
+    """Hard execution rejects for observable post-auction deterioration."""
+    reasons: List[str] = []
+    auction_price = _as_float(factor.get("indicative_price"))
+    open_price = _as_float(quote.get("open"))
+    current_price = _as_float(quote.get("price"))
+    gap = _as_float(factor.get("auction_gap_pct"))
+    drawdown = _as_float(metrics.get("open_15m_drawdown_pct"))
+    if auction_price and open_price and gap is not None and open_price > auction_price and drawdown is not None and drawdown > 1.5:
+        reasons.append("高开后回落超过1.5%，拒绝追高")
+    cancel_increase = _as_float(metrics.get("order_cancel_increase_pct"))
+    if cancel_increase is not None and cancel_increase >= 30.0:
+        reasons.append("盘口撤单增加至少30%，拒绝追高")
+    if auction_price and current_price and current_price < auction_price:
+        reasons.append("现价跌破竞价指示价，拒绝追高")
+    return reasons
+
+
 def evaluate_open_confirmation(
     factor: Dict[str, Any],
     quote: Dict[str, Any],
@@ -766,6 +797,7 @@ def evaluate_open_confirmation(
     price = quote.get("price")
     indicative_deviation_pct, indicative_reliable = _indicative_price_reliability(factor, quote)
     open_metrics = derive_open_metrics(factor, quote)
+    execution_rejections = _overheat_execution_rejections(factor, quote, open_metrics)
 
     action, reasons = _open_action(
         factor,
@@ -773,6 +805,7 @@ def evaluate_open_confirmation(
         change_pct=change_pct,
         indicative_reliable=indicative_reliable,
         indicative_deviation_pct=indicative_deviation_pct,
+        execution_rejections=execution_rejections,
     )
 
     result = {
@@ -804,6 +837,18 @@ def evaluate_open_confirmation(
         **open_metrics,
         "reasons": reasons,
     }
+    if execution_rejections:
+        result["cooldown_wait"] = {
+            "status": "pending",
+            "requirements": {
+                "mfi_range": {"min": 65.0, "max": 80.0, "inclusive": True},
+                "mfi_declining_days": {"minimum": 2, "consecutive": True},
+                "pullback_volume_vs_prior": {"operator": "<", "value": 1.0},
+                "pullback_stable": True,
+            },
+            "action": "wait_and_reassess",
+            "no_chase": True,
+        }
     controls = _open_execution_controls(result, quote, tradeability, asof or date.today().isoformat())
     enriched = _enrich_decision(
         result,

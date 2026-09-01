@@ -8,6 +8,9 @@ published CI and release gates pass.
 
 ### Changed
 
+- Evolved the MFI overheat gate to `mfi-overheat-gate-v2`: one bounded nonlinear
+  10–25 point lane risk charge, trusted stable auction book and amount gating,
+  plus fail-closed open deterioration controls.
 - Hardened point-in-time evidence, execution, settlement, portfolio-risk, and
   research-agent boundaries to fail closed.
 - Added reproducible validation, shadow-promotion, statistical, cost/capacity,

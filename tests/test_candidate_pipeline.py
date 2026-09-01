@@ -141,6 +141,119 @@ def test_dual_rankers_keep_daban_and_trend_separate():
     assert by_code["600002"]["trend_score"] > by_code["600001"]["trend_score"]
 
 
+def test_mfi_overheat_policy_distinguishes_20260831_contrast():
+    """Today’s contrast is a policy regression, not a claim about one-day outcome odds."""
+    qianjin = cp.assess_mfi_overheat({
+        "mfi": 92.092162,
+        "momentum_5d": 36.5779,
+        "turnover": 25.62,
+        "volume_ratio_5d": 3.5749,
+    })
+    xingwang = cp.assess_mfi_overheat({
+        "mfi": 65.721661,
+        "momentum_5d": 10.612,
+        "turnover": 15.16,
+        "volume_ratio_5d": 1.3848,
+    })
+
+    assert qianjin["status"] == "terminal_acceleration"
+    assert qianjin["reason_codes"] == ["mfi_terminal_acceleration"]
+    assert qianjin["lane_penalties"]["daban"] >= 20.0
+    assert qianjin["lane_penalties"]["trend"] > qianjin["lane_penalties"]["daban"]
+    assert qianjin["requires_trusted_auction_microstructure"] is True
+    assert xingwang["status"] == "normal"
+    assert xingwang["lane_penalties"] == {"daban": 0.0, "trend": 0.0}
+
+
+def test_public_candidate_ranking_applies_lane_aware_overheat_penalties():
+    terminal_bars = _klines(
+        [10.0] * 54 + [10.0, 11.0, 12.0, 13.0, 14.0, 15.0],
+        [100_000] * 59 + [400_000],
+    )
+    strong_not_terminal_bars = _klines(
+        [10.0 + i * 0.03 for i in range(60)],
+        [100_000] * 60,
+    )
+    neutral_bars = _klines(
+        [10.0 + (0.03 if i % 2 else 0.0) for i in range(60)],
+        [100_000] * 60,
+    )
+    ranked = cp.rank_candidates(
+        [
+            _quote("600010", "末端加速", 9.9, 2_000_000_000, turnover=25.6),
+            _quote("600011", "普通强势", 6.0, 1_000_000_000, turnover=8.0),
+            _quote("600012", "中性对照", 1.0, 500_000_000, turnover=4.0),
+        ],
+        {
+            "600010": terminal_bars,
+            "600011": strong_not_terminal_bars,
+            "600012": neutral_bars,
+        },
+    )
+    by_code = {item["code"]: item for item in ranked}
+    terminal = by_code["600010"]
+    strong = by_code["600011"]
+
+    assert terminal["mfi_overheat"]["status"] == "terminal_acceleration"
+    daban_penalty = terminal["daban_score_pre_overheat"] - terminal["daban_score"]
+    trend_penalty = terminal["trend_score_pre_overheat"] - terminal["trend_score"]
+    assert 10.0 <= daban_penalty <= 25.0
+    assert 10.0 <= trend_penalty <= 25.0
+    assert trend_penalty > daban_penalty
+    assert terminal["daban_lane_status"] == "auction_confirmation_required"
+    assert strong["mfi_overheat"]["status"] == "overheated"
+    assert strong["daban_score"] > 0
+    assert terminal["candidate_score_semantics"] == "heuristic_rank_score_not_probability"
+    assert terminal["candidate_score_is_probability"] is False
+
+
+def test_mfi_persistence_is_derived_from_pit_bar_history():
+    bars = _klines([10.0 + i * 0.1 for i in range(30)], [100_000] * 30)
+
+    features = cp.compute_price_features(bars)
+
+    assert features["mfi"] == 100.0
+    assert features["mfi_previous"] == 100.0
+    assert features["mfi_persistence_days"] >= 2
+    assert features["mfi_recent_peak_5d"] == 100.0
+
+
+def test_mfi_bearish_divergence_requires_price_breakout_and_real_mfi_drop():
+    divergent = cp.assess_mfi_overheat({
+        "mfi": 84.0,
+        "mfi_recent_peak_5d": 94.0,
+        "breakout_20d": 1.0,
+        "momentum_5d": 8.0,
+        "turnover": 9.0,
+        "volume_ratio_5d": 1.2,
+    })
+    no_breakout = cp.assess_mfi_overheat({
+        "mfi": 84.0,
+        "mfi_recent_peak_5d": 94.0,
+        "breakout_20d": 0.0,
+    })
+
+    assert divergent["status"] == "bearish_divergence"
+    assert divergent["evidence"]["mfi_drop_from_recent_peak"] == 10.0
+    assert no_breakout["status"] == "overheated"
+
+
+def test_mfi_high_without_companion_signal_is_not_risk_charged():
+    result = cp.assess_mfi_overheat({"mfi": 84.0})
+    assert result["status"] == "overheated"
+    assert result["lane_penalties"] == {"daban": 0.0, "trend": 0.0}
+    assert result["requires_trusted_auction_microstructure"] is False
+
+
+def test_mfi_risk_charge_is_bounded_nonlinear_and_lane_specific():
+    low = cp.assess_mfi_overheat({"mfi": 92.0, "momentum_5d": 30.0})
+    high = cp.assess_mfi_overheat({"mfi": 99.0, "momentum_5d": 30.0, "mfi_persistence_days": 3})
+    assert 10.0 <= low["lane_penalties"]["daban"] <= 25.0
+    assert 10.0 <= high["lane_penalties"]["trend"] <= 25.0
+    assert high["lane_penalties"]["trend"] > low["lane_penalties"]["trend"]
+    assert high["lane_penalties"]["trend"] > high["lane_penalties"]["daban"]
+
+
 def test_trend_ranker_rewards_lower_volatility_when_other_features_match():
     quotes = [
         _quote("600010", "平稳趋势", 2.0, 500_000_000),
@@ -730,6 +843,77 @@ def test_auction_shortlist_requires_matched_and_unmatched_contract():
         limit=1,
     )
     assert [item["code"] for item in valid["shortlist"]] == ["sh600519"]
+
+
+def test_terminal_mfi_overheat_fails_closed_when_auction_book_is_untrusted():
+    candidate = {
+        "code": "sh600479",
+        "name": "末端加速样本",
+        "daban_score": 82.98,
+        "trend_score": 70.28,
+        "daban_eligible": True,
+        "selected_by": {"daban": True, "trend": False},
+        "mfi_overheat": {
+            "schema": "mfi-overheat-gate-v1",
+            "status": "terminal_acceleration",
+            "reason_codes": ["mfi_terminal_acceleration"],
+            "requires_trusted_auction_microstructure": True,
+        },
+    }
+    factor = {
+        "code": "sh600479",
+        "auction_gap_pct": 2.0,
+        "auction_amount": 3_000_000,
+        "auction_volume": 300_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 300_000,
+        "unmatched": 0,
+        "auction_bid_ask_ratio": 2.0,
+        "auction_net_bid_delta": 100_000,
+        "is_yiziban": False,
+        "auction_data_quality": {"status": "unavailable", "book_quality": "missing", "reasons": ["五档无覆盖"]},
+    }
+
+    result = cp.rank_auction_shortlist(_auction_pool(candidate), [factor], limit=1)
+
+    assert result["shortlist"] == []
+    rejected = result["rejected"][0]
+    assert rejected["mfi_overheat_auction_gate"]["status"] == "blocked"
+    assert "mfi_terminal_microstructure_untrusted" in rejected["mfi_overheat_auction_gate"]["reason_codes"]
+    assert any("MFI末端风险" in reason for reason in rejected["rejection_reasons"])
+
+
+def test_terminal_mfi_overheat_can_reach_daban_shortlist_with_trusted_book():
+    candidate = {
+        "code": "sh600479",
+        "name": "已确认末端加速样本",
+        "daban_score": 82.98,
+        "trend_score": 70.28,
+        "daban_eligible": True,
+        "selected_by": {"daban": True, "trend": False},
+        "mfi_overheat": {
+            "status": "terminal_acceleration",
+            "requires_trusted_auction_microstructure": True,
+        },
+    }
+    factor = {
+        "code": "sh600479",
+        "auction_gap_pct": 2.0,
+        "auction_amount": 3_000_000,
+        "auction_volume": 300_000,
+        "prev_day_volume": 1_000_000,
+        "matched": 300_000,
+        "unmatched": 0,
+        "auction_bid_ask_ratio": 2.0,
+        "auction_net_bid_delta": 100_000,
+        "is_yiziban": False,
+        "auction_data_quality": {"status": "ok", "book_quality": "ok", "book_status": "fresh", "reasons": []},
+    }
+
+    result = cp.rank_auction_shortlist(_auction_pool(candidate), [factor], limit=1)
+
+    assert [item["code"] for item in result["shortlist"]] == ["sh600479"]
+    assert result["shortlist"][0]["mfi_overheat_auction_gate"]["status"] == "passed"
 
 
 def test_auction_shortlist_fail_closes_real_20260817_bad_factor_mix():

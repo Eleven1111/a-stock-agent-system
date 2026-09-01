@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from math import log
+from math import isfinite, log
 from statistics import pstdev
 from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
@@ -28,6 +28,25 @@ DEFAULT_THEME_WEIGHTING = {
         "emerging": 0.0,
     },
 }
+
+MFI_OVERHEAT_POLICY_VERSION = "mfi-overheat-gate-v2"
+DEFAULT_MFI_OVERHEAT_POLICY = {
+    "mfi_overheated": 80.0,
+    "mfi_severe": 90.0,
+    "momentum_5d_pct": 25.0,
+    "turnover_pct": 20.0,
+    "volume_ratio_5d": 2.5,
+    "terminal_companion_min": 2,
+    "divergence_drop": 5.0,
+    "minimum_auction_amount": 1_000_000.0,
+    "penalties": {
+        "overheated": {"daban": 4.0, "trend": 8.0},
+        "terminal_acceleration": {"daban": 15.0, "trend": 25.0},
+        "bearish_divergence": {"daban": 18.0, "trend": 28.0},
+    },
+}
+CANDIDATE_SCORE_SEMANTICS = "heuristic_rank_score_not_probability"
+CANDIDATE_SCORE_LABEL = "候选启发式排序分（0-100，非上涨/涨停/收益概率）"
 
 # Research-only until a separately registered, directionally validated trend
 # strategy is promoted.  The registry check below is an additional fail-closed
@@ -62,6 +81,135 @@ def _theme_weighting_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
         **dict(supplied.get("stage_deltas") or {}),
     }
     return merged
+
+
+def _mfi_overheat_policy(config: Mapping[str, Any] | None = None) -> Dict[str, Any]:
+    supplied = dict(config or {})
+    merged = {
+        **DEFAULT_MFI_OVERHEAT_POLICY,
+        **{key: value for key, value in supplied.items() if key != "penalties"},
+    }
+    default_penalties = DEFAULT_MFI_OVERHEAT_POLICY["penalties"]
+    supplied_penalties = supplied.get("penalties") or {}
+    merged["penalties"] = {
+        status: {
+            **default_penalties[status],
+            **dict(supplied_penalties.get(status) or {}),
+        }
+        for status in default_penalties
+    }
+    return merged
+
+
+def _mfi_lane_penalties(
+    status: str,
+    mfi: float | None,
+    companion_count: int,
+    item: Mapping[str, Any],
+    policy: Mapping[str, Any],
+) -> tuple[Dict[str, float], bool]:
+    """Calculate one bounded nonlinear risk charge for both strategy lanes."""
+    configured = policy["penalties"].get(status, {"daban": 0.0, "trend": 0.0})
+    risk_active = status in {"overheated", "terminal_acceleration", "bearish_divergence"} and (
+        companion_count >= 1 or status == "bearish_divergence"
+    )
+    if risk_active and mfi is not None:
+        excess = max(0.0, mfi - float(policy["mfi_overheated"])) / 10.0
+        persistence = max(0.0, float(_num(item.get("mfi_persistence_days"))) - 1.0)
+        severity = min(1.0, ((excess + 0.5 * persistence) / 2.5) ** 2)
+        floor = 10.0 if status == "overheated" else 20.0 if status == "terminal_acceleration" else 18.0
+        ceiling = 15.0 if status == "overheated" else 25.0
+        charge = floor + (ceiling - floor) * severity
+        daban_floor = 20.0 if status == "terminal_acceleration" else 10.0
+        configured = {
+            "daban": round(max(daban_floor, min(25.0, charge * 0.90)), 2),
+            "trend": round(max(10.0, min(25.0, charge * 1.10)), 2),
+        }
+    elif status == "overheated":
+        configured = {"daban": 0.0, "trend": 0.0}
+    return {key: float(value) for key, value in configured.items()}, risk_active
+
+
+def assess_mfi_overheat(
+    item: Mapping[str, Any],
+    config: Mapping[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Classify MFI heat using contemporaneous, auditable price/volume evidence."""
+    policy = _mfi_overheat_policy(config)
+    mfi_value = item.get("mfi")
+    mfi = _num(mfi_value) if mfi_value is not None else None
+    companion_signals = {
+        "momentum_5d": _num(item.get("momentum_5d")) >= float(policy["momentum_5d_pct"]),
+        "turnover": _num(item.get("turnover")) >= float(policy["turnover_pct"]),
+        "volume_ratio_5d": (
+            _num(item.get("volume_ratio_5d")) >= float(policy["volume_ratio_5d"])
+        ),
+    }
+    companion_count = sum(companion_signals.values())
+    recent_peak_value = item.get("mfi_recent_peak_5d")
+    recent_peak = _num(recent_peak_value) if recent_peak_value is not None else None
+    mfi_drop = max(0.0, recent_peak - mfi) if recent_peak is not None and mfi is not None else 0.0
+    divergence = bool(
+        mfi is not None
+        and recent_peak is not None
+        and recent_peak >= float(policy["mfi_overheated"])
+        and _num(item.get("breakout_20d")) >= 1.0
+        and mfi_drop >= float(policy["divergence_drop"])
+    )
+    if mfi is None:
+        status = "unavailable"
+        reason_codes = ["mfi_unavailable"]
+    elif divergence:
+        status = "bearish_divergence"
+        reason_codes = ["mfi_bearish_divergence"]
+    elif (
+        mfi >= float(policy["mfi_severe"])
+        and companion_count >= int(policy["terminal_companion_min"])
+    ):
+        status = "terminal_acceleration"
+        reason_codes = ["mfi_terminal_acceleration"]
+    elif mfi >= float(policy["mfi_overheated"]):
+        status = "overheated"
+        reason_codes = ["mfi_overheated"]
+    else:
+        status = "normal"
+        reason_codes = []
+    penalties, risk_active = _mfi_lane_penalties(
+        status, mfi, companion_count, item, policy
+    )
+    return {
+        "schema": MFI_OVERHEAT_POLICY_VERSION,
+        "status": status,
+        "reason_codes": reason_codes,
+        "lane_penalties": {
+            "daban": float(penalties["daban"]),
+            "trend": float(penalties["trend"]),
+        },
+        "requires_trusted_auction_microstructure": risk_active,
+        "evidence": {
+            "mfi": mfi,
+            "momentum_5d": _num(item.get("momentum_5d")),
+            "turnover": _num(item.get("turnover")),
+            "volume_ratio_5d": _num(item.get("volume_ratio_5d")),
+            "companion_signals": companion_signals,
+            "companion_count": companion_count,
+            "bearish_divergence": divergence,
+            "mfi_previous": item.get("mfi_previous"),
+            "mfi_recent_peak_5d": recent_peak,
+            "mfi_drop_from_recent_peak": round(mfi_drop, 6),
+            "mfi_persistence_days": int(_num(item.get("mfi_persistence_days"))),
+            "price_breakout_20d": _num(item.get("breakout_20d")) >= 1.0,
+        },
+        "thresholds": {
+            key: policy[key]
+            for key in (
+                "mfi_overheated", "mfi_severe", "momentum_5d_pct",
+                "turnover_pct", "volume_ratio_5d", "terminal_companion_min",
+                "divergence_drop",
+                "minimum_auction_amount",
+            )
+        },
+    }
 
 
 def theme_stage_adjustment(
@@ -246,12 +394,26 @@ def _candidate_proxy(item: Mapping[str, Any], name: str,
                               asof_lag_days=lag)
 
 
-def compute_observable_proxies(
+def _money_flow_index(rows: Sequence[Tuple[float, float, float, float, Any]]) -> float | None:
+    if len(rows) < 2:
+        return None
+    period = min(14, len(rows) - 1)
+    positive = negative = 0.0
+    for prev, cur in zip(rows[-period - 1:-1], rows[-period:]):
+        prev_typical = (prev[0] + prev[2] + prev[3]) / 3
+        typical = (cur[0] + cur[2] + cur[3]) / 3
+        if typical > prev_typical:
+            positive += typical * cur[1]
+        elif typical < prev_typical:
+            negative += typical * cur[1]
+    if positive and not negative:
+        return 100.0
+    return 100.0 - 100.0 / (1.0 + positive / negative) if negative else None
+
+
+def _valid_proxy_rows(
     kline: Sequence[Mapping[str, Any]],
-    item: Mapping[str, Any] | None = None,
-) -> Dict[str, Any]:
-    """Expose price/volume evidence with provenance, without actor inference."""
-    item = item or {}
+) -> List[Tuple[float, float, float, float, Mapping[str, Any]]]:
     rows = []
     for bar in kline or []:
         try:
@@ -263,12 +425,41 @@ def compute_observable_proxies(
             continue
         if close > 0 and volume >= 0:
             rows.append((close, volume, high, low, bar))
+    return rows
+
+
+def _mfi_history_evidence(
+    rows: Sequence[Tuple[float, float, float, float, Any]],
+) -> Dict[str, Any]:
+    series = [_money_flow_index(rows[:end]) for end in range(2, len(rows) + 1)]
+    recent = [value for value in series[-5:] if value is not None]
+    persistence_days = 0
+    for value in reversed(series):
+        if value is None or value < DEFAULT_MFI_OVERHEAT_POLICY["mfi_severe"]:
+            break
+        persistence_days += 1
+    return {
+        "current": series[-1] if series else None,
+        "previous": series[-2] if len(series) >= 2 else None,
+        "recent_peak_5d": max(recent) if recent else None,
+        "persistence_days": persistence_days,
+    }
+
+
+def compute_observable_proxies(
+    kline: Sequence[Mapping[str, Any]],
+    item: Mapping[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Expose price/volume evidence with provenance, without actor inference."""
+    item = item or {}
+    rows = _valid_proxy_rows(kline)
     asof = ((rows[-1][4].get("asof") or rows[-1][4].get("date")
              or rows[-1][4].get("datetime") or rows[-1][4].get("time"))
             if rows else None)
     source = ((rows[-1][4].get("source") or rows[-1][4].get("provider"))
               if rows else None) or "candidate_kline"
     observations = {name: _proxy_observation() for name in _OBSERVABLE_PROXY_NAMES}
+    mfi_history = _mfi_history_evidence(rows)
     if len(rows) >= 2:
         up = sum(cur[1] for prev, cur in zip(rows, rows[1:]) if cur[0] > prev[0])
         down = sum(cur[1] for prev, cur in zip(rows, rows[1:]) if cur[0] < prev[0])
@@ -288,18 +479,7 @@ def compute_observable_proxies(
             slope = sum((i - x_mean) * (value - y_mean) for i, value in enumerate(window)) / denominator
             observations["obv_slope"] = _proxy_observation(
                 round(slope, 6), source=source, asof=asof)
-        period = min(14, len(rows) - 1)
-        positive = negative = 0.0
-        for prev, cur in zip(rows[-period - 1:-1], rows[-period:]):
-            prev_typical = (prev[0] + prev[2] + prev[3]) / 3
-            typical = (cur[0] + cur[2] + cur[3]) / 3
-            if typical > prev_typical:
-                positive += typical * cur[1]
-            elif typical < prev_typical:
-                negative += typical * cur[1]
-        mfi = 100.0 if positive and not negative else (
-            100.0 - 100.0 / (1.0 + positive / negative) if negative else None
-        )
+        mfi = mfi_history["current"]
         observations["mfi"] = _proxy_observation(
             round(mfi, 6) if mfi is not None else None, source=source, asof=asof)
 
@@ -317,6 +497,15 @@ def compute_observable_proxies(
     )
     return {
         **{name: obs.get("value") for name, obs in observations.items()},
+        "mfi_previous": (
+            round(mfi_history["previous"], 6)
+            if mfi_history["previous"] is not None else None
+        ),
+        "mfi_recent_peak_5d": (
+            round(mfi_history["recent_peak_5d"], 6)
+            if mfi_history["recent_peak_5d"] is not None else None
+        ),
+        "mfi_persistence_days": mfi_history["persistence_days"],
         "observable_proxies": observations,
         "proxy_provenance": {
             name: {key: value for key, value in obs.items() if key != "value"}
@@ -660,6 +849,7 @@ def rank_candidates(
     theme_stages: Mapping[str, Mapping[str, Any]] | None = None,
     theme_weighting: Mapping[str, Any] | None = None,
     trend_live_weight: Any = None,
+    mfi_overheat_policy: Mapping[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     """Produce separate cross-sectional ranks for limit-up and trend strategies."""
     live_trend_weight = resolve_trend_live_weight(trend_live_weight)
@@ -747,11 +937,29 @@ def rank_candidates(
         trend_score += social_delta + theme_delta
         if not item["feature_ready"]:
             trend_score = 0.0
+        overheat = assess_mfi_overheat(item, mfi_overheat_policy)
+        daban_pre_overheat = max(0.0, min(100.0, daban_score))
+        trend_pre_overheat = max(0.0, min(100.0, trend_score))
+        if item["feature_ready"]:
+            daban_score -= overheat["lane_penalties"]["daban"]
+            trend_score -= overheat["lane_penalties"]["trend"]
+        severe_overheat = bool(overheat["requires_trusted_auction_microstructure"])
         item.update({
             "daban_eligible": daban_eligible,
             "daban_score": round(max(0.0, min(100.0, daban_score)), 2),
             "trend_score": round(max(0.0, min(100.0, trend_score)), 2),
             "trend_score_raw": round(max(0.0, min(100.0, trend_score)), 2),
+            "daban_score_pre_overheat": round(daban_pre_overheat, 2),
+            "trend_score_pre_overheat": round(trend_pre_overheat, 2),
+            "mfi_overheat": overheat,
+            "daban_lane_status": (
+                "ineligible"
+                if not daban_eligible or not item["feature_ready"]
+                else "auction_confirmation_required" if severe_overheat else "eligible"
+            ),
+            "candidate_score_semantics": CANDIDATE_SCORE_SEMANTICS,
+            "candidate_score_label": CANDIDATE_SCORE_LABEL,
+            "candidate_score_is_probability": False,
             "trend_live_score": round(
                 max(0.0, min(100.0, trend_score)) * live_trend_weight,
                 2,
@@ -811,6 +1019,7 @@ def build_watch_pool(
     min_listed_days: int = 60,
     signal_ctx: Mapping[str, Any] | None = None,
     selection_state: Mapping[str, Any] | None = None,
+    mfi_overheat_policy: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     eligible, rejected = filter_universe(
         quotes,
@@ -818,7 +1027,12 @@ def build_watch_pool(
         min_price=min_price,
         min_listed_days=min_listed_days,
     )
-    ranked = rank_candidates(eligible, kline_by_code, signal_ctx=signal_ctx)
+    ranked = rank_candidates(
+        eligible,
+        kline_by_code,
+        signal_ctx=signal_ctx,
+        mfi_overheat_policy=mfi_overheat_policy,
+    )
     # Recall-monitoring annotations are observational only.  They are carried
     # through the candidate artifacts so a later full-market snapshot can
     # compare pool coverage without changing either lane's ranking or gates.
@@ -944,6 +1158,9 @@ def build_watch_pool(
             if selection_state is not None
             else "legacy_unscoped"
         ),
+        "score_semantics": CANDIDATE_SCORE_SEMANTICS,
+        "score_label": CANDIDATE_SCORE_LABEL,
+        "score_is_probability": False,
         "candidates": candidates[:watch_limit],
         "evaluated_candidates": ranked,
     }
@@ -1004,6 +1221,46 @@ def _auction_quality_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
     return {"status": "unknown", "reasons": ["因子未提供竞价质量报告"]}
 
 
+def _mfi_overheat_auction_gate(item: Mapping[str, Any]) -> Dict[str, Any]:
+    overheat = item.get("mfi_overheat")
+    mfi_status = str(overheat.get("status") or "unknown") if isinstance(overheat, Mapping) else "unavailable"
+    requires_confirmation = mfi_status in {"overheated", "terminal_acceleration", "bearish_divergence"}
+    quality = _auction_quality_payload(item)
+    quality_status = str(quality.get("status") or "unknown")
+    book_quality = str(item.get("book_quality") or quality.get("book_quality") or "")
+    book_status = str(item.get("book_status") or quality.get("book_status") or "")
+    amount = _num(item.get("auction_amount"), -1.0)
+    minimum_amount = _num(
+        (overheat.get("thresholds") or {}).get("minimum_auction_amount")
+        if isinstance(overheat, Mapping) else None,
+        DEFAULT_MFI_OVERHEAT_POLICY["minimum_auction_amount"],
+    )
+    reasons = []
+    if requires_confirmation and quality_status != "ok":
+        reasons.append("auction_quality_not_ok")
+    if requires_confirmation and book_quality != "ok":
+        reasons.append("book_quality_not_ok")
+    if requires_confirmation and book_status == "stale_last_good":
+        reasons.append("stale_last_good_book")
+    if requires_confirmation and (amount < minimum_amount or not isfinite(amount)):
+        reasons.append("auction_amount_below_minimum_or_missing")
+    blocked = bool(reasons)
+    return {
+        "status": "blocked" if blocked else "passed",
+        "reason_codes": (
+            ["mfi_terminal_microstructure_untrusted", *reasons]
+            if blocked and "mfi_terminal_microstructure_untrusted" not in reasons
+            else reasons
+        ),
+        "mfi_status": mfi_status,
+        "auction_quality_status": quality_status,
+        "requires_trusted_auction_microstructure": requires_confirmation,
+        "minimum_auction_amount": minimum_amount,
+        "book_quality": book_quality or None,
+        "book_status": book_status or None,
+    }
+
+
 def _auction_volume_rejection_reasons(factor: Mapping[str, Any] | None) -> List[str]:
     """Execution gate for the volume fields used by the auction ranking.
 
@@ -1044,6 +1301,11 @@ def _lane_rejection_reasons(item: Mapping[str, Any], lane: str) -> List[str]:
         reasons.append("趋势策略未通过研究闸门，仅保留研究，不进入可交易候选")
     if lane == "daban" and item.get("_source_daban_lane_status") == "research_only":
         reasons.append("打板策略未通过研究闸门，仅保留研究，不进入可交易候选")
+    mfi_gate = item.get("mfi_overheat_auction_gate") or _mfi_overheat_auction_gate(item)
+    if mfi_gate.get("status") == "blocked":
+        reasons.append(
+            "MFI末端风险且竞价微结构不可用或不可信，fail-closed，拒绝追高"
+        )
     return reasons
 
 
@@ -1311,6 +1573,7 @@ def rank_auction_shortlist(
         row["_source_trend_lane_status"] = item.get("trend_lane_status")
         row["_source_daban_lane_status"] = item.get("daban_lane_status")
         row["auction_quality"] = _auction_quality_payload(row)
+        row["mfi_overheat_auction_gate"] = _mfi_overheat_auction_gate(row)
         row["auction_score_semantics"] = AUCTION_SCORE_SEMANTICS
         row["auction_score_label"] = AUCTION_SCORE_LABEL
         row["auction_score_is_probability"] = False
