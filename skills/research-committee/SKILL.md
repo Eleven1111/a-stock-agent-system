@@ -73,6 +73,22 @@ python scripts/expert_runner.py next --worker <hermes|openclaw>
   旧 claim、任意路径审批、过期或未来 PIT 上下文一律 fail closed。
 - 每日字符预算写在 `config/research_committee.json`；预算耗尽任务自动顺延。
 
+## 何时不用本技能
+
+本平面产出的是**待门禁的提案**，不是结论，也不保证在某个时间窗内返回。
+
+| 场景 | 改用 | 原因 |
+| --- | --- | --- |
+| 要一个可执行的买卖结论 | `stock-triage`（且仍不下单） | `verdict=advance` 只写 `proposals/pending/`（`policy_gate_required=true`）；执行计划固定 `execution_eligible=false`（`skills/common/research_execution_plan.py`） |
+| 竞价、开盘等时间敏感窗口内要结论 | `daban-stock-picker` | 本平面是带 TTL 与每日字符预算的异步总线，预算耗尽任务自动顺延，不保证在窗口内返回 |
+| 只要一份公司深度研究 | `serenity-investment-research` | 走本平面只是把同一份深研包装成 `serenity_refresh` 工单，多一层队列与租约 |
+| 要专家直接读 ledger/portfolio 原文或联网检索 | 无 | 专家只读 evidence pack，仅 `deep_researcher` 例外 |
+
+另有两种误用：
+
+- **不要把 `advance` 读成「已批准」。** 脱离 `review_only` 需要模型可写区之外的 `research_finding_approval_v1`；`--reviewed-by` 只是兼容参数，不授予执行资格。
+- **不要靠增加专家轮次来补证据。** 证据不足时 abstain 是合法产出；升级轮只重新裁决既有 finding，不产生新事实。
+
 ## 角色
 
 | 角色 | profile | 职责 |
