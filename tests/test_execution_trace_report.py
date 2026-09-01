@@ -132,6 +132,109 @@ def test_coverage_lists_enabled_jobs_without_a_terminal_event(tmp_path):
     assert coverage["missing_jobs"] == ["job-b"]
 
 
+def test_success_samples_survive_a_flood_of_failures():
+    """分层采样存在的理由：只看失败会产出过拟合失败的修复。
+
+    失败再多也不能把正常路径对照挤掉——失败层被截断的同时，ok 层必须照常取到。
+    """
+    for index in range(20):
+        _complete_run(f"fail-{index:02d}", "job-a", status="failed")
+    _complete_run("ok-1", "job-b")
+    _complete_run("ok-2", "job-b")
+
+    sample = report.sample_runs_for_diagnosis(execution_trace.read_events())
+
+    assert sample["strata"]["failed"]["available"] == 20
+    assert sample["strata"]["failed"]["sampled"] == 5  # 截断
+    assert sample["strata"]["ok"]["sampled"] == 2      # 没被挤掉
+    assert not sample["warnings"]
+
+
+def test_a_failures_only_sample_announces_itself():
+    """成功层为空必须告警，不能悄悄退化成只看失败。"""
+    _complete_run("fail-1", "job-a", status="failed")
+
+    sample = report.sample_runs_for_diagnosis(execution_trace.read_events())
+
+    assert sample["strata"]["ok"]["sampled"] == 0
+    assert any("ok 层为空" in item for item in sample["warnings"])
+
+
+def test_blocked_runs_are_their_own_stratum_not_folded_into_failures():
+    """本仓库大量 blocked 是正确的 fail-closed，混进失败层会淹没真失败。"""
+    for index in range(10):
+        _complete_run(f"blocked-{index:02d}", "job-a", status="blocked")
+    _complete_run("fail-1", "job-b", status="failed")
+
+    sample = report.sample_runs_for_diagnosis(execution_trace.read_events())
+
+    assert sample["strata"]["blocked"]["available"] == 10
+    assert sample["strata"]["failed"]["available"] == 1
+    assert sample["strata"]["failed"]["sampled"] == 1
+
+
+def test_sampling_is_deterministic_for_the_same_events():
+    """同一批事件必须采出同一份样本，否则诊断结论不可复现。"""
+    for index in range(9):
+        _complete_run(f"fail-{index:02d}", "job-a", status="failed")
+    events = execution_trace.read_events()
+
+    first = report.sample_runs_for_diagnosis(events)
+    second = report.sample_runs_for_diagnosis(events)
+
+    assert first["strata"] == second["strata"]
+
+
+def test_timeouts_do_not_crowd_out_real_failures():
+    """实测生产 trace 里 timeout 287 而 failed 仅 11。两者同层的话，固定名额会被
+    timeout 占满，真失败一个都采不到。"""
+    for index in range(30):
+        _complete_run(f"timeout-{index:02d}", "job-a", status="timeout")
+    _complete_run("fail-1", "job-b", status="failed")
+
+    sample = report.sample_runs_for_diagnosis(execution_trace.read_events())
+
+    assert sample["strata"]["timeout"]["available"] == 30
+    assert sample["strata"]["timeout"]["sampled"] == 3
+    assert sample["strata"]["failed"]["sampled"] == 1
+    assert sample["strata"]["failed"]["runs"][0]["run_id"] == "fail-1"
+
+
+def test_known_no_op_terminals_are_counted_without_crying_wolf():
+    _complete_run("skipped-1", "job-a", status="duplicate_skipped")
+    _complete_run("fail-1", "job-b", status="failed")
+    _complete_run("ok-1", "job-c")
+
+    sample = report.sample_runs_for_diagnosis(execution_trace.read_events())
+
+    assert sample["unclassified_status_counts"] == {"duplicate_skipped": 1}
+    assert not sample["warnings"]
+
+
+def test_an_unexpected_terminal_state_is_reported_not_dropped():
+    """没人预期过的终态才是信号——它说明有一条路径没被建模。"""
+    _complete_run("weird-1", "job-a", status="exploded")
+    _complete_run("ok-1", "job-b")
+
+    sample = report.sample_runs_for_diagnosis(execution_trace.read_events())
+
+    assert sample["unclassified_status_counts"] == {"exploded": 1}
+    assert any("未预期的终态" in item for item in sample["warnings"])
+
+
+def test_sample_projection_is_fixed_so_new_run_fields_cannot_bloat_it():
+    _complete_run("ok-1", "job-a")
+
+    sample = report.sample_runs_for_diagnosis(execution_trace.read_events())
+
+    assert set(sample["strata"]["ok"]["runs"][0]) == {
+        "run_id", "job_id", "status", "trading_date", "started_at", "finished_at",
+        "duration_seconds", "gate_blocked", "agent_turns", "reason_codes",
+        "artifact_ref",
+    }
+    assert sample["payload_chars"] <= sample["max_total_chars"]
+
+
 def test_report_tolerates_a_corrupt_trace_file(_trace_file):
     _complete_run("run-1", "job-a")
     with open(_trace_file, "a", encoding="utf-8") as handle:

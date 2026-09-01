@@ -28,6 +28,29 @@ import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 import execution_trace  # noqa: E402
 
 REPORT_SCHEMA = "a_stock_execution_trace_report_v1"
+SAMPLE_SCHEMA = "a_stock_trace_diagnosis_sample_v1"
+
+# 分层诊断样本。只看失败会产出过拟合失败的修复：正常路径没有对照，就分不清
+# 「守住了」和「永远不触发」。成功样本的职责是提供那个对照。
+#
+# 与参考做法（失败/成功二分）的三处刻意偏离：
+#   1. blocked 单独成层。本仓库大量 blocked 是正确的 fail-closed 行为，把它并入
+#      失败层会淹没真失败。
+#   2. timeout 单独成层。实测生产 trace（2794 run）里 timeout 287 而 failed 仅 11，
+#      两者同层会让固定名额全被 timeout 占满，真失败照样被挤掉——正是分层要防的。
+#   3. 选取是确定性的，不是随机的。同一批事件必须采出同一份样本，否则诊断结论
+#      不可复现。
+STRATUM_STATUSES = {
+    "failed": ("failed", "unterminated"),
+    "timeout": ("timeout",),
+    "blocked": ("blocked",),
+    "ok": ("ok",),
+}
+STRATUM_CAPS = {"failed": 5, "timeout": 3, "blocked": 3, "ok": 3}
+# 已知的空操作终态：计数但不采样，也不因此告警。未在此列的未分层终态才是信号
+# ——那说明出现了没人预期过的终态。
+NON_SAMPLED_STATUSES = ("skipped", "duplicate_skipped")
+SAMPLE_MAX_TOTAL_CHARS = 15000
 
 
 def _percentile(values: Sequence[float], fraction: float) -> float | None:
@@ -156,6 +179,115 @@ def build_report(
     }
 
 
+def _stratum_of(status: str) -> str | None:
+    for stratum, statuses in STRATUM_STATUSES.items():
+        if status in statuses:
+            return stratum
+    return None
+
+
+def _sample_projection(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Fixed projection, so a new field on the run record cannot silently bloat
+    the sample."""
+    return {
+        "run_id": entry.get("run_id"),
+        "job_id": entry.get("job_id"),
+        "status": entry.get("status") or "unterminated",
+        "trading_date": entry.get("trading_date"),
+        "started_at": entry.get("started_at"),
+        "finished_at": entry.get("finished_at"),
+        "duration_seconds": _wait_seconds(
+            entry.get("started_at"), entry.get("finished_at")
+        ),
+        "gate_blocked": bool(entry.get("gate_blocked")),
+        "agent_turns": entry.get("agent_turns"),
+        "reason_codes": list(entry.get("reason_codes") or []),
+        "artifact_ref": entry.get("artifact_ref"),
+    }
+
+
+def sample_runs_for_diagnosis(
+    events: Sequence[Mapping[str, Any]],
+    *,
+    caps: Mapping[str, int] | None = None,
+    max_total_chars: int = SAMPLE_MAX_TOTAL_CHARS,
+) -> dict[str, Any]:
+    """Bounded, deterministic, stratified run sample for diagnosis.
+
+    Selection within each stratum is most-recent-first, ties broken by
+    ``run_id``, so the same events always yield the same sample.
+
+    An empty stratum is reported explicitly and raises a warning rather than
+    silently shrinking the sample — a failures-only view that looks like a
+    balanced one is worse than no sample at all.
+    """
+    budget = dict(STRATUM_CAPS)
+    budget.update(caps or {})
+    runs = execution_trace.reconstruct_runs(events)
+
+    buckets: dict[str, list[Mapping[str, Any]]] = {key: [] for key in STRATUM_STATUSES}
+    unclassified: dict[str, int] = {}
+    for entry in runs.values():
+        status = str(entry.get("status") or "unterminated")
+        stratum = _stratum_of(status)
+        if stratum is None:
+            unclassified[status] = unclassified.get(status, 0) + 1
+            continue
+        buckets[stratum].append(entry)
+
+    strata: dict[str, Any] = {}
+    warnings: list[str] = []
+    for stratum, entries in buckets.items():
+        ordered = sorted(
+            entries,
+            key=lambda item: (
+                str(item.get("finished_at") or item.get("started_at") or ""),
+                str(item.get("run_id") or ""),
+            ),
+            reverse=True,
+        )
+        picked = ordered[: budget[stratum]]
+        strata[stratum] = {
+            "available": len(entries),
+            "sampled": len(picked),
+            "cap": budget[stratum],
+            "runs": [_sample_projection(entry) for entry in picked],
+        }
+
+    if strata["ok"]["sampled"] == 0:
+        warnings.append(
+            "ok 层为空：样本只含失败/拦截，缺少正常路径对照，据此下的结论会偏向过拟合失败"
+        )
+    if not any(strata[key]["sampled"] for key in ("failed", "timeout", "blocked")):
+        warnings.append("failed/timeout/blocked 三层都为空：本样本不含任何异常路径")
+    unexpected = {
+        status: count
+        for status, count in unclassified.items()
+        if status not in NON_SAMPLED_STATUSES
+    }
+    if unexpected:
+        warnings.append(f"出现未预期的终态: {dict(sorted(unexpected.items()))}")
+
+    payload_chars = len(json.dumps(strata, ensure_ascii=False))
+    if payload_chars > max_total_chars:
+        warnings.append(
+            f"样本载荷 {payload_chars} 字符超出预算 {max_total_chars}；"
+            "未自动裁剪，请下调 caps 后重取"
+        )
+
+    return {
+        "schema": SAMPLE_SCHEMA,
+        "generated_at": execution_trace.now_iso(),
+        "run_count": len(runs),
+        "selection": "deterministic: most recent first per stratum, tie-break run_id",
+        "max_total_chars": max_total_chars,
+        "payload_chars": payload_chars,
+        "strata": strata,
+        "unclassified_status_counts": dict(sorted(unclassified.items())),
+        "warnings": warnings,
+    }
+
+
 def coverage_report(
     manifest_path: str,
     events: Sequence[Mapping[str, Any]],
@@ -194,6 +326,11 @@ def main() -> int:
         action="store_true",
         help="Include per-manifest-job trace coverage",
     )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Include a bounded stratified run sample (failed/blocked/ok)",
+    )
     args = parser.parse_args()
 
     events, stats = execution_trace.read_events_with_stats(
@@ -202,6 +339,8 @@ def main() -> int:
     report = build_report(events, stats=stats)
     if args.coverage:
         report["coverage"] = coverage_report(args.manifest, events)
+    if args.diagnose:
+        report["diagnosis_sample"] = sample_runs_for_diagnosis(events)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
