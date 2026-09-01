@@ -142,6 +142,7 @@ def _has_valid_book(snapshot: Mapping[str, Any]) -> bool:
 
 def _book_fields(snapshot: Mapping[str, Any] | None, reason: str | None = None) -> dict[str, Any]:
     if snapshot is not None and _has_valid_book(snapshot):
+        fetched_at = snapshot.get("fetched_at")
         return {
             "bids": list(snapshot.get("bids") or []),
             "asks": list(snapshot.get("asks") or []),
@@ -151,8 +152,14 @@ def _book_fields(snapshot: Mapping[str, Any] | None, reason: str | None = None) 
             "book_provenance": {
                 "provider": "tencent",
                 "provider_version": snapshot.get("provider_version"),
-                "fetched_at": snapshot.get("fetched_at"),
+                "fetched_at": fetched_at,
             },
+            "book_observation_provenance": {
+                "observation_kind": "observed",
+                "observed_at": fetched_at,
+                "provider": "tencent",
+            },
+            "book_is_imputed": False,
         }
     return {
         "bids": [],
@@ -161,6 +168,11 @@ def _book_fields(snapshot: Mapping[str, Any] | None, reason: str | None = None) 
         "book_status": "unavailable",
         "book_failure_reason": reason or "腾讯实时快照缺少有效五档盘口",
         "book_provenance": {"provider": "tencent"},
+        "book_observation_provenance": {
+            "observation_kind": "unavailable",
+            "provider": "tencent",
+        },
+        "book_is_imputed": None,
     }
 
 
@@ -206,6 +218,7 @@ def _merge_book_into_rows(
         for key in (
             "bids", "asks", "book_provider", "book_status",
             "book_failure_reason", "book_provenance",
+            "book_observation_provenance", "book_is_imputed",
         )
     }
     return [{**dict(row), **fields} for row in rows]

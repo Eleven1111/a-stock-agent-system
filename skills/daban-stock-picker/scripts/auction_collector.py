@@ -62,6 +62,9 @@ AUCTION_EXPECTED_TIMEPOINTS = AUCTION_WINDOW_END_MINUTE - AUCTION_WINDOW_START_M
 QUALITY_MIN_NONZERO_RATE = 0.5
 QUALITY_MAX_MIRROR_RATE = 0.5
 QUALITY_MIN_TIME_COVERAGE = 0.5
+PREFREEZE_START_MINUTE = 9 * 60 + 15
+PREFREEZE_END_MINUTE = 9 * 60 + 19
+PREFREEZE_MIN_REAL_SAMPLES = 2
 ORDER_BOOK_UNSUPPORTED_PROVIDERS = frozenset({"easy_tdx_mac_0x123d"})
 DEFAULT_SHORTLIST_LIMIT = int(
     load_registered("candidate_selection")["pipeline"]["auction_shortlist_limit"]
@@ -122,6 +125,90 @@ def _has_valid_book(snap: Mapping[str, Any]) -> bool:
     return has_level(snap.get("bids")) and has_level(snap.get("asks"))
 
 
+def _has_complete_five_level_book(snap: Mapping[str, Any]) -> bool:
+    """Require all five bid and ask levels; partial books are not evidence."""
+    def complete(levels: Any) -> bool:
+        return (
+            isinstance(levels, (list, tuple))
+            and len(levels) >= 5
+            and all(
+                isinstance(level, (list, tuple))
+                and len(level) >= 2
+                and float(level[0] or 0) > 0
+                and float(level[1] or 0) > 0
+                for level in levels[:5]
+            )
+        )
+    return complete(snap.get("bids")) and complete(snap.get("asks"))
+
+
+def _is_real_book_observation(snap: Mapping[str, Any]) -> bool:
+    provenance = snap.get("book_observation_provenance")
+    return (
+        snap.get("book_is_imputed") is False
+        and isinstance(provenance, Mapping)
+        and provenance.get("observation_kind") == "observed"
+    )
+
+
+def _shadow_provenance() -> Dict[str, Any]:
+    return {
+        "method": "pre_freeze_bid_volume_change_proxy_v1",
+        "observation_window": "09:15-09:19",
+        "observation_kind": "real_observed_five_level_books_only",
+        "interpretation": "委买量变化代理，不等于可证明撤单",
+        "excluded_imputed_books": True,
+    }
+
+
+def _real_prefreeze_snapshots(snapshots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    eligible = [
+        snap for snap in snapshots
+        if (slot := _minute_slot(snap.get("t"))) is not None
+        and PREFREEZE_START_MINUTE <= slot <= PREFREEZE_END_MINUTE
+        and _has_complete_five_level_book(snap)
+        and _is_real_book_observation(snap)
+    ]
+    by_minute = {}
+    for snap in eligible:
+        by_minute.setdefault(_minute_slot(snap.get("t")), snap)
+    return [by_minute[key] for key in sorted(by_minute)]
+
+
+def _real_prefreeze_book_count(snapshots: List[Dict[str, Any]]) -> int:
+    return len(_real_prefreeze_snapshots(snapshots))
+
+
+def _unavailable_shadow(reason: str, samples: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "status": "unavailable", "value_pct": None, "bid_volume_delta": None,
+        "real_sample_count": len(samples),
+        "real_minutes": [_minute_slot(snap.get("t")) for snap in samples],
+        "reason": reason, "provenance": _shadow_provenance(),
+    }
+
+
+def _pre_freeze_cancel_shadow(snapshots: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Shadow proxy for bid-volume change before 09:20, never proof of cancels."""
+    ordered = _real_prefreeze_snapshots(snapshots)
+    if len(ordered) < PREFREEZE_MIN_REAL_SAMPLES:
+        return _unavailable_shadow("真实五档盘口样本不足", ordered)
+    first = _snapshot_bid_vol(ordered[0])
+    last = _snapshot_bid_vol(ordered[-1])
+    if first <= 0:
+        return _unavailable_shadow("首个真实五档委买量无效", ordered)
+    delta = round(last - first, 1)
+    return {
+        "status": "shadow",
+        "value_pct": round((first - last) / first * 100, 2),
+        "bid_volume_delta": delta,
+        "real_sample_count": len(ordered),
+        "real_minutes": [_minute_slot(snap.get("t")) for snap in ordered],
+        "reason": None,
+        "provenance": _shadow_provenance(),
+    }
+
+
 def _quality_for_snapshots(
     snapshots: List[Dict[str, Any]],
     *,
@@ -156,6 +243,7 @@ def _quality_for_snapshots(
     # series.
     time_coverage_rate = len(valid_slots) / total if total else 0.0
     window_coverage_rate = len(slots) / AUCTION_EXPECTED_TIMEPOINTS
+    real_prefreeze_count = _real_prefreeze_book_count(snapshots)
     reasons: List[str] = []
     # L1 免费源不提供竞价成交量，量能非零率恒低是数据源局限而非信号缺失；
     # 不再作为质量门禁（2026-08-14，Master 确认仅 L1 数据，去掉该门槛）。
@@ -188,6 +276,17 @@ def _quality_for_snapshots(
         "timepoints_covered": len(slots),
         "expected_timepoints": AUCTION_EXPECTED_TIMEPOINTS,
         "window_coverage_required": require_window_coverage,
+        "pre_freeze_cancel_window_shadow": {
+            "status": "shadow_available" if real_prefreeze_count >= PREFREEZE_MIN_REAL_SAMPLES else "unavailable",
+            "real_observed_five_level_sample_count": real_prefreeze_count,
+            "window": "09:15-09:19",
+            "reason": None if real_prefreeze_count >= PREFREEZE_MIN_REAL_SAMPLES else "真实五档盘口样本不足",
+            "provenance": {
+                "method": "pre_freeze_bid_volume_change_proxy_v1",
+                "interpretation": "委买量变化代理，不等于可证明撤单",
+                "excluded_imputed_books": True,
+            },
+        },
         "reasons": reasons,
     })
 
@@ -321,6 +420,14 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
     # minute-by-minute grid. Window coverage is meaningful for the aggregate
     # collector run, but sparse yet valid single-symbol series must not fail it.
     quality = _quality_for_snapshots(snapshots, require_window_coverage=False)
+    cancel_shadow = _pre_freeze_cancel_shadow(snapshots)
+    quality["pre_freeze_cancel_window_shadow"] = {
+        "status": cancel_shadow["status"],
+        "real_sample_count": cancel_shadow["real_sample_count"],
+        "real_minutes": cancel_shadow["real_minutes"],
+        "provenance": cancel_shadow["provenance"],
+        "reason": cancel_shadow["reason"],
+    }
 
     seal_ratio_pct = None
     if at_limit and market_cap_yi:
@@ -361,7 +468,13 @@ def compute_auction_factors(snapshots: List[Dict[str, Any]], code: str, name: st
         "auction_seal_stability": last.get("auction_seal_stability"),
         "auction_bid_ask_ratio": round(bid_vol / ask_vol, 2) if ask_vol else None,
         "auction_net_bid_delta": _net_bid_delta(snapshots),
+        # Shadow-only and intentionally not consumed by the 09:35 hard reject.
+        "auction_cancel_window_shadow": cancel_shadow,
         "auction_book_provider": last.get("book_provider"),
+        "auction_book_observation_provenance": last.get(
+            "book_observation_provenance"
+        ),
+        "auction_book_is_imputed": last.get("book_is_imputed"),
         "auction_book_status": last.get("book_status"),
         "auction_book_failure_reason": last.get("book_failure_reason"),
         "board_status": board_status,
@@ -547,6 +660,10 @@ def _merge_auction_series(
                 merged["asks"] = previous.get("asks")
                 merged["book_provider"] = previous.get("book_provider")
                 merged["book_provenance"] = previous.get("book_provenance")
+                merged["book_observation_provenance"] = previous.get(
+                    "book_observation_provenance"
+                )
+                merged["book_is_imputed"] = previous.get("book_is_imputed", False)
                 merged["book_status"] = "stale_last_good"
             for key, value in previous.items():
                 if merged.get(key) is None and value is not None:
@@ -574,12 +691,20 @@ def _merge_auction_series(
         for row in rows:
             if _has_valid_book(row):
                 continue
-            explicitly_unavailable = row.get("book_status") == "unavailable"
             row["bids"] = last_good_book.get("bids")
             row["asks"] = last_good_book.get("asks")
             row["book_provider"] = last_good_book.get("book_provider")
             row["book_provenance"] = last_good_book.get("book_provenance")
-            row["book_status"] = "stale_last_good" if explicitly_unavailable else "ok"
+            original_provenance = last_good_book.get("book_observation_provenance")
+            row["book_observation_provenance"] = {
+                "observation_kind": "imputed",
+                "imputed_from_timestamp": last_good_book.get("t"),
+                "original_observation_provenance": original_provenance,
+            }
+            row["book_is_imputed"] = True
+            # A copied book is never current-time evidence, regardless of
+            # whether the missing row was explicitly reported unavailable.
+            row["book_status"] = "stale_last_good"
     return rows
 
 
@@ -1387,6 +1512,11 @@ def json_report(result: Mapping[str, Any]) -> Dict[str, Any]:
         "market_intelligence_degraded": bool(result.get("market_intelligence_degraded")),
         "auction_quality": result.get("auction_quality") or result.get("auction_quality_report"),
         "auction_quality_report": result.get("auction_quality_report"),
+        "pre_freeze_cancel_window_shadow": (
+            (result.get("auction_quality") or {}).get(
+                "pre_freeze_cancel_window_shadow"
+            )
+        ),
         "score_semantics": result.get(
             "score_semantics", "heuristic_rank_score_not_probability"
         ),

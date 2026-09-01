@@ -109,7 +109,9 @@ def test_merge_auction_series_preserves_stable_fields_on_lightweight_late_quote(
     assert merged[-1]["bids"] == [(10.5, 5000.0)]
     assert merged[-1]["asks"] == [(10.51, 3000.0)]
     assert merged[-1]["book_provider"] == "tencent"
-    assert merged[-1]["book_status"] == "ok"
+    assert merged[-1]["book_status"] == "stale_last_good"
+    assert merged[-1]["book_is_imputed"] is True
+    assert merged[-1]["book_observation_provenance"]["observation_kind"] == "imputed"
 
 
 def test_merge_auction_series_keeps_last_good_book_when_later_poll_fails():
@@ -326,6 +328,60 @@ def test_net_bid_delta_needs_two_post_freeze_snapshots():
         {**base, "t": "09:24:55", "bids": [(11.0, 95000)] + [(None, None)] * 4},
     ]
     assert ac.compute_auction_factors(seq, "sz002156")["auction_net_bid_delta"] == 55000.0
+
+
+def _complete_observed_book(t, bid_volume, *, imputed=False):
+    return {
+        "t": t,
+        "price": 11.0,
+        "prev_close": 10.0,
+        "volume": 1000,
+        "bids": [(11.0 - i * 0.01, bid_volume / 5) for i in range(5)],
+        "asks": [(11.1 + i * 0.01, 1000 / 5) for i in range(5)],
+        "book_status": "stale_last_good" if imputed else "ok",
+        "book_is_imputed": imputed,
+        "book_observation_provenance": {
+            "observation_kind": "imputed" if imputed else "observed",
+            "observed_at": "2026-09-01T01:15:00+00:00",
+        },
+    }
+
+
+def test_pre_freeze_shadow_uses_only_real_complete_books_and_is_unavailable_when_sparse():
+    sparse = [_complete_observed_book("09:15:00", 1000)]
+    shadow = ac.compute_auction_factors(sparse, "sz002156")["auction_cancel_window_shadow"]
+    assert shadow["status"] == "unavailable"
+    assert shadow["value_pct"] is None
+    assert shadow["provenance"]["excluded_imputed_books"] is True
+
+    mixed = [
+        _complete_observed_book("09:15:00", 1000),
+        _complete_observed_book("09:16:00", 800, imputed=True),
+        _complete_observed_book("09:19:00", 600),
+    ]
+    shadow = ac.compute_auction_factors(mixed, "sz002156")["auction_cancel_window_shadow"]
+    assert shadow["status"] == "shadow"
+    assert shadow["value_pct"] == 40.0
+    assert shadow["real_sample_count"] == 2
+    assert shadow["real_minutes"] == [555, 559]
+    assert "可证明撤单" in shadow["provenance"]["interpretation"]
+
+
+def test_quality_reports_real_prefreeze_shadow_samples_without_gating_quality():
+    quality = ac._quality_for_snapshots([
+        _complete_observed_book("09:15:00", 1000),
+        _complete_observed_book("09:19:00", 600),
+    ])
+    shadow = quality["pre_freeze_cancel_window_shadow"]
+    assert shadow["status"] == "shadow_available"
+    assert shadow["real_observed_five_level_sample_count"] == 2
+    assert shadow["provenance"]["excluded_imputed_books"] is True
+
+
+def test_json_report_exposes_shadow_quality_structure():
+    quality = {"pre_freeze_cancel_window_shadow": {"status": "unavailable"}}
+    report = ac.json_report({"auction_quality": quality, "auction_quality_report": quality})
+    assert report["pre_freeze_cancel_window_shadow"]["status"] == "unavailable"
 
 
 def test_missing_quote_returns_error():

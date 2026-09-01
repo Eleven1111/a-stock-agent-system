@@ -374,6 +374,8 @@ def test_batch_fuses_tencent_book_without_replacing_easy_tdx_auction_volume(monk
     assert row["asks"] == [(10.01, 3000.0)]
     assert row["book_provider"] == "tencent"
     assert row["book_status"] == "ok"
+    assert row["book_is_imputed"] is False
+    assert row["book_observation_provenance"]["observation_kind"] == "observed"
 
 
 def test_tencent_book_failure_degrades_book_only(monkeypatch):
@@ -399,6 +401,8 @@ def test_tencent_book_failure_degrades_book_only(monkeypatch):
     assert "quote down" in row["book_failure_reason"]
     assert row["bids"] == []
     assert row["asks"] == []
+    assert row["book_is_imputed"] is None
+    assert row["book_observation_provenance"]["observation_kind"] == "unavailable"
 
 
 def test_mootdx_daily_adapter_requests_count_with_offset(monkeypatch):
