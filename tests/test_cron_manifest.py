@@ -716,7 +716,8 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["open-confirmation"]["deliver"] == "local"
     assert jobs["open-intelligence-brief"]["deliver"] == "origin"
     assert jobs["auction-market-snapshot"]["schedule"] == "24 9 * * 1-5"
-    assert "--full-universe" in _run_command(jobs["auction-market-snapshot"])
+    assert "--bounded-universe" in _run_command(jobs["auction-market-snapshot"])
+    assert "--full-universe" not in _run_command(jobs["auction-market-snapshot"])
     for job_id, schedule, stage, deliver in (
         ("preopen-intelligence-brief", "50 8 * * 1-5", "preopen", "origin"),
         ("open-intelligence-brief", "36 9 * * 1-5", "open", "origin"),

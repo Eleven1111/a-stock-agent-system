@@ -1942,8 +1942,7 @@ def rank_auction_shortlist(
         "score_is_probability": False,
         "auction_quality": {
             "status": "unavailable"
-            if critical_volume_rejections
-            or any(
+            if any(
                 _auction_quality_payload(item).get("status") == "unavailable"
                 for item in rows
             )
