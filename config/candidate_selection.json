@@ -70,6 +70,22 @@
       "archive_after_fading_days": 3
     }
   },
+  "mfi_overheat_gate": {
+    "version": "mfi-overheat-gate-v2",
+    "mfi_overheated": 80.0,
+    "mfi_severe": 90.0,
+    "momentum_5d_pct": 25.0,
+    "turnover_pct": 20.0,
+    "volume_ratio_5d": 2.5,
+    "terminal_companion_min": 2,
+    "divergence_drop": 5.0,
+    "minimum_auction_amount": 1000000.0,
+    "penalties": {
+      "overheated": {"daban": 4.0, "trend": 8.0},
+      "terminal_acceleration": {"daban": 15.0, "trend": 25.0},
+      "bearish_divergence": {"daban": 18.0, "trend": 28.0}
+    }
+  },
   "nl_screening_recall": {
     "enabled": true
   },

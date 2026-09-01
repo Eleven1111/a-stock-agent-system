@@ -1294,6 +1294,7 @@ def run_discovery(
         min_listed_days=int(universe_config["min_listed_days"]),
         signal_ctx=signal_ctx,
         selection_state=selection_state,
+        mfi_overheat_policy=config.get("mfi_overheat_gate"),
     )
     for item in result.get("candidates", []):
         selected_by = item.get("selected_by") or {}

@@ -62,6 +62,23 @@ python scripts/agent_runtime_context.py
 通知更新该文件；未覆盖年份会退化为工作日判断，并在结果中标记
 `calendar_covered=false`。
 
+## MFI 过热门控
+
+候选排序使用 `config/candidate_selection.json` 的 `mfi_overheat_gate`（policy
+`mfi-overheat-gate-v2`）。MFI 是价格与成交量的拥挤度证据，不是单独的买卖信号：
+`MFI < 80` 为正常；越线后的风险扣分按 MFI 超额和持续天数非线性计算，限制在
+10–25 分，并且每个候选每个车道只应用一次，避免被强动量分稀释。只有 `MFI >= 90`
+且 5 日涨幅、换手率、量比三项中至少两项同时越线，才标记 `terminal_acceleration`。价格创 20 日新高而 MFI 较最近五日
+峰值下降至少 5 点时，标记 `bearish_divergence`。MFI 当前值、前值、连续高位天数
+和近期峰值均由截至决策时点的日 K 计算，不读取未来数据。
+
+`mfi_overheat` 会记录版本、状态、reason code、阈值、证据与车道扣分。打板车道对
+末端加速保留竞价确认机会，趋势车道扣分更重；过热候选的 09:25 五档必须
+`book_quality=ok`、不是 `stale_last_good`，且竞价金额达到最低门槛，否则 fail-closed，
+不能因先验高分进入可交易短名单。09:35 还会拒绝高开回落、撤单增加或跌破竞价价，
+并输出结构化 `cooldown_wait`（MFI 65–80、连续至少 2 日下降、缩量且回踩企稳），
+禁止追高。所有候选分均标记为启发式排序分，不代表上涨、涨停或收益概率。
+
 ## 打板交易纪律熔断
 
 `config/daban_thresholds.yaml` 的 `market_gate` 段是打板专属的账户级熔断线：
