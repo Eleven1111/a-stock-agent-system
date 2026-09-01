@@ -166,6 +166,49 @@ def test_when_not_sections_only_route_to_skills_that_exist():
         assert referenced - {skill}, f"{skill} 的何时不用段没有指向任何其他技能"
 
 
+FALSIFIED_LEDGER = ROOT / "docs" / "falsified-approaches.md"
+
+
+def test_falsified_ledger_is_reachable_from_the_change_protocol():
+    """台账没有入口就等于不存在——它记录的教训本身就是这个形状。"""
+    assert FALSIFIED_LEDGER.is_file()
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "docs/falsified-approaches.md" in agents
+    protocol = agents[agents.index("## Change Protocol"):]
+    protocol = protocol[: protocol.find("\n## ", 1)]
+    assert "falsified-approaches.md" in protocol
+
+
+def test_falsified_ledger_index_and_detail_sections_agree():
+    """索引与详情必须双向对齐。
+
+    只加详情不加索引 = 后来的人扫不到它；只留索引不留详情 = 指向空气。两种漂移
+    都要变红。
+    """
+    text = FALSIFIED_LEDGER.read_text(encoding="utf-8")
+    indexed = re.findall(r"^\| (F\d{3}) \|", text, re.MULTILINE)
+    detailed = re.findall(r"^## (F\d{3}) · ", text, re.MULTILINE)
+
+    assert indexed, "索引表一行都没扫到，样本为空则下面的断言恒真"
+    assert len(indexed) == len(set(indexed)), f"索引 ID 重复: {indexed}"
+    assert len(detailed) == len(set(detailed)), f"详情 ID 重复: {detailed}"
+    assert set(indexed) == set(detailed), (
+        f"索引与详情不匹配: 只在索引 {sorted(set(indexed) - set(detailed))}, "
+        f"只在详情 {sorted(set(detailed) - set(indexed))}"
+    )
+
+
+def test_every_falsified_entry_says_what_not_to_retry():
+    """只说「A 不行」没有价值，每条必须回答「别再试什么」。"""
+    text = FALSIFIED_LEDGER.read_text(encoding="utf-8")
+    sections = re.split(r"^## (F\d{3}) · ", text, flags=re.MULTILINE)[1:]
+    bodies = dict(zip(sections[::2], sections[1::2]))
+    assert bodies, "详情段一个都没扫到，样本为空则下面的断言恒真"
+    for entry_id, body in bodies.items():
+        assert "别再试" in body, f"{entry_id} 没有写「别再试」"
+        assert len(body.strip()) >= 200, f"{entry_id} 详情被掏空: {len(body.strip())} 字符"
+
+
 def test_versioned_main_ruleset_has_no_bypass_and_requires_ci_and_pr():
     import json
 
