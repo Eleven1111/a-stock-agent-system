@@ -945,6 +945,24 @@ def test_open_confirmation_rejects_deterioration_and_emits_cooldown_wait():
     assert result["cooldown_wait"]["requirements"]["mfi_declining_days"]["minimum"] == 2
 
 
+def test_pre_freeze_cancel_shadow_does_not_feed_0935_hard_reject():
+    factor = {
+        "code": "sz002212", "auction_gap_pct": 3.0, "auction_volume": 20_000,
+        "prev_day_volume": 1_000_000, "matched": 2_000_000, "unmatched": 0,
+        "indicative_price": 10.0, "board_status": "high_open", "is_yiziban": False,
+        "auction_cancel_window_shadow": {
+            "status": "shadow", "value_pct": 80.0,
+            "provenance": {"interpretation": "委买量变化代理，不等于可证明撤单"},
+        },
+    }
+    quote = {
+        "price": 10.2, "prev_close": 9.7, "open": 10.2,
+        "change_pct": 5.15, "volume": 1000,
+    }
+    result = oc.evaluate_open_confirmation(factor, quote)
+    assert not any("撤单" in reason for reason in result["reasons"])
+
+
 def test_open_confirmation_keeps_indicative_price_reliable_when_close():
     factor = {
         "code": "sz002156",
