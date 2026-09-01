@@ -6,6 +6,15 @@ published CI and release gates pass.
 
 ## 1.4.0 - Unreleased
 
+### Fixed
+
+- Wired the MFI overheat auction gate to the field names `auction_collector`
+  actually writes (`book_coverage_status`, `auction_book_status`). It previously
+  required `book_quality == "ok"`, a key no producer sets, so every overheated
+  candidate was rejected regardless of book quality and the `stale_last_good`
+  check never fired. Added a contract test that feeds the collector's own
+  quality report into the gate.
+
 ### Changed
 
 - Evolved the MFI overheat gate to `mfi-overheat-gate-v2`: one bounded nonlinear

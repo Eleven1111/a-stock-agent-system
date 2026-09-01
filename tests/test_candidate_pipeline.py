@@ -1,6 +1,8 @@
 """Dynamic full-market candidate discovery and ranking tests."""
 
+import importlib.util
 from datetime import date, timedelta
+from pathlib import Path
 
 import candidate_pipeline as cp
 import weak_market_delivery as wmd
@@ -871,7 +873,13 @@ def test_terminal_mfi_overheat_fails_closed_when_auction_book_is_untrusted():
         "auction_bid_ask_ratio": 2.0,
         "auction_net_bid_delta": 100_000,
         "is_yiziban": False,
-        "auction_data_quality": {"status": "unavailable", "book_quality": "missing", "reasons": ["五档无覆盖"]},
+        # 字段名与 auction_collector 的 AuctionQuality 一致：book_coverage_status，
+        # 不是曾经被断言过、却没有任何生产写入方的 book_quality。
+        "auction_data_quality": {
+            "status": "unavailable",
+            "book_coverage_status": "missing",
+            "reasons": ["五档无覆盖"],
+        },
     }
 
     result = cp.rank_auction_shortlist(_auction_pool(candidate), [factor], limit=1)
@@ -907,13 +915,121 @@ def test_terminal_mfi_overheat_can_reach_daban_shortlist_with_trusted_book():
         "auction_bid_ask_ratio": 2.0,
         "auction_net_bid_delta": 100_000,
         "is_yiziban": False,
-        "auction_data_quality": {"status": "ok", "book_quality": "ok", "book_status": "fresh", "reasons": []},
+        # 只使用 auction_collector 真实导出的字段名：质量报告里的
+        # book_coverage_status，以及因子上的 auction_book_status。
+        "auction_data_quality": {
+            "status": "ok",
+            "book_coverage_status": "available",
+            "reasons": [],
+        },
+        "auction_book_status": "ok",
     }
 
     result = cp.rank_auction_shortlist(_auction_pool(candidate), [factor], limit=1)
 
     assert [item["code"] for item in result["shortlist"]] == ["sh600479"]
-    assert result["shortlist"][0]["mfi_overheat_auction_gate"]["status"] == "passed"
+    gate = result["shortlist"][0]["mfi_overheat_auction_gate"]
+    assert gate["status"] == "passed"
+    assert gate["book_coverage_status"] == "available"
+    assert gate["book_status"] == "ok"
+
+
+def test_terminal_mfi_overheat_blocks_on_stale_last_good_auction_book():
+    """封单不稳（沿用上一次成功盘口）时过热票不得进入可交易短名单。
+
+    这条判据在字段接错时永不触发：门控读 ``book_status``，而因子导出的键是
+    ``auction_book_status``。
+    """
+    quality = {"status": "ok", "book_coverage_status": "available", "reasons": []}
+    trusted = {
+        "code": "600479",
+        "mfi_overheat": {
+            "status": "terminal_acceleration",
+            "thresholds": {"minimum_auction_amount": 0},
+        },
+        "auction_amount": 5_000_000_000.0,
+        "auction_data_quality": quality,
+        "auction_book_status": "ok",
+    }
+    assert cp._mfi_overheat_auction_gate(trusted)["status"] == "passed"
+
+    for untrusted_status in ("stale_last_good", "unavailable"):
+        gate = cp._mfi_overheat_auction_gate(
+            {**trusted, "auction_book_status": untrusted_status}
+        )
+        assert gate["status"] == "blocked", untrusted_status
+        assert "stale_last_good_book" in gate["reason_codes"], untrusted_status
+
+    # 正常票不受封单稳定性影响，避免把守卫写成恒 blocked。
+    normal = cp._mfi_overheat_auction_gate({
+        **trusted,
+        "mfi_overheat": {"status": "normal"},
+        "auction_book_status": "stale_last_good",
+    })
+    assert normal["status"] == "passed"
+
+
+def test_mfi_auction_gate_reads_fields_auction_collector_actually_writes():
+    """门控读的盘口字段必须真的由 auction_collector 产出。
+
+    上一版门控要求 ``book_quality == "ok"``，而 auction_collector 从未写过这个
+    键，导致所有过热候选恒被拒；守它的测试靠 fixture 伪造该字段才通过。这里直接
+    拿采集器生成的真实质量报告喂门控，字段一旦再次改名或错位就会红。
+    """
+    spec = importlib.util.spec_from_file_location(
+        "auction_collector",
+        Path(__file__).resolve().parents[1]
+        / "skills" / "daban-stock-picker" / "scripts" / "auction_collector.py",
+    )
+    ac = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ac)
+
+    snapshots = [
+        {
+            "t": f"09:{minute:02d}",
+            "provider": "tencent",
+            "volume": 120_000,
+            "bids": [(9.98, 40_000), (9.97, 20_000)],
+            "asks": [(10.02, 8_000), (10.03, 4_000)],
+            "book_status": "ok",
+        }
+        for minute in range(15, 26)
+    ]
+    quality = ac._quality_for_snapshots(snapshots)
+
+    # 契约：门控的首选覆盖字段名就是质量报告里真实存在的那个键。
+    assert cp.AUCTION_BOOK_COVERAGE_FIELDS[0] in quality
+    assert quality["book_coverage_status"] == "available"
+    assert quality["book_coverage_status"] in cp.AUCTION_BOOK_COVERAGE_OK
+
+    gate = cp._mfi_overheat_auction_gate({
+        "code": "600479",
+        "mfi_overheat": {
+            "status": "terminal_acceleration",
+            "thresholds": {"minimum_auction_amount": 0},
+        },
+        "auction_amount": 5_000_000_000.0,
+        "auction_data_quality": dict(quality),
+        "auction_book_status": snapshots[-1]["book_status"],
+    })
+    assert gate["status"] == "passed", gate["reason_codes"]
+
+    # 反向：同一采集器在无五档时给出的报告必须让过热票 fail-closed。
+    empty_book = ac._quality_for_snapshots([
+        {**snap, "bids": [], "asks": []} for snap in snapshots
+    ])
+    assert empty_book["book_coverage_status"] == "missing"
+    blocked = cp._mfi_overheat_auction_gate({
+        "code": "600479",
+        "mfi_overheat": {
+            "status": "terminal_acceleration",
+            "thresholds": {"minimum_auction_amount": 0},
+        },
+        "auction_amount": 5_000_000_000.0,
+        "auction_data_quality": dict(empty_book),
+    })
+    assert blocked["status"] == "blocked"
+    assert "book_coverage_not_available" in blocked["reason_codes"]
 
 
 def test_auction_shortlist_fail_closes_real_20260817_bad_factor_mix():

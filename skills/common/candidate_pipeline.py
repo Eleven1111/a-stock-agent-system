@@ -1221,14 +1221,50 @@ def _auction_quality_payload(item: Mapping[str, Any]) -> Dict[str, Any]:
     return {"status": "unknown", "reasons": ["因子未提供竞价质量报告"]}
 
 
+# 竞价盘口可信度读的是 auction_collector 真实导出的字段名，别名按优先级排列，
+# 第一个在因子或质量报告里出现的取胜。
+#
+# 为什么要写成别名表：上一版门控读的是 ``book_quality``/``book_status``，而
+# auction_collector 从来没写过这两个键——质量报告 (`AuctionQuality`) 里是
+# ``book_coverage_status``，因子上是 ``auction_book_status``。结果是过热票的
+# ``book_quality != "ok"`` 恒真，任何 overheated/terminal_acceleration/
+# bearish_divergence 候选无论盘口多好都进不了短名单，而守它的测试靠 fixture
+# 伪造 ``book_quality`` 才通过（断言的是没有生产写入方的字段）。
+AUCTION_BOOK_COVERAGE_FIELDS = ("book_coverage_status", "book_quality")
+AUCTION_BOOK_STATUS_FIELDS = ("auction_book_status", "book_status")
+# available = 至少一个竞价快照带有效五档（auction_collector `_has_valid_book`）。
+# ok 是历史 artifact 里的等价写法，一并接受。missing/not_supported 都表示这一
+# 档拿不到可信盘口，过热票据此 fail-closed。
+AUCTION_BOOK_COVERAGE_OK = frozenset({"available", "ok"})
+# stale_last_good：本轮盘口取不到，沿用了上一次成功值；unavailable：明确无盘口。
+# 两者都不足以确认封单，过热票不得据此追高。
+AUCTION_BOOK_STATUS_UNTRUSTED = frozenset({"stale_last_good", "unavailable"})
+
+
+def _first_present(
+    item: Mapping[str, Any],
+    quality: Mapping[str, Any],
+    *names: str,
+) -> str:
+    """Return the first non-empty value among ``names``, factor before quality."""
+    for name in names:
+        for source in (item, quality):
+            value = source.get(name)
+            if value not in (None, ""):
+                return str(value)
+    return ""
+
+
 def _mfi_overheat_auction_gate(item: Mapping[str, Any]) -> Dict[str, Any]:
     overheat = item.get("mfi_overheat")
     mfi_status = str(overheat.get("status") or "unknown") if isinstance(overheat, Mapping) else "unavailable"
     requires_confirmation = mfi_status in {"overheated", "terminal_acceleration", "bearish_divergence"}
     quality = _auction_quality_payload(item)
     quality_status = str(quality.get("status") or "unknown")
-    book_quality = str(item.get("book_quality") or quality.get("book_quality") or "")
-    book_status = str(item.get("book_status") or quality.get("book_status") or "")
+    book_coverage = _first_present(
+        item, quality, *AUCTION_BOOK_COVERAGE_FIELDS
+    )
+    book_status = _first_present(item, quality, *AUCTION_BOOK_STATUS_FIELDS)
     amount = _num(item.get("auction_amount"), -1.0)
     minimum_amount = _num(
         (overheat.get("thresholds") or {}).get("minimum_auction_amount")
@@ -1238,9 +1274,9 @@ def _mfi_overheat_auction_gate(item: Mapping[str, Any]) -> Dict[str, Any]:
     reasons = []
     if requires_confirmation and quality_status != "ok":
         reasons.append("auction_quality_not_ok")
-    if requires_confirmation and book_quality != "ok":
-        reasons.append("book_quality_not_ok")
-    if requires_confirmation and book_status == "stale_last_good":
+    if requires_confirmation and book_coverage not in AUCTION_BOOK_COVERAGE_OK:
+        reasons.append("book_coverage_not_available")
+    if requires_confirmation and book_status in AUCTION_BOOK_STATUS_UNTRUSTED:
         reasons.append("stale_last_good_book")
     if requires_confirmation and (amount < minimum_amount or not isfinite(amount)):
         reasons.append("auction_amount_below_minimum_or_missing")
@@ -1256,7 +1292,9 @@ def _mfi_overheat_auction_gate(item: Mapping[str, Any]) -> Dict[str, Any]:
         "auction_quality_status": quality_status,
         "requires_trusted_auction_microstructure": requires_confirmation,
         "minimum_auction_amount": minimum_amount,
-        "book_quality": book_quality or None,
+        "book_coverage_status": book_coverage or None,
+        # 兼容旧 artifact 读法：保留 book_quality 键，但取值来自真实覆盖字段。
+        "book_quality": book_coverage or None,
         "book_status": book_status or None,
     }
 
