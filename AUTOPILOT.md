@@ -201,6 +201,42 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 因此 `run.timeout_seconds` 设为 1800，不可套用其他作业的 15~60s。
 产物：`$A_STOCK_STATE_HOME/cron/output/announcement-radar/<date>.json`。
 
+### 板块拥挤度日产物（sector-crowding-daily）
+
+补上板块信号缺的那半边：现有 `sector_momentum` 只有加分方向（涨得多加分、跌下来
+才小幅扣分），没有「涨得多但内部不扩散、成交高度集中」的扣分路径。本作业只读本地
+缓存重建板块成交/换手/集中度的历史分位，出拥挤度与状态机档位。
+
+| 项 | 值 |
+|---|---|
+| 作业 id | `sector-crowding-daily` |
+| 调度 | `30 16 * * 1-5`（排在 `market-history-cache` 15:10 之后，长档最迟 15:30 收工） |
+| 执行 | `python scripts/sector_crowding_daily.py --json` |
+| 依赖 | `market-history-cache`（同交易日，最大延迟 180 分钟，可选） |
+| 交付 | `local`（只写本地产物，不推送） |
+| 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/sector_crowding_latest.json` |
+| 超时 | 180s（`standard` 档；零取数，只读本地 SQLite 与行业归属缓存） |
+
+**RESEARCH ONLY：** 产物带 `evidence_qualification: exploratory_reconstruction` 与
+`live_effect: none`。历史分位是用**今天的**行业归属重建过去得到的（归属变更日志
+2026-09 才开始积累），因此不得进 research gate、不得生成订单、不得改实盘权重。
+
+**停止：** 把 manifest 中该作业的 `enabled` 改为 `false`，或停整个调度器（见上）。
+
+```bash
+python -c "import json;p='cron/hermes-cron-manifest.json';d=json.load(open(p));[j.update(enabled=False) for j in d['jobs'] if j['id']=='sector-crowding-daily'];json.dump(d,open(p,'w'),ensure_ascii=False,indent=2)"
+```
+
+**手动跑（离线，不触网）：**
+
+```bash
+PYTHONPATH=skills/common .venv/bin/python scripts/sector_crowding_daily.py --no-write
+```
+
+产物 `status=blocked` 时先看 `reason`：行业归属不可用与日线缓存为空是两条不同的
+故障，reason 会说清是哪一条。分位样本不足不是 blocked —— 产物照落，但每个板块判
+`unavailable`，绝不给一个「看起来不拥挤」的分数。
+
 ### 研究数据集物化（research-dataset-build）
 
 把 catalog 声明的数据集物化成契约行，让研究数据真正开始积累。此前 catalog

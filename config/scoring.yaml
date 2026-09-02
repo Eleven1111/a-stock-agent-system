@@ -146,6 +146,27 @@ sector_momentum:
     - {min_limitups: 5, delta: 1.0, label: 板块赚钱效应强}
     - {min_limitups: 3, delta: 0.5, label: 板块共振}
 
+# 板块拥挤度（RESEARCH ONLY，零实盘影响）。
+# 现有板块信号只有加分方向：涨得多加分、已经跌下来才小幅扣分，没有「涨得多但内部
+# 不扩散、成交高度集中」的扣分路径。本节是补那条路径的参数。
+#
+# 三点必须知道的口径：
+# 1. 分位窗口 120 而不是报告的 756 —— 本地日线缓存的研究深度下限就是 180 个交易日。
+#    这不是「等价的短窗口」，产物里标 low_confidence。
+# 2. 报告五维里我们只有三维（缺 ETF 份额/两融的资金拥挤、PE/PB 的估值拥挤）。权重
+#    不写在这里：sector_crowding.REPORT_WEIGHTS 保留报告原值，在可得分量上重新
+#    归一，这样「我们改了什么」一眼可查。
+# 3. 阈值全部是报告给的初始值，**未经我们数据校准**，不得当结论用。
+sector_crowding:
+  percentile_window: 120
+  min_percentile_samples: 60
+  min_members_observed: 5
+  min_member_coverage: 0.60
+  top_concentration_n: 5
+  states: {watch: 70.0, no_add: 80.0, exit_risk: 90.0}
+  cooldown_sessions: 3
+  reentry_max_score: 75.0
+
 # 龙头连续评分 LeaderScore（升级方案 P2-a，SHADOW ONLY）。
 # hot_money_selection.leader_score 内**没有**这些数字的副本：本节缺失时整体返回
 # unavailable。它与既有的 leader_score（= 100 - (rank-1)*15 的排名代理）是两个
