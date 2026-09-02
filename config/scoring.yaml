@@ -116,6 +116,36 @@ sentiment_score:
     delta_min: 10
     sector_breadth_min: 3
 
+# 板块动量分级与情绪加成（**LIVE**：经 signal_context.sentiment_boost 进四维情绪面）。
+# 这些数字此前是 sector_momentum.py / signal_context.py 里的裸常量，却直接影响实盘
+# 排序；提到这里是为了让它们可被审阅与修改，本次搬迁行为完全不变。
+#
+# 与本文件其它 SHADOW 节的区别：sector_momentum.py 保留一份同值 DEFAULTS 副本，
+# 因为本节缺失时若整体退化为 unavailable，会连 weakening / rotating_out 两个**减分**
+# 项一起抽掉 —— 那不是保守方向。两份拷贝由 tests/test_sector_momentum_config.py 的
+# 相等断言守着，禁止只改一边。
+#
+# 阈值全部是未经历史收益校准的经验值。要改成「校准过的」必须走 research_gate，
+# 不能看实盘结果回拟合。
+sector_momentum:
+  signals:
+    hot_return_5d: 10.0            # strong / weakening 的共同前提：5 日涨幅高于此值
+    strong_vs_index_5d: 5.0        # 且跑赢大盘（pp）
+    weakening_return_1d: -2.0      # 高位当日回调至此判退潮
+    emerging_return_1d: 3.0        # 爆发初期 Day1-2
+    emerging_return_5d: 3.0
+    rotating_out_net_1d_yi: -2.0   # A 股板块主力常态小额净流出，
+    rotating_out_prior_4d_yi: -5.0 # 宽阈值会命中上百板块全是噪声
+    rotating_out_return_1d: -1.0
+  boost:
+    strong: 1.0
+    emerging: 0.5
+    weakening: -0.3
+    rotating_out: -0.5
+  limitup_ladder:
+    - {min_limitups: 5, delta: 1.0, label: 板块赚钱效应强}
+    - {min_limitups: 3, delta: 0.5, label: 板块共振}
+
 # 龙头连续评分 LeaderScore（升级方案 P2-a，SHADOW ONLY）。
 # hot_money_selection.leader_score 内**没有**这些数字的副本：本节缺失时整体返回
 # unavailable。它与既有的 leader_score（= 100 - (rank-1)*15 的排名代理）是两个
