@@ -178,10 +178,32 @@ sector_crowding:
 # 窗口 20/60/120 而非报告的 250：本地日线缓存深度下限就是 180 个交易日。
 sector_price_factors:
   ma_window: 20
+  ex_top_n: 3
   min_market_samples: 100
   min_members_observed: 5
   momentum_windows: [20, 60, 120]
   rs_slope_windows: [20, 60]
+
+# 板块假突破风险 FakeBreakoutRisk（RESEARCH ONLY，零实盘影响，**未经真实数据验证**）。
+# 报告九子项里我们能算六个；盈利预期背离 / 景气背离 / 新闻依赖三项无数据源，
+# 不参与加权（补零会让「没有基本面数据」看起来像「基本面没有背离」= 给假突破发
+# 放行证）。权重不写在这里：sector_fake_breakout.REPORT_WEIGHTS 保留报告原值，
+# 在可得子项上重新归一。
+#
+# 时序纪律：所有子项只读到当日为止的信息。不能用「突破后三天发生了什么」决定
+# 三天前是否买入。
+sector_fake_breakout:
+  breakout_window: 60
+  amount_z_window: 20
+  amount_z_threshold: 2.0
+  price_efficiency_window: 5
+  price_efficiency_threshold: 0.25
+  breadth_floor: 0.50
+  breadth_drop_threshold: 0.10
+  concentration_percentile_threshold: 80.0
+  crowding_threshold: 70.0
+  leader_divergence_gap: 0.02
+  min_history_sessions: 61
 
 # 龙头连续评分 LeaderScore（升级方案 P2-a，SHADOW ONLY）。
 # hot_money_selection.leader_score 内**没有**这些数字的副本：本节缺失时整体返回

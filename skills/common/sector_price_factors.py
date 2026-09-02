@@ -48,6 +48,8 @@ BASIS_INDEX_DEGRADED = "index_degraded"
 
 DEFAULTS: dict[str, Any] = {
     "ma_window": 20,
+    # 「龙头/行业背离」剔除的龙头只数（按当日成交额排序）。
+    "ex_top_n": 3,
     # 一个真正的全 A 基准需要足够宽的横截面；沿用 theme_strength 的 100 只下限。
     "min_market_samples": 100,
     # 板块当日有效成分少于此值：等权收益与广度都没有意义。
@@ -103,6 +105,17 @@ def market_median_return(bars: Sequence[Mapping[str, Any]], *, min_samples: int)
     return round(median(changes), 6)
 
 
+def _ex_top_return(weighted: Sequence[tuple[float, float]], ex_top_n: int) -> float | None:
+    """去掉成交额前 ``ex_top_n`` 名后的等权收益；剩余样本为空返回 ``None``。
+
+    空样本返回 0.0 会读成「后排刚好平盘」—— 那是一个凭空造出来的背离读数。
+    """
+    if len(weighted) <= ex_top_n:
+        return None
+    rest = sorted(weighted, key=lambda item: -item[0])[ex_top_n:]
+    return round(sum(value for _amount, value in rest) / len(rest), 6)
+
+
 def build_daily_series(
     day_bars: Sequence[tuple[str, Sequence[Mapping[str, Any]]]],
     membership: Mapping[str, str],
@@ -117,6 +130,7 @@ def build_daily_series(
     settings = {**DEFAULTS, **dict(config or {})}
     ma_window = int(settings["ma_window"])
     min_samples = int(settings["min_market_samples"])
+    ex_top_n = int(settings["ex_top_n"])
 
     closes_history: dict[str, list[float]] = {}
     series: list[dict[str, Any]] = []
@@ -140,11 +154,15 @@ def build_daily_series(
                 continue
             entry = sectors.setdefault(
                 sector,
-                {"member_count": 0, "returns": [], "above_ma": 0, "valid_ma": 0},
+                {"member_count": 0, "returns": [], "above_ma": 0, "valid_ma": 0,
+                 "weighted": []},
             )
             entry["member_count"] += 1
             if change is not None:
                 entry["returns"].append(change / 100.0)
+                amount = _num(row.get("amount"))
+                if amount is not None and amount > 0:
+                    entry["weighted"].append((amount, change / 100.0))
             if close is not None and len(window) == ma_window:
                 entry["valid_ma"] += 1
                 if close > sum(window) / ma_window:
@@ -166,6 +184,10 @@ def build_daily_series(
                             if entry["returns"] else None
                         ),
                         "return_samples": len(entry["returns"]),
+                        # 去掉成交额前 N 名后的等权收益：龙头独走 vs 板块真扩散，
+                        # 差额就是「龙头/行业背离」那一项的原料。
+                        "ex_top_return": _ex_top_return(entry["weighted"], ex_top_n),
+                        "ex_top_samples": max(len(entry["weighted"]) - ex_top_n, 0),
                         "above_ma": entry["above_ma"],
                         "valid_ma": entry["valid_ma"],
                     }
