@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import json
+
 import industry_map as im
 
 
@@ -102,6 +104,36 @@ def test_carried_over_entries_never_become_history_events(tmp_path):
 
     replayed = _history(tmp_path, "2026-06-24")["industry_by_code"]
     assert replayed["601398"] == "银行"
+
+
+def test_bootstrap_does_not_claim_observation_of_pre_existing_cache(tmp_path):
+    """首日：生产缓存里已有几千条**历史沿用**条目，它们没有在今天被观测过。
+
+    把 merged（沿用 ∪ 观测）当成观测写进 bootstrap，会让日志一上来就声称
+    「这些归属是 2026-06-23 那天看到的」—— 而它们可能来自几个月前的一次构建。
+    历史的第一天必须只包含当天真的取到的东西。
+    """
+    cache = tmp_path / "industry_map.json"
+    cache.write_text(
+        json.dumps(
+            {
+                "schema": im.SCHEMA,
+                "asof": "2026-06-20",
+                # 只在旧缓存里存在：今天的两个板块都不包含它
+                "industry_by_code": {"300750": "电池", "600519": "食品饮料"},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    history = _refresh(tmp_path, "2026-06-23")["history"]
+    assert history["bootstrap"] is True
+    assert history["appended"] == 4
+
+    replayed = _history(tmp_path, "2026-06-23")["industry_by_code"]
+    assert "300750" not in replayed
+    assert set(replayed) == {"600519", "000858", "601398", "600036"}
 
 
 def test_truncated_line_does_not_poison_the_whole_log(tmp_path):
