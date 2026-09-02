@@ -7,6 +7,7 @@
 
 - ``sector_crowding_latest.json``       拥挤度分位与状态机档位
 - ``sector_price_factors_latest.json``  RS / 超额动量 / RS 斜率 / 广度
+- ``sector_fake_breakout_latest.json``  假突破风险（六个可得子项）
 
 两份分开落盘：产物名字必须说清里面是什么，把价格因子塞进拥挤度那份会让下游读到
 名不副实的内容。
@@ -43,12 +44,14 @@ import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 import industry_map  # noqa: E402
 import local_market_history as history  # noqa: E402
 import sector_crowding  # noqa: E402
+import sector_fake_breakout  # noqa: E402
 import sector_price_factors  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import atomic_write_json  # noqa: E402
 
 ARTIFACT_NAME = "sector_crowding_latest.json"
 PRICE_ARTIFACT_NAME = "sector_price_factors_latest.json"
+FAKE_BREAKOUT_ARTIFACT_NAME = "sector_fake_breakout_latest.json"
 
 
 def _artifact_path() -> str:
@@ -57,6 +60,10 @@ def _artifact_path() -> str:
 
 def _price_artifact_path() -> str:
     return data_file("stock-triage", PRICE_ARTIFACT_NAME)
+
+
+def _fake_breakout_artifact_path() -> str:
+    return data_file("stock-triage", FAKE_BREAKOUT_ARTIFACT_NAME)
 
 
 def build_series(
@@ -157,11 +164,82 @@ def run(*, asof: str | None = None, write: bool = True) -> dict[str, Any]:
         key: value for key, value in price_payload.items() if key != "sectors"
     }
 
+    fake_payload = _build_fake_breakout(price_series, series, payload, price_payload)
+    payload["fake_breakout"] = {
+        key: value for key, value in fake_payload.items() if key != "sectors"
+    }
+
     if write:
         atomic_write_json(_artifact_path(), payload)
         atomic_write_json(_price_artifact_path(), price_payload)
+        atomic_write_json(_fake_breakout_artifact_path(), fake_payload)
         payload["artifact"] = _artifact_path()
         payload["price_artifact"] = _price_artifact_path()
+        payload["fake_breakout_artifact"] = _fake_breakout_artifact_path()
+    return payload
+
+
+def _build_fake_breakout(
+    price_series: list[dict[str, Any]],
+    crowding_series: list[dict[str, Any]],
+    crowding_payload: dict[str, Any],
+    price_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """把已经算好的广度/集中度分位/拥挤分喂进假突破风险，不重算任何一项。"""
+    fake_config = sector_fake_breakout.load_config()
+    if not price_series:
+        return {
+            "schema": sector_fake_breakout.SCHEMA,
+            "status": sector_fake_breakout.UNAVAILABLE,
+            "reason": "价格序列为空",
+            "sectors": [],
+        }
+
+    breadth_today: dict[str, float] = {}
+    breadth_prior: dict[str, float] = {}
+    price_settings = sector_price_factors.load_config()
+    min_members = int(price_settings["min_members_observed"])
+    for sector, entry in (price_series[-1].get("sectors") or {}).items():
+        value = sector_price_factors.breadth(entry, min_members=min_members)
+        if value is not None:
+            breadth_today[sector] = value
+    # 「突破以来的广度变化」用突破窗口起点那天的广度做基准，缺则不给（不补零）。
+    lookback = min(len(price_series), int(fake_config["breakout_window"]))
+    if lookback >= 2:
+        for sector, entry in (price_series[-lookback].get("sectors") or {}).items():
+            value = sector_price_factors.breadth(entry, min_members=min_members)
+            if value is not None:
+                breadth_prior[sector] = value
+
+    concentration = {}
+    crowding_scores = {}
+    for row in crowding_payload.get("sectors") or []:
+        if row.get("status") != "ok":
+            continue
+        sector = row["sector"]
+        crowding_scores[sector] = row["score"]
+        value = (row.get("components") or {}).get("concentration")
+        if value is not None:
+            concentration[sector] = value
+
+    amounts: dict[str, list[float]] = {}
+    for day in crowding_series:
+        for sector, entry in (day.get("sectors") or {}).items():
+            value = entry.get("amount")
+            if value is not None:
+                amounts.setdefault(sector, []).append(float(value))
+
+    payload = sector_fake_breakout.build_sector_fake_breakout(
+        price_series,
+        asof=str(price_series[-1]["trading_date"]),
+        breadth_by_sector=breadth_today,
+        breadth_prior_by_sector=breadth_prior,
+        concentration_percentiles=concentration,
+        crowding_scores=crowding_scores,
+        amounts_by_sector=amounts,
+        config=fake_config,
+    )
+    payload["requested_asof"] = price_payload.get("requested_asof")
     return payload
 
 
@@ -183,9 +261,14 @@ def format_report(payload: dict[str, Any]) -> str:
             f" 置信={row.get('confidence')} 成分={row.get('member_count')}"
         )
     price = payload.get("price_factors") or {}
+    fake = payload.get("fake_breakout") or {}
     lines.append(
         f"  价格因子（未经验证）：{price.get('status')} 出分 {price.get('scored_count')}"
         f"/{price.get('sector_count')} 基准={price.get('market_basis')}"
+    )
+    lines.append(
+        f"  假突破风险（未经验证）：{fake.get('status')} 出分 {fake.get('scored_count')}"
+        f"/{fake.get('sector_count')}"
     )
     return "\n".join(lines)
 
