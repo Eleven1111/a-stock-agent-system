@@ -47,6 +47,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import urllib.parse
 from datetime import date, datetime
@@ -582,6 +583,146 @@ def fill_industry_gaps(
     }
 
 
+# ── 按交易日的归属变更日志（PIT 前提） ───────────────────────────
+#
+# ``industry_map.json`` 是「最新归属向前滚」的单文件快照：每次 refresh 把
+# ``{**prior_map, **new_map}`` 覆盖写回去，因此**没有任何历史**。用它回放历史
+# 决策，等于把今天的行业归属倒灌进过去 —— 这是行业轮动研究里最大的一处幸存者
+# 偏差（换股、行业调整、新上市全部被抹平）。
+#
+# 这里加一份 append-only 的变更日志，形状是 SCD Type-2 的最小版本：
+#
+# - 只有**当日真实观测到**的代码才会产生事件。``refresh`` 会把昨日缓存合并进来
+#   补主源没覆盖到的部分，那些是**沿用**不是观测；把沿用记成事件，会让一次数据源
+#   抖动看起来像一次行业重分类。
+# - 历史从落盘那天开始。查询早于 ``history_start`` 的日期一律返回
+#   ``before_history``，**绝不**拿首日快照往前铺 —— 那正好是本模块要消灭的偏差。
+HISTORY_SCHEMA = "industry_map_history_v1"
+
+
+def _default_history_file(cache_file: str) -> str:
+    directory = os.path.dirname(cache_file) or "."
+    return os.path.join(directory, "industry_map_history.jsonl")
+
+
+def _read_history_events(history_file: str) -> List[Dict[str, Any]]:
+    if not os.path.isfile(history_file):
+        return []
+    events: List[Dict[str, Any]] = []
+    with open(history_file, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                # 半行（写入时被打断）不该让整份历史不可读，但也绝不猜它的内容。
+                continue
+            if isinstance(record, dict) and record.get("code") and record.get("asof"):
+                events.append(record)
+    return events
+
+
+def _latest_recorded(events: Sequence[Mapping[str, Any]]) -> Dict[str, str]:
+    """事件流 → ``code -> 最近一次记录的行业``（按出现顺序，后写覆盖先写）。"""
+    latest: Dict[str, str] = {}
+    for record in events:
+        latest[str(record["code"])] = str(record.get("industry") or "")
+    return latest
+
+
+def record_history(
+    asof: str,
+    observed: Mapping[str, str],
+    *,
+    history_file: str,
+) -> Dict[str, Any]:
+    """把当日**观测到**的归属追加成变更事件；无变化则不写。
+
+    ``observed`` 只能是当日真实取到的映射，不能包含从昨日缓存沿用的条目。
+    """
+    events = _read_history_events(history_file)
+    latest = _latest_recorded(events)
+    bootstrap = not events
+
+    appended: List[Dict[str, Any]] = []
+    for code, industry in sorted(observed.items()):
+        code, industry = str(code), str(industry)
+        if not code or not industry:
+            continue
+        previous = latest.get(code)
+        if previous == industry:
+            continue
+        appended.append(
+            {
+                "schema": HISTORY_SCHEMA,
+                "asof": asof,
+                "code": code,
+                "industry": industry,
+                "previous": previous,
+            }
+        )
+
+    if appended:
+        os.makedirs(os.path.dirname(history_file) or ".", exist_ok=True)
+        with open(history_file, "a", encoding="utf-8") as handle:
+            for record in appended:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    return {
+        "schema": HISTORY_SCHEMA,
+        "asof": asof,
+        "history_file": history_file,
+        "bootstrap": bootstrap,
+        "appended": len(appended),
+        "observed": len(observed),
+        "reclassified": sum(1 for record in appended if record["previous"]),
+    }
+
+
+def history_asof(asof: str, *, history_file: str) -> Dict[str, Any]:
+    """还原 ``asof`` 当日的 ``code -> 行业``（PIT 查询）。
+
+    ``status``：``ok`` / ``before_history``（早于历史起点）/ ``missing``（无历史）。
+    早于起点时返回空映射 —— 用今天的归属回答那天的问题是错的，宁可不可用。
+    """
+    events = _read_history_events(history_file)
+    if not events:
+        return {
+            "schema": HISTORY_SCHEMA,
+            "status": "missing",
+            "asof": asof,
+            "history_start": None,
+            "industry_by_code": {},
+            "reason": "归属变更日志尚未生成",
+        }
+
+    history_start = min(str(record["asof"]) for record in events)
+    if asof < history_start:
+        return {
+            "schema": HISTORY_SCHEMA,
+            "status": "before_history",
+            "asof": asof,
+            "history_start": history_start,
+            "industry_by_code": {},
+            "reason": f"历史自 {history_start} 起，更早的归属没有被观测过",
+        }
+
+    mapping: Dict[str, str] = {}
+    for record in events:
+        if str(record["asof"]) <= asof:
+            mapping[str(record["code"])] = str(record.get("industry") or "")
+    return {
+        "schema": HISTORY_SCHEMA,
+        "status": "ok",
+        "asof": asof,
+        "history_start": history_start,
+        "industry_by_code": apply_industry_overrides(mapping),
+        "reason": "",
+    }
+
+
 def _read_prior_cache(cache_file: str) -> Tuple[Any, Dict[str, str]]:
     prior = read_json(cache_file, {})
     prior_map = dict(prior.get("industry_by_code") or {}) if isinstance(prior, Mapping) else {}
@@ -607,6 +748,7 @@ def refresh(
     asof: str,
     *,
     cache_file: str | None = None,
+    history_file: str | None = None,
     boards_fetcher: BoardsFetcher | None = None,
     constituents_fetcher: ConstituentsFetcher | None = None,
     universe_fetcher: UniverseFetcher | None = None,
@@ -657,8 +799,39 @@ def refresh(
             f"（{covered}/{universe_count}）",
         )
 
+    payload = _build_refresh_payload(
+        asof,
+        built=built,
+        prior_map=prior_map,
+        new_map=new_map,
+        gap_report=gap_report,
+        coverage=(universe_count, covered, coverage_rate),
+        history_file=history_file or _default_history_file(cache_file),
+    )
+    atomic_write_json(cache_file, payload)
+    return payload
+
+
+def _build_refresh_payload(
+    asof: str,
+    *,
+    built: Mapping[str, Any],
+    prior_map: Mapping[str, str],
+    new_map: Mapping[str, str],
+    gap_report: Mapping[str, Any],
+    coverage: Tuple[int | None, int | None, float | None],
+    history_file: str,
+) -> Dict[str, Any]:
+    """合并当日观测与昨日缓存，落一条历史事件，产出缓存载荷。"""
+    universe_count, covered, coverage_rate = coverage
     merged = apply_industry_overrides({**prior_map, **new_map})
-    payload = {
+    # 只把当日**观测到**的部分写进历史；prior_map 是沿用，不是观测。
+    history = record_history(
+        asof,
+        apply_industry_overrides(dict(new_map)),
+        history_file=history_file,
+    )
+    return {
         "schema": SCHEMA,
         "asof": asof,
         "built_at": built["built_at"],
@@ -677,9 +850,8 @@ def refresh(
         "fresh_stock_count": len(new_map),
         "failed_units": built["failed_units"],
         "gap_fill": gap_report,
+        "history": history,
     }
-    atomic_write_json(cache_file, payload)
-    return payload
 
 
 def load_cached_status(
@@ -776,10 +948,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="全市场行业映射刷新")
     parser.add_argument("--asof", default=date.today().isoformat())
     parser.add_argument("--refresh", action="store_true", help="构建并刷新缓存")
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="按 --asof 做 PIT 查询：还原当日归属，而不是读最新快照",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    if args.refresh:
+    if args.history:
+        result = history_asof(
+            args.asof, history_file=_default_history_file(_default_cache_file())
+        )
+        result = {
+            **{key: value for key, value in result.items() if key != "industry_by_code"},
+            "stock_count": len(result["industry_by_code"]),
+        }
+    elif args.refresh:
         # 数据源库（adata 等）会往 stdout 打诊断行，而作业契约要求 stdout 是纯
         # JSON，因此把构建期的 stdout 整体改道到 stderr。
         with contextlib.redirect_stdout(sys.stderr):
@@ -808,7 +993,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    import os
     import sys
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
