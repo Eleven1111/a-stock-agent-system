@@ -61,8 +61,14 @@ def _seed(tmp_path, monkeypatch, *, sessions, hot_last_day=True):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
     history.ensure_schema()
 
-    codes = [f"{600000 + index}" for index in range(12)]
-    membership = {code: ("半导体" if index < 6 else "银行") for index, code in enumerate(codes)}
+    # 前 12 只分成两个板块；其余是"市场填充"，不属任何板块 —— 全 A 中位数基准需要
+    # 至少 100 只的横截面（min_market_samples），少于此本就该判不可得。
+    codes = [f"{600000 + index}" for index in range(130)]
+    membership = {
+        code: ("半导体" if index < 6 else "银行")
+        for index, code in enumerate(codes)
+        if index < 12
+    }
 
     rows = []
     for day_index, trading_date in enumerate(sessions):
@@ -154,3 +160,31 @@ def test_artifact_is_written_when_requested(tmp_path, monkeypatch):
     written = json.loads(Path(payload["artifact"]).read_text(encoding="utf-8"))
     assert written["status"] == "ok"
     assert written["live_effect"] == "none"
+
+
+def test_price_factors_are_produced_from_the_same_pass(tmp_path, monkeypatch):
+    """价格因子与拥挤度共用一趟读盘，但必须落成两份产物。"""
+    asof = _seed(tmp_path, monkeypatch, sessions=_sessions(70))
+    module = _load_cli()
+    payload = module.run(asof=asof, write=True)
+
+    summary = payload["price_factors"]
+    assert summary["status"] == "ok"
+    assert summary["live_effect"] == "none"
+    assert summary["validated"] is False
+    assert summary["market_basis"] == "whole_a_median"
+    # 摘要不得内联全量板块，否则 cron 输出预算会被撑爆
+    assert "sectors" not in summary
+
+    written = json.loads(Path(payload["price_artifact"]).read_text(encoding="utf-8"))
+    assert written["schema"] == "sector_price_factors_v1"
+    assert Path(payload["price_artifact"]).name == "sector_price_factors_latest.json"
+    assert written["sectors"], written
+
+
+def test_price_artifact_is_a_separate_file_from_crowding(tmp_path, monkeypatch):
+    asof = _seed(tmp_path, monkeypatch, sessions=_sessions(70))
+    payload = _load_cli().run(asof=asof, write=True)
+    assert payload["artifact"] != payload["price_artifact"]
+    crowding = json.loads(Path(payload["artifact"]).read_text(encoding="utf-8"))
+    assert crowding["schema"] == "sector_crowding_v1"
