@@ -635,6 +635,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["news-monitor-intraday"]["schedule"] == (
         "2,17,32,47 9-11,13-14 * * 1-5"
     )
+    assert jobs["news-l1-scan"]["schedule"] == "4,34 8-22 * * 1-5"
     assert _run_command(jobs["news-monitor-intraday"]).endswith("--mode intraday --json")
     assert jobs["news-l1-scan"]["trading_day_policy"] == "calendar_day"
     assert jobs["news-l1-scan"]["context_from"] == []
@@ -645,7 +646,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert any("catalyst_context.json" in path for path in jobs["news-monitor"]["allowed_state_writes"])
     assert any("catalyst_context.json" in path for path in jobs["news-monitor-intraday"]["allowed_state_writes"])
     assert jobs["official-policy-watch"]["trading_day_policy"] == "calendar_day"
-    assert jobs["official-policy-watch"]["schedule"] == "3,13,23,33,43,53 8-22 * * *"
+    assert jobs["official-policy-watch"]["schedule"] == "3,33 8-22 * * 1-5"
     assert _run_command(jobs["official-policy-watch"]) == (
         "python skills/policy-intent-decoder/scripts/watch_official_policy.py --json"
     )
