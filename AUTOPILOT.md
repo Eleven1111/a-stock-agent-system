@@ -201,7 +201,7 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 因此 `run.timeout_seconds` 设为 1800，不可套用其他作业的 15~60s。
 产物：`$A_STOCK_STATE_HOME/cron/output/announcement-radar/<date>.json`。
 
-### 板块拥挤度日产物（sector-crowding-daily）
+### 板块日度因子产物（sector-crowding-daily）
 
 补上板块信号缺的那半边：现有 `sector_momentum` 只有加分方向（涨得多加分、跌下来
 才小幅扣分），没有「涨得多但内部不扩散、成交高度集中」的扣分路径。本作业只读本地
@@ -214,12 +214,16 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 | 执行 | `python scripts/sector_crowding_daily.py --json` |
 | 依赖 | `market-history-cache`（同交易日，最大延迟 180 分钟，可选） |
 | 交付 | `local`（只写本地产物，不推送） |
-| 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/sector_crowding_latest.json` |
+| 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/sector_crowding_latest.json`（拥挤度）<br>`.../sector_price_factors_latest.json`（RS/超额动量/RS斜率/广度） |
 | 超时 | 180s（`standard` 档；零取数，只读本地 SQLite 与行业归属缓存） |
 
-**RESEARCH ONLY：** 产物带 `evidence_qualification: exploratory_reconstruction` 与
-`live_effect: none`。历史分位是用**今天的**行业归属重建过去得到的（归属变更日志
-2026-09 才开始积累），因此不得进 research gate、不得生成订单、不得改实盘权重。
+**RESEARCH ONLY：** 两份产物都带 `evidence_qualification: exploratory_reconstruction`
+与 `live_effect: none`。历史分位/因子是用**今天的**行业归属重建过去得到的（归属变更
+日志 2026-09 才开始积累），因此不得进 research gate、不得生成订单、不得改实盘权重。
+
+价格因子那份另带 `validated: false`：它是按「清单上的都要做完、不等验证」一次性建
+起来的，没有等拥挤度的前向样本先证明有区分度。**别拿「代码已经在仓库里」当成
+「结论已经成立」。**
 
 **停止：** 把 manifest 中该作业的 `enabled` 改为 `false`，或停整个调度器（见上）。
 

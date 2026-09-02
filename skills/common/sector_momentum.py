@@ -10,6 +10,12 @@ signal_context 供情绪面、候选发现与简报消费。
 - 轮动 = 「今日净流入排名」相对「前4日净流入排名」的位移，无需滚动状态；
 - 指数 5 日基准来自上证指数日 K（6 根收盘价）。
 
+**基准口径是 degraded，不要和全 A 中位数混着读。** 本仓的规范相对强弱基准是全 A
+中位数收益（``theme_strength`` / ``sector_price_factors``，指数会被权重股绑架而
+中位数不会）。本模块跑在盘中、手里只有板块快照，算不出全 A 中位数，因此退而用
+上证指数 —— 产物里的 ``market_basis`` 会显式标成 ``index_degraded``。两者不是等价
+基准：跨模块比较 vs_index 与 excess_momentum 之前，先看这个标签。
+
 信号分级（阈值见 config/scoring.yaml 的 ``sector_momentum`` 节，下列括号内为默认值）：
 - strong:       5日涨幅高于 hot_return_5d(10%) 且跑赢大盘 strong_vs_index_5d(5pp)
 - emerging:     当日涨幅 ≥ emerging_return_1d(3%) 且当日主力净流入 且 5日 ≥ 3%
@@ -235,6 +241,10 @@ def build_sector_momentum(rows: Sequence[Mapping[str, Any]],
         "schema": SCHEMA,
         "trading_date": trading_date,
         "index_return_5d": index_return_5d,
+        # 基准是上证指数，不是全 A 中位数 —— 消费端必须能看出这一点。
+        "market_basis": (
+            "index_degraded" if index_return_5d is not None else "unavailable"
+        ),
         "total_sectors": len(scored),
         "sectors": kept,
         "signal_counts": {
