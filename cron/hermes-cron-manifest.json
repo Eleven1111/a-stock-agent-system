@@ -2641,6 +2641,41 @@
       "external_note": "每个交易日收盘后推进 provisional T+1 至 final T+3；Hermes/OpenClaw 共用"
     },
     {
+      "id": "sector-crowding-daily",
+      "name": "板块拥挤度日产物",
+      "schedule": "30 16 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": ["python", "scripts/run_agent_dag.py", "sector-crowding-daily", "--emit-target"],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 1500,
+      "context_from": ["market-history-cache"],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 180,
+        "optional_jobs": ["market-history-cache"]
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/sector_crowding_latest.json",
+        "$A_STOCK_STATE_HOME/cron/output/sector-crowding-daily/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": ["python", "scripts/sector_crowding_daily.py", "--json"],
+        "cwd": ".",
+        "timeout_seconds": 180,
+        "timeout_tier": "standard"
+      },
+      "external_note": "16:30 在 market-history-cache(15:10，长档可跑到 15:30) 之后：只读本地 SQLite 日线与行业归属缓存，零取数。用今天的行业归属重建过去 120 个交易日的板块成交/换手/集中度，出拥挤度分位与状态机档位。RESEARCH ONLY：产物标 exploratory_reconstruction / live_effect=none，不进 research gate、不生成订单、不改实盘权重。行业归属或日线缓存不可用即 blocked，两者 reason 不同；分位样本不足则产物照落但判 unavailable。"
+    },
+    {
       "id": "research-dataset-build",
       "name": "研究数据集物化",
       "schedule": "40 16 * * 1-5",
