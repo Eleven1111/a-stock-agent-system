@@ -1,6 +1,12 @@
 {
   "schema": "paper_trading_config_v1",
   "version": "paper-chanlun-gate-v1",
+  "runtime": {
+    "mode": "paper_only",
+    "real_broker_access": false,
+    "real_runtime_allowed_default": false,
+    "paper_live_requires_explicit_switch": true
+  },
   "account": {
     "initial_cash": 100000.0,
     "lot_size": 100,

@@ -135,6 +135,23 @@ def test_strategy_evidence_daily_is_bounded_and_isolated():
     assert "signal_ledger" not in writes
 
 
+def test_strategy_promotion_nightly_is_local_bounded_and_after_forward_settlement():
+    job = _manifest_job("strategy-promotion-nightly")
+    assert job["schedule"] == "55 23 * * 1-5"
+    assert job["external"] is False
+    assert job["deliver"] == "local"
+    assert job["silent_when_no_signal"] is True
+    assert job["context_from"] == ["strategy-forward-settlement-daily"]
+    assert _entry_command(job) == "python scripts/strategy_promotion_runner.py --paper-only --json"
+    assert _run_command(job) == _entry_command(job)
+    writes = " ".join(job["allowed_state_writes"])
+    assert "strategy_registry.json" in writes
+    assert "portfolio" not in writes
+    assert "signal_ledger" not in writes
+    assert "paper_only" in job["external_note"]
+    assert "runtime_allowed" in job["external_note"]
+
+
 def test_sentiment_backfill_bootstraps_s6_without_network_or_overwriting_forward_rows():
     job = _manifest_job("sentiment-daily-backfill")
     assert job["schedule"] == "50 22 * * 1-5"
@@ -635,6 +652,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["news-monitor-intraday"]["schedule"] == (
         "2,17,32,47 9-11,13-14 * * 1-5"
     )
+    assert jobs["news-l1-scan"]["schedule"] == "4,34 8-22 * * 1-5"
     assert _run_command(jobs["news-monitor-intraday"]).endswith("--mode intraday --json")
     assert jobs["news-l1-scan"]["trading_day_policy"] == "calendar_day"
     assert jobs["news-l1-scan"]["context_from"] == []
@@ -645,7 +663,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert any("catalyst_context.json" in path for path in jobs["news-monitor"]["allowed_state_writes"])
     assert any("catalyst_context.json" in path for path in jobs["news-monitor-intraday"]["allowed_state_writes"])
     assert jobs["official-policy-watch"]["trading_day_policy"] == "calendar_day"
-    assert jobs["official-policy-watch"]["schedule"] == "3,13,23,33,43,53 8-22 * * *"
+    assert jobs["official-policy-watch"]["schedule"] == "3,33 8-22 * * 1-5"
     assert _run_command(jobs["official-policy-watch"]) == (
         "python skills/policy-intent-decoder/scripts/watch_official_policy.py --json"
     )

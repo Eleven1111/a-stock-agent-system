@@ -335,14 +335,43 @@ def _base_live_allowed(strategy_id: str, rec: Optional[Dict[str, Any]]) -> bool:
 
 
 def is_allowed_in_live(strategy_id: str, registry_file: Optional[str] = None) -> bool:
-    """Whether the strategy may have any live effect after every admission gate."""
+    """Whether the strategy may have any *real* live effect.
+
+    ``paper_only`` promotion is deliberately excluded even when all research
+    evidence is valid; paper promotion must never manufacture real runtime
+    permission.
+    """
     rec = get(strategy_id, registry_file)
     if not _base_live_allowed(strategy_id, rec):
         return False
     promotion = (rec or {}).get("promotion")
-    if not isinstance(promotion, dict):
+    if not isinstance(promotion, dict) or promotion.get("mode") == "paper_only":
         return False
     return promotion.get("state") in {"manual_pilot", "live"}
+
+
+def paper_runtime_allowed(strategy_id: str, registry_file: Optional[str] = None) -> bool:
+    """Return the separate, explicit paper-only runtime permission."""
+    rec = get(strategy_id, registry_file)
+    if not _base_live_allowed(strategy_id, rec):
+        return False
+    promotion = (rec or {}).get("promotion")
+    return isinstance(promotion, dict) and promotion.get("mode") == "paper_only" \
+        and promotion.get("state") == "manual_pilot" \
+        and bool(promotion.get("paper_runtime_allowed"))
+
+
+def paper_live_weight(strategy_id: str, registry_file: Optional[str] = None) -> float:
+    rec = get(strategy_id, registry_file)
+    if not paper_runtime_allowed(strategy_id, registry_file):
+        return 0.0
+    promotion = (rec or {}).get("promotion") or {}
+    try:
+        weight = float(promotion.get("paper_pilot_weight", 0))
+        maximum = float((promotion.get("policy") or {})["maximum_manual_pilot_weight"])
+    except (KeyError, TypeError, ValueError):
+        return 0.0
+    return weight if math.isfinite(weight) and 0 < weight <= maximum else 0.0
 
 
 def live_record(strategy_id: str, registry_file: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -354,6 +383,8 @@ def live_record(strategy_id: str, registry_file: Optional[str] = None) -> Option
         **rec,
         "runtime_allowed": is_allowed_in_live(strategy_id, registry_file),
         "runtime_weight": live_weight(strategy_id, registry_file),
+        "paper_runtime_allowed": paper_runtime_allowed(strategy_id, registry_file),
+        "paper_runtime_weight": paper_live_weight(strategy_id, registry_file),
     }
 
 
@@ -399,7 +430,8 @@ def _sha256_file(path: str) -> str:
 
 
 def _promotion_history(
-    promotion: Dict[str, Any], *, target: str, reason: str
+    promotion: Dict[str, Any], *, target: str, reason: str,
+    audit: Optional[Dict[str, Any]] = None,
 ) -> list[Dict[str, Any]]:
     history = promotion.get("history")
     if not isinstance(history, list):
@@ -410,7 +442,26 @@ def _promotion_history(
         "reason": reason,
         "at": _now(),
     }
+    if audit is not None:
+        event["audit"] = dict(audit)
     return [*history[-99:], event]
+
+
+def _promotion_audit_valid(strategy_id: str, audit: Any) -> bool:
+    """Require an explicit human audit envelope for CLI-triggered promotions."""
+    if not isinstance(audit, dict):
+        return False
+    try:
+        signed_at = datetime.fromisoformat(str(audit["signed_at"]))
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (
+        audit.get("strategy_id") == strategy_id
+        and bool(str(audit.get("actor") or "").strip())
+        and bool(str(audit.get("reason") or "").strip())
+        and bool(str(audit.get("signature") or "").strip())
+        and signed_at.tzinfo is not None
+    )
 
 
 def _validated_precommit(
@@ -439,11 +490,14 @@ def start_shadow(
     *,
     precommit: Dict[str, Any],
     thresholds_path: str,
+    promotion_audit: Optional[Dict[str, Any]] = None,
     registry_file: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Enter shadow from research-only, or reset after a new threshold precommit."""
 
     threshold_hash, config = _validated_precommit(precommit, thresholds_path)
+    if promotion_audit is not None and not _promotion_audit_valid(strategy_id, promotion_audit):
+        raise ValueError("promotion_audit_invalid")
     rf = registry_file or _default_file()
 
     def _mut(data: Any) -> Dict[str, Any]:
@@ -477,7 +531,9 @@ def start_shadow(
             "observed_trading_days": 0,
             "live_effect": "none",
             "pilot_weight": 0.0,
-            "history": _promotion_history(current, target="shadow", reason=reason),
+            "history": _promotion_history(
+                current, target="shadow", reason=reason, audit=promotion_audit
+            ),
             "updated_at": _now(),
         }
         rec["promotion"] = promotion
@@ -546,6 +602,45 @@ def _approval_valid(strategy_id: str, approval: Any) -> bool:
     )
 
 
+def _apply_paper_manual_promotion(
+    strategy_id: str, rec: Dict[str, Any], promotion: Dict[str, Any], requested_weight: Any
+) -> str:
+    try:
+        weight = float(requested_weight)
+        maximum = float((promotion.get("policy") or {})["maximum_manual_pilot_weight"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("pilot_weight_invalid") from exc
+    if not math.isfinite(weight) or weight <= 0:
+        raise ValueError("pilot_weight_invalid")
+    if weight > maximum:
+        raise ValueError("pilot_weight_exceeded")
+    if not _base_live_allowed(strategy_id, rec):
+        raise ValueError("research_gate_not_passed")
+    promotion["mode"] = "paper_only"
+    promotion["paper_runtime_allowed"] = True
+    promotion["paper_pilot_weight"] = weight
+    return "paper_only_promotion_gate_passed"
+
+
+def _finish_promotion(
+    data: Dict[str, Any], strategy_id: str, rec: Dict[str, Any],
+    promotion: Dict[str, Any], target_state: str, reason: str,
+    promotion_audit: Optional[Dict[str, Any]], empirical_gate: Any, shadow_record: Any,
+) -> Dict[str, Any]:
+    promotion["history"] = _promotion_history(
+        promotion, target=target_state, reason=reason, audit=promotion_audit
+    )
+    promotion.update({"state": target_state, "reason": reason, "updated_at": _now()})
+    if empirical_gate is not None:
+        promotion["empirical_gate_sha256"] = empirical_gate.get("artifact_sha256")
+    if shadow_record is not None:
+        promotion["shadow_artifact_sha256"] = shadow_record.get("artifact_sha256")
+        promotion["observed_trading_days"] = shadow_record.get("observed_trading_days")
+    rec.update({"promotion": promotion, "updated_at": _now()})
+    data[strategy_id] = rec
+    return data
+
+
 def promote_strategy(
     strategy_id: str,
     target_state: str,
@@ -553,15 +648,17 @@ def promote_strategy(
     empirical_gate: Optional[Dict[str, Any]] = None,
     shadow_record: Optional[Dict[str, Any]] = None,
     human_approval: Optional[Dict[str, Any]] = None,
+    promotion_audit: Optional[Dict[str, Any]] = None,
     requested_weight: Optional[float] = None,
+    paper_only: bool = False,
     registry_file: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Advance exactly one promotion state after verifying bound evidence."""
-
+    """Advance one promotion state after verifying bound evidence."""
     if target_state not in PROMOTION_STATES:
         raise ValueError("invalid_promotion_transition")
+    if promotion_audit is not None and not _promotion_audit_valid(strategy_id, promotion_audit):
+        raise ValueError("promotion_audit_invalid")
     rf = registry_file or _default_file()
-
     def _mut(data: Any) -> Dict[str, Any]:
         if not isinstance(data, dict) or not isinstance(data.get(strategy_id), dict):
             raise ValueError("promotion_not_started")
@@ -579,14 +676,20 @@ def promote_strategy(
         ):
             raise ValueError("origin_tier_exceeded")
         reason = "promotion_gate_passed"
-        if target_state in {"eligible_for_manual_pilot", "live"}:
+        if target_state in {"eligible_for_manual_pilot", "live"} or (target_state == "manual_pilot" and paper_only):
             if empirical_gate is None or shadow_record is None:
                 raise ValueError("promotion_evidence_missing")
             if not _promotion_evidence_ready(
                 strategy_id, promotion, empirical_gate, shadow_record
             ):
                 raise ValueError("promotion_evidence_insufficient")
-        if target_state == "manual_pilot":
+        if target_state == "live" and (paper_only or promotion.get("mode") == "paper_only"):
+            raise ValueError("paper_only_cannot_promote_live")
+        if target_state == "manual_pilot" and paper_only:
+            reason = _apply_paper_manual_promotion(
+                strategy_id, rec, promotion, requested_weight
+            )
+        elif target_state == "manual_pilot":
             if not _approval_valid(strategy_id, human_approval):
                 raise ValueError("manual_approval_required")
             try:
@@ -602,20 +705,51 @@ def promote_strategy(
                 raise ValueError("research_gate_not_passed")
             promotion["pilot_weight"] = weight
             promotion["human_approval"] = dict(human_approval or {})
+            promotion["mode"] = "real"
+            promotion["paper_runtime_allowed"] = False
             reason = "manual_approval_recorded"
         if target_state == "live" and not _base_live_allowed(strategy_id, rec):
             raise ValueError("research_gate_not_passed")
-        promotion["history"] = _promotion_history(
-            promotion, target=target_state, reason=reason
+        return _finish_promotion(
+            data, strategy_id, rec, promotion, target_state, reason,
+            promotion_audit, empirical_gate, shadow_record
         )
-        promotion["state"] = target_state
-        promotion["reason"] = reason
-        promotion["updated_at"] = _now()
-        if empirical_gate is not None:
-            promotion["empirical_gate_sha256"] = empirical_gate.get("artifact_sha256")
-        if shadow_record is not None:
-            promotion["shadow_artifact_sha256"] = shadow_record.get("artifact_sha256")
-            promotion["observed_trading_days"] = shadow_record.get("observed_trading_days")
+
+    return mutate_json(rf, _mut, {})[strategy_id]
+
+
+def record_promotion_outcome(
+    strategy_id: str,
+    *,
+    outcome: str,
+    reason: str,
+    promotion_audit: Dict[str, Any],
+    registry_file: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Append an auditable skipped/rejected attempt without changing state."""
+    if outcome not in {"skipped", "rejected"}:
+        raise ValueError("promotion_outcome_invalid")
+    if not _promotion_audit_valid(strategy_id, promotion_audit):
+        raise ValueError("promotion_audit_invalid")
+    rf = registry_file or _default_file()
+
+    def _mut(data: Any) -> Dict[str, Any]:
+        if not isinstance(data, dict) or not isinstance(data.get(strategy_id), dict):
+            raise ValueError("promotion_not_started")
+        rec = data[strategy_id]
+        promotion = rec.get("promotion")
+        if not isinstance(promotion, dict):
+            promotion = {"state": "research_only", "history": []}
+        history = promotion.get("history") if isinstance(promotion.get("history"), list) else []
+        event = {
+            "from": promotion.get("state", "research_only"),
+            "to": promotion.get("state", "research_only"),
+            "outcome": outcome,
+            "reason": reason,
+            "at": _now(),
+            "audit": dict(promotion_audit),
+        }
+        promotion["history"] = [*history[-99:], event]
         rec["promotion"] = promotion
         rec["updated_at"] = _now()
         data[strategy_id] = rec

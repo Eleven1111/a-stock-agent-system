@@ -1,10 +1,20 @@
 import hashlib
+import importlib.util
 import json
 from datetime import datetime, timezone
 
 import pytest
 
 import strategy_registry as sr
+from scripts import strategy_promotion_runner as promotion_runner
+
+
+RESEARCH_GATE = importlib.util.spec_from_file_location(
+    "issue324_research_gate",
+    __file__.replace("tests/test_strategy_promotion.py", "skills/chanlun-backtest/scripts/research_gate.py"),
+)
+research_gate = importlib.util.module_from_spec(RESEARCH_GATE)
+RESEARCH_GATE.loader.exec_module(research_gate)
 
 
 def _canonical_hash(value):
@@ -281,3 +291,169 @@ def test_safety_breach_demotes_and_new_threshold_precommit_resets_shadow(
     )
     assert mismatch["promotion"]["state"] == "research_only"
     assert mismatch["promotion"]["reason"] == "reconciliation_error"
+
+
+def _audit(strategy_id, actor="master", reason="reviewed evidence", signature="sig-324"):
+    return {
+        "schema": "strategy_promotion_audit_v1", "strategy_id": strategy_id,
+        "actor": actor, "reason": reason, "signature": signature,
+        "signed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def test_every_manual_promotion_records_audit_and_rejects_incomplete_audit(
+    tmp_path, verified_gate_factory
+):
+    registry = tmp_path / "strategy-registry.json"
+    _register_legacy_gate(registry, verified_gate_factory)
+    thresholds_path, _ = _thresholds(tmp_path)
+    precommit = _precommit(thresholds_path)
+    audit = _audit("strategy-a")
+    sr.start_shadow("strategy-a", precommit=precommit, thresholds_path=str(thresholds_path),
+                    promotion_audit=audit, registry_file=str(registry))
+    shadow = _shadow(precommit, precommit["thresholds_sha256"])
+    gate = _empirical_gate()
+    sr.promote_strategy("strategy-a", "eligible_for_manual_pilot", empirical_gate=gate,
+                        shadow_record=shadow, promotion_audit=audit,
+                        registry_file=str(registry))
+    approval = {"approved": True, "strategy_id": "strategy-a", "approver": "master",
+                "approved_at": audit["signed_at"]}
+    result = sr.promote_strategy("strategy-a", "manual_pilot", human_approval=approval,
+                                 requested_weight=0.05, promotion_audit=audit,
+                                 registry_file=str(registry))
+    history = result["promotion"]["history"]
+    assert [item["to"] for item in history] == ["shadow", "eligible_for_manual_pilot", "manual_pilot"]
+    assert all(item["audit"]["signature"] == "sig-324" for item in history)
+    with pytest.raises(ValueError, match="promotion_audit_invalid"):
+        sr.promote_strategy("strategy-a", "live", empirical_gate=gate,
+                            shadow_record=shadow,
+                            promotion_audit={"actor": "master"}, registry_file=str(registry))
+
+
+def test_research_gate_cli_requires_human_audit_and_rejects_missing_evidence(
+    tmp_path, verified_gate_factory
+):
+    registry = tmp_path / "strategy-registry.json"
+    _register_legacy_gate(registry, verified_gate_factory)
+    thresholds_path, _ = _thresholds(tmp_path)
+    precommit = _precommit(thresholds_path)
+    precommit_path = tmp_path / "precommit.json"
+    precommit_path.write_text(json.dumps(precommit), encoding="utf-8")
+    args = ["start-shadow", "--strategy-id", "strategy-a", "--precommit", str(precommit_path),
+            "--thresholds", str(thresholds_path), "--registry", str(registry),
+            "--actor", "master", "--reason", "evidence reviewed", "--signature", "sig-324"]
+    assert research_gate.main(args) == 0
+    assert research_gate.main([
+        "promote", "--strategy-id", "strategy-a", "--target", "eligible_for_manual_pilot",
+        "--registry", str(registry), "--actor", "master", "--reason", "insufficient test",
+        "--signature", "sig-324",
+    ]) == 2
+
+
+def _runner_args(registry, thresholds, *, precommit, empirical=None, shadow=None, dry_run=False,
+                 paper_only=False, paper_weight=0.1):
+    if isinstance(precommit, dict):
+        precommit_path = registry.parent / "precommit.json"
+        precommit_path.write_text(json.dumps(precommit), encoding="utf-8")
+    else:
+        precommit_path = precommit
+    return type("Args", (), {
+        "registry": str(registry),
+        "strategy_id": None,
+        "precommit": str(precommit_path),
+        "thresholds": str(thresholds),
+        "empirical_gate": str(empirical) if empirical else None,
+        "shadow_record": str(shadow) if shadow else None,
+        "dry_run": dry_run,
+        "paper_only": paper_only,
+        "paper_weight": paper_weight,
+    })()
+
+
+def test_automatic_runner_uses_start_shadow_gate_not_live_admission_bit(tmp_path):
+    registry = tmp_path / "registry.json"
+    thresholds_path, _ = _thresholds(tmp_path)
+    precommit = _precommit(thresholds_path)
+    # This is deliberately not live-admitted. start_shadow only gates on the
+    # validated OOS precommit, so the runner must not silently skip it.
+    registry.write_text(json.dumps({"strategy-a": {
+        "strategy_id": "strategy-a", "allowed_in_live_agent": False,
+        "evidence_verified": False, "promotion": {"state": "research_only"},
+    }}), encoding="utf-8")
+
+    result = promotion_runner.run(_runner_args(
+        registry, thresholds_path, precommit=precommit,
+    ))
+    assert result["results"][0]["outcome"] == "promoted"
+    assert sr.promotion_state("strategy-a", str(registry))["state"] == "shadow"
+
+
+def test_automatic_runner_is_one_step_idempotent_and_never_manual_or_live(
+    tmp_path, verified_gate_factory
+):
+    registry = tmp_path / "registry.json"
+    _register_legacy_gate(registry, verified_gate_factory)
+    thresholds_path, _ = _thresholds(tmp_path)
+    precommit = _precommit(thresholds_path)
+    first = promotion_runner.run(_runner_args(
+        registry, thresholds_path, precommit=precommit,
+    ))
+    assert first["results"][0]["outcome"] == "promoted"
+    # With no settlement artifacts the next run records an auditable skip and
+    # does not jump over the eligible gate.
+    second = promotion_runner.run(_runner_args(
+        registry, thresholds_path, precommit=precommit,
+    ))
+    assert second["results"][0]["outcome"] == "skipped"
+    assert sr.promotion_state("strategy-a", str(registry))["state"] == "shadow"
+    history = sr.get("strategy-a", str(registry))["promotion"]["history"]
+    assert history[-1]["outcome"] == "skipped"
+    assert all(item.get("to") not in {"manual_pilot", "live"} for item in history)
+
+
+def test_automatic_runner_dry_run_is_json_and_does_not_write_state(tmp_path):
+    registry = tmp_path / "registry.json"
+    thresholds_path, _ = _thresholds(tmp_path)
+    precommit = _precommit(thresholds_path)
+    registry.write_text(json.dumps({"strategy-a": {
+        "strategy_id": "strategy-a", "promotion": {"state": "research_only"},
+    }}), encoding="utf-8")
+    before = registry.read_text(encoding="utf-8")
+    result = promotion_runner.run(_runner_args(
+        registry, thresholds_path, precommit=precommit, dry_run=True,
+    ))
+    assert result["schema"] == "strategy_promotion_run_v1"
+    assert result["results"][0]["outcome"] == "would_promote"
+    assert registry.read_text(encoding="utf-8") == before
+
+
+def test_paper_runner_can_auto_promote_eligible_to_manual_pilot_without_real_runtime(
+    tmp_path, verified_gate_factory
+):
+    registry = tmp_path / "registry.json"
+    _register_legacy_gate(registry, verified_gate_factory)
+    thresholds_path, _ = _thresholds(tmp_path)
+    precommit = _precommit(thresholds_path)
+    promotion_runner.run(_runner_args(registry, thresholds_path, precommit=precommit))
+    shadow = _shadow(precommit, precommit["thresholds_sha256"])
+    gate = _empirical_gate()
+    empirical_path = tmp_path / "empirical.json"
+    shadow_path = tmp_path / "shadow.json"
+    empirical_path.write_text(json.dumps(gate), encoding="utf-8")
+    shadow_path.write_text(json.dumps(shadow), encoding="utf-8")
+    promotion_runner.run(_runner_args(
+        registry, thresholds_path, precommit=precommit, empirical=empirical_path,
+        shadow=shadow_path,
+    ))
+    result = promotion_runner.run(_runner_args(
+        registry, thresholds_path, precommit=precommit, empirical=empirical_path,
+        shadow=shadow_path, paper_only=True,
+    ))
+    assert result["mode"] == "paper_only"
+    assert result["results"][0]["target"] == "manual_pilot"
+    record = sr.live_record("strategy-a", str(registry))
+    assert record["paper_runtime_allowed"] is True
+    assert record["runtime_allowed"] is False
+    assert sr.paper_live_weight("strategy-a", str(registry)) == pytest.approx(0.1)
+    assert sr.is_allowed_in_live("strategy-a", str(registry)) is False
+    assert sr.live_weight("strategy-a", str(registry)) == 0.0
