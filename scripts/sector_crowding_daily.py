@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-板块拥挤度日产物 —— RESEARCH ONLY
-=================================
+板块日度因子产物 —— RESEARCH ONLY
+==================================
 用本地日线缓存（``local_market_history``，qfq）+ 当前行业归属（``industry_map``）
-重建过去 N 个交易日的板块聚合，算出每个板块的拥挤度分位与状态机档位。
+重建过去 N 个交易日的板块聚合，单趟读盘产出两份：
+
+- ``sector_crowding_latest.json``       拥挤度分位与状态机档位
+- ``sector_price_factors_latest.json``  RS / 超额动量 / RS 斜率 / 广度
+
+两份分开落盘：产物名字必须说清里面是什么，把价格因子塞进拥挤度那份会让下游读到
+名不副实的内容。
 
 **零取数**：只读本地 SQLite 与本地缓存，不发起任何网络请求。
 
@@ -37,14 +43,20 @@ import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 import industry_map  # noqa: E402
 import local_market_history as history  # noqa: E402
 import sector_crowding  # noqa: E402
+import sector_price_factors  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import atomic_write_json  # noqa: E402
 
 ARTIFACT_NAME = "sector_crowding_latest.json"
+PRICE_ARTIFACT_NAME = "sector_price_factors_latest.json"
 
 
 def _artifact_path() -> str:
     return data_file("stock-triage", ARTIFACT_NAME)
+
+
+def _price_artifact_path() -> str:
+    return data_file("stock-triage", PRICE_ARTIFACT_NAME)
 
 
 def build_series(
@@ -53,23 +65,32 @@ def build_series(
     *,
     window: int,
     config: dict[str, Any],
-) -> list[dict[str, Any]]:
+    price_config: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """重建 ``asof`` 及之前 ``window`` 个**缓存里真实存在**的交易日的板块聚合。
 
     交易日来自缓存自身，而不是交易日历 —— 用日历会凭空造出缓存从没见过的日子。
+    单趟读盘同时喂拥挤度与价格因子两条链，避免把同一段 SQLite 读两遍。
+
+    返回 ``(拥挤度序列, 价格因子序列)``。
     """
     dates = history.trading_dates_between("1990-01-01", asof)[-(window + 1):]
-    series: list[dict[str, Any]] = []
+    crowding_series: list[dict[str, Any]] = []
+    day_bars: list[tuple[str, list[dict[str, Any]]]] = []
     for trading_date in dates:
         bars = history.get_bars_on(trading_date)
         if not bars:
             continue
-        series.append(
+        crowding_series.append(
             sector_crowding.aggregate_sector_day(
                 bars, membership, trading_date=trading_date, config=config
             )
         )
-    return series
+        day_bars.append((trading_date, bars))
+    price_series = sector_price_factors.build_daily_series(
+        day_bars, membership, config=price_config
+    )
+    return crowding_series, price_series
 
 
 def run(*, asof: str | None = None, write: bool = True) -> dict[str, Any]:
@@ -88,8 +109,13 @@ def run(*, asof: str | None = None, write: bool = True) -> dict[str, Any]:
             "sectors": [],
         }
 
-    series = build_series(
-        trading_date, membership, window=int(config["percentile_window"]), config=config
+    price_config = sector_price_factors.load_config()
+    series, price_series = build_series(
+        trading_date,
+        membership,
+        window=int(config["percentile_window"]),
+        config=config,
+        price_config=price_config,
     )
     if not series:
         return {
@@ -119,9 +145,23 @@ def run(*, asof: str | None = None, write: bool = True) -> dict[str, Any]:
         for key, value in industry_map.history_asof(trading_date).items()
         if key != "industry_by_code"
     }
+    # 价格因子与拥挤度共用同一趟读盘，但落成**两份**产物：名字必须说清里面是什么，
+    # 把价格因子塞进 sector_crowding_latest.json 会让下游读到名不副实的内容。
+    price_payload = sector_price_factors.build_sector_price_factors(
+        price_series,
+        asof=str(price_series[-1]["trading_date"]) if price_series else trading_date,
+        config=price_config,
+    )
+    price_payload["requested_asof"] = trading_date
+    payload["price_factors"] = {
+        key: value for key, value in price_payload.items() if key != "sectors"
+    }
+
     if write:
         atomic_write_json(_artifact_path(), payload)
+        atomic_write_json(_price_artifact_path(), price_payload)
         payload["artifact"] = _artifact_path()
+        payload["price_artifact"] = _price_artifact_path()
     return payload
 
 
@@ -142,11 +182,16 @@ def format_report(payload: dict[str, Any]) -> str:
             f"  {row['sector']:<10} {row['score']:>6.1f}  {row['state']:<10}"
             f" 置信={row.get('confidence')} 成分={row.get('member_count')}"
         )
+    price = payload.get("price_factors") or {}
+    lines.append(
+        f"  价格因子（未经验证）：{price.get('status')} 出分 {price.get('scored_count')}"
+        f"/{price.get('sector_count')} 基准={price.get('market_basis')}"
+    )
     return "\n".join(lines)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="板块拥挤度日产物（RESEARCH ONLY）")
+    parser = argparse.ArgumentParser(description="板块日度因子产物（RESEARCH ONLY）")
     parser.add_argument("--asof", default=None)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--no-write", action="store_true", help="只算不落盘")
