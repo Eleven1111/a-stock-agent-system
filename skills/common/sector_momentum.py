@@ -10,12 +10,11 @@ signal_context 供情绪面、候选发现与简报消费。
 - 轮动 = 「今日净流入排名」相对「前4日净流入排名」的位移，无需滚动状态；
 - 指数 5 日基准来自上证指数日 K（6 根收盘价）。
 
-信号分级：
-- strong:       5日涨幅 > 10% 且跑赢大盘 > 5pp（板块主升）
-- emerging:     当日涨幅 ≥ 3% 且当日主力净流入 且 5日涨幅 ≥ 3%（爆发初期 Day1-2）
-- weakening:    5日涨幅 > 10% 但当日回调 ≤ -2%（高位退潮）
-- rotating_out: 当日净流出>2亿 且 前4日净流出>5亿 且 当日跌>1%（显著资金撤离；
-                A股板块主力常态小额净流出，宽阈值会命中上百板块全是噪声）
+信号分级（阈值见 config/scoring.yaml 的 ``sector_momentum`` 节，下列括号内为默认值）：
+- strong:       5日涨幅高于 hot_return_5d(10%) 且跑赢大盘 strong_vs_index_5d(5pp)
+- emerging:     当日涨幅 ≥ emerging_return_1d(3%) 且当日主力净流入 且 5日 ≥ 3%
+- weakening:    5日涨幅高于 hot_return_5d 但当日回调 ≤ weakening_return_1d(-2%)
+- rotating_out: 当日与前4日净流出同时超阈值且当日下跌（显著资金撤离）
 - neutral:      其余
 """
 
@@ -29,6 +28,72 @@ ROTATION_SCHEMA = "sector_rotation_v1"
 # signal_context 是共享缓存，只保留有信息量的板块，控制体积。
 MAX_SECTORS_IN_CONTEXT = 30
 ROTATION_TOP_N = 5
+
+# ── 阈值与加成：单一事实源在 config/scoring.yaml 的 ``sector_momentum`` 节 ──
+#
+# 这些数字此前是代码里的裸常量，却直接进实盘情绪分 —— 而同一个仓库对新策略的
+# 要求是「未过 research gate = 0 权重」。提到配置是为了让它们可被审阅、可被改，
+# 而不是散落在函数体里。
+#
+# 这里保留一份 DEFAULTS 副本（配置缺失时行为不变，避免一个部署疏漏就悄悄抽掉
+# weakening / rotating_out 两个**减分**项）。两份拷贝必须有相等断言守着，否则
+# 只改一边的后果极隐蔽 —— 见 tests/test_sector_momentum_config.py。
+CONFIG_SECTION = "sector_momentum"
+
+DEFAULTS: dict[str, Any] = {
+    "signals": {
+        # strong / weakening 都以「5 日涨幅高于 hot_return_5d」为前提
+        "hot_return_5d": 10.0,
+        "strong_vs_index_5d": 5.0,
+        "weakening_return_1d": -2.0,
+        "emerging_return_1d": 3.0,
+        "emerging_return_5d": 3.0,
+        # A 股板块主力常态小额净流出，宽阈值会命中上百板块全是噪声
+        "rotating_out_net_1d_yi": -2.0,
+        "rotating_out_prior_4d_yi": -5.0,
+        "rotating_out_return_1d": -1.0,
+    },
+    "boost": {
+        "strong": 1.0,
+        "emerging": 0.5,
+        "weakening": -0.3,
+        "rotating_out": -0.5,
+    },
+    # 板块赚钱效应阶梯：涨停家数 -> 情绪分加成（signal_context 消费）
+    "limitup_ladder": [
+        {"min_limitups": 5, "delta": 1.0, "label": "板块赚钱效应强"},
+        {"min_limitups": 3, "delta": 0.5, "label": "板块共振"},
+    ],
+}
+
+
+def load_config(payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """读取 ``config/scoring.yaml`` 的 ``sector_momentum`` 节，缺项回落 DEFAULTS。
+
+    只做一层合并：三个子节各自整体生效或整体回落，避免半份配置拼出一组
+    谁也没审阅过的阈值。
+    """
+    if payload is None:
+        try:
+            import yaml
+            from config_registry import config_path
+
+            with open(config_path("scoring"), encoding="utf-8") as handle:
+                payload = yaml.safe_load(handle)
+        except (OSError, ValueError, ImportError):
+            payload = None
+    section = (payload or {}).get(CONFIG_SECTION) if isinstance(payload, Mapping) else None
+    if not isinstance(section, Mapping):
+        return {key: dict(value) if isinstance(value, dict) else list(value)
+                for key, value in DEFAULTS.items()}
+    resolved: dict[str, Any] = {}
+    for key, fallback in DEFAULTS.items():
+        supplied = section.get(key)
+        if isinstance(fallback, dict):
+            resolved[key] = dict(supplied) if isinstance(supplied, Mapping) and supplied else dict(fallback)
+        else:
+            resolved[key] = list(supplied) if isinstance(supplied, Sequence) and supplied and not isinstance(supplied, str) else list(fallback)
+    return resolved
 
 
 def _num(value: Any) -> Optional[float]:
@@ -78,8 +143,11 @@ def parse_board_rows(diff: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 
 def classify_sector_signal(row: Mapping[str, Any],
-                           index_return_5d: Optional[float]) -> dict[str, Any]:
+                           index_return_5d: Optional[float],
+                           *,
+                           config: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """单板块指标 → 动量信号分级。返回 {signal, reason, vs_index_5d}。"""
+    thresholds = dict((config or load_config())["signals"])
     return_1d = _num(row.get("return_1d")) or 0.0
     return_5d = _num(row.get("return_5d"))
     net_1d = _num(row.get("net_inflow_1d"))
@@ -90,30 +158,30 @@ def classify_sector_signal(row: Mapping[str, Any],
         else None
     )
 
-    if return_5d is not None and return_5d > 10:
-        if return_1d <= -2:
+    if return_5d is not None and return_5d > thresholds["hot_return_5d"]:
+        if return_1d <= thresholds["weakening_return_1d"]:
             return {
                 "signal": "weakening",
                 "reason": f"5日涨幅{return_5d:.1f}%但当日回调{return_1d:.1f}%",
                 "vs_index_5d": vs_index,
             }
-        if vs_index is not None and vs_index > 5:
+        if vs_index is not None and vs_index > thresholds["strong_vs_index_5d"]:
             return {
                 "signal": "strong",
                 "reason": f"5日涨幅{return_5d:.1f}%且强于大盘{vs_index:.1f}pp",
                 "vs_index_5d": vs_index,
             }
-    if (return_1d >= 3
+    if (return_1d >= thresholds["emerging_return_1d"]
             and net_1d is not None and net_1d > 0
-            and return_5d is not None and return_5d >= 3):
+            and return_5d is not None and return_5d >= thresholds["emerging_return_5d"]):
         return {
             "signal": "emerging",
             "reason": f"当日涨{return_1d:.1f}%+主力净流入{net_1d:.1f}亿，5日{return_5d:.1f}%",
             "vs_index_5d": vs_index,
         }
-    if (net_1d is not None and net_1d < -2
-            and prior_4d is not None and prior_4d < -5
-            and return_1d < -1):
+    if (net_1d is not None and net_1d < thresholds["rotating_out_net_1d_yi"]
+            and prior_4d is not None and prior_4d < thresholds["rotating_out_prior_4d_yi"]
+            and return_1d < thresholds["rotating_out_return_1d"]):
         return {
             "signal": "rotating_out",
             "reason": f"主力连续净流出(当日{net_1d:.1f}亿/前4日{prior_4d:.1f}亿)且板块下跌",
@@ -127,17 +195,19 @@ def build_sector_momentum(rows: Sequence[Mapping[str, Any]],
                           index_return_5d: Optional[float],
                           trading_date: str,
                           sector_limitups: Optional[Mapping[str, Any]] = None,
-                          max_sectors: int = MAX_SECTORS_IN_CONTEXT) -> dict[str, Any]:
+                          max_sectors: int = MAX_SECTORS_IN_CONTEXT,
+                          config: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """全部板块行 → sector_momentum 载荷。
 
     保留策略：非 neutral 信号板块优先（strong→emerging→weakening→rotating_out），
     其余按 |5日涨幅| 补齐；总量硬顶 max_sectors（signal_context 是共享缓存，
     体积失控会拖垮 runtime context 投影）。signal_counts 统计截断前的全量。
     """
+    resolved = dict(config or load_config())
     limitups = dict(sector_limitups or {})
     scored: list[dict[str, Any]] = []
     for row in rows:
-        verdict = classify_sector_signal(row, index_return_5d)
+        verdict = classify_sector_signal(row, index_return_5d, config=resolved)
         entry = {
             "name": row.get("name"),
             "code": row.get("code"),
@@ -259,10 +329,12 @@ def index_return_from_klines(klines: Sequence[str]) -> Optional[float]:
 
 
 def momentum_boost(sector: Optional[str],
-                   momentum: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+                   momentum: Optional[Mapping[str, Any]],
+                   *,
+                   config: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """个股所属板块的动量加成（供 sentiment_boost 消费）。
 
-    strong +1.0 / emerging +0.5 / weakening -0.3 / rotating_out -0.5。
+    幅度取自 ``config/scoring.yaml`` 的 ``sector_momentum.boost``。
     """
     if not sector or not isinstance(momentum, Mapping):
         return {"delta": 0.0, "note": None}
@@ -274,8 +346,8 @@ def momentum_boost(sector: Optional[str],
     if not entry:
         return {"delta": 0.0, "note": None}
     signal = str(entry.get("signal") or "neutral")
-    deltas = {"strong": 1.0, "emerging": 0.5, "weakening": -0.3, "rotating_out": -0.5}
-    delta = deltas.get(signal, 0.0)
+    deltas = dict((config or load_config())["boost"])
+    delta = float(deltas.get(signal, 0.0) or 0.0)
     if delta == 0.0:
         return {"delta": 0.0, "note": None}
     labels = {
