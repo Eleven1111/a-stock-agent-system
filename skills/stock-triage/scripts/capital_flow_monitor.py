@@ -596,6 +596,9 @@ def collect_flow_data(
     # 1. Northbound flow: AkShare first, allowed Eastmoney kamt endpoint only as fallback.
     # The blocked stock/board push2 paths are no longer on the primary route.
     # 每一跳都要留 attempts 溯源记录，回退成功也必须标记 degraded（source_health 契约）。
+    # 北向日频净额自 2024 年披露调整后已停发，所有 provider 现在都只会返回空 ——
+    # 这里保持 fail-closed（见 docs/falsified-approaches.md F008），绝不用南向或
+    # 历史缓存顶替。
     nb_data = fetch_northbound_flow()
     if nb_data:
         nb_observation = observation_ok(
@@ -606,7 +609,10 @@ def collect_flow_data(
         result["source_health"]["northbound"]["attempts"].append(health_attempt(
             observation_error(
                 "market_adapters",
-                DataSourceError("market_adapters", "northbound flow unavailable"),
+                DataSourceError(
+                    "market_adapters",
+                    "northbound daily net is no longer published (F008)",
+                ),
             )
         ))
         nb_observation = fetch_sina_northbound_observation()
@@ -784,7 +790,7 @@ def format_report(data: Dict) -> str:
         direction = "流入" if flow >= 0 else "流出"
         lines.append(f"## 🧭 北向资金：{direction} **{abs(flow):.0f}亿**")
     else:
-        lines.append("## 🧭 北向资金：数据暂不可用（非交易时段或网络问题）")
+        lines.append("## 🧭 北向资金：不可用 — 日频净额自 2024 年披露调整后已停发")
 
     # 个股
     lines.append("\n## 📊 跟踪标的资金流")

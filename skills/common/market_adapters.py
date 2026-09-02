@@ -1253,35 +1253,86 @@ def _save_northbound_snapshot(date_str: str, net_flow_yi: float, provider: str) 
         pass
 
 
-def _load_northbound_history(max_days: int = 30) -> list[dict[str, Any]]:
-    """Load northbound CSV history, dedup by date (last write wins)."""
-    path = _northbound_csv_path()
-    if not os.path.isfile(path):
-        return []
-    records: dict[str, dict[str, Any]] = {}
-    try:
-        with open(path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                d = row.get("date", "")[:10]
-                if d:
-                    records[d] = {
-                        "date": d,
-                        "net_flow_yi": _number(row.get("net_flow_yi")),
-                        "provider": row.get("provider", "csv_cache"),
-                    }
-    except Exception:  # noqa: BLE001
-        pass
-    result = sorted(records.values(), key=lambda r: r["date"], reverse=True)
-    return result[:max_days]
+#: Rows of ``stock_hsgt_fund_flow_summary_em`` that are northbound (into the
+#: mainland).  Selection is by direction, never by row position: the southbound
+#: rows carry a large, live ``资金净流入`` and the northbound rows do not, so an
+#: order-based pick silently returns Hong Kong southbound flow labelled as
+#: northbound (see ``docs/falsified-approaches.md`` F008).
+_NORTHBOUND_DIRECTION = "北向"
+_NORTHBOUND_BOARDS = ("沪股通", "深股通")
+
+
+def northbound_net_from_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Northbound net buy (亿元) from HSGT summary rows, or ``{}`` if unpublished.
+
+    Only rows whose direction/board is northbound are considered, and only the
+    ``成交净买额`` (net buy) field — ``资金净流入`` on those rows is a placeholder.
+    Since 2024 the exchanges no longer publish a northbound daily net, so every
+    northbound row reads exactly ``0.0``; an all-zero cross-section is reported
+    as unavailable rather than as a genuine "flat day", because a true 0.00亿
+    net across both channels does not occur.
+    """
+    total: float | None = None
+    trade_date = ""
+    for row in rows or []:
+        direction = str(row.get("资金方向") or "").strip()
+        board = str(row.get("板块") or "").strip()
+        if direction != _NORTHBOUND_DIRECTION and board not in _NORTHBOUND_BOARDS:
+            continue
+        net = _number(row.get("成交净买额"))
+        if net is None:
+            continue
+        if abs(net) > 100000:
+            net /= 100000000
+        total = net if total is None else total + net
+        trade_date = trade_date or str(row.get("交易日") or "")[:10]
+    if total is None or total == 0.0:
+        return {}
+    return {"date": trade_date or str(date.today()), "net_flow_yi": round(total, 1)}
+
+
+#: Northbound legs of the Eastmoney ``kamt.kline`` payload.  The response is
+#: keyed per leg (``hk2sh``/``hk2sz``/``sh2hk``/``sz2hk``); it has no ``klines``
+#: key at all, so the previous parser could only ever return nothing.
+_KAMT_NORTHBOUND_LEGS = ("hk2sh", "hk2sz")
+
+
+def kamt_northbound_net(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Northbound net buy (亿元) from a ``kamt.kline`` payload, or ``{}``.
+
+    Each leg row is ``f51,f52,f53,f54`` = date, net buy (万元), remaining quota,
+    cumulative.  As with the summary endpoint an all-zero northbound reading is
+    the discontinued-series placeholder, not a flat day.
+    """
+    data = payload.get("data")
+    if not isinstance(data, Mapping):
+        return {}
+    total: float | None = None
+    trade_date = ""
+    for leg in _KAMT_NORTHBOUND_LEGS:
+        rows = data.get(leg) or []
+        if not rows:
+            continue
+        parts = str(rows[-1]).split(",")
+        if len(parts) < 2:
+            continue
+        net = _number(parts[1])
+        if net is None:
+            continue
+        total = net if total is None else total + net
+        trade_date = trade_date or parts[0]
+    if total is None or total == 0.0:
+        return {}
+    return {"date": trade_date, "net_flow_yi": round(total / 10000, 1)}
 
 
 def fetch_northbound_flow() -> dict[str, Any]:
-    """Fetch northbound capital flow with CSV local cache for history.
+    """Northbound daily net, or ``{}`` when the series is not published.
 
-    Every real-time snapshot is appended to a local CSV.  If the upstream API
-    returns empty or NaN values, the CSV history is used as fallback so daily
-    trend comparison never breaks.
+    Northbound daily net buy stopped being disclosed in 2024; both remaining
+    endpoints now return zero for it.  This adapter therefore fails closed and
+    never substitutes a different series (southbound flow, a stale CSV row) for
+    the value it cannot obtain.
     """
     cached = _cache_get("northbound", "summary", max_age_seconds=600)
     if isinstance(cached, dict) and cached:
@@ -1290,17 +1341,12 @@ def fetch_northbound_flow() -> dict[str, Any]:
     def akshare_north() -> dict[str, Any]:
         import akshare as ak
 
-        rows = _frame_records(ak.stock_hsgt_fund_flow_summary_em())
-        for row in reversed(rows):
-            net = _number(row.get("资金净流入") or row.get("成交净买额"))
-            if net is None:
-                continue
-            if abs(net) > 100000:
-                net /= 100000000
-            result = {"date": str(row.get("交易日") or date.today())[:10], "net_flow_yi": round(net, 1), "provider": "akshare"}
-            _save_northbound_snapshot(result["date"], result["net_flow_yi"], result["provider"])
-            return result
-        return {}
+        parsed = northbound_net_from_rows(_frame_records(ak.stock_hsgt_fund_flow_summary_em()))
+        if not parsed:
+            return {}
+        result = {**parsed, "provider": "akshare"}
+        _save_northbound_snapshot(result["date"], result["net_flow_yi"], result["provider"])
+        return result
 
     def eastmoney_kamt() -> dict[str, Any]:
         url = (
@@ -1315,14 +1361,10 @@ def fetch_northbound_flow() -> dict[str, Any]:
             headers=_EASTMONEY_HEADERS,
         )
         payload = json.loads(result.data)
-        klines = (payload.get("data") or {}).get("klines") or []
-        if not klines:
+        parsed = kamt_northbound_net(payload)
+        if not parsed:
             return {}
-        parts = str(klines[-1]).split(",")
-        net = _number(parts[1] if len(parts) > 1 else None)
-        if net is None:
-            return {}
-        result = {"date": parts[0], "net_flow_yi": round(net / 10000, 1), "provider": "eastmoney_kamt"}
+        result = {**parsed, "provider": "eastmoney_kamt"}
         _save_northbound_snapshot(result["date"], result["net_flow_yi"], result["provider"])
         return result
 
@@ -1335,12 +1377,11 @@ def fetch_northbound_flow() -> dict[str, Any]:
     except DataSourceError:
         value = {}
 
-    # If API returned empty/NaN, try CSV history as fallback
+    # No CSV resurrection.  Rows written before F008 hold southbound values
+    # under a northbound header, so replaying that history would reintroduce
+    # exactly the contamination this adapter now refuses to produce.
     if not value or value.get("net_flow_yi") is None:
-        history = _load_northbound_history(max_days=5)
-        if history:
-            value = history[0]  # most recent from cache
-            value["provider"] = value.get("provider", "csv_cache") + "_csv_fallback"
+        value = {}
 
     _cache_set("northbound", "summary", value)
     return value

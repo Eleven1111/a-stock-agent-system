@@ -154,6 +154,8 @@ def check_flow_reversal(
     stock_main_net_yi: float | None = None,
     consecutive_outflow_days: int = 0,
 ) -> dict[str, Any]:
+    # ``northbound_net_yi`` 现在恒为 None（日频净额已停发，见 F008）；这条支路
+    # 因此不再触发，个股主力净流出仍然生效。
     nb_risk = isinstance(northbound_net_yi, (int, float)) and northbound_net_yi < -30
     stock_risk = isinstance(stock_main_net_yi, (int, float)) and stock_main_net_yi < -1
     triggered = (nb_risk and consecutive_outflow_days >= 2) or (stock_risk and consecutive_outflow_days >= 2)
