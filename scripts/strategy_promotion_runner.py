@@ -23,7 +23,13 @@ import strategy_registry  # noqa: E402
 from paths import data_file  # noqa: E402
 
 AUTO_TARGETS = {"research_only": "shadow", "shadow": "eligible_for_manual_pilot"}
+PAPER_AUTO_TARGETS = {**AUTO_TARGETS, "eligible_for_manual_pilot": "manual_pilot"}
 MACHINE_ACTOR = "cron:strategy-promotion-auto"
+PAPER_ENABLE_ENV = "A_STOCK_PAPER_PROMOTION"
+
+
+def _paper_enabled(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "paper_only", False)) or os.environ.get(PAPER_ENABLE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _load(path: str | None) -> dict[str, Any] | None:
@@ -65,8 +71,8 @@ def _audit(strategy_id: str, run_id: str) -> dict[str, str]:
     }
 
 
-def _outcome(strategy_id: str, state: str, outcome: str, reason: str, audit: Mapping[str, Any]) -> dict[str, Any]:
-    return {"strategy_id": strategy_id, "from": state, "target": AUTO_TARGETS.get(state),
+def _outcome(strategy_id: str, state: str, outcome: str, reason: str, audit: Mapping[str, Any], *, target: str | None = None) -> dict[str, Any]:
+    return {"strategy_id": strategy_id, "from": state, "target": target if target is not None else AUTO_TARGETS.get(state),
             "outcome": outcome, "reason": reason, "audit": dict(audit)}
 
 
@@ -85,6 +91,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     registry_file = args.registry or strategy_registry._default_file()
     registry = strategy_registry.all_strategies(registry_file)
     ids = [args.strategy_id] if args.strategy_id else sorted(registry)
+    paper_only = _paper_enabled(args)
+    targets = PAPER_AUTO_TARGETS if paper_only else AUTO_TARGETS
     results: list[dict[str, Any]] = []
     for strategy_id in ids:
         rec = registry.get(strategy_id)
@@ -94,7 +102,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         else:
             promotion = rec.get("promotion") if isinstance(rec.get("promotion"), dict) else {}
             state = str(promotion.get("state") or "research_only")
-            target = AUTO_TARGETS.get(state)
+            target = targets.get(state)
             if target is None:
                 # This includes eligible_for_manual_pilot, manual_pilot and live.
                 result = _outcome(strategy_id, state, "skipped", "automatic_target_not_allowed", audit)
@@ -109,12 +117,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 if precommit is None:
                     result = _outcome(strategy_id, state, "skipped", "precommit_evidence_missing", audit)
                 elif args.dry_run:
-                    result = _outcome(strategy_id, state, "would_promote", "promotion_gate_ready", audit)
+                    result = _outcome(strategy_id, state, "would_promote", "promotion_gate_ready", audit, target=target)
                 else:
                     try:
                         strategy_registry.start_shadow(strategy_id, precommit=precommit, thresholds_path=args.thresholds,
                                                         promotion_audit=audit, registry_file=registry_file)
-                        result = _outcome(strategy_id, state, "promoted", "promotion_gate_passed", audit)
+                        result = _outcome(strategy_id, state, "promoted", "promotion_gate_passed", audit, target=target)
                     except (OSError, ValueError, KeyError) as exc:
                         result = _outcome(strategy_id, state, "rejected", str(exc), audit)
             else:
@@ -123,13 +131,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 if empirical is None or shadow is None:
                     result = _outcome(strategy_id, state, "skipped", "promotion_evidence_missing", audit)
                 elif args.dry_run:
-                    result = _outcome(strategy_id, state, "would_promote", "promotion_gate_ready", audit)
+                    result = _outcome(strategy_id, state, "would_promote", "promotion_gate_ready", audit, target=target)
                 else:
                     try:
-                        strategy_registry.promote_strategy(strategy_id, target, empirical_gate=empirical,
-                                                           shadow_record=shadow, promotion_audit=audit,
-                                                           registry_file=registry_file)
-                        result = _outcome(strategy_id, state, "promoted", "promotion_gate_passed", audit)
+                        strategy_registry.promote_strategy(
+                            strategy_id, target, empirical_gate=empirical,
+                            shadow_record=shadow, promotion_audit=audit,
+                            requested_weight=(args.paper_weight if paper_only and target == "manual_pilot" else None),
+                            paper_only=paper_only and target == "manual_pilot",
+                            registry_file=registry_file,
+                        )
+                        result = _outcome(strategy_id, state, "promoted", "promotion_gate_passed", audit, target=target)
                     except (OSError, ValueError, KeyError) as exc:
                         result = _outcome(strategy_id, state, "rejected", str(exc), audit)
         if not args.dry_run and result["outcome"] in {"skipped", "rejected"} and isinstance(rec, dict):
@@ -140,8 +152,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 result["audit_error"] = str(exc)
         results.append(result)
     return {"schema": "strategy_promotion_run_v1", "run_id": run_id, "actor": MACHINE_ACTOR,
-            "dry_run": bool(args.dry_run), "allowed_targets": ["eligible_for_manual_pilot", "shadow"],
-            "results": results}
+            "dry_run": bool(args.dry_run), "mode": "paper_only" if paper_only else "real_guarded",
+            "allowed_targets": sorted(set(targets.values())), "results": results}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -153,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--empirical-gate", default=_default_empirical_dir())
     parser.add_argument("--shadow-record", default=_default_shadow_dir())
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--paper-only", action="store_true", help="仅允许晋级到 paper manual_pilot，不开启真实 runtime")
+    parser.add_argument("--paper-weight", type=float, default=0.1)
     parser.add_argument("--json", action="store_true", help="输出 JSON（默认格式）")
     args = parser.parse_args(argv)
     print(json.dumps(run(args), ensure_ascii=False, indent=2, sort_keys=True))

@@ -350,7 +350,8 @@ def test_research_gate_cli_requires_human_audit_and_rejects_missing_evidence(
     ]) == 2
 
 
-def _runner_args(registry, thresholds, *, precommit, empirical=None, shadow=None, dry_run=False):
+def _runner_args(registry, thresholds, *, precommit, empirical=None, shadow=None, dry_run=False,
+                 paper_only=False, paper_weight=0.1):
     if isinstance(precommit, dict):
         precommit_path = registry.parent / "precommit.json"
         precommit_path.write_text(json.dumps(precommit), encoding="utf-8")
@@ -364,6 +365,8 @@ def _runner_args(registry, thresholds, *, precommit, empirical=None, shadow=None
         "empirical_gate": str(empirical) if empirical else None,
         "shadow_record": str(shadow) if shadow else None,
         "dry_run": dry_run,
+        "paper_only": paper_only,
+        "paper_weight": paper_weight,
     })()
 
 
@@ -422,3 +425,35 @@ def test_automatic_runner_dry_run_is_json_and_does_not_write_state(tmp_path):
     assert result["schema"] == "strategy_promotion_run_v1"
     assert result["results"][0]["outcome"] == "would_promote"
     assert registry.read_text(encoding="utf-8") == before
+
+
+def test_paper_runner_can_auto_promote_eligible_to_manual_pilot_without_real_runtime(
+    tmp_path, verified_gate_factory
+):
+    registry = tmp_path / "registry.json"
+    _register_legacy_gate(registry, verified_gate_factory)
+    thresholds_path, _ = _thresholds(tmp_path)
+    precommit = _precommit(thresholds_path)
+    promotion_runner.run(_runner_args(registry, thresholds_path, precommit=precommit))
+    shadow = _shadow(precommit, precommit["thresholds_sha256"])
+    gate = _empirical_gate()
+    empirical_path = tmp_path / "empirical.json"
+    shadow_path = tmp_path / "shadow.json"
+    empirical_path.write_text(json.dumps(gate), encoding="utf-8")
+    shadow_path.write_text(json.dumps(shadow), encoding="utf-8")
+    promotion_runner.run(_runner_args(
+        registry, thresholds_path, precommit=precommit, empirical=empirical_path,
+        shadow=shadow_path,
+    ))
+    result = promotion_runner.run(_runner_args(
+        registry, thresholds_path, precommit=precommit, empirical=empirical_path,
+        shadow=shadow_path, paper_only=True,
+    ))
+    assert result["mode"] == "paper_only"
+    assert result["results"][0]["target"] == "manual_pilot"
+    record = sr.live_record("strategy-a", str(registry))
+    assert record["paper_runtime_allowed"] is True
+    assert record["runtime_allowed"] is False
+    assert sr.paper_live_weight("strategy-a", str(registry)) == pytest.approx(0.1)
+    assert sr.is_allowed_in_live("strategy-a", str(registry)) is False
+    assert sr.live_weight("strategy-a", str(registry)) == 0.0

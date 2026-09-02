@@ -21,7 +21,7 @@ Chanlun 不是第二套选股策略。它不能生成候选、改变排名或增
 
 ## 入场门控
 
-配置源为 `config/paper_trading.json`。候选必须同时满足：
+配置源为 `config/paper_trading.json`。本协议固定为 `paper_only`：运行报告使用 `paper_live` 标识，绝不等同于真实 `live`。候选必须同时满足：
 
 - 当日 `open_confirmation_v3` 的最终 `decision` 为 `buy/add/conditional_buy`；
 - `open_score >= 80`，公告质检通过，执行检查已完成；
@@ -87,7 +87,8 @@ paper.daily_nav
 
 调度源仍是 `cron/hermes-cron-manifest.json`：
 
-- `paper-trading-open`：09:37，强依赖 `open-confirmation`；
+- `paper-trading-open`：09:37，强依赖 `open-confirmation`，必须显式传入 `--paper-live`；
+- `strategy-promotion-nightly`：夜间可在证据门禁（含 `broker_status=reconciled`）满足时逐级推进至 `manual_pilot`，但仅写入 `mode=paper_only`、`paper_runtime_allowed=true`；真实 `runtime_allowed` 仍为 false，不进入真实 `live`；
 - `paper-trading-monitor`：10:08-11:53、13:08-14:53每15分钟错峰检查；
 - `paper-trading-close`：15:25，记录收盘净值。
 

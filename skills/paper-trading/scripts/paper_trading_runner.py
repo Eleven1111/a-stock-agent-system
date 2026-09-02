@@ -198,8 +198,6 @@ def run_open(
         filled += result == "filled"
         rejected += result == "rejected"
         reused += result == "reused"
-    # 0 成交时必须说清是「上游门禁按设计拒绝」还是「数据面缺了」——两者处置相反，
-    # 而此前输出只有 filled=0/rejected=N，运维面上分不开（issue #174）。
     zero_fill = paper_trading.classify_zero_fill(
         evaluations,
         filled=filled,
@@ -231,6 +229,7 @@ def run_open(
         "position_count": len(account.get("positions") or []),
         "discipline_state": discipline,
         "research_only": True,
+        "paper_live": True,
         "live_order_sent": False,
     }
 
@@ -298,6 +297,7 @@ def run_monitor(
         "cash": result["account"]["cash"],
         "position_count": len(result["account"].get("positions") or []),
         "research_only": True,
+        "paper_live": True,
         "live_order_sent": False,
     }
 
@@ -359,6 +359,7 @@ def run_close(
         "zero_fill_actionable": zero_fill["actionable"],
         "zero_fill": zero_fill,
         "research_only": True,
+        "paper_live": True,
     }
 
 
@@ -391,6 +392,23 @@ def _zero_signal_open_day(surface: Mapping[str, Any], asof: str) -> bool:
     )
 
 
+def _paper_live_enabled(args: argparse.Namespace) -> bool:
+    enabled = os.environ.get("A_STOCK_PAPER_LIVE", "").strip().lower()
+    return bool(getattr(args, "paper_live", False)) or enabled in {"1", "true", "yes", "on"}
+
+
+def _paper_config_safe(config: Mapping[str, Any]) -> bool:
+    runtime = config.get("runtime") or {}
+    return runtime.get("mode") == "paper_only" and runtime.get("real_broker_access") is False
+
+
+def _require_paper_runtime(args: argparse.Namespace, config: Mapping[str, Any]) -> None:
+    if not _paper_live_enabled(args):
+        raise ValueError("paper_live_switch_required")
+    if not _paper_config_safe(config):
+        raise ValueError("paper_config_not_safe")
+
+
 def _emit_open_no_op(asof: str, *, as_json: bool) -> None:
     """弱市零信号日的 no_op 结论：照常打印，由调用方以 0 退出。"""
     output = {
@@ -401,6 +419,7 @@ def _emit_open_no_op(asof: str, *, as_json: bool) -> None:
         "reason": "open_confirmation_zero_signals",
         "signal_count": 0,
         "research_only": True,
+        "paper_live": True,
         "live_order_sent": False,
     }
     print(json.dumps(output, ensure_ascii=False, indent=2 if as_json else None))
@@ -415,6 +434,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="研究专用模拟交易")
     parser.add_argument("--phase", required=True, choices=("open", "monitor", "close"))
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--paper-live", action="store_true", help="显式开启 paper ledger 的 live simulation")
     args = parser.parse_args()
     now = datetime.now(SHANGHAI)
     asof = now.date().isoformat()
@@ -428,6 +448,7 @@ def main() -> int:
             if _zero_signal_open_day(surface, asof):
                 _emit_open_no_op(asof, as_json=args.json)
                 return 0
+            _require_paper_runtime(args, config)
             allowed_codes = [
                 _code(item.get("code"))
                 for item in surface.get("signals") or []
@@ -448,6 +469,7 @@ def main() -> int:
                 ),
             )
         else:
+            _require_paper_runtime(args, config)
             account = store.load_account(config)
             quotes = _fetch_for_codes([item.get("code") for item in account.get("positions") or []])
             if args.phase == "monitor":
@@ -476,6 +498,7 @@ def main() -> int:
             "asof": asof,
             "reason": str(exc),
             "research_only": True,
+            "paper_live": _paper_live_enabled(args),
             "live_order_sent": False,
         }
         code = 1

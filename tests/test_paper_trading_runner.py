@@ -467,3 +467,25 @@ def test_main_open_phase_still_blocked_when_surface_file_missing(
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "blocked"
     assert payload["reason"] == "open_confirmation_missing"
+
+
+def test_main_requires_explicit_paper_live_switch_before_consuming_candidates(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _stub_load_registered(monkeypatch)
+    asof = datetime.now(runner.SHANGHAI).date().isoformat()
+    _write_open_confirmation(asof, {
+        **_surface(), "asof": asof,
+        "generated_at": f"{asof}T09:35:20+08:00",
+    })
+    monkeypatch.setattr(runner, "_fetch_for_codes", lambda codes: (_ for _ in ()).throw(
+        AssertionError("quotes must not be fetched without paper switch")
+    ))
+    monkeypatch.setattr(sys, "argv", ["paper_trading_runner.py", "--phase", "open", "--json"])
+
+    assert runner.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reason"] == "paper_live_switch_required"
+    assert payload["paper_live"] is False

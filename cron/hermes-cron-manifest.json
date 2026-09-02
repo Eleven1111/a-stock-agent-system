@@ -1180,7 +1180,7 @@
       "schedule": "55 23 * * 1-5",
       "timezone": "Asia/Shanghai",
       "trading_day_policy": "required",
-      "command_argv": ["python", "scripts/strategy_promotion_runner.py", "--json"],
+      "command_argv": ["python", "scripts/strategy_promotion_runner.py", "--paper-only", "--json"],
       "cwd": ".",
       "enabled": true,
       "external": false,
@@ -1199,12 +1199,12 @@
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
       "run": {
-        "argv": ["python", "scripts/strategy_promotion_runner.py", "--json"],
+        "argv": ["python", "scripts/strategy_promotion_runner.py", "--paper-only", "--json"],
         "cwd": ".",
         "timeout_seconds": 60,
         "timeout_tier": "short"
       },
-      "external_note": "仅本地晋级 research_only→shadow→eligible_for_manual_pilot，每次运行最多一阶；到 eligible 后停止。不得自动进入 manual_pilot/live，不设置 runtime_allowed，不触网、不发消息、不写 portfolio/订单。"
+      "external_note": "PAPER ONLY（mode=paper_only）：证据门禁（含 broker reconciliation）满足时，夜间逐级晋级 research_only→shadow→eligible_for_manual_pilot→manual_pilot；每次运行最多一阶。写入 paper_runtime_allowed，不设置真实 runtime_allowed，不进入真实 live，不触网、不发消息、不写 portfolio/订单。"
     },
     {
       "id": "preleader-pretable-build",
@@ -1376,6 +1376,7 @@
           "skills/paper-trading/scripts/paper_trading_runner.py",
           "--phase",
           "open",
+          "--paper-live",
           "--json"
         ],
         "cwd": ".",
@@ -1425,6 +1426,7 @@
           "skills/paper-trading/scripts/paper_trading_runner.py",
           "--phase",
           "monitor",
+          "--paper-live",
           "--json"
         ],
         "cwd": ".",
@@ -1475,6 +1477,7 @@
           "skills/paper-trading/scripts/paper_trading_runner.py",
           "--phase",
           "close",
+          "--paper-live",
           "--json"
         ],
         "cwd": ".",
