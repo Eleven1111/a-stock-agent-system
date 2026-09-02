@@ -169,6 +169,9 @@ def sentiment_boost(code: str, ctx: Optional[Dict[str, Any]],
                 delta -= 0.5
                 notes.append(f"⚠️主力净流出{abs(main):.1f}亿")
 
+    # 北向日频净额自 2024 年披露调整后已停发，采集端现在恒为不可用（F008），
+    # 这条扣分实际不再触发。保留判定是为了口径恢复时不必重接线，绝不能反过来
+    # 用南向或缓存值把它喂活。
     nb = ctx.get("northbound_net_yi")
     if isinstance(nb, (int, float)) and nb < -30:
         delta -= 0.5
