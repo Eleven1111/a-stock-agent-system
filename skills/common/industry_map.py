@@ -681,13 +681,18 @@ def record_history(
     }
 
 
-def history_asof(asof: str, *, history_file: str) -> Dict[str, Any]:
+def default_history_file() -> str:
+    """默认变更日志路径（与默认缓存同目录）。"""
+    return _default_history_file(_default_cache_file())
+
+
+def history_asof(asof: str, *, history_file: str | None = None) -> Dict[str, Any]:
     """还原 ``asof`` 当日的 ``code -> 行业``（PIT 查询）。
 
     ``status``：``ok`` / ``before_history``（早于历史起点）/ ``missing``（无历史）。
     早于起点时返回空映射 —— 用今天的归属回答那天的问题是错的，宁可不可用。
     """
-    events = _read_history_events(history_file)
+    events = _read_history_events(history_file or default_history_file())
     if not events:
         return {
             "schema": HISTORY_SCHEMA,
