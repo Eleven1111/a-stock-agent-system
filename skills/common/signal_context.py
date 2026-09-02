@@ -103,6 +103,43 @@ def filter_sector_flows_for_asof(
 
 # ========== 纯函数：情绪加成（可单测）==========
 
+def _sector_boost(sector: Optional[str],
+                  ctx: Dict[str, Any]) -> tuple[float, list]:
+    """板块两项加成：赚钱效应阶梯 + 动量分级。
+
+    阈值与幅度的单一事实源是 config/scoring.yaml 的 ``sector_momentum`` 节，
+    本函数内没有数字副本。
+    """
+    if not sector:
+        return 0.0, []
+
+    from sector_momentum import load_config, momentum_boost
+
+    config = load_config()
+    delta = 0.0
+    notes = []
+
+    limitups = ctx.get("sector_limitups") or {}
+    if sector in limitups:
+        n = int(limitups[sector] or 0)
+        # 按 min_limitups 从高到低取第一条命中的档位。
+        for step in sorted(
+            config["limitup_ladder"],
+            key=lambda item: float(item.get("min_limitups") or 0),
+            reverse=True,
+        ):
+            if n >= int(step.get("min_limitups") or 0):
+                delta += float(step.get("delta") or 0.0)
+                notes.append(f"{step.get('label')}({sector}涨停{n}家)")
+                break
+
+    momentum = momentum_boost(sector, ctx.get("sector_momentum"), config=config)
+    if momentum["delta"]:
+        delta += momentum["delta"]
+        notes.append(momentum["note"])
+    return delta, notes
+
+
 def sentiment_boost(code: str, ctx: Optional[Dict[str, Any]],
                     sector: Optional[str] = None) -> Dict[str, Any]:
     """从上下文计算个股情绪加成。返回 {delta, notes, sector}；无上下文 → 0 加成。
@@ -110,8 +147,8 @@ def sentiment_boost(code: str, ctx: Optional[Dict[str, Any]],
     口径（打板/赚钱效应原生）：
     - 连板梯队在册：连板≥2 +1.5（梯队龙头延续性）；首板 +0.8
     - 封板资金≥1亿 +0.5；竞价/早盘封(≤09:35) +0.5（封板质量）
-    - 板块涨停≥5 +1.0 / ≥3 +0.5（板块赚钱效应/集群共振）
-    - 板块动量 strong +1.0 / emerging +0.5 / weakening -0.3 / rotating_out -0.5
+    - 板块赚钱效应阶梯 + 板块动量分级：见 _sector_boost，阈值与幅度的单一事实源
+      是 config/scoring.yaml 的 sector_momentum 节（本文件内无数字副本）
     - 个股主力净流入>1亿 +0.5；净流出<-1亿 -0.5
     - 北向净流出<-30亿 -0.5（外资风险偏好收缩）
     """
@@ -141,22 +178,9 @@ def sentiment_boost(code: str, ctx: Optional[Dict[str, Any]],
             delta += 0.5
             notes.append(f"早盘强封({first_seal})")
 
-    limitups = ctx.get("sector_limitups") or {}
-    if sector and sector in limitups:
-        n = int(limitups[sector] or 0)
-        if n >= 5:
-            delta += 1.0
-            notes.append(f"板块赚钱效应强({sector}涨停{n}家)")
-        elif n >= 3:
-            delta += 0.5
-            notes.append(f"板块共振({sector}涨停{n}家)")
-
-    if sector:
-        from sector_momentum import momentum_boost
-        momentum = momentum_boost(sector, ctx.get("sector_momentum"))
-        if momentum["delta"]:
-            delta += momentum["delta"]
-            notes.append(momentum["note"])
+    sector_delta, sector_notes = _sector_boost(sector, ctx)
+    delta += sector_delta
+    notes.extend(sector_notes)
 
     flow = (ctx.get("stock_flows") or {}).get(code)
     if isinstance(flow, dict):
