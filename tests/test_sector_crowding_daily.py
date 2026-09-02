@@ -188,3 +188,33 @@ def test_price_artifact_is_a_separate_file_from_crowding(tmp_path, monkeypatch):
     assert payload["artifact"] != payload["price_artifact"]
     crowding = json.loads(Path(payload["artifact"]).read_text(encoding="utf-8"))
     assert crowding["schema"] == "sector_crowding_v1"
+
+
+def test_fake_breakout_is_produced_from_the_same_pass(tmp_path, monkeypatch):
+    """假突破风险复用已算好的广度/集中度分位/拥挤分，不重算、不重读盘。"""
+    asof = _seed(tmp_path, monkeypatch, sessions=_sessions(70))
+    payload = _load_cli().run(asof=asof, write=True)
+
+    summary = payload["fake_breakout"]
+    assert summary["live_effect"] == "none"
+    assert summary["validated"] is False
+    assert "sectors" not in summary
+
+    written = json.loads(Path(payload["fake_breakout_artifact"]).read_text(encoding="utf-8"))
+    assert written["schema"] == "sector_fake_breakout_v1"
+    assert Path(payload["fake_breakout_artifact"]).name == "sector_fake_breakout_latest.json"
+
+    scored = [row for row in written["sectors"] if row["status"] == "ok"]
+    assert scored, written
+    # 三个无数据源的子项必须始终缺席，绝不能被补成 0
+    for row in scored:
+        assert row["subrisks"]["earnings_divergence"] is None
+        assert row["subrisks"]["prosperity_divergence"] is None
+        assert row["subrisks"]["news_dependence"] is None
+
+
+def test_three_artifacts_are_distinct_files(tmp_path, monkeypatch):
+    asof = _seed(tmp_path, monkeypatch, sessions=_sessions(70))
+    payload = _load_cli().run(asof=asof, write=True)
+    paths = {payload["artifact"], payload["price_artifact"], payload["fake_breakout_artifact"]}
+    assert len(paths) == 3
