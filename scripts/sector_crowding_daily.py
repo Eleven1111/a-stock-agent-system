@@ -8,6 +8,7 @@
 - ``sector_crowding_latest.json``       拥挤度分位与状态机档位
 - ``sector_price_factors_latest.json``  RS / 超额动量 / RS 斜率 / 广度
 - ``sector_fake_breakout_latest.json``  假突破风险（六个可得子项）
+- ``sector_rotation_pools_latest.json`` 三池归属 + 合成分（只覆盖报告权重 41%）
 
 两份分开落盘：产物名字必须说清里面是什么，把价格因子塞进拥挤度那份会让下游读到
 名不副实的内容。
@@ -45,6 +46,7 @@ import industry_map  # noqa: E402
 import local_market_history as history  # noqa: E402
 import sector_crowding  # noqa: E402
 import sector_fake_breakout  # noqa: E402
+import sector_rotation_pools  # noqa: E402
 import sector_price_factors  # noqa: E402
 from paths import data_file  # noqa: E402
 from state_store import atomic_write_json  # noqa: E402
@@ -52,6 +54,7 @@ from state_store import atomic_write_json  # noqa: E402
 ARTIFACT_NAME = "sector_crowding_latest.json"
 PRICE_ARTIFACT_NAME = "sector_price_factors_latest.json"
 FAKE_BREAKOUT_ARTIFACT_NAME = "sector_fake_breakout_latest.json"
+POOLS_ARTIFACT_NAME = "sector_rotation_pools_latest.json"
 
 
 def _artifact_path() -> str:
@@ -64,6 +67,10 @@ def _price_artifact_path() -> str:
 
 def _fake_breakout_artifact_path() -> str:
     return data_file("stock-triage", FAKE_BREAKOUT_ARTIFACT_NAME)
+
+
+def _pools_artifact_path() -> str:
+    return data_file("stock-triage", POOLS_ARTIFACT_NAME)
 
 
 def build_series(
@@ -152,31 +159,59 @@ def run(*, asof: str | None = None, write: bool = True) -> dict[str, Any]:
         for key, value in industry_map.history_asof(trading_date).items()
         if key != "industry_by_code"
     }
-    # 价格因子与拥挤度共用同一趟读盘，但落成**两份**产物：名字必须说清里面是什么，
-    # 把价格因子塞进 sector_crowding_latest.json 会让下游读到名不副实的内容。
+    price_payload, fake_payload, pools_payload = _derived_payloads(
+        payload, series, price_series, trading_date, price_config
+    )
+    for key, derived in (
+        ("price_factors", price_payload),
+        ("fake_breakout", fake_payload),
+        ("rotation_pools", pools_payload),
+    ):
+        payload[key] = {k: v for k, v in derived.items() if k != "sectors"}
+
+    if write:
+        atomic_write_json(_artifact_path(), payload)
+        atomic_write_json(_price_artifact_path(), price_payload)
+        atomic_write_json(_fake_breakout_artifact_path(), fake_payload)
+        atomic_write_json(_pools_artifact_path(), pools_payload)
+        payload["artifact"] = _artifact_path()
+        payload["price_artifact"] = _price_artifact_path()
+        payload["fake_breakout_artifact"] = _fake_breakout_artifact_path()
+        payload["pools_artifact"] = _pools_artifact_path()
+    return payload
+
+
+def _derived_payloads(
+    crowding_payload: dict[str, Any],
+    crowding_series: list[dict[str, Any]],
+    price_series: list[dict[str, Any]],
+    trading_date: str,
+    price_config: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """价格因子 / 假突破 / 三池：三份都从同一趟读盘的序列派生，互不重算。
+
+    落成**四份独立产物**：名字必须说清里面是什么，混进一份会让下游读到名不副实
+    的内容。
+    """
     price_payload = sector_price_factors.build_sector_price_factors(
         price_series,
         asof=str(price_series[-1]["trading_date"]) if price_series else trading_date,
         config=price_config,
     )
     price_payload["requested_asof"] = trading_date
-    payload["price_factors"] = {
-        key: value for key, value in price_payload.items() if key != "sectors"
-    }
 
-    fake_payload = _build_fake_breakout(price_series, series, payload, price_payload)
-    payload["fake_breakout"] = {
-        key: value for key, value in fake_payload.items() if key != "sectors"
-    }
+    fake_payload = _build_fake_breakout(
+        price_series, crowding_series, crowding_payload, price_payload
+    )
 
-    if write:
-        atomic_write_json(_artifact_path(), payload)
-        atomic_write_json(_price_artifact_path(), price_payload)
-        atomic_write_json(_fake_breakout_artifact_path(), fake_payload)
-        payload["artifact"] = _artifact_path()
-        payload["price_artifact"] = _price_artifact_path()
-        payload["fake_breakout_artifact"] = _fake_breakout_artifact_path()
-    return payload
+    pools_payload = sector_rotation_pools.build_sector_rotation_pools(
+        [row["sector"] for row in price_payload.get("sectors") or []],
+        asof=str(price_payload.get("asof") or trading_date),
+        price_factors={row["sector"]: row for row in price_payload.get("sectors") or []},
+        crowding={row["sector"]: row for row in crowding_payload.get("sectors") or []},
+        fake_breakout={row["sector"]: row for row in fake_payload.get("sectors") or []},
+    )
+    return price_payload, fake_payload, pools_payload
 
 
 def _build_fake_breakout(
@@ -269,6 +304,12 @@ def format_report(payload: dict[str, Any]) -> str:
     lines.append(
         f"  假突破风险（未经验证）：{fake.get('status')} 出分 {fake.get('scored_count')}"
         f"/{fake.get('sector_count')}"
+    )
+    pools = (payload.get("rotation_pools") or {}).get("pools") or {}
+    lines.append(
+        f"  三池（未经验证，仅覆盖报告权重 41%）：主线 {len(pools.get('mainline') or [])}"
+        f" / 观察 {len(pools.get('watch') or [])} / 规避 {len(pools.get('avoid') or [])}"
+        f" / 不可得 {len(pools.get('unavailable') or [])}"
     )
     return "\n".join(lines)
 
