@@ -799,14 +799,39 @@ def refresh(
             f"（{covered}/{universe_count}）",
         )
 
+    payload = _build_refresh_payload(
+        asof,
+        built=built,
+        prior_map=prior_map,
+        new_map=new_map,
+        gap_report=gap_report,
+        coverage=(universe_count, covered, coverage_rate),
+        history_file=history_file or _default_history_file(cache_file),
+    )
+    atomic_write_json(cache_file, payload)
+    return payload
+
+
+def _build_refresh_payload(
+    asof: str,
+    *,
+    built: Mapping[str, Any],
+    prior_map: Mapping[str, str],
+    new_map: Mapping[str, str],
+    gap_report: Mapping[str, Any],
+    coverage: Tuple[int | None, int | None, float | None],
+    history_file: str,
+) -> Dict[str, Any]:
+    """合并当日观测与昨日缓存，落一条历史事件，产出缓存载荷。"""
+    universe_count, covered, coverage_rate = coverage
     merged = apply_industry_overrides({**prior_map, **new_map})
     # 只把当日**观测到**的部分写进历史；prior_map 是沿用，不是观测。
     history = record_history(
         asof,
         apply_industry_overrides(dict(new_map)),
-        history_file=history_file or _default_history_file(cache_file),
+        history_file=history_file,
     )
-    payload = {
+    return {
         "schema": SCHEMA,
         "asof": asof,
         "built_at": built["built_at"],
@@ -827,8 +852,6 @@ def refresh(
         "gap_fill": gap_report,
         "history": history,
     }
-    atomic_write_json(cache_file, payload)
-    return payload
 
 
 def load_cached_status(
