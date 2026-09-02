@@ -2666,6 +2666,7 @@
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/sector_crowding_latest.json",
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/sector_price_factors_latest.json",
         "$A_STOCK_STATE_HOME/skills/stock-triage/data/sector_fake_breakout_latest.json",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/sector_rotation_pools_latest.json",
         "$A_STOCK_STATE_HOME/cron/output/sector-crowding-daily/",
         "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
       ],
@@ -2675,7 +2676,7 @@
         "timeout_seconds": 180,
         "timeout_tier": "standard"
       },
-      "external_note": "16:30 在 market-history-cache(15:10，长档可跑到 15:30) 之后：只读本地 SQLite 日线与行业归属缓存，零取数。用今天的行业归属重建过去 120 个交易日的板块成交/换手/集中度，出拥挤度分位与状态机档位。RESEARCH ONLY：产物标 exploratory_reconstruction / live_effect=none，不进 research gate、不生成订单、不改实盘权重。行业归属或日线缓存不可用即 blocked，两者 reason 不同；分位样本不足则产物照落但判 unavailable。同一趟读盘另产出板块价格类因子（RS/超额动量/RS斜率/广度，基准为全A中位数），落 sector_price_factors_latest.json，以及板块假突破风险（报告九子项里可得的六项，缺的三项退出加权而不是补零）落 sector_fake_breakout_latest.json —— 后两组因子未经任何真实数据验证。"
+      "external_note": "16:30 在 market-history-cache(15:10，长档可跑到 15:30) 之后：只读本地 SQLite 日线与行业归属缓存，零取数。用今天的行业归属重建过去 120 个交易日的板块成交/换手/集中度，出拥挤度分位与状态机档位。RESEARCH ONLY：产物标 exploratory_reconstruction / live_effect=none，不进 research gate、不生成订单、不改实盘权重。行业归属或日线缓存不可用即 blocked，两者 reason 不同；分位样本不足则产物照落但判 unavailable。同一趟读盘另产出板块价格类因子（RS/超额动量/RS斜率/广度，基准为全A中位数），落 sector_price_factors_latest.json，以及板块假突破风险（报告九子项里可得的六项，缺的三项退出加权而不是补零）落 sector_fake_breakout_latest.json ，以及板块三池归属与合成分（只覆盖报告 RotationStartScore 权重的 41%，缺景气/盈利/资金/估值/regime 五项）落 sector_rotation_pools_latest.json —— 后三组产物未经任何真实数据验证。"
     },
     {
       "id": "research-dataset-build",

@@ -218,3 +218,32 @@ def test_three_artifacts_are_distinct_files(tmp_path, monkeypatch):
     payload = _load_cli().run(asof=asof, write=True)
     paths = {payload["artifact"], payload["price_artifact"], payload["fake_breakout_artifact"]}
     assert len(paths) == 3
+
+
+def test_rotation_pools_are_produced_and_disclose_the_missing_weight(tmp_path, monkeypatch):
+    asof = _seed(tmp_path, monkeypatch, sessions=_sessions(70))
+    payload = _load_cli().run(asof=asof, write=True)
+
+    summary = payload["rotation_pools"]
+    assert summary["live_effect"] == "none"
+    assert summary["validated"] is False
+    assert summary["confidence"] == "low"
+    assert summary["missing_weight_share"] > 0.5
+    assert summary["weight_path"] == "expert_only_no_fitting"
+
+    written = json.loads(Path(payload["pools_artifact"]).read_text(encoding="utf-8"))
+    assert written["schema"] == "sector_rotation_pools_v1"
+    assert set(written["pools"]) == {"mainline", "watch", "avoid", "unavailable"}
+    # 每个板块恰好落进一个池
+    total = sum(len(codes) for codes in written["pools"].values())
+    assert total == written["sector_count"]
+
+
+def test_four_artifacts_are_distinct_files(tmp_path, monkeypatch):
+    asof = _seed(tmp_path, monkeypatch, sessions=_sessions(70))
+    payload = _load_cli().run(asof=asof, write=True)
+    paths = {
+        payload["artifact"], payload["price_artifact"],
+        payload["fake_breakout_artifact"], payload["pools_artifact"],
+    }
+    assert len(paths) == 4

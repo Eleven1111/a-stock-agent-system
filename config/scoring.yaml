@@ -205,6 +205,27 @@ sector_fake_breakout:
   leader_divergence_gap: 0.02
   min_history_sessions: 61
 
+# 板块三池 + 多标签 regime + 合成分（RESEARCH ONLY，零实盘影响，**未经真实数据验证**）。
+#
+# ⚠️ 合成分只覆盖报告 RotationStartScore 权重的 41%：景气(0.20)/盈利(0.14)/资金(0.12)/
+# 估值(0.08)/regime契合(0.05) 五项本仓没有数据源。剩下能算的四项全是价量 —— 恰恰是
+# 报告反复警告的那种纯动量分。产物里 missing_weight_share=0.59，置信度恒 low，
+# 三池判定要求条件共振而不是单看这个分数。别把它当成 RotationStartScore 的实现。
+#
+# 权重路径纪律：专家规则 → 滚动 IC → ML，顺序不可颠倒。本节只做第一步，权重取报告
+# 原值在可得项上归一，没有任何拟合。要进 IC 加权必须复用 weight_shadow 的纪律
+# （60 拟合日 + 60 未见 OOS、不自动晋级），不得看结果回拟合。
+sector_rotation_pools:
+  mainline_rs_slope_min: 0.0
+  mainline_breadth_min: 0.55
+  mainline_max_fake_risk: 40.0
+  mainline_min_score: 60.0
+  avoid_fake_risk: 55.0
+  rs_slope_full_scale: 0.002
+  rs_slope_window: 20
+  market_crowding_elevated: 0.60
+  market_crowding_extreme: 0.75
+
 # 龙头连续评分 LeaderScore（升级方案 P2-a，SHADOW ONLY）。
 # hot_money_selection.leader_score 内**没有**这些数字的副本：本节缺失时整体返回
 # unavailable。它与既有的 leader_score（= 100 - (rank-1)*15 的排名代理）是两个
