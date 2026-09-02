@@ -196,7 +196,13 @@ def _series_subrisks(
 
     # 2. 量价背离：放量但净位移很小。
     efficiency = price_efficiency(levels, int(settings["price_efficiency_window"]))
-    z_score = amount_zscore(list(amounts or []), int(settings["amount_z_window"]))
+    # 成交额是**另一条**输入通道，长度对不上就是未来数据泄漏的入口：调用方若把
+    # 完整序列的 amounts 喂给一个被截断的 series，z 分会读到决策点之后的成交额。
+    # 因此长度不等即判该子项不可得，绝不静默截断（截断会把调用方的错误藏起来）。
+    aligned = list(amounts or [])
+    if aligned and len(aligned) != len(levels):
+        return efficiency, None, subrisks
+    z_score = amount_zscore(aligned, int(settings["amount_z_window"]))
     if efficiency is not None and z_score is not None:
         subrisks["volume_price_divergence"] = (
             1.0

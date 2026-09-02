@@ -82,7 +82,7 @@ def test_amount_zscore_needs_history_and_nonzero_spread():
 def test_missing_fundamental_subrisks_leave_the_weighting_not_zero_filled():
     series = _series(_flat(70, 0.001))
     row = sfb.sector_fake_breakout_risk(
-        series, "半导体", breadth_today=0.2, amounts=_jitter(71)
+        series, "半导体", breadth_today=0.2, amounts=_jitter(70)
     )
     assert row["status"] == "ok"
     assert set(row["missing_subrisks"]) >= {
@@ -96,7 +96,7 @@ def test_zero_filling_the_missing_subrisks_would_dilute_the_risk():
     """同一份输入下，重新归一得到的风险必须高于「补零再按全权重平均」。"""
     series = _series(_flat(70, 0.001))
     row = sfb.sector_fake_breakout_risk(
-        series, "半导体", breadth_today=0.2, amounts=_jitter(71)
+        series, "半导体", breadth_today=0.2, amounts=_jitter(70)
     )
     diluted = 100.0 * sum(
         sfb.REPORT_WEIGHTS[name] * (value or 0.0)
@@ -143,11 +143,11 @@ def test_breadth_drop_since_breakout_counts_even_above_the_floor():
 def test_volume_price_divergence_fires_on_heavy_volume_without_displacement():
     chop = _flat(65, 0.0) + [0.05, -0.05, 0.05, -0.05, 0.001]
     series = _series(chop)
-    amounts = _jitter(70) + [5000.0]
+    amounts = _jitter(69) + [5000.0]
     row = sfb.sector_fake_breakout_risk(series, "半导体", amounts=amounts)
     assert row["subrisks"]["volume_price_divergence"] == 1.0
 
-    calm = sfb.sector_fake_breakout_risk(series, "半导体", amounts=_jitter(71))
+    calm = sfb.sector_fake_breakout_risk(series, "半导体", amounts=_jitter(70))
     assert calm["subrisks"]["volume_price_divergence"] == 0.0
 
 
@@ -190,7 +190,7 @@ def test_a_decision_point_only_sees_the_prefix_it_was_given():
     """
     prefix = _flat(65, 0.0) + [0.05, -0.05, 0.05, -0.05, 0.001]
     future = [0.20, 0.20, 0.20]
-    prefix_amounts = _jitter(70) + [5000.0]
+    prefix_amounts = _jitter(69) + [5000.0]
     future_amounts = [100.0, 100.0, 100.0]
 
     only_prefix = sfb.sector_fake_breakout_risk(
@@ -211,6 +211,27 @@ def test_a_decision_point_only_sees_the_prefix_it_was_given():
         amounts=prefix_amounts + future_amounts,
     )
     assert including_future["price_efficiency"] != only_prefix["price_efficiency"]
+
+
+def test_amounts_longer_than_the_series_is_refused_not_silently_truncated():
+    """成交额是另一条输入通道，长度对不上就是未来数据泄漏的入口。
+
+    调用方若把完整序列的 amounts 喂给一个被截断的 series，z 分会读到决策点之后的
+    成交额。这里要求该子项判不可得 —— 静默截断会把调用方的错误藏起来。
+    """
+    prefix = _flat(65, 0.0) + [0.05, -0.05, 0.05, -0.05, 0.001]
+    leaked = _jitter(69) + [5000.0] + [9999.0, 9999.0, 9999.0]
+
+    leaked_row = sfb.sector_fake_breakout_risk(
+        _series(prefix), "半导体", breadth_today=0.4, amounts=leaked
+    )
+    assert leaked_row["subrisks"]["volume_price_divergence"] is None
+    assert leaked_row["amount_z"] is None
+
+    aligned_row = sfb.sector_fake_breakout_risk(
+        _series(prefix), "半导体", breadth_today=0.4, amounts=leaked[: len(prefix)]
+    )
+    assert aligned_row["subrisks"]["volume_price_divergence"] is not None
 
 
 # ── 组装 ────────────────────────────────────────────────────────
