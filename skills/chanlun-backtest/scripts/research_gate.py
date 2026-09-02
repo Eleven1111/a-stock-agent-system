@@ -7,6 +7,8 @@
 Usage:
   python skills/chanlun-backtest/scripts/research_gate.py --example --json
   python skills/chanlun-backtest/scripts/research_gate.py --input research_state.json --json
+  python skills/chanlun-backtest/scripts/research_gate.py start-shadow ...
+  python skills/chanlun-backtest/scripts/research_gate.py promote ...
 """
 
 import argparse
@@ -561,25 +563,107 @@ def load_payload(path: Optional[str], use_example: bool) -> Dict[str, Any]:
     return example_payload()
 
 
-if __name__ == "__main__":
+def _load_object(path: str) -> Dict[str, Any]:
+    with open(path, encoding="utf-8") as handle:
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise ValueError(f"JSON object required: {path}")
+    return value
+
+
+def _audit(args: argparse.Namespace, strategy_id: str) -> Dict[str, Any]:
+    return {
+        "schema": "strategy_promotion_audit_v1",
+        "strategy_id": strategy_id,
+        "actor": args.actor,
+        "reason": args.reason,
+        "signature": args.signature,
+        "signed_at": args.signed_at or datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def _add_audit_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--actor", required=True, help="人工操作人标识")
+    parser.add_argument("--reason", required=True, help="本次晋级的人工理由")
+    parser.add_argument("--signature", required=True, help="人工签名/批准凭据")
+    parser.add_argument("--signed-at", help="带时区的 ISO 时间；默认当前时间")
+
+
+def _promotion_cli(args: argparse.Namespace) -> int:
+    import strategy_registry
+
+    try:
+        audit = _audit(args, args.strategy_id)
+        if args.command == "start-shadow":
+            result = strategy_registry.start_shadow(
+                args.strategy_id, precommit=_load_object(args.precommit),
+                thresholds_path=args.thresholds, promotion_audit=audit,
+                registry_file=args.registry,
+            )
+        else:
+            approval = None
+            if args.target == "manual_pilot":
+                approval = {
+                    "approved": True, "strategy_id": args.strategy_id,
+                    "approver": args.actor, "approved_at": audit["signed_at"],
+                    "reason": args.reason, "signature": args.signature,
+                }
+            result = strategy_registry.promote_strategy(
+                args.strategy_id, args.target,
+                empirical_gate=_load_object(args.empirical_gate) if args.empirical_gate else None,
+                shadow_record=_load_object(args.shadow_record) if args.shadow_record else None,
+                human_approval=approval, promotion_audit=audit,
+                requested_weight=args.weight, registry_file=args.registry,
+            )
+    except (OSError, json.JSONDecodeError, ValueError, KeyError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        return 2
+    print(json.dumps({"ok": True, "strategy_id": args.strategy_id,
+                      "promotion": result.get("promotion")}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="缠论/打板离线研究闸门")
     parser.add_argument("--input", help="JSON input file. If omitted, reads stdin when piped.")
     parser.add_argument("--example", action="store_true", help="Run with built-in example payload.")
     parser.add_argument("--json", action="store_true", help="Output JSON.")
-    parser.add_argument("--register", action="store_true",
-                        help="把闸门结论登记进 strategy_registry（供实时 Agent 裁决是否计权）。")
-    args = parser.parse_args()
+    parser.add_argument("--register", action="store_true", help="登记闸门结论")
+    sub = parser.add_subparsers(dest="command")
+    shadow = sub.add_parser("start-shadow", help="人工将 research_only 晋级为 shadow")
+    shadow.add_argument("--strategy-id", required=True)
+    shadow.add_argument("--precommit", required=True, help="oos-precommit-v1 JSON")
+    shadow.add_argument("--thresholds", required=True)
+    shadow.add_argument("--registry")
+    _add_audit_arguments(shadow)
+    promote = sub.add_parser("promote", help="人工晋级一个相邻 promotion state")
+    promote.add_argument("--strategy-id", required=True)
+    promote.add_argument("--target", required=True,
+                         choices=("eligible_for_manual_pilot", "manual_pilot", "live"))
+    promote.add_argument("--empirical-gate")
+    promote.add_argument("--shadow-record")
+    promote.add_argument("--weight", type=float)
+    promote.add_argument("--registry")
+    _add_audit_arguments(promote)
+    return parser
 
+
+def main(argv: Optional[List[str]] = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    args = build_parser().parse_args(argv)
+    if args.command in {"start-shadow", "promote"}:
+        return _promotion_cli(args)
     output = evaluate_gate(load_payload(args.input, args.example))
     if args.register:
         import strategy_registry  # noqa: E402
         rec = strategy_registry.register_gate_result(output["strategy_id"], output)
-        output["registered"] = {
-            "strategy_id": rec["strategy_id"],
-            "allowed_in_live_agent": rec["allowed_in_live_agent"],
-            "gating_status": rec.get("gating_status"),
-        }
-    if args.json:
-        print(json.dumps(output, ensure_ascii=False, indent=2))
-    else:
-        print(format_report(output))
+        output["registered"] = {"strategy_id": rec["strategy_id"],
+                                "allowed_in_live_agent": rec["allowed_in_live_agent"],
+                                "gating_status": rec.get("gating_status")}
+    print(json.dumps(output, ensure_ascii=False, indent=2) if args.json else format_report(output))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

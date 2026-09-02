@@ -1175,6 +1175,38 @@
       "external_note": "SHADOW ONLY：冻结当日 canonical signal，统一按 next-session open 入场参考结算 T+1/T+3；同 session CSI300 基准，显式费用/滑点。append-only，不写 signal ledger、registry、portfolio 或订单。"
     },
     {
+      "id": "strategy-promotion-nightly",
+      "name": "策略自动晋级至人工试点候选",
+      "schedule": "55 23 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "trading_day_policy": "required",
+      "command_argv": ["python", "scripts/strategy_promotion_runner.py", "--json"],
+      "cwd": ".",
+      "enabled": true,
+      "external": false,
+      "expected_output": "json",
+      "silent_when_no_signal": true,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 4000,
+      "context_from": ["strategy-forward-settlement-daily"],
+      "dependency_policy": {"trading_date": "same_trading_date", "max_age_minutes": 30},
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/skills/stock-triage/data/strategy_registry.json",
+        "$A_STOCK_STATE_HOME/cron/output/strategy-promotion-nightly/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": ["python", "scripts/strategy_promotion_runner.py", "--json"],
+        "cwd": ".",
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
+      },
+      "external_note": "仅本地晋级 research_only→shadow→eligible_for_manual_pilot，每次运行最多一阶；到 eligible 后停止。不得自动进入 manual_pilot/live，不设置 runtime_allowed，不触网、不发消息、不写 portfolio/订单。"
+    },
+    {
       "id": "preleader-pretable-build",
       "name": "S4 先于龙头套利盘前表构建",
       "schedule": "40 16 * * 1-5",

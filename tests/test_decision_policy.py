@@ -1,4 +1,5 @@
 import decision_policy
+import strategy_registry
 
 
 ALLOWED_STRATEGY = {
@@ -377,6 +378,18 @@ def test_expected_paths_continue_dominates_in_expansion():
     )
     paths = {p["scenario"]: p["prob"] for p in result["expected_paths"]}
     assert paths["continue"] == max(paths.values())
+
+
+def test_positive_runtime_path_is_protected_by_live_registry_mutation(monkeypatch):
+    """Mutation-style guard: making registry admission always false must block buy."""
+    monkeypatch.setattr(strategy_registry, "is_allowed_in_live", lambda *_args, **_kwargs: False)
+    result = decision_policy.evaluate_decision(
+        requested_action="buy", quality_report={"status": "passed"},
+        strategy_record={"allowed_in_live_agent": True,
+                         "runtime_allowed": strategy_registry.is_allowed_in_live("strategy-a")},
+    )
+    assert result["decision"] in {"avoid", "watch"}
+    assert "strategy_not_allowed" in result["reasons"]
 
 
 def test_expected_paths_none_without_market_state():

@@ -135,6 +135,22 @@ def test_strategy_evidence_daily_is_bounded_and_isolated():
     assert "signal_ledger" not in writes
 
 
+def test_strategy_promotion_nightly_is_local_bounded_and_after_forward_settlement():
+    job = _manifest_job("strategy-promotion-nightly")
+    assert job["schedule"] == "55 23 * * 1-5"
+    assert job["external"] is False
+    assert job["deliver"] == "local"
+    assert job["silent_when_no_signal"] is True
+    assert job["context_from"] == ["strategy-forward-settlement-daily"]
+    assert _entry_command(job) == "python scripts/strategy_promotion_runner.py --json"
+    assert _run_command(job) == _entry_command(job)
+    writes = " ".join(job["allowed_state_writes"])
+    assert "strategy_registry.json" in writes
+    assert "portfolio" not in writes
+    assert "signal_ledger" not in writes
+    assert "不设置 runtime_allowed" in job["external_note"]
+
+
 def test_sentiment_backfill_bootstraps_s6_without_network_or_overwriting_forward_rows():
     job = _manifest_job("sentiment-daily-backfill")
     assert job["schedule"] == "50 22 * * 1-5"

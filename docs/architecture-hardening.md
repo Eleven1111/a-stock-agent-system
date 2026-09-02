@@ -248,6 +248,11 @@ python scripts/agent_runtime_context.py
 
 - 离线负责 IS/OOS、成本、对照组和统计检验。
 - `research_gate --register` 把每类结构信号的准入结论写入 `strategy_registry.json`。
+- 人工晋级只能使用 `research_gate.py start-shadow` / `promote`：必须逐级
+  提供 `--actor`、`--reason`、`--signature`，并把审计封装写入
+  `promotion.history`。证据不足、非法跳级或 origin ceiling 都拒绝；该入口
+  不接自动晋级。`manual_pilot` 仍要求完整 empirical/shadow 证据和
+  `broker_status=reconciled`，paper-trading 不能替代 broker statement。
 - D0 候选发现对输入快照中的 K 线运行 `chan_structure.analyze`，把近期三买/三卖/
   顶底背驰作为结构化证据随候选向竞价和开盘传递。
 - 未过闸信号只展示；已过闸的看空信号可阻断买入。看多信号只能提供支持，不能绕过
