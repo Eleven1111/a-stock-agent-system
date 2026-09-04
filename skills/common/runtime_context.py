@@ -29,6 +29,11 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 # multi-hundred-KB blob from the surface a model can load.
 DEFAULT_ARTIFACT_STDOUT_LIMIT = 20000
 
+# Payload statuses that override an "ok" artifact status on a zero exit code.
+# Deliberately only these two: a quiet day writes status "no_signal" and must
+# stay a successful run, or every silent_when_no_signal job reads as a failure.
+DEGRADED_PAYLOAD_STATUSES = frozenset({"degraded", "unavailable"})
+
 
 def _artifact_stdout_limit() -> int:
     raw = os.environ.get("A_STOCK_MAX_ARTIFACT_STDOUT")
@@ -397,8 +402,8 @@ def build_artifact(
     # outcome at artifact level too; otherwise the scheduler publishes a
     # misleading green status beside a red summary.
     payload_status = parsed.get("status") if isinstance(parsed, dict) else None
-    if status == "ok" and isinstance(payload_status, str) and payload_status != "ok":
-        status = payload_status
+    if status == "ok" and payload_status in DEGRADED_PAYLOAD_STATUSES:
+        status = str(payload_status)
     stdout_limit = _artifact_stdout_limit()
     if stdout_limit and len(stdout) > stdout_limit:
         stored_stdout = stdout[:stdout_limit]
