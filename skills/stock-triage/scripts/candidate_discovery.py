@@ -474,6 +474,9 @@ def _fetch_quote_batch(batch: List[str], retries: int) -> Dict[str, Dict[str, An
     for attempt in range(attempts):
         try:
             return fetch_tencent_quote(batch)
+        # 这里的宽捕获是刻意的，也是本函数唯一的收口点：行情源可以抛出任意
+        # 异常（测试就用 RuntimeError 打进来），枚举异常族必然漏，而漏掉的那
+        # 个会绕过下面的降级与诊断路径。一律折成 DataSourceError 往上抛。
         except Exception as exc:  # noqa: BLE001 - provider errors must reach diagnostics/fallback
             last_error = exc if isinstance(exc, DataSourceError) else DataSourceError(
                 "tencent", f"{type(exc).__name__}: {exc}"
@@ -552,7 +555,8 @@ def _fetch_batched_quotes(
         for batch, future in zip(batches, futures):
             try:
                 batch_quotes = future.result()
-            except Exception as exc:  # noqa: BLE001 - preserve failure for fallback/diagnostics
+            # _fetch_quote_batch 只会抛 DataSourceError（上面已折过一次）。
+            except DataSourceError as exc:
                 errors.append(
                     f"batch={batch[0]}..{batch[-1]} ({len(batch)}): {type(exc).__name__}: {exc}"
                 )
