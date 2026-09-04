@@ -52,6 +52,30 @@ except ImportError:
 TERMINAL_FAILURE_STATUSES = frozenset({"failed", "timeout", "error", "blocked"})
 
 
+def _is_failure_status(
+    status: Any,
+    *,
+    returncode: Any = 0,
+    reason: Any = None,
+) -> bool:
+    """Classify scheduler failures without treating business degradation as one.
+
+    A zero-exit producer may intentionally report ``ready``, ``partial`` or
+    ``insufficient_data``.  Those are business outcomes; only a non-zero
+    process, an explicit failed/blocked outcome, or an upstream dependency
+    failure should turn the DAG red.
+    """
+    try:
+        if returncode is not None and int(returncode) != 0:
+            return True
+    except (TypeError, ValueError):
+        return True
+    return str(status or "") in TERMINAL_FAILURE_STATUSES or str(reason or "") in {
+        "dependency_blocked",
+        "upstream_failed",
+    }
+
+
 def _load_manifest(path: str) -> dict[str, Any]:
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
@@ -307,7 +331,11 @@ def execute_dag(
             env=run_env,
         )
         can_reuse = job_id not in target_set or reuse_targets
-        if can_reuse and existing and existing.get("status") == "ok":
+        if can_reuse and existing and not _is_failure_status(
+            existing.get("status"),
+            returncode=existing.get("returncode", 0),
+            reason=existing.get("reason"),
+        ):
             runs.append({
                 "job_id": job_id,
                 "status": "reused",
@@ -326,7 +354,11 @@ def execute_dag(
         if (
             job_id not in target_set
             and existing
-            and existing.get("status") in TERMINAL_FAILURE_STATUSES
+            and _is_failure_status(
+                existing.get("status"),
+                returncode=existing.get("returncode", 0),
+                reason=existing.get("reason"),
+            )
         ):
             tolerated_by = consumers_tolerating(
                 job_id,
@@ -404,7 +436,11 @@ def execute_dag(
                         env=run_env,
                         timeout_seconds=timeout_seconds,
                     )
-                    if concurrent_artifact and concurrent_artifact.get("status") == "ok":
+                    if concurrent_artifact and not _is_failure_status(
+                        concurrent_artifact.get("status"),
+                        returncode=concurrent_artifact.get("returncode", 0),
+                        reason=concurrent_artifact.get("reason"),
+                    ):
                         break
                     # The lease holder has already produced a terminal artifact.
                     # Retrying here would immediately launch the same expensive
@@ -418,7 +454,12 @@ def execute_dag(
             env=run_env,
         )
         reused_concurrent = bool(
-            concurrent_artifact and concurrent_artifact.get("status") == "ok"
+            concurrent_artifact
+            and not _is_failure_status(
+                concurrent_artifact.get("status"),
+                returncode=concurrent_artifact.get("returncode", 0),
+                reason=concurrent_artifact.get("reason"),
+            )
         )
         _BLOCKED_CODES = {75, 78}
         artifact_is_current = bool(
@@ -443,7 +484,10 @@ def execute_dag(
             "artifact_path": (concurrent_artifact or artifact or {}).get("artifact_path"),
             "stderr": (completed.stderr if completed else "")[-1000:],
         })
-        if status not in {"ok", "degraded", "unavailable"}:
+        if _is_failure_status(
+            status,
+            returncode=completed.returncode if completed else 1,
+        ):
             tolerated_by = consumers_tolerating(
                 job_id, status, jobs=jobs, batch_jobs=order
             )
@@ -467,9 +511,14 @@ def execute_dag(
     target_statuses = [
         run.get("status") for run in runs if run.get("job_id") in target_set
     ]
-    result_status = "degraded" if any(
-        status in {"degraded", "unavailable"} for status in target_statuses
-    ) else "ok"
+    if len(target_statuses) == 1:
+        result_status = target_statuses[0] or "ok"
+    elif any(status in {"degraded", "unavailable"} for status in target_statuses):
+        result_status = "degraded"
+    elif any(status in {"partial", "insufficient_data"} for status in target_statuses):
+        result_status = "partial"
+    else:
+        result_status = "ok"
     result = {
         "schema": "a_stock_dag_run_v1",
         "status": result_status,
@@ -741,7 +790,12 @@ def main() -> None:
         print("NO_REPLY")
     elif args.emit_target and result["status"] == "blocked":
         print(blocked_notice(args.targets, result))
-    elif args.emit_target and result["status"] in {"ok", "degraded", "unavailable"} and len(args.targets) == 1:
+    elif (
+        args.emit_target
+        and not _is_failure_status(result["status"])
+        and result["status"] != "skipped_non_trading_day"
+        and len(args.targets) == 1
+    ):
         artifact = _load_artifact(
             args.targets[0],
             trading_date=result["trading_date"],
@@ -754,7 +808,7 @@ def main() -> None:
             {},
         )
         sys.stdout.write(target_output(job, artifact or {}, record_telemetry=True))
-    elif result["status"] in {"ok", "skipped_non_trading_day", "blocked"}:
+    elif result["status"] in {"ok", "ready", "degraded", "partial", "insufficient_data", "unavailable", "skipped_non_trading_day", "blocked"}:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         # 任务失败时输出人类可读的短消息而不是原始 DAG JSON
@@ -769,7 +823,12 @@ def main() -> None:
     # blocked is a failure to produce the target, not a quiet day: it must not
     # report success to any exit-code consumer (OpenClaw lastRunStatus today,
     # anything reading the dispatch log tomorrow).
-    raise SystemExit(0 if result["status"] in {"ok", "degraded", "unavailable", "skipped_non_trading_day"} else 1)
+    raise SystemExit(
+        0
+        if result["status"] == "skipped_non_trading_day"
+        or not _is_failure_status(result["status"])
+        else 1
+    )
 
 
 if __name__ == "__main__":

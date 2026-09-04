@@ -483,6 +483,122 @@ def test_dag_still_blocks_when_the_upstream_failure_is_not_accepted(
     assert result["runs"][0]["reason"] == "upstream_failed"
 
 
+@pytest.mark.parametrize("business_status", [
+    "ready",
+    "ok",
+    "degraded",
+    "partial",
+    "insufficient_data",
+])
+def test_zero_exit_business_status_is_not_mapped_to_dag_error(
+    tmp_path,
+    monkeypatch,
+    business_status,
+):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [_job("target", "true")]}), encoding="utf-8")
+    monkeypatch.setattr(
+        run_agent_dag.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, stdout=json.dumps({"status": business_status}), stderr=""
+        ),
+    )
+    artifact = {
+        "run_id": "target-run",
+        "status": business_status,
+        "artifact_path": "/tmp/target.json",
+    }
+    loaded = iter([None, artifact])
+    monkeypatch.setattr(
+        run_agent_dag, "_load_artifact", lambda *args, **kwargs: next(loaded)
+    )
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["target"],
+        trading_date="2026-06-12",
+        env=env,
+    )
+
+    assert result["status"] == business_status
+    assert result["runs"][0]["status"] == business_status
+    assert result["runs"][0]["returncode"] == 0
+
+
+def test_main_zero_exit_partial_business_status_exits_successfully(monkeypatch, capsys):
+    monkeypatch.setattr(
+        run_agent_dag,
+        "execute_dag",
+        lambda **kwargs: {
+            "status": "partial",
+            "trading_date": "2026-06-12",
+            "batch_id": "a-share-20260612",
+        },
+    )
+    monkeypatch.setattr(
+        run_agent_dag,
+        "_load_artifact",
+        lambda *args, **kwargs: {
+            "status": "partial",
+            "stdout": "partial report",
+            "has_signal": True,
+        },
+    )
+    monkeypatch.setattr(
+        run_agent_dag,
+        "_load_manifest",
+        lambda *args, **kwargs: {"jobs": [{"id": "target", "deliver": "origin"}]},
+    )
+    monkeypatch.setattr(
+        run_agent_dag.sys,
+        "argv",
+        ["run_agent_dag.py", "target", "--emit-target"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_agent_dag.main()
+
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out == "partial report\n"
+
+
+def test_zero_exit_business_failed_remains_dag_error(tmp_path, monkeypatch):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [_job("target", "true")]}), encoding="utf-8")
+    monkeypatch.setattr(
+        run_agent_dag.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, stdout=json.dumps({"status": "failed"}), stderr=""
+        ),
+    )
+    artifact = {
+        "run_id": "target-run",
+        "status": "failed",
+        "artifact_path": "/tmp/target.json",
+    }
+    loaded = iter([None, artifact])
+    monkeypatch.setattr(
+        run_agent_dag, "_load_artifact", lambda *args, **kwargs: next(loaded)
+    )
+    env = os.environ.copy()
+    env["A_STOCK_STATE_HOME"] = str(tmp_path / "state")
+    env.pop("A_STOCK_STATE_ID", None)
+
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest),
+        targets=["target"],
+        trading_date="2026-06-12",
+        env=env,
+    )
+
+    assert result["status"] == "failed"
+
+
 def test_dag_still_bootstraps_a_dependency_that_never_ran(tmp_path, monkeypatch):
     """Missing != failed. A machine that slept through cron must still bootstrap."""
     manifest = tmp_path / "manifest.json"
