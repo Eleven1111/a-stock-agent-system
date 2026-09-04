@@ -474,8 +474,10 @@ def _fetch_quote_batch(batch: List[str], retries: int) -> Dict[str, Dict[str, An
     for attempt in range(attempts):
         try:
             return fetch_tencent_quote(batch)
-        except DataSourceError as exc:
-            last_error = exc
+        except Exception as exc:  # noqa: BLE001 - provider errors must reach diagnostics/fallback
+            last_error = exc if isinstance(exc, DataSourceError) else DataSourceError(
+                "tencent", f"{type(exc).__name__}: {exc}"
+            )
             if attempt + 1 < attempts:
                 time.sleep(0.5 * (2 ** attempt))
     raise last_error or DataSourceError("tencent", "unknown quote failure")
@@ -536,23 +538,29 @@ def _fetch_batched_quotes(
     batch_size: int,
     workers: int,
     retries: int,
-) -> Dict[str, Dict[str, Any]]:
+) -> tuple[Dict[str, Dict[str, Any]], list[str]]:
     batches = [
         [candidate_pipeline.market_code(item["code"]) for item in batch]
         for batch in _chunks(list(universe), batch_size)
     ]
     quotes: Dict[str, Dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=workers) as executor:
+    errors: list[str] = []
+    # 腾讯批量接口对突发并发敏感；保留配置项，但设置安全上限，避免全市场刷新触发限流。
+    safe_workers = max(1, min(int(workers), 3))
+    with ThreadPoolExecutor(max_workers=safe_workers) as executor:
         futures = [executor.submit(_fetch_quote_batch, batch, retries) for batch in batches]
-        for future in as_completed(futures):
+        for batch, future in zip(batches, futures):
             try:
                 batch_quotes = future.result()
-            except DataSourceError:
+            except Exception as exc:  # noqa: BLE001 - preserve failure for fallback/diagnostics
+                errors.append(
+                    f"batch={batch[0]}..{batch[-1]} ({len(batch)}): {type(exc).__name__}: {exc}"
+                )
                 continue
             for prefixed, fields in batch_quotes.items():
                 code = candidate_pipeline.naked_code(prefixed)
                 quotes[code] = {**metadata.get(code, {}), **fields, "code": code}
-    return quotes
+    return quotes, errors
 
 
 def _cached_universe_quotes(
@@ -594,25 +602,54 @@ def fetch_universe_quotes(universe: Sequence[Mapping[str, Any]]) -> Dict[str, Di
     metadata = _universe_metadata(universe)
     cached = _cached_universe_quotes(metadata, minimum_coverage)
     if len(cached) >= minimum_coverage:
+        fetch_universe_quotes.last_quote_diagnostics = {
+            "provider": "cache", "fallback_used": False, "failed_batches": 0,
+            "errors": [], "quote_count": len(cached),
+        }
         fetch_universe_quotes.last_quote_source = "cache"
         return cached
-    quotes = _fetch_batched_quotes(
+    quotes, batch_errors = _fetch_batched_quotes(
         universe, metadata, batch_size=batch_size, workers=workers, retries=retries,
     )
-    if len(quotes) < minimum_coverage:
-        try:
-            spot_quotes = _universe_spot_quotes(metadata)
-        except DataSourceError:
-            spot_quotes = {}
-        for code, fields in spot_quotes.items():
-            quotes.setdefault(code, fields)
     usable_quotes = {
         code: fields for code, fields in quotes.items() if _quote_has_trade_fields(fields)
+    }
+    failed_batch_count = len(batch_errors)
+    fallback_used = bool(batch_errors) or len(usable_quotes) < minimum_coverage
+    fallback_source = None
+    if fallback_used:
+        try:
+            spot_quotes = _universe_spot_quotes(metadata)
+            fallback_source = str(next(iter(spot_quotes.values()), {}).get("quote_source") or "unknown")
+            # 此适配器缓存没有逐行来源时间，不可作为全市场刷新 fallback。
+            if fallback_source == "cache":
+                spot_quotes = {}
+        except (DataSourceError, OSError, RuntimeError, ValueError, TypeError) as exc:
+            batch_errors.append(f"fallback: {type(exc).__name__}: {exc}")
+            spot_quotes = {}
+        fallback_usable = {
+            code: fields for code, fields in spot_quotes.items()
+            if _quote_has_trade_fields(fields)
+        }
+        if len(fallback_usable) >= minimum_coverage:
+            quotes = fallback_usable
+            usable_quotes = fallback_usable
+        else:
+            batch_errors.append(
+                f"fallback coverage insufficient: {len(fallback_usable)}/{minimum_coverage}"
+            )
+    fetch_universe_quotes.last_quote_diagnostics = {
+        "provider": fallback_source or "tencent",
+        "fallback_used": fallback_used,
+        "failed_batches": failed_batch_count,
+        "errors": batch_errors,
+        "quote_count": len(usable_quotes),
     }
     if len(usable_quotes) < minimum_coverage:
         raise DataSourceError(
             "market_quotes",
-            f"全市场可交易行情覆盖不足: {len(usable_quotes)}/{len(universe)}",
+            f"全市场可交易行情覆盖不足: {len(usable_quotes)}/{len(universe)}; "
+            + "; ".join(batch_errors[-5:]),
         )
     quotes = {
         code: {**fields, "quote_source": fields.get("quote_source", "tencent")}

@@ -18,14 +18,14 @@ four_dim 情绪面直接消费。
 
 import os
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, Optional
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from paths import cache_dir  # noqa: E402
+from paths import cache_dir, data_file  # noqa: E402
 from state_store import mutate_json, read_json  # noqa: E402
 
 DEFAULT_MAX_AGE_HOURS = 24  # 盘中/收盘写入，覆盖到次日
@@ -72,6 +72,33 @@ def read_signal_context(max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
         return None
     ref = now or datetime.now()
     if (ref - gen).total_seconds() > max_age_hours * 3600:
+        return None
+    return record
+
+
+def read_sector_rotation_research(
+    asof: str, *, max_age_days: int = 5
+) -> Optional[Dict[str, Any]]:
+    """读取最近一份板块轮动研究产物，不把它当作交易上下文。
+
+    该产物是 ``sector-crowding-daily`` 的探索性重建，只能在早盘简报中展示；
+    ``validated/live_effect`` 约束和日期门禁放在读取边界，避免旧文件或未来文件
+    被误当成今天的研究证据。
+    """
+    record = read_json(
+        data_file("stock-triage", "sector_rotation_pools_latest.json"), None
+    )
+    if not isinstance(record, dict) or record.get("schema") != "sector_rotation_pools_v1":
+        return None
+    if record.get("validated") is not False or record.get("live_effect") != "none":
+        return None
+    try:
+        requested = date.fromisoformat(str(asof)[:10])
+        captured = date.fromisoformat(str(record.get("asof"))[:10])
+    except (TypeError, ValueError):
+        return None
+    age = (requested - captured).days
+    if age < 0 or age > max_age_days:
         return None
     return record
 

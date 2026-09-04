@@ -392,6 +392,13 @@ def build_artifact(
     parsed = try_parse_json(stdout)
     has_signal = output_has_signal(parsed, stdout)
     status = status_override or ("timeout" if timed_out else ("ok" if returncode == 0 else "failed"))
+    # A zero process exit only says that the producer completed.  If its
+    # structured payload says degraded/unavailable, preserve that business
+    # outcome at artifact level too; otherwise the scheduler publishes a
+    # misleading green status beside a red summary.
+    payload_status = parsed.get("status") if isinstance(parsed, dict) else None
+    if status == "ok" and isinstance(payload_status, str) and payload_status != "ok":
+        status = payload_status
     stdout_limit = _artifact_stdout_limit()
     if stdout_limit and len(stdout) > stdout_limit:
         stored_stdout = stdout[:stdout_limit]

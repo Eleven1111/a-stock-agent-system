@@ -62,6 +62,18 @@ def test_auction_digest_surfaces_full_market_movers_without_promoting_them():
     assert digest["market_decliners"][0]["code"] == "sh600003"
 
 
+def test_auction_digest_surfaces_new_strong_pool_as_research_only():
+    digest = si.auction_digest({
+        "new_strong_research_pool": [{
+            "code": "003040", "name": "楚天龙", "auction_gap_pct": 10.0,
+            "limit_up": 18.7,
+        }],
+    })
+    assert digest["new_strong_research_pool"][0]["code"] == "003040"
+    assert digest["new_strong_research_pool"][0]["research_only"] is True
+    assert digest["new_strong_research_pool"][0]["execution_eligible"] is False
+
+
 def test_open_digest_explains_high_score_filtering():
     result = {
         "signals": [{"code": "sh600001", "name": "入选", "open_score": 88}],

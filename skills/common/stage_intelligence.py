@@ -30,6 +30,8 @@ def _compact(item: Mapping[str, Any]) -> dict[str, Any]:
             "open_rank", "open_score", "open_daban_score", "open_trend_score",
             "action", "decision", "board_status", "hot_money_qualified",
             "research_only", "execution_action", "rejection_reasons",
+            "enhancement_reason", "auction_gap_pct", "limit_up",
+            "indicative_price", "prev_close", "evidence_provenance",
         )
         if item.get(key) is not None
     }
@@ -88,6 +90,10 @@ def preopen_digest(result: Mapping[str, Any], *, limit: int = 10) -> dict[str, A
         "top_trend": _top(research_candidates, "trend_score", limit=limit),
         "execution_candidates": [_compact(item) for item in execution_candidates[:limit]],
         "local_theme_candidates": [_compact(item) for item in local_theme_candidates[:limit]],
+        "new_strong_research_pool": [
+            {**_compact(item), "research_only": True, "execution_eligible": False}
+            for item in list(result.get("new_strong_research_pool") or [])[:limit]
+        ],
         "market_gate": dict(result.get("market_gate") or {}),
         "gate": dict(result.get("gate") or {}),
     }
@@ -162,6 +168,10 @@ def auction_digest(result: Mapping[str, Any], *, limit: int = 5) -> dict[str, An
         "reason_code": result.get("reason_code"),
         "gate": dict(result.get("gate") or {}),
         "decisions": [_decision_row(row) for row in decisions[:10]],
+        "new_strong_research_pool": [
+            {**_compact(item), "research_only": True, "execution_eligible": False}
+            for item in list(result.get("new_strong_research_pool") or [])[:10]
+        ],
     }
 
 

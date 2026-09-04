@@ -85,6 +85,33 @@ def _sector_momentum_lines() -> list[str]:
     return lines
 
 
+def _sector_rotation_research_lines(asof: str) -> list[str]:
+    """在早盘展示最近板块三池；绝不把研究结果注入候选或执行门禁。"""
+    try:
+        from signal_context import read_sector_rotation_research
+
+        record = read_sector_rotation_research(asof)
+    except Exception:  # noqa: BLE001 — 研究段缺失不影响简报主链
+        return []
+    if not record:
+        return []
+
+    pools = record.get("pools") or {}
+
+    def names(pool: str) -> str:
+        return "、".join(str(item) for item in (pools.get(pool) or [])[:5]) or "无"
+
+    return [
+        "### 板块轮动研究（research_only，不可执行）",
+        f"口径：{record.get('evidence_qualification') or 'unknown'}｜"
+        f"live_effect={record.get('live_effect')}｜validated={record.get('validated')}｜"
+        f"asof={record.get('asof')}",
+        f"- 主线观察：{names('mainline')}",
+        f"- 观察：{names('watch')}",
+        f"- 规避风险：{names('avoid')}",
+    ]
+
+
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
@@ -239,6 +266,17 @@ def _auction_lines(result: Mapping[str, Any], asof: str) -> list[str]:
         tail=f"collection_status={result.get('collection_status') or 'unknown'}，"
              "以下榜单不可用作决策依据",
     ))
+    enhanced = digest.get("new_strong_research_pool") or []
+    lines.append("### 今日新强势股增强观察池（research_only，不进入排序/执行/门禁）")
+    if enhanced:
+        lines.extend(
+            f"- {_label(item)}：涨幅{_score(item, 'auction_gap_pct')}%｜"
+            f"涨停价{_score(item, 'limit_up')}｜来源="
+            f"{(item.get('evidence_provenance') or {}).get('provider', 'unknown')}"
+            for item in enhanced
+        )
+    else:
+        lines.append("- 无满足条件且有真实全市场竞价证据的池外标的")
     for title, items in (
         ("### 竞价涨幅 TOP", digest["market_gainers"]),
         ("### 竞价跌幅 TOP", digest["market_decliners"]),
@@ -335,6 +373,14 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
             _market_gate_line(digest.get("market_gate") or {}),
         ])
         lines.extend(_sector_momentum_lines())
+        lines.extend(_sector_rotation_research_lines(str(asof)))
+        enhanced = digest.get("new_strong_research_pool") or []
+        if enhanced:
+            lines.append("### 今日新强势股增强观察池（research_only，不进入排序/执行/门禁）")
+            lines.extend(
+                f"- {_label(item)}：涨幅{_score(item, 'auction_gap_pct')}%"
+                for item in enhanced
+            )
         lines.append("### 研究评分 TOP（research_only）")
         lines.append("#### 打板评分 TOP")
         lines.extend(

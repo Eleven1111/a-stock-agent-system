@@ -421,8 +421,16 @@ def execute_dag(
             concurrent_artifact and concurrent_artifact.get("status") == "ok"
         )
         _BLOCKED_CODES = {75, 78}
+        artifact_is_current = bool(
+            artifact and artifact.get("run_id")
+            and artifact.get("run_id") != (existing or {}).get("run_id")
+        )
         if completed and (completed.returncode == 0 or reused_concurrent):
-            status = "ok"
+            artifact_status = str(
+                (concurrent_artifact or artifact or {}).get("status")
+                if (concurrent_artifact or artifact_is_current) else "ok"
+            )
+            status = artifact_status if artifact_status != "ok" else "ok"
         elif completed and completed.returncode in _BLOCKED_CODES:
             status = "blocked"
         else:
@@ -435,7 +443,7 @@ def execute_dag(
             "artifact_path": (concurrent_artifact or artifact or {}).get("artifact_path"),
             "stderr": (completed.stderr if completed else "")[-1000:],
         })
-        if status != "ok":
+        if status not in {"ok", "degraded", "unavailable"}:
             tolerated_by = consumers_tolerating(
                 job_id, status, jobs=jobs, batch_jobs=order
             )
@@ -456,9 +464,15 @@ def execute_dag(
             }
             return _apply_quality_gate(result, jobs, targets)
 
+    target_statuses = [
+        run.get("status") for run in runs if run.get("job_id") in target_set
+    ]
+    result_status = "degraded" if any(
+        status in {"degraded", "unavailable"} for status in target_statuses
+    ) else "ok"
     result = {
         "schema": "a_stock_dag_run_v1",
-        "status": "ok",
+        "status": result_status,
         "runtime": runtime,
         "trading_date": day,
         "batch_id": batch,
@@ -727,7 +741,7 @@ def main() -> None:
         print("NO_REPLY")
     elif args.emit_target and result["status"] == "blocked":
         print(blocked_notice(args.targets, result))
-    elif args.emit_target and result["status"] == "ok" and len(args.targets) == 1:
+    elif args.emit_target and result["status"] in {"ok", "degraded", "unavailable"} and len(args.targets) == 1:
         artifact = _load_artifact(
             args.targets[0],
             trading_date=result["trading_date"],
@@ -755,7 +769,7 @@ def main() -> None:
     # blocked is a failure to produce the target, not a quiet day: it must not
     # report success to any exit-code consumer (OpenClaw lastRunStatus today,
     # anything reading the dispatch log tomorrow).
-    raise SystemExit(0 if result["status"] in {"ok", "skipped_non_trading_day"} else 1)
+    raise SystemExit(0 if result["status"] in {"ok", "degraded", "unavailable", "skipped_non_trading_day"} else 1)
 
 
 if __name__ == "__main__":

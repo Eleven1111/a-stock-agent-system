@@ -1388,6 +1388,27 @@ def test_stale_watch_pool_is_marked_on_the_snapshot(tmp_path, monkeypatch):
     assert state["pool_stale"]["age_days"] == 1
 
 
+def test_new_strong_research_pool_keeps_today_limitup_outside_candidate_pool_research_only():
+    factors = [{
+        "code": "003040", "name": "楚天龙", "auction_gap_pct": 10.0,
+        "limit_up": 18.7, "indicative_price": 18.7,
+    }]
+    series = {"003040": [{
+        "code": "003040", "price": 18.7, "prev_close": 17.0,
+        "target_event": True,
+    }]}
+
+    rows = ac.build_new_strong_research_pool(
+        factors, series, {"prefilter_codes": ["600001"]}, "2026-09-04",
+    )
+
+    assert [row["code"] for row in rows] == ["003040"]
+    assert rows[0]["research_only"] is True
+    assert rows[0]["execution_eligible"] is False
+    assert rows[0]["execution_action"] == "none"
+    assert rows[0]["evidence_provenance"]["date"] == "2026-09-04"
+
+
 def test_fresh_watch_pool_is_not_marked_stale(tmp_path, monkeypatch):
     _seed_pool(tmp_path, monkeypatch, pool_asof="2026-06-23")
     monkeypatch.setattr(

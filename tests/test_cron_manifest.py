@@ -598,6 +598,21 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         manifest = json.load(f)
     jobs = {job["id"]: job for job in manifest["jobs"]}
 
+    deep_review = jobs["market-deep-review"]
+    assert deep_review["schedule"] == "0 19 * * 1-5"
+    assert deep_review["command_argv"] == [
+        "python", "scripts/run_agent_dag.py", "market-deep-review", "--emit-target"
+    ]
+    assert deep_review["run"]["argv"] == ["python", "scripts/market_deep_review.py", "--json"]
+    assert set(deep_review["context_from"]) >= {
+        "closing-triage", "theme-strength-daily", "capital-flow", "news-daily-brief"
+    }
+    assert set(deep_review["dependency_policy"]["optional_jobs"]) == {
+        "capital-flow", "capital-flow-post-close", "global-evening", "official-policy-watch"
+    }
+    assert jobs["capital-flow-post-close"]["schedule"] == "30 18 * * 1-5"
+    assert any("market-deep-review" in path for path in deep_review["allowed_state_writes"])
+
     for required in [
         "provider-health",
         "hot-money-context",
@@ -652,7 +667,7 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["news-monitor-intraday"]["schedule"] == (
         "2,17,32,47 9-11,13-14 * * 1-5"
     )
-    assert jobs["news-l1-scan"]["schedule"] == "4,34 8-22 * * 1-5"
+    assert jobs["news-l1-scan"]["schedule"] == "4,37 8-22 * * 1-5"
     assert _run_command(jobs["news-monitor-intraday"]).endswith("--mode intraday --json")
     assert jobs["news-l1-scan"]["trading_day_policy"] == "calendar_day"
     assert jobs["news-l1-scan"]["context_from"] == []
@@ -734,15 +749,17 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["open-confirmation"]["deliver"] == "local"
     assert jobs["open-intelligence-brief"]["deliver"] == "origin"
     assert jobs["auction-market-snapshot"]["schedule"] == "24 9 * * 1-5"
-    assert "--bounded-universe" in _run_command(jobs["auction-market-snapshot"])
-    assert "--full-universe" not in _run_command(jobs["auction-market-snapshot"])
+    assert "--full-universe" in _run_command(jobs["auction-market-snapshot"])
     for job_id, schedule, stage, deliver in (
         ("preopen-intelligence-brief", "50 8 * * 1-5", "preopen", "origin"),
         ("open-intelligence-brief", "36 9 * * 1-5", "open", "origin"),
     ):
         assert jobs[job_id]["schedule"] == schedule
         assert jobs[job_id]["deliver"] == deliver
-        assert jobs[job_id]["context_from"] == []
+        if job_id == "preopen-intelligence-brief":
+            assert jobs[job_id]["context_from"] == ["sector-crowding-daily"]
+        else:
+            assert jobs[job_id]["context_from"] == []
         assert _run_command(jobs[job_id]).endswith(f"--stage {stage}")
     auction_brief = jobs["auction-intelligence-brief"]
     assert auction_brief["schedule"] == "27 9 * * 1-5"
@@ -788,7 +805,8 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "stock-intelligence-refresh",
     ]
     assert jobs["serenity-refresh-plan"]["deliver"] == "local"
-    assert jobs["auction-finalize"]["schedule"] == "26 9 * * 1-5"
+    assert jobs["auction-snapshot"]["schedule"] == "15-34 9 * * 1-5"
+    assert jobs["auction-finalize"]["schedule"] == "26,34 9 * * 1-5"
     assert any("monitor_registry.json" in path for path in jobs["auction-finalize"]["allowed_state_writes"])
     assert any("signal_ledger.jsonl" in path for path in jobs["auction-finalize"]["allowed_state_writes"])
     assert any("recommendations.json" in path for path in jobs["open-confirmation"]["allowed_state_writes"])

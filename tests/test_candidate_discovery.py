@@ -209,6 +209,67 @@ def test_fetch_universe_quotes_tencent_preferred(monkeypatch, tmp_path):
     assert quotes["600000"]["quote_source"] == "tencent"
 
 
+def test_fetch_universe_quotes_records_batch_failures_and_uses_full_market_fallback(
+    monkeypatch, tmp_path,
+):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: False)
+    monkeypatch.setattr(discovery, "load_config", _quote_config)
+    monkeypatch.setattr(discovery, "quotes_cache_file", lambda: str(tmp_path / "quotes.json"))
+
+    def fail_tencent(codes):
+        if codes[0].endswith("0000"):
+            raise RuntimeError("connection reset")
+        return {
+            code: {"price": 10.0, "volume": 1_000, "amount": 100_000_000}
+            for code in codes
+        }
+
+    monkeypatch.setattr(discovery, "fetch_tencent_quote", fail_tencent)
+
+    def spot():
+        return [
+            {
+                "代码": item["code"], "名称": item["name"], "最新价": 10.0,
+                "成交量": 1_000, "成交额": 100_000_000,
+            }
+            for item in universe
+        ]
+
+    spot.last_source = "sina_spot_direct"
+    monkeypatch.setattr(discovery, "fetch_a_share_spot", spot)
+
+    quotes = discovery.fetch_universe_quotes(universe)
+
+    assert len(quotes) == len(universe)
+    assert all(item["quote_source"] == "sina_spot_direct" for item in quotes.values())
+    diagnostics = discovery.fetch_universe_quotes.last_quote_diagnostics
+    assert diagnostics["fallback_used"] is True
+    assert diagnostics["failed_batches"] == 1
+    assert "connection reset" in diagnostics["errors"][0]
+
+
+def test_fetch_universe_quotes_does_not_accept_unknown_date_cache_as_fallback(
+    monkeypatch,
+):
+    universe = [{"code": f"60{i:04d}", "name": f"股票{i}"} for i in range(500)]
+    monkeypatch.setattr(discovery, "is_auction_window", lambda: False)
+    monkeypatch.setattr(discovery, "load_config", _quote_config)
+    monkeypatch.setattr(
+        discovery, "fetch_tencent_quote",
+        lambda _codes: (_ for _ in ()).throw(discovery.DataSourceError("tencent", "down")),
+    )
+    def cached_spot():
+        return [{"代码": item["code"], "最新价": 10.0,
+                 "成交量": 1_000, "成交额": 100_000_000} for item in universe]
+
+    cached_spot.last_source = "cache"
+    monkeypatch.setattr(discovery, "fetch_a_share_spot", cached_spot)
+
+    with pytest.raises(discovery.DataSourceError, match="覆盖不足"):
+        discovery.fetch_universe_quotes(universe)
+
+
 def test_preopen_bootstrap_reuses_only_ready_recent_nonfuture_pool():
     ready = {
         "status": "ready",
