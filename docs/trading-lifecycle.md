@@ -113,7 +113,7 @@ python scripts/agent_runtime_context.py
 
 ## 09:26 集合竞价
 
-`auction-finalize` 在 09:26 执行，前五名生成 `preopen_decisions`：
+`auction-snapshot` 在 09:15-09:34 每分钟持续采集，`auction-finalize` 在 09:26 和 09:34 各收口一次，前五名生成 `preopen_decisions`：
 
 - `conditional_buy`：公告质检通过，但仍需 09:35 开盘确认
 - `watch`：数据或公告扫描不完整，只能关注

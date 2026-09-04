@@ -750,6 +750,52 @@ def annotate_recall_snapshot(
     return annotated
 
 
+def build_new_strong_research_pool(
+    factors: Iterable[Mapping[str, Any]],
+    series: Mapping[str, Iterable[Mapping[str, Any]]],
+    pool: Mapping[str, Any],
+    asof: str,
+) -> List[Dict[str, Any]]:
+    """Build a descriptive same-day recall pool without entering ranking.
+
+    This is intentionally a sidecar: stale/failed candidate-preopen may not
+    be allowed to hide real same-day limit-up or high-open observations, but
+    these rows must never be appended to ``research_candidates`` (the auction
+    ranking input) or ``execution_candidates``.
+    """
+    prefilter = _code_set(pool.get("prefilter_codes") or [])
+    rows: List[Dict[str, Any]] = []
+    for factor in factors:
+        code = candidate_pipeline.naked_code(factor.get("code"))
+        if not code or code in prefilter:
+            continue
+        observations = list(series.get(factor.get("code"), ()))
+        target = bool(factor.get("recall_target_event")) or any(
+            is_recall_target_event({**dict(row), "code": code}) for row in observations
+        )
+        if not target:
+            continue
+        row = dict(factor)
+        row.update({
+            "code": code,
+            "research_only": True,
+            "execution_eligible": False,
+            "execution_action": "none",
+            "participation_scope": "today_new_strong_research_only",
+            "enhancement_reason": (
+                "今日真实竞价数据满足涨停/大幅高开增强观察条件，候选池外补召回"
+            ),
+            "evidence_provenance": {
+                "provider": "easy_tdx_mac_0x123d",
+                "dataset": "auction_quote_inputs_v1",
+                "date": asof,
+                "coverage": "full_market_snapshot",
+            },
+        })
+        rows.append(row)
+    return sorted(rows, key=lambda row: (-float(row.get("auction_gap_pct") or 0), row["code"]))
+
+
 
 
 
@@ -1167,6 +1213,13 @@ def finalize(asof: str, shortlist_limit: int = DEFAULT_SHORTLIST_LIMIT) -> Dict[
     # 「池子本来就小」和「数据源挂了/预算耗尽」是两种完全不同的运维动作。
     result["snapshot_failures"] = state.get("snapshot_failures")
     result["pool_stale"] = state.get("pool_stale")
+    try:
+        pool_for_recall = load_watch_pool(asof)
+    except DataSourceError:
+        pool_for_recall = {}
+    result["new_strong_research_pool"] = build_new_strong_research_pool(
+        result.get("factors") or [], state.get("series") or {}, pool_for_recall, asof,
+    )
     if not result["factors"]:
         return _degraded_finalize(
             result,

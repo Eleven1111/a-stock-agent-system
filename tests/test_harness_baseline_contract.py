@@ -114,9 +114,16 @@ def harness(tmp_path, request):
         "'stance':'neutral','influences_live_ranking':False}))\n",
     )
 
+    thin = _script(
+        tmp_path,
+        "thin.py",
+        "import json\nprint(json.dumps({'schema':'demo_v1','status':'degraded','alerts':[]}))\n",
+    )
+
     jobs = [
         _job("silent-job", [sys.executable, str(quiet)], form=form,
              silent_when_no_signal=True, deliver="origin"),
+        _job("degraded-job", [sys.executable, str(thin)], form=form),
         _job("feishu-job", [sys.executable, str(signal)], form=form,
              deliver="feishu_direct"),
         _job("upstream-job", [sys.executable, str(signal)], form=form),
@@ -185,6 +192,24 @@ def test_no_signal_job_stays_silent(harness):
     assert artifact["status"] == "ok"
     assert artifact["has_signal"] is False
     assert run_agent_dag.target_output(harness.job("silent-job"), artifact) == "NO_REPLY\n"
+
+
+def test_degraded_payload_surfaces_without_becoming_a_failure(harness):
+    """Positive control for the status propagation `no_signal` must not trigger.
+
+    A job that exits 0 while declaring `degraded` has to carry that word up to
+    the artifact and the DAG result — publishing green beside a thin-data
+    summary is what this propagation exists to prevent. It must stay a *run
+    that produced its target*, though: `degraded` is in the success set, so the
+    batch keeps walking and the exit code stays 0.
+    """
+    result = harness.run("degraded-job")
+    artifact = harness.artifact("degraded-job", result)
+
+    assert artifact["status"] == "degraded"
+    assert result["status"] == "degraded"
+    assert result["status"] in run_agent_dag._SUCCESS_STATUSES
+    assert [run["status"] for run in result["runs"]] == ["degraded"]
 
 
 # --------------------------------------------------------------------------

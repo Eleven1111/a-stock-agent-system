@@ -37,7 +37,7 @@
   },
   "network": {
     "quote_batch_size": 80,
-    "quote_workers": 8,
+    "quote_workers": 3,
     "kline_workers": 12,
     "quote_min_coverage": 0.9,
     "kline_min_coverage": 0.7,

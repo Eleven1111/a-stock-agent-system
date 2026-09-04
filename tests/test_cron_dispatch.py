@@ -36,10 +36,14 @@ def test_cron_matches_real_manifest_schedules():
     assert cd.cron_matches("7 15 * * 1-5", _dt("2026-07-20T15:07:00"))
     assert not cd.cron_matches("7 15 * * 1-5", _dt("2026-07-20T15:08:00"))
     assert not cd.cron_matches("7 15 * * 1-5", _dt("2026-07-19T15:07:00"))  # 周日
-    # 集合竞价快照：工作日 09:15-09:23 每分钟
-    for minute in range(15, 24):
-        assert cd.cron_matches("15-23 9 * * 1-5", _dt(f"2026-07-20T09:{minute}:00"))
-    assert not cd.cron_matches("15-23 9 * * 1-5", _dt("2026-07-20T09:24:00"))
+    # 集合竞价快照：工作日 09:15-09:34 每分钟，覆盖开盘确认前
+    for minute in range(15, 35):
+        assert cd.cron_matches("15-34 9 * * 1-5", _dt(f"2026-07-20T09:{minute:02d}:00"))
+    assert not cd.cron_matches("15-34 9 * * 1-5", _dt("2026-07-20T09:35:00"))
+    # 收口在 09:26、09:34 各执行一次
+    assert cd.cron_matches("26,34 9 * * 1-5", _dt("2026-07-20T09:26:00"))
+    assert cd.cron_matches("26,34 9 * * 1-5", _dt("2026-07-20T09:34:00"))
+    assert not cd.cron_matches("26,34 9 * * 1-5", _dt("2026-07-20T09:27:00"))
     # 盘中催化：工作日 9-11,13-14 点的 3 分与 33 分
     assert cd.cron_matches("3,33 9-11,13-14 * * 1-5", _dt("2026-07-20T13:33:00"))
     assert not cd.cron_matches("3,33 9-11,13-14 * * 1-5", _dt("2026-07-20T12:33:00"))

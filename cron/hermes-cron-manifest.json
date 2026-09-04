@@ -311,7 +311,13 @@
       "context_scope": "cron",
       "deliver": "origin",
       "max_output_chars": 2400,
-      "context_from": [],
+      "context_from": ["sector-crowding-daily"],
+      "dependency_policy": {
+        "trading_date": "previous_trading_day",
+        "max_age_minutes": 2880,
+        "optional_jobs": ["sector-crowding-daily"],
+        "accepted_statuses": ["ok", "degraded", "unavailable", "blocked"]
+      },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
         "$A_STOCK_STATE_HOME/cron/output/preopen-intelligence-brief/",
@@ -631,7 +637,7 @@
     {
       "id": "auction-snapshot",
       "name": "集合竞价快照采集",
-      "schedule": "15-23 9 * * 1-5",
+      "schedule": "15-34 9 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command_argv": [
         "python",
@@ -676,7 +682,7 @@
         "timeout_tier": "standard",
         "timeout_rationale": "500只候选串行抓取 easy_tdx 竞价数据，历史约50-70s，180s 保留余量（2026-08-18 30s 超时事故后上调）"
       },
-      "external_note": "09:15-09:23 对深度观察池每分钟采集腾讯五档快照；仅写入 artifact 和竞价状态"
+    "external_note": "09:15-09:34 对深度观察池每分钟采集腾讯五档快照，持续覆盖开盘确认前；仅写入 artifact 和竞价状态"
     },
     {
       "id": "auction-market-snapshot",
@@ -720,20 +726,20 @@
           "python",
           "skills/daban-stock-picker/scripts/auction_collector.py",
           "--snapshot",
-          "--bounded-universe",
+          "--full-universe",
           "--json"
         ],
         "cwd": ".",
         "timeout_seconds": 240,
         "timeout_tier": "standard",
-        "timeout_rationale": "09:24仅扫描auction_scan_codes预备池（约200只），保留取数与快照落盘余量，必须在09:27简报前完成"
+        "timeout_rationale": "09:24使用已成功的全市场合格行情覆盖真实涨停/大幅高开召回；仅写入research_only增强观察池，不改变竞价执行池"
       },
-      "external_note": "09:24仅对auction_scan_codes预备池（约200只）做增强竞价扫描；不读取full_market_codes，记录范围/请求数/完成数/时间戳，池外结果仅进入研究情报"
+      "external_note": "09:24对full_market_codes做全市场增强竞价扫描；池外结果仅进入research_only观察池，记录范围/请求数/完成数/时间戳"
     },
     {
       "id": "auction-finalize",
       "name": "集合竞价收口+候选池",
-      "schedule": "26 9 * * 1-5",
+    "schedule": "26,34 9 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command_argv": [
         "python",
@@ -787,7 +793,7 @@
         "timeout_seconds": 180,
         "timeout_tier": "standard"
       },
-      "external_note": "09:26 收口竞价因子，输出条件买入/关注计划和公告质检，并把重点标的加入动态监控；accepted_statuses 放行失败的竞价快照，由 finalize 自己判空走 fail-closed 降级报告，避免依赖门把全链变成静默"
+    "external_note": "09:26 和 09:34 各收口一次竞价因子，输出条件买入/关注计划和公告质检，并把重点标的加入动态监控；accepted_statuses 放行失败的竞价快照，由 finalize 自己判空走 fail-closed 降级报告，避免依赖门把全链变成静默"
     },
     {
       "id": "auction-intelligence-brief",
@@ -2208,7 +2214,7 @@
     {
       "id": "news-l1-scan",
       "name": "新闻 L1 自然日扫描",
-      "schedule": "4,34 8-22 * * 1-5",
+      "schedule": "4,37 8-22 * * 1-5",
       "timezone": "Asia/Shanghai",
       "trading_day_policy": "calendar_day",
       "command_argv": [
@@ -2385,6 +2391,109 @@
       },
       "external_note": "工作日08:00-22:00每30分钟轮询国务院/部委/交易所/新华社等一手官方源；周末停跑，只在出现未见过的政策信号时推送",
       "adaptive_backoff": true
+    },
+    {
+      "id": "capital-flow-post-close",
+      "name": "收盘后资金流刷新",
+      "schedule": "30 18 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "capital-flow-post-close",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "local",
+      "max_output_chars": 3500,
+      "context_from": [
+        "intraday-alert",
+        "open-confirmation"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 600,
+        "optional_jobs": ["open-confirmation"]
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/capital-flow-post-close/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json",
+        "$A_STOCK_STATE_HOME/cron/push_telemetry.jsonl",
+        "$A_STOCK_STATE_HOME/skills/stock-triage/cache/signal_context.json"
+      ],
+      "run": {
+        "argv": [
+          "python",
+          "skills/stock-triage/scripts/capital_flow_monitor.py",
+          "--json",
+          "--cache",
+          "--delivery-job-id",
+          "capital-flow-post-close"
+        ],
+        "cwd": ".",
+        "timeout_seconds": 300,
+        "timeout_tier": "standard"
+      },
+      "external_note": "复用 capital-flow 同一真实脚本/数据链路，18:30 刷新收盘后数据"
+    },
+    {
+      "id": "market-deep-review",
+      "name": "A股大盘深度复盘",
+      "schedule": "0 19 * * 1-5",
+      "timezone": "Asia/Shanghai",
+      "command_argv": [
+        "python",
+        "scripts/run_agent_dag.py",
+        "market-deep-review",
+        "--emit-target"
+      ],
+      "cwd": ".",
+      "enabled": true,
+      "external": true,
+      "expected_output": "json",
+      "silent_when_no_signal": false,
+      "execution_mode": "isolated_subprocess",
+      "context_scope": "cron",
+      "deliver": "origin",
+      "max_output_chars": 6000,
+      "context_from": [
+        "closing-triage",
+        "theme-strength-daily",
+        "capital-flow",
+        "capital-flow-post-close",
+        "news-daily-brief",
+        "global-evening",
+        "official-policy-watch"
+      ],
+      "dependency_policy": {
+        "trading_date": "same_trading_date",
+        "max_age_minutes": 240,
+        "optional_jobs": [
+          "capital-flow",
+          "capital-flow-post-close",
+          "global-evening",
+          "official-policy-watch"
+        ]
+      },
+      "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
+      "allowed_state_writes": [
+        "$A_STOCK_STATE_HOME/cron/output/market-deep-review/",
+        "$A_STOCK_STATE_HOME/cron/output/job_runs.json"
+      ],
+      "run": {
+        "argv": ["python", "scripts/market_deep_review.py", "--json"],
+        "cwd": ".",
+        "timeout_seconds": 60,
+        "timeout_tier": "short"
+      },
+      "external_note": "仅汇总 $A_STOCK_STATE_HOME 已完成产物；字段级 source/status，缺失数据 fail-closed，不直接抓网页。"
     },
     {
       "id": "market-pulse-1314",
@@ -2818,7 +2927,7 @@
     {
       "id": "catalyst-trigger",
       "name": "盘中催化触发器（15分钟）",
-      "schedule": "3,33 9-11,13-14 * * 1-5",
+      "schedule": "3,31 9-11,13-14 * * 1-5",
       "timezone": "Asia/Shanghai",
       "command_argv": [
         "python",
@@ -2866,7 +2975,7 @@
         "timeout_seconds": 90,
         "timeout_tier": "standard"
       },
-      "external_note": "盘中每15分钟扫描T1/T2催化并匹配候选池；T1催化15分钟响应"
+      "external_note": "盘中约每15分钟扫描T1/T2催化并匹配候选池；竞价窗口避让快照/收口调度冲突，09:31 执行该轮扫描；T1催化15分钟响应"
     },
     {
       "id": "snapshot-gc",

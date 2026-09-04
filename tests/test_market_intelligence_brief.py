@@ -24,6 +24,37 @@ def test_preopen_brief_contains_both_score_lanes():
     assert "3634" in text
 
 
+def test_preopen_brief_renders_sector_rotation_as_research_only(monkeypatch):
+    monkeypatch.setattr(
+        brief,
+        "_sector_rotation_research_lines",
+        lambda _asof: [
+            "### 板块轮动研究（research_only，不可执行）",
+            "- 主线观察：半导体",
+        ],
+    )
+    text = brief.format_brief("preopen", {"asof": "2026-09-04", "candidates": []})
+    assert "板块轮动研究" in text
+    assert "research_only" in text
+    assert "半导体" in text
+
+
+def test_sector_rotation_reader_rejects_live_effect(monkeypatch):
+    from skills.common import signal_context
+
+    monkeypatch.setattr(
+        signal_context,
+        "read_json",
+        lambda *_args: {
+            "schema": "sector_rotation_pools_v1",
+            "asof": "2026-09-03",
+            "validated": True,
+            "live_effect": "score",
+        },
+    )
+    assert signal_context.read_sector_rotation_research("2026-09-04") is None
+
+
 def test_preopen_weak_market_shows_research_top_and_no_execution_candidates():
     text = brief.format_brief(
         "preopen",
