@@ -1,4 +1,6 @@
 import json
+import os
+from datetime import datetime, timedelta, timezone
 
 from scripts import dual_runtime_audit as audit
 
@@ -305,7 +307,7 @@ def test_build_report_is_blocked_when_lease_inventory_query_fails(
     monkeypatch.setattr(
         audit,
         "_active_leases_inventory",
-        lambda state_root: ([], {"status": "error", "reason": "read failed"}),
+        lambda state_root, today=None: ([], {"status": "error", "reason": "read failed"}),
     )
 
     report = audit.build_report(
@@ -405,3 +407,132 @@ def test_a_still_installed_disabled_job_blocks_the_report(tmp_path, monkeypatch)
 
     assert report["status"] == "blocked"
     assert report["clean"] is False
+
+
+def _write_lease(root, *, trading_date, job_id, age_seconds=0.0):
+    lease_dir = root / "runtime" / "leases" / trading_date / "batch-1" / f"{job_id}.lease"
+    lease_dir.mkdir(parents=True)
+    acquired = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+    (lease_dir / "holder.json").write_text(
+        json.dumps({
+            "runtime": "openclaw",
+            "acquired_at": acquired.isoformat(timespec="seconds"),
+        }),
+        encoding="utf-8",
+    )
+    return lease_dir
+
+
+def test_a_lease_for_a_past_trading_date_is_reported_as_orphaned(tmp_path):
+    # run_lease only reclaims when the same (job, date, batch) is claimed again,
+    # which never happens once the trading date is gone. Twelve such leases were
+    # found in production, all with the same mtime.
+    _write_lease(tmp_path, trading_date="2026-06-30", job_id="candidate-discovery",
+                 age_seconds=8139.5)
+
+    leases = audit.active_leases(str(tmp_path), today="2026-09-06")
+
+    assert leases[0]["orphaned"] is True
+    assert leases[0]["orphan_reasons"] == [
+        "older_than_reclaim_ttl", "trading_date_in_the_past",
+    ]
+
+
+def test_a_long_running_job_for_today_is_never_written_off_as_an_orphan(tmp_path):
+    # Past the 30-minute reclaim TTL but still this session's date: this is
+    # exactly the case that must stay a finding rather than be dismissed.
+    _write_lease(tmp_path, trading_date="2026-09-06", job_id="market-history-cache",
+                 age_seconds=8139.5)
+
+    leases = audit.active_leases(str(tmp_path), today="2026-09-06")
+
+    assert leases[0]["orphaned"] is False
+    assert leases[0]["orphan_reasons"] == ["older_than_reclaim_ttl"]
+
+
+def test_a_fresh_lease_for_a_past_date_is_not_an_orphan_either(tmp_path):
+    _write_lease(tmp_path, trading_date="2026-09-04", job_id="candidate-preopen")
+
+    leases = audit.active_leases(str(tmp_path), today="2026-09-06")
+
+    assert leases[0]["orphaned"] is False
+    assert leases[0]["orphan_reasons"] == ["trading_date_in_the_past"]
+
+
+def test_the_ttl_comes_from_the_lease_module_itself(tmp_path):
+    import run_lease
+
+    _write_lease(tmp_path, trading_date="2026-06-30", job_id="x",
+                 age_seconds=run_lease.DEFAULT_TTL_SECONDS - 60)
+    assert audit.active_leases(str(tmp_path), today="2026-09-06")[0]["orphaned"] is False
+
+
+def test_orphans_are_reported_without_blocking_the_clean_verdict(tmp_path):
+    _write_state_identity(tmp_path)
+    _write_lease(tmp_path, trading_date="2026-06-30", job_id="candidate-discovery",
+                 age_seconds=8139.5)
+    report = audit.build_report(
+        {"jobs": []}, [], state_root=str(tmp_path), today="2026-09-06",
+        check_openclaw=False,
+    )
+
+    assert report["active_leases"] == []
+    assert len(report["orphaned_leases"]) == 1
+    assert report["orphaned_leases"][0]["job_id"] == "candidate-discovery"
+    # Nothing in the system can ever clear these, so gating clean on them would
+    # gate the canary on a condition that can never be satisfied.
+    assert report["clean"] is True
+    assert report["status"] == "findings"
+
+
+def test_a_genuinely_held_lease_still_blocks_clean(tmp_path):
+    _write_state_identity(tmp_path)
+    _write_lease(tmp_path, trading_date="2026-09-06", job_id="market-history-cache")
+    report = audit.build_report(
+        {"jobs": []}, [], state_root=str(tmp_path), today="2026-09-06",
+        check_openclaw=False,
+    )
+
+    assert len(report["active_leases"]) == 1
+    assert report["orphaned_leases"] == []
+    assert report["clean"] is False
+
+
+def test_the_audit_does_not_write_into_the_directory_it_measures(tmp_path):
+    # read_json opens "<path>.lock" with O_CREAT, which lands inside the lease
+    # directory and resets the very mtime the age is read from: every lease then
+    # reports the same age, namely the time since the previous audit run. That is
+    # exactly the signature seen in production (12 leases, all 8139.5s).
+    lease_dir = _write_lease(
+        tmp_path, trading_date="2026-06-30", job_id="candidate-discovery",
+        age_seconds=8139.5,
+    )
+    before = sorted(path.name for path in lease_dir.iterdir())
+
+    leases = audit.active_leases(str(tmp_path), today="2026-09-06")
+
+    assert sorted(path.name for path in lease_dir.iterdir()) == before == ["holder.json"]
+    assert leases[0]["age_seconds"] > 8000
+
+
+def test_the_age_survives_a_directory_touched_after_acquisition(tmp_path):
+    lease_dir = _write_lease(
+        tmp_path, trading_date="2026-06-30", job_id="candidate-discovery",
+        age_seconds=8139.5,
+    )
+    (lease_dir / "holder.json.lock").write_text("", encoding="utf-8")  # what read_json did
+
+    leases = audit.active_leases(str(tmp_path), today="2026-09-06")
+
+    assert leases[0]["age_seconds"] > 8000
+    assert leases[0]["orphaned"] is True
+
+
+def test_a_holder_without_a_timestamp_falls_back_to_the_directory_mtime(tmp_path):
+    lease_dir = tmp_path / "runtime" / "leases" / "2026-06-30" / "batch-1" / "x.lease"
+    lease_dir.mkdir(parents=True)
+    (lease_dir / "holder.json").write_text(json.dumps({"runtime": "openclaw"}), encoding="utf-8")
+    stamp = datetime.now().timestamp() - 8139.5
+    os.utime(lease_dir, (stamp, stamp))
+
+    assert audit.active_leases(str(tmp_path), today="2026-09-06")[0]["orphaned"] is True

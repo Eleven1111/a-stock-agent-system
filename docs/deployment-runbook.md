@@ -43,6 +43,36 @@ python -c "import json,os;p=os.path.join(os.environ['A_STOCK_STATE_HOME'],'skill
 
 ---
 
+## 1.5 孤儿 lease：审计不 clean 未必是故障
+
+`run_lease` 只在**同一个** `(job_id, trading_date, batch_id)` 被再次抢占时才回收
+过期租约（`_remove_stale`，TTL 30 分钟）。交易日一旦过去，那条路径永远不会再被抢占，
+**系统自身没有任何机制能清掉它**。
+
+于是残留租约会一直累积，让 `dual_runtime_audit` 永远 `clean=false`——
+而 runbook 又规定不 clean 就别做 canary，这是一个死锁。
+
+审计现在把两者分开：
+
+- `active_leases`：**真正可能在跑**的（未过 TTL，或交易日就是今天）。**它才阻塞 `clean`。**
+- `orphaned_leases`：TTL 已过**且**交易日已成过去——两个信号同时成立才判孤儿。
+  只报告，不阻塞 `clean`。今天的一个长任务超过 30 分钟不会被误判成孤儿。
+
+清理孤儿是**运维动作**，审计本身只读、不删。确认某条确实无人持有后手工删除对应
+`runtime/leases/<date>/<batch>/<job>.lease` 目录即可。
+
+### age_seconds 曾经测的是「距上次审计的时间」
+
+`state_store.read_json` 会用 `O_CREAT` 打开 `<路径>.lock`，这个锁文件就落在
+**lease 目录里面**，从而刷新了紧接着要被 stat 的那个 mtime。后果是每条租约都报出
+同一个 age——即距上一次审计运行的时长。生产上 12 条租约 age 全部是 `8139.5`
+就是这个签名，不是 12 个同时崩溃的作业。
+
+现已改为：holder 不走加锁读取，age 优先取 holder 自己的 `acquired_at`
+（`claim` 写入后永不重写），拿不到才回落 mtime。
+
+---
+
 ## 2. 诊断序列
 
 按顺序跑，每步的输出决定要不要继续。
