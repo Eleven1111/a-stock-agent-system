@@ -52,7 +52,14 @@ def test_all_hard_metrics_are_met():
     assert metrics["fail_closed_block_rate"] == 1.0
     assert metrics["abstain_correct_rate"] == 1.0
     assert metrics["research_only_leaks"] == 0
-    assert metrics["fact_plane_writes"] == 0
+    fact_plane = metrics["fact_plane_writes"]
+    # The old hardcoded 0 measured nothing; the suite actually declares eight
+    # write attempts and blocks all of them.
+    assert fact_plane["attempts_declared"] == 8
+    assert fact_plane["blocked_attempts"] == 8
+    assert fact_plane["completed_writes"] == 0
+    assert fact_plane["guarantee_scope"] == "static_protocol_only"
+    assert fact_plane["not_evidence_of"] == "operating_system_level_write_isolation"
     assert metrics["runtime_divergence"] == []
     assert metrics["all_hard_metrics_met"] is True
 

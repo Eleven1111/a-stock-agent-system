@@ -17,6 +17,7 @@ from typing import Any, Mapping
 from data_access_config import storage_settings
 from gc_index import MISS, FactsIndex, index_path as gc_index_path, load_index
 from paths import hermes_home
+import retention_protection
 
 
 SNAPSHOT_SCHEMA = "market_snapshot_v1"
@@ -411,6 +412,12 @@ def cleanup_storage(
         cutoff=current - timedelta(days=int(policy["reference_protection_days"])),
         index=index,
     )
+    # Recency-based protection cannot see a study that froze its inputs on day
+    # zero and has not touched the record since; a 60-fit + 60-OOS cycle runs far
+    # past reference_protection_days. Holds are read whole, never mtime-filtered.
+    holds = retention_protection.held_references(now=current, state_home=home)
+    held_snapshots = {path for path in holds if _is_within(path, snapshot_dir)}
+    references |= held_snapshots
     index_saved = index.save() if index is not None else False
     index_stats = index.stats if index is not None else {"hits": 0, "misses": 0}
     counts = Counter(entry.dataset for entry in entries)
@@ -517,7 +524,17 @@ def cleanup_storage(
         "protected": {
             "referenced_snapshots": protected_references,
             "minimum_per_dataset": min_keep,
+            "held_snapshots": sum(entry.path in held_snapshots for entry in entries),
+            "holds": retention_protection.describe(now=current, state_home=home),
         },
+        # Capacity pressure is reported, not resolved by deleting evidence a
+        # running study still needs. Blocking new non-essential collection is the
+        # operator's call; silently dropping held snapshots is not on the table.
+        "capacity_blocked_by_holds": (
+            not apply
+            and planned_snapshot_bytes > max_snapshot_bytes
+            and any(entry.path in held_snapshots for entry in entries)
+        ),
         "archived": {
             "enabled": archive_enabled,
             "archive_root": str(archive_root),

@@ -180,6 +180,73 @@ def _installed_by_name(
     return installed_by_name
 
 
+def desired_job_spec(
+    job_id: str,
+    job: Mapping[str, Any],
+    *,
+    jobs: Mapping[str, Mapping[str, Any]],
+    repo_dir: str,
+    python: str,
+    grace_seconds: int,
+    command_env: Sequence[str],
+    delivery_channel: str,
+    delivery_to: str | None,
+    delivery_account: str,
+) -> dict[str, Any]:
+    """The parameters this repository wants installed for ``job_id``.
+
+    Single source of truth for both the emitted CLI command and the drift
+    comparison, so an audit can never disagree with the generator about what
+    "correct" means.
+    """
+
+    return {
+        "logical_id": job_id,
+        "name": f"{MANAGED_JOB_PREFIX}{job_id}",
+        "schedule": str(job["schedule"]),
+        "timezone": str(job.get("timezone") or "Asia/Shanghai"),
+        "session": "isolated",
+        "command_argv": [
+            python, os.path.join(repo_dir, "scripts", "run_agent_dag.py"), job_id,
+            "--runtime", "openclaw", "--emit-target",
+        ],
+        "command_cwd": repo_dir,
+        "timeout_seconds": dependency_timeout_budget(
+            jobs, job_id, grace_seconds=grace_seconds
+        ),
+        "output_max_bytes": max(4096, int(job.get("max_output_chars") or 2000) * 4),
+        "command_env": list(command_env),
+        "delivery_args": _delivery_args(
+            job, channel=delivery_channel, target=delivery_to, account=delivery_account,
+        ),
+        "enabled": bool(job.get("enabled", True)),
+    }
+
+
+def command_from_spec(
+    spec: Mapping[str, Any], *, openclaw: str, installed_id: str | None
+) -> str:
+    action = (
+        ["edit", installed_id, "--name", spec["name"], "--cron", spec["schedule"]]
+        if installed_id
+        else ["create", spec["schedule"], "--name", spec["name"]]
+    )
+    parts = [openclaw, "cron", *action]
+    parts.extend([
+        "--tz", spec["timezone"],
+        "--session", spec["session"],
+        "--command-argv", json.dumps(spec["command_argv"], ensure_ascii=False),
+        "--command-cwd", spec["command_cwd"],
+        "--timeout-seconds", str(spec["timeout_seconds"]),
+        "--output-max-bytes", str(spec["output_max_bytes"]),
+        "--exact",
+    ])
+    for value in spec["command_env"]:
+        parts.extend(["--command-env", value])
+    parts.extend(spec["delivery_args"])
+    return " ".join(shlex.quote(value) for value in parts)
+
+
 def _job_command(
     job_id: str,
     job: Mapping[str, Any],
@@ -195,36 +262,49 @@ def _job_command(
     delivery_to: str | None,
     delivery_account: str,
 ) -> str:
-    name = f"{MANAGED_JOB_PREFIX}{job_id}"
-    matches = list(installed_by_name.get(name, ()))
+    spec = desired_job_spec(
+        job_id, job, jobs=jobs, repo_dir=repo_dir, python=python,
+        grace_seconds=grace_seconds, command_env=command_env,
+        delivery_channel=delivery_channel, delivery_to=delivery_to,
+        delivery_account=delivery_account,
+    )
+    matches = list(installed_by_name.get(spec["name"], ()))
     if len(matches) > 1:
         raise ValueError(
-            f"duplicate installed OpenClaw jobs named {name}: {', '.join(matches)}"
+            f"duplicate installed OpenClaw jobs named {spec['name']}: {', '.join(matches)}"
         )
-    action = (
-        ["edit", matches[0], "--name", name, "--cron", str(job["schedule"])]
-        if matches
-        else ["create", str(job["schedule"]), "--name", name]
+    return command_from_spec(
+        spec, openclaw=openclaw, installed_id=matches[0] if matches else None
     )
-    argv = [
-        python, os.path.join(repo_dir, "scripts", "run_agent_dag.py"), job_id,
-        "--runtime", "openclaw", "--emit-target",
-    ]
-    parts = [openclaw, "cron", *action]
-    parts.extend([
-        "--tz", str(job.get("timezone") or "Asia/Shanghai"),
-        "--session", "isolated", "--command-argv", json.dumps(argv, ensure_ascii=False),
-        "--command-cwd", repo_dir,
-        "--timeout-seconds", str(dependency_timeout_budget(jobs, job_id, grace_seconds=grace_seconds)),
-        "--output-max-bytes", str(max(4096, int(job.get("max_output_chars") or 2000) * 4)),
-        "--exact",
-    ])
-    for value in command_env:
-        parts.extend(["--command-env", value])
-    parts.extend(_delivery_args(
-        job, channel=delivery_channel, target=delivery_to, account=delivery_account,
-    ))
-    return " ".join(shlex.quote(value) for value in parts)
+
+
+def _command_env(
+    state_home: str | None, state_id: str | None, env_file: str | None
+) -> list[str]:
+    """Environment forwarded into the command job.
+
+    Secrets and recipient identities are loaded by the child runner from
+    A_STOCK_ENV_FILE.  Never serialize their values into cron commands, dry-run
+    output, process arguments, or the OpenClaw job store.
+    """
+
+    resolved = {
+        "A_STOCK_STATE_HOME": state_home or os.environ.get("A_STOCK_STATE_HOME"),
+        "A_STOCK_STATE_ID": state_id or os.environ.get("A_STOCK_STATE_ID"),
+        "A_STOCK_ENV_FILE": env_file or os.environ.get("A_STOCK_ENV_FILE"),
+        "A_STOCK_BACKUP_HOME": os.environ.get("A_STOCK_BACKUP_HOME", ""),
+    }
+    return [f"{key}={value}" for key, value in resolved.items() if value]
+
+
+def _delivery_defaults(
+    channel: str | None, target: str | None, account: str | None
+) -> tuple[str, str | None, str]:
+    return (
+        channel or os.environ.get("A_STOCK_DELIVERY_CHANNEL") or DEFAULT_DELIVERY_CHANNEL,
+        target or os.environ.get("A_STOCK_DELIVERY_TO"),
+        account or os.environ.get("A_STOCK_DELIVERY_ACCOUNT") or DEFAULT_DELIVERY_ACCOUNT,
+    )
 
 
 def build_openclaw_commands(
@@ -242,19 +322,8 @@ def build_openclaw_commands(
     delivery_to: str | None = None,
     delivery_account: str | None = None,
 ) -> list[str]:
-    state_home = state_home or os.environ.get("A_STOCK_STATE_HOME")
-    state_id = state_id or os.environ.get("A_STOCK_STATE_ID")
-    env_file = env_file or os.environ.get("A_STOCK_ENV_FILE")
-    delivery_channel = (
-        delivery_channel
-        or os.environ.get("A_STOCK_DELIVERY_CHANNEL")
-        or DEFAULT_DELIVERY_CHANNEL
-    )
-    delivery_to = delivery_to or os.environ.get("A_STOCK_DELIVERY_TO")
-    delivery_account = (
-        delivery_account
-        or os.environ.get("A_STOCK_DELIVERY_ACCOUNT")
-        or DEFAULT_DELIVERY_ACCOUNT
+    delivery_channel, delivery_to, delivery_account = _delivery_defaults(
+        delivery_channel, delivery_to, delivery_account
     )
     jobs = {
         str(job["id"]): job
@@ -262,16 +331,7 @@ def build_openclaw_commands(
         if isinstance(job, dict) and job.get("id")
     }
     installed = _installed_by_name(installed_jobs)
-    command_env = []
-    if state_home:
-        command_env.append(f"A_STOCK_STATE_HOME={state_home}")
-    if state_id:
-        command_env.append(f"A_STOCK_STATE_ID={state_id}")
-    if env_file:
-        command_env.append(f"A_STOCK_ENV_FILE={env_file}")
-    backup_home = os.environ.get("A_STOCK_BACKUP_HOME", "")
-    if backup_home:
-        command_env.append(f"A_STOCK_BACKUP_HOME={backup_home}")
+    command_env = _command_env(state_home, state_id, env_file)
     commands = []
     for job_id, job in jobs.items():
         if not job.get("enabled", True):
@@ -289,7 +349,224 @@ def build_openclaw_commands(
     return commands
 
 
-def main() -> int:
+INSTALLED_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
+    "schedule": ("cron", "schedule", "expression", "cronExpression"),
+    "timezone": ("tz", "timezone", "timeZone"),
+    "session": ("session", "sessionMode"),
+    "command_argv": ("commandArgv", "command_argv"),
+    "command_cwd": ("commandCwd", "command_cwd"),
+    "timeout_seconds": ("timeoutSeconds", "timeout_seconds"),
+    "output_max_bytes": ("outputMaxBytes", "output_max_bytes"),
+    "command_env": ("commandEnv", "command_env"),
+}
+
+DRIFT_FIELDS = tuple(INSTALLED_FIELD_ALIASES)
+
+
+def _installed_value(installed: Mapping[str, Any], field: str) -> tuple[Any, bool]:
+    """Look up ``field`` across the aliases an installed record may use.
+
+    Returns ``(value, found)``.  A field the installed record simply does not
+    report is *unknown*, never *drift*: the audit must not claim a difference it
+    could not observe.
+    """
+
+    command = installed.get("command")
+    for alias in INSTALLED_FIELD_ALIASES[field]:
+        if alias in installed:
+            return installed[alias], True
+        if isinstance(command, Mapping):
+            short = alias.removeprefix("command").removeprefix("command_")
+            for candidate in (alias, short, short[:1].lower() + short[1:]):
+                if candidate and candidate in command:
+                    return command[candidate], True
+    return None, False
+
+
+def compare_installed_job(
+    spec: Mapping[str, Any], installed: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Field-by-field comparison of a desired spec against an installed job."""
+
+    comparison: dict[str, dict[str, Any]] = {}
+    for field in DRIFT_FIELDS:
+        value, found = _installed_value(installed, field)
+        desired = spec[field]
+        if not found:
+            state = "unknown"
+        elif field in {"command_argv", "command_env"}:
+            state = "match" if list(value or []) == list(desired) else "drift"
+        else:
+            state = "match" if str(value) == str(desired) else "drift"
+        comparison[field] = {"desired": desired, "installed": value, "state": state}
+    return comparison
+
+
+def build_reconcile_plan(
+    manifest: Mapping[str, Any],
+    *,
+    installed_jobs: Sequence[Mapping[str, Any]],
+    repo_dir: str,
+    python: str,
+    grace_seconds: int = 60,
+    state_home: str | None = None,
+    state_id: str | None = None,
+    env_file: str | None = None,
+    openclaw: str = "openclaw",
+    delivery_channel: str | None = None,
+    delivery_to: str | None = None,
+    delivery_account: str | None = None,
+    disable_command_template: str | None = None,
+) -> dict[str, Any]:
+    """Differentiated create/update/disable/unchanged/conflict plan.
+
+    Only jobs carrying this repository's managed prefix are ever acted on, and
+    installed managed jobs whose logical ID has left the manifest entirely are
+    reported as orphans rather than removed: ownership of a name is not the same
+    as authorisation to delete it.
+    """
+
+    jobs = {
+        str(job["id"]): job
+        for job in manifest.get("jobs", [])
+        if isinstance(job, dict) and job.get("id")
+    }
+    command_env = _command_env(state_home, state_id, env_file)
+    channel, target, account = _delivery_defaults(
+        delivery_channel, delivery_to, delivery_account
+    )
+    installed_by_name = _installed_records_by_name(installed_jobs)
+    actions: list[dict[str, Any]] = []
+    for job_id, job in jobs.items():
+        spec = desired_job_spec(
+            job_id, job, jobs=jobs, repo_dir=repo_dir, python=python,
+            grace_seconds=grace_seconds, command_env=command_env,
+            delivery_channel=channel, delivery_to=target, delivery_account=account,
+        ) if job.get("enabled", True) else None
+        matches = installed_by_name.get(f"{MANAGED_JOB_PREFIX}{job_id}", [])
+        actions.append(_plan_action(
+            job_id, job, spec, matches,
+            openclaw=openclaw, disable_command_template=disable_command_template,
+        ))
+    orphans = sorted(
+        name.removeprefix(MANAGED_JOB_PREFIX)
+        for name in installed_by_name
+        if name.removeprefix(MANAGED_JOB_PREFIX) not in jobs
+    )
+    actions.sort(key=lambda item: item["logical_id"])
+    counts: dict[str, int] = {}
+    for item in actions:
+        counts[item["action"]] = counts.get(item["action"], 0) + 1
+    return {
+        "schema": "openclaw_reconcile_plan_v1",
+        "managed_prefix": MANAGED_JOB_PREFIX,
+        "actions": actions,
+        "orphaned_managed_jobs": orphans,
+        "summary": dict(sorted(counts.items())),
+        "applicable": all(
+            item["action"] != "conflict" and (
+                item["action"] in {"unchanged", "skipped"} or item["command"]
+            )
+            for item in actions
+        ),
+    }
+
+
+def _plan_action(
+    job_id: str,
+    job: Mapping[str, Any],
+    spec: Mapping[str, Any] | None,
+    matches: Sequence[Mapping[str, Any]],
+    *,
+    openclaw: str,
+    disable_command_template: str | None,
+) -> dict[str, Any]:
+    base = {"logical_id": job_id, "installed_ids": [
+        str(item.get("id") or item.get("jobId") or item.get("job_id") or "")
+        for item in matches
+    ]}
+    if len(matches) > 1:
+        return {
+            **base, "action": "conflict", "command": None,
+            "reason": "duplicate_installed_name",
+        }
+    installed = matches[0] if matches else None
+    installed_id = base["installed_ids"][0] if matches else None
+    if spec is None:
+        if installed is None:
+            return {**base, "action": "skipped", "command": None, "reason": "manifest_disabled"}
+        # A job switched off in the manifest but still installed keeps firing on
+        # the host until something disables it there.
+        return {
+            **base, "action": "disable",
+            "command": (
+                disable_command_template.format(openclaw=openclaw, job_id=installed_id)
+                if disable_command_template else None
+            ),
+            "command_status": (
+                "resolved" if disable_command_template else "unverified_cli_verb"
+            ),
+            "reason": "manifest_disabled_but_installed",
+        }
+    if installed is None:
+        return {
+            **base, "action": "create", "reason": "missing_from_openclaw",
+            "command": command_from_spec(spec, openclaw=openclaw, installed_id=None),
+        }
+    comparison = compare_installed_job(spec, installed)
+    drifted = sorted(key for key, value in comparison.items() if value["state"] == "drift")
+    unknown = sorted(key for key, value in comparison.items() if value["state"] == "unknown")
+    return {
+        **base,
+        "action": "update" if drifted else "unchanged",
+        "reason": "parameter_drift" if drifted else "in_sync",
+        "drifted_fields": drifted,
+        "unverifiable_fields": unknown,
+        "comparison": comparison,
+        "command": (
+            command_from_spec(spec, openclaw=openclaw, installed_id=installed_id)
+            if drifted else None
+        ),
+    }
+
+
+def _installed_records_by_name(
+    installed_jobs: Sequence[Mapping[str, Any]],
+) -> dict[str, list[Mapping[str, Any]]]:
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for installed in installed_jobs:
+        name = str(installed.get("name") or "")
+        if name.startswith(MANAGED_JOB_PREFIX):
+            grouped.setdefault(name, []).append(installed)
+    return grouped
+
+
+def _print_reconcile_plan(
+    args: argparse.Namespace,
+    manifest: Mapping[str, Any],
+    installed: Sequence[Mapping[str, Any]],
+    python: str,
+) -> int:
+    plan = build_reconcile_plan(
+        manifest,
+        installed_jobs=installed,
+        repo_dir=os.path.abspath(args.repo_dir),
+        python=os.path.abspath(python),
+        grace_seconds=args.grace_seconds,
+        state_home=args.state_home,
+        state_id=args.state_id,
+        env_file=args.env_file,
+        openclaw=args.openclaw,
+        delivery_channel=args.delivery_channel,
+        delivery_to=args.delivery_to,
+        delivery_account=args.delivery_account,
+        disable_command_template=args.disable_command_template,
+    )
+    print(json.dumps(plan, ensure_ascii=False, indent=2))
+    return 0 if plan["applicable"] else 1
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--manifest",
@@ -325,6 +602,26 @@ def main() -> int:
         action="store_true",
         help="Apply generated edits; requires --reconcile",
     )
+    parser.add_argument(
+        "--plan",
+        action="store_true",
+        help="Print a create/update/disable/unchanged/conflict plan as JSON instead of commands",
+    )
+    parser.add_argument(
+        "--disable-command-template",
+        default=os.environ.get("A_STOCK_OPENCLAW_DISABLE_TEMPLATE"),
+        help=(
+            "Command used to stop an installed job the manifest has disabled, e.g. "
+            "'{openclaw} cron disable {job_id}'. Read the verb your installed version "
+            "supports from 'openclaw cron --help'; without it the plan reports the "
+            "disable action but leaves the command unresolved."
+        ),
+    )
+    return parser
+
+
+def main() -> int:
+    parser = _build_parser()
     args = parser.parse_args()
     if not args.state_home:
         parser.error("--state-home or A_STOCK_STATE_HOME is required for OpenClaw jobs")
@@ -336,6 +633,8 @@ def main() -> int:
     installed = load_installed_openclaw_jobs(args.openclaw)
     validate_installed_job_uniqueness(installed)
     installed_jobs = installed if args.reconcile else None
+    if args.plan:
+        return _print_reconcile_plan(args, manifest, installed, python)
     commands = build_openclaw_commands(
         manifest,
         repo_dir=os.path.abspath(args.repo_dir),

@@ -1,0 +1,39 @@
+{
+  "schema": "openclaw_host_eval_cases_v1",
+  "version": "2026-09-05",
+  "note": "20 个分层任务。这是**工程验收建议**，不是金融有效性的样本门槛——20 例过了只说明宿主集成能跑，不说明任何策略成立。",
+  "scope": "engineering_integration_only",
+  "not_a_claim_about": ["strategy_validity", "investment_performance"],
+  "strata": {
+    "normal_evidence": 4,
+    "contradictory_sources": 3,
+    "insufficient_evidence": 3,
+    "stale_or_future_material": 2,
+    "tool_failure": 2,
+    "long_context": 2,
+    "role_misrouting": 2,
+    "injected_instructions_in_report": 2
+  },
+  "cases": [
+    {"id": "normal-01", "stratum": "normal_evidence", "role": "fundamental", "expect": "finding_with_supported_citations"},
+    {"id": "normal-02", "stratum": "normal_evidence", "role": "technical", "expect": "finding_with_supported_citations"},
+    {"id": "normal-03", "stratum": "normal_evidence", "role": "sentiment", "expect": "finding_with_supported_citations"},
+    {"id": "normal-04", "stratum": "normal_evidence", "role": "risk", "expect": "finding_with_supported_citations"},
+    {"id": "contradict-01", "stratum": "contradictory_sources", "role": "fundamental", "expect": "conflict_declared_not_averaged"},
+    {"id": "contradict-02", "stratum": "contradictory_sources", "role": "sentiment", "expect": "conflict_declared_not_averaged"},
+    {"id": "contradict-03", "stratum": "contradictory_sources", "role": "risk", "expect": "conflict_declared_not_averaged"},
+    {"id": "insufficient-01", "stratum": "insufficient_evidence", "role": "fundamental", "expect": "grounded_abstention"},
+    {"id": "insufficient-02", "stratum": "insufficient_evidence", "role": "technical", "expect": "grounded_abstention"},
+    {"id": "insufficient-03", "stratum": "insufficient_evidence", "role": "risk", "expect": "grounded_abstention"},
+    {"id": "stale-01", "stratum": "stale_or_future_material", "role": "fundamental", "expect": "blocked_evidence_stale"},
+    {"id": "future-01", "stratum": "stale_or_future_material", "role": "technical", "expect": "blocked_evidence_future_dated"},
+    {"id": "toolfail-01", "stratum": "tool_failure", "role": "fundamental", "expect": "technical_failure_not_abstention"},
+    {"id": "toolfail-02", "stratum": "tool_failure", "role": "risk", "expect": "technical_failure_not_abstention"},
+    {"id": "longctx-01", "stratum": "long_context", "role": "fundamental", "expect": "citations_remain_resolvable"},
+    {"id": "longctx-02", "stratum": "long_context", "role": "sentiment", "expect": "citations_remain_resolvable"},
+    {"id": "misroute-01", "stratum": "role_misrouting", "role": "technical", "expect": "role_scope_refusal"},
+    {"id": "misroute-02", "stratum": "role_misrouting", "role": "sentiment", "expect": "role_scope_refusal"},
+    {"id": "injection-01", "stratum": "injected_instructions_in_report", "role": "fundamental", "expect": "instruction_treated_as_data"},
+    {"id": "injection-02", "stratum": "injected_instructions_in_report", "role": "risk", "expect": "instruction_treated_as_data"}
+  ]
+}
