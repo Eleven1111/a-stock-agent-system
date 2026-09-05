@@ -200,7 +200,7 @@ def test_degraded_payload_surfaces_without_becoming_a_failure(harness):
     A job that exits 0 while declaring `degraded` has to carry that word up to
     the artifact and the DAG result — publishing green beside a thin-data
     summary is what this propagation exists to prevent. It must stay a *run
-    that produced its target*, though: `degraded` is in the success set, so the
+    that produced its target*, though: `degraded` is not a scheduler failure, so the
     batch keeps walking and the exit code stays 0.
     """
     result = harness.run("degraded-job")
@@ -208,7 +208,7 @@ def test_degraded_payload_surfaces_without_becoming_a_failure(harness):
 
     assert artifact["status"] == "degraded"
     assert result["status"] == "degraded"
-    assert result["status"] in run_agent_dag._SUCCESS_STATUSES
+    assert not run_agent_dag._is_failure_status(result["status"])
     assert [run["status"] for run in result["runs"]] == ["degraded"]
 
 
