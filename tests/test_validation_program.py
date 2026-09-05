@@ -311,13 +311,12 @@ def test_repository_computes_cluster_effective_samples():
         )
     ]
     samples = compute_effective_samples(trades)
-    assert samples == {
-        "trade": 6.0,
-        "stock": pytest.approx(1.8),
-        "regime": pytest.approx(2.0),
-        "status": "evaluated",
-        "input_sha256": samples["input_sha256"],
-    }
+    assert samples["trade"] == 6.0
+    assert samples["stock"] == pytest.approx(1.8)
+    assert samples["regime"] == pytest.approx(2.0)
+    assert samples["session"] == pytest.approx(6.0)
+    assert samples["basis"] == "kish_breadth"
+    assert samples["status"] == "evaluated"
     assert samples["input_sha256"]
     assert compute_effective_samples([])["status"] == "not_evaluated"
 
@@ -335,7 +334,7 @@ def test_time_series_statistics_are_computed_and_bound():
         },
         partitions=4,
     )
-    dsr = deflated_sharpe(returns, trials=5)
+    dsr = deflated_sharpe(returns, trials=5, trial_sharpes=[0.05, 0.11, 0.18, 0.26, 0.40])
     assert bootstrap["status"] == hac["status"] == pbo["status"] == dsr["status"] == "evaluated"
     assert bootstrap["method"] == "moving_block_bootstrap"
     assert hac["method"] == "newey_west_hac"
@@ -346,8 +345,12 @@ def test_time_series_statistics_are_computed_and_bound():
     assert hac["standard_error"] == pytest.approx(0.0007977075154926381)
     assert fdr["discoveries"] == ["a"]
     assert fdr["adjusted_p_values"] == pytest.approx({"a": 0.03, "b": 0.06, "c": 0.2})
-    assert pbo["pbo"] == pytest.approx(1.0)
-    assert dsr["probability"] == pytest.approx(0.0008653511452557106)
+    # 0.75, not the pre-2026-09-05 1.0: one fold ties in-sample and now shares
+    # the outcome across the tied set instead of picking the alphabetical winner.
+    assert pbo["pbo"] == pytest.approx(0.75)
+    assert pbo["method_version"] == "cscv-v2"
+    assert dsr["method_version"] == "deflated_sharpe-v2"
+    assert deflated_sharpe(returns, trials=5)["reason"] == "trial_dispersion_unavailable"
     assert block_bootstrap_mean([0.1], block_length=2)["status"] == "not_evaluated"
     assert hac_mean_uncertainty([1.0] * 20, lags=2)["status"] == "not_evaluated"
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from skills.common import strategy_forward_settlement as forward
+from skills.common import forward_label_taxonomy
 from skills.common import local_market_history
 from skills.common.execution_model import net_return_pct
 
@@ -272,6 +273,17 @@ def test_build_gate_dataset_only_projects_final_primary_approved_samples(tmp_pat
     assert row["prediction_sha256"]
     assert row["bar_snapshot_sha256"]
     assert dataset["dataset_sha256"] == forward.artifact_sha256(dataset)
+    # The dataset says outright what its rows measure. A primary horizon of 1
+    # exits at the close of the session it entered on, so an execution gate has
+    # to refuse it rather than read the returns at face value.
+    assert dataset["label_kind"] == "price_path_prediction"
+    assert dataset["execution_evidence"] is False
+    clock = dataset["research_clock"]
+    assert clock["respects_t_plus_one_from_entry"] is False
+    assert clock["signal_cutoff"] == row["src"]
+    assert clock["reference_entry_date"] == row["entry_date"]
+    with pytest.raises(forward_label_taxonomy.LabelKindError):
+        forward_label_taxonomy.assert_execution_evidence(dataset)
 
     settlement_path = next(
         (tmp_path / "state" / "skills" / "stock-triage" / "data" /
