@@ -23,6 +23,7 @@ from paths import data_file
 from research_artifact import json_sha256
 import local_market_history
 import dataset_contract
+import forward_label_taxonomy
 from execution_model import net_return_pct
 
 
@@ -517,6 +518,16 @@ def build_gate_dataset(strategy_id: str, *, policy_path: str) -> dict[str, Any]:
         "schema": "settled_forward_samples_v1",
         "dataset_id": "settled_forward_samples_v1",
         "engine_version": ENGINE_VERSION,
+        # These rows measure a price path, not a tradeable result: the primary
+        # horizon of 1 exits at the close of the session it entered on. Consumers
+        # asking "can this be traded?" must go through
+        # forward_label_taxonomy.assert_execution_evidence and will be refused.
+        "label_kind": forward_label_taxonomy.LABEL_PRICE_PATH,
+        "execution_evidence": False,
+        "research_clock": (
+            forward_label_taxonomy.describe_price_path_label(samples[0], policy)
+            if samples else None
+        ),
         "strategy_id": strategy_id,
         "settlement_policy_sha256": policy_hash,
         "approved_strategy_rule_hashes": sorted(approved_rules),
