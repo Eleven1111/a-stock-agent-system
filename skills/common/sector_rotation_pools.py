@@ -76,6 +76,18 @@ AVAILABLE_WEIGHT_SHARE = round(
     sum(REPORT_WEIGHTS[name] for name in AVAILABLE_COMPONENTS), 4
 )
 
+#: 四个可得分项**不是四个独立确认**：`anti_fake_breakout` 的输入里就含广度与拥挤分
+#: （见 `scripts/sector_crowding_daily._build_fake_breakout`：它把 breadth /
+#: concentration 分位 / crowding score 一起喂进假突破风险）。所以「四重共振」里
+#: breadth、fake_risk、score 三项共用同一批数据，读起来像三次独立确认，其实不是。
+#: 共用关系写进产物，报告不能把它讲成互相印证。
+COMPONENT_DEPENDENCIES: dict[str, list[str]] = {
+    "anti_fake_breakout": ["breadth", "anti_crowding", "concentration_percentile"],
+    "anti_crowding": ["turnover_share", "relative_turnover", "concentration_percentile"],
+    "breadth": [],
+    "relative_strength": [],
+}
+
 DEFAULTS: dict[str, Any] = {
     # 主线四重共振
     "mainline_rs_slope_min": 0.0,
@@ -189,12 +201,17 @@ def sector_pool(
         "anti_fake_breakout": None if fake_risk is None else round(100.0 - fake_risk, 2),
     }
     score, weights = _renormalise(components)
+    # 41% 是这套实现的**上限**，不是每个板块的实测覆盖率：某个板块只算出 breadth
+    # 一项时，真实观测到的权重是 0.11，报 0.41 会把缺口讲小。
+    observed = round(sum(REPORT_WEIGHTS[name] for name in weights), 4)
     base: dict[str, Any] = {
         "schema": SCHEMA,
         "sector": sector,
         "components": components,
         "missing_components": sorted(set(REPORT_WEIGHTS) - set(weights)),
-        "missing_weight_share": round(1.0 - AVAILABLE_WEIGHT_SHARE, 4),
+        "available_weight_share_ceiling": AVAILABLE_WEIGHT_SHARE,
+        "observed_weight_share": observed,
+        "missing_weight_share": round(1.0 - observed, 4),
         # 只覆盖 41% 的权重、且全是价量 —— 置信度恒低，不因为数据齐全就抬高。
         "confidence": "low",
     }
@@ -263,6 +280,7 @@ def build_sector_rotation_pools(
     for row in rows:
         pools[row["pool"]].append(row["sector"])
 
+    observed = [float(row.get("observed_weight_share") or 0.0) for row in rows]
     return {
         "schema": SCHEMA,
         "asof": asof,
@@ -273,6 +291,15 @@ def build_sector_rotation_pools(
         "confidence": "low",
         "available_weight_share": AVAILABLE_WEIGHT_SHARE,
         "missing_weight_share": round(1.0 - AVAILABLE_WEIGHT_SHARE, 4),
+        "observed_weight_share": {
+            "ceiling": AVAILABLE_WEIGHT_SHARE,
+            "minimum": round(min(observed), 4) if observed else None,
+            "mean": round(sum(observed) / len(observed), 4) if observed else None,
+            "at_ceiling_sectors": sum(
+                1 for value in observed if abs(value - AVAILABLE_WEIGHT_SHARE) < 1e-9
+            ),
+        },
+        "component_dependencies": COMPONENT_DEPENDENCIES,
         "weight_path": "expert_only_no_fitting",
         "regime": market_crowding_labels(
             market_crowding_score, extra_labels=regime_labels, config=settings
