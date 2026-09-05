@@ -13,6 +13,13 @@
 ## 0. 全程红线
 
 - **阶段 A、B、C 全部只读。** 没跑完 C 并把结果交回来之前，**一条写操作都不做**。
+- **不修改仓库里的任何源文件。** 这份任务书要的是核对与取证，不是改代码。
+  发现代码有问题 → **写进报告，不要动它**。部署机 dispatcher **直接从工作区运行、
+  不经构建**（见 `deployment-runbook.md` §1 ①），所以工作区里一个未提交的改动
+  就是一份未经评审、未过 CI 的生产代码。
+- **阶段 A 的两个 SHA 是必答项**，不是背景信息：拉取前的 SHA 是唯一的回滚点，
+  拉取后的 SHA 决定了后面每一条结论说的是哪一版代码。缺了它们，
+  报告里的测试数、产物计数、审计结果都无法归因。
 - 不新建、不修改、不删除任何 OpenClaw 作业（除非阶段 D 被明确批准）。
 - **不删除任何不属于本项目 `A-stock: ` 前缀的作业**，一条都不删。
 - 不重启用户的 OpenClaw、不升级版本、不改全局权限、不改 tool policy。
@@ -100,6 +107,11 @@ wc -l "$HOME/a-stock-diagnostics/cron-before-$(date +%F).json"
 
 ### C2 生成差异计划
 
+**不需要提供 `A_STOCK_DELIVERY_TO`。** 计划是只读诊断，不该要生产密钥：
+16 个 `deliver: origin` 的作业会单独记 `blocked` / `delivery_target_missing`，
+另外 48 个照常给出判定（PR #352）。缺收件人时生成的计划里没有任何 `--to`，
+反而更适合贴出来看。
+
 ```bash
 python scripts/generate_openclaw_cron.py --plan --state-home "$A_STOCK_STATE_HOME" \
   > "$HOME/a-stock-diagnostics/reconcile-plan.json"
@@ -166,7 +178,10 @@ python scripts/evaluate_openclaw_host.py
 
 ## 到这里停。把以下内容交回来：
 
+0. `git status --short` 的输出（应为空）。**非空就先停下**——
+   工作区有未提交改动时，后面所有测试与审计结果说的都不是目标 commit 那一版。
 1. 阶段 A 的**旧 SHA**（回滚点）和 pull 后的 SHA、四道自检的输出尾部。
+   pull 后的 SHA 必须与任务书开头写的目标 commit 一致；不一致就报告差在哪，不要自行修补。
 2. `openclaw --version` / `cron --help` / `cron list --help` 的**完整输出**。
 3. **停用动词是哪个**（阶段 B 的核心问题）。
 4. 这台机器的角色（Gateway / 执行机 / 都是）+ 有没有活着的 launchd / cron / Hermes。
