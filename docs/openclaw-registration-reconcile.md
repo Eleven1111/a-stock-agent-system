@@ -76,11 +76,28 @@ python scripts/generate_openclaw_cron.py --plan \
 ## 应用差异
 
 ```bash
-python scripts/generate_openclaw_cron.py --reconcile --apply --state-home "$A_STOCK_STATE_HOME"
+python scripts/generate_openclaw_cron.py --reconcile --apply \
+  --state-home "$A_STOCK_STATE_HOME" \
+  --disable-command-template '{openclaw} cron disable {job_id}'
 ```
+
+`--apply` **执行的就是 `--plan` 打印出来的那份计划**，一条不多一条不少：
+`unchanged` / `skipped` 不产生命令，`disable` 会真的被执行。
+计划 `applicable: false` 时直接抛错、**一条命令都不发**。
+
+（2026-09-06 之前不是这样：apply 走的是 `build_openclaw_commands`，
+把 64 个启用作业**全部重写一遍**，而且因为它 `continue` 掉了 disabled 作业，
+计划算出来的 `disable` **从来没被执行过**。评审的是一份计划、执行的是另一回事。）
 
 `--apply` 必须配 `--reconcile`（否则会重复 create）。同一份计划重复应用不产生新 ID：
 第二次 reconcile 全部落在 `unchanged`，零条命令。
+
+### 宿主什么都不报时会写一次
+
+某些安装版的 `cron list --json` 不返回 argv / cwd / timeout 等字段。全部字段都
+`unknown` 时，判 `unchanged` 等于**假设**它没问题——所以计划改判
+`update` / `unverifiable_installed_state`，用一次写入收敛。部分字段 unknown 仍判
+`unchanged`（有可比字段且都匹配）。
 
 ## 审计侧
 
