@@ -305,6 +305,14 @@ CI 覆盖受支持的 Python 矩阵和 CodeQL。固定 Agent Harness 只验证�
 | learning-eval-factory-v1 | [docs/learning-eval-factory-v1.md](docs/learning-eval-factory-v1.md) |
 | deployment-runbook | [docs/deployment-runbook.md](docs/deployment-runbook.md) |
 | falsified-approaches | [docs/falsified-approaches.md](docs/falsified-approaches.md) |
+| OpenClaw 注册对账 | [docs/openclaw-registration-reconcile.md](docs/openclaw-registration-reconcile.md) |
+| 统计方法版本迁移（v1 → v2） | [docs/statistical-method-migration.md](docs/statistical-method-migration.md) |
+| 前向标签分类 | [docs/forward-label-taxonomy.md](docs/forward-label-taxonomy.md) |
+| 探索性 paper 实验 | [docs/exploratory-paper-experiment.md](docs/exploratory-paper-experiment.md) |
+| 证据保留期与在研实验 | [docs/retention-and-active-experiments.md](docs/retention-and-active-experiments.md) |
+| 门禁清单与成本关联 | [docs/gate-inventory-and-usage-attribution.md](docs/gate-inventory-and-usage-attribution.md) |
+| 交付状态与边界 | [docs/openclaw-delivery-status.md](docs/openclaw-delivery-status.md) |
+| Canary 与回滚 | [docs/openclaw-canary-and-rollback.md](docs/openclaw-canary-and-rollback.md) |
 | 版本历史 | [CHANGELOG.md](CHANGELOG.md) |
 
 ## 仓库结构
