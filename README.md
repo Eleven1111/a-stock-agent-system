@@ -352,6 +352,7 @@ returns or open-world prediction accuracy.
 | Gate inventory and usage attribution | [docs/gate-inventory-and-usage-attribution.md](docs/gate-inventory-and-usage-attribution.md) |
 | Delivery status and boundaries | [docs/openclaw-delivery-status.md](docs/openclaw-delivery-status.md) |
 | Canary and rollback | [docs/openclaw-canary-and-rollback.md](docs/openclaw-canary-and-rollback.md) |
+| Deployment-machine task brief | [docs/deployment-machine-tasks.md](docs/deployment-machine-tasks.md) |
 | Release history | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Repository layout

@@ -313,6 +313,7 @@ CI 覆盖受支持的 Python 矩阵和 CodeQL。固定 Agent Harness 只验证�
 | 门禁清单与成本关联 | [docs/gate-inventory-and-usage-attribution.md](docs/gate-inventory-and-usage-attribution.md) |
 | 交付状态与边界 | [docs/openclaw-delivery-status.md](docs/openclaw-delivery-status.md) |
 | Canary 与回滚 | [docs/openclaw-canary-and-rollback.md](docs/openclaw-canary-and-rollback.md) |
+| 部署机任务书 | [docs/deployment-machine-tasks.md](docs/deployment-machine-tasks.md) |
 | 版本历史 | [CHANGELOG.md](CHANGELOG.md) |
 
 ## 仓库结构
