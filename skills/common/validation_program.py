@@ -31,6 +31,13 @@ from market_snapshot import PointInTimeViolation, validate_point_in_time
 
 _PROCESS_INSTANCE_ID = uuid.uuid4().hex
 
+# Bumped together with the deflated-Sharpe / CSCV method change of 2026-09-05.
+# Artifacts stamped with the v1 pair were produced by the superseded estimators
+# and deliberately stop satisfying the gate: they have to be recomputed, not
+# grandfathered.  See docs/statistical-method-migration.md.
+STATISTICS_SCHEMA_VERSION = "statistical-validation-suite-v2"
+STATISTICS_COMPUTED_BY = "validation_program-v2"
+
 
 class ValidationError(ValueError):
     """A fail-closed validation error with a stable reason code."""
@@ -371,7 +378,16 @@ def build_walk_forward_folds(
 
 
 def compute_effective_samples(trades: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Calculate trade count and Kish effective breadth for stock/regime clusters."""
+    """Kish effective *breadth* across trade/stock/regime/session clusters.
+
+    These are dispersion counts, not autocorrelation-adjusted effective sample
+    sizes: thirty trades opened on one session score ``trade = 30`` because they
+    occupy thirty distinct (session, stock) slots, while ``session = 1`` records
+    that they share a single day of market information.  ``basis`` is emitted so
+    downstream reports cannot quietly present breadth as independence, and
+    ``sector`` stays ``None`` unless the trades actually carry a sector, so an
+    absent dimension is never mistaken for a satisfied one.
+    """
 
     input_hash = _canonical_hash(list(trades))
     required = ("trade_id", "stock", "session", "regime")
@@ -380,6 +396,7 @@ def compute_effective_samples(trades: Sequence[Mapping[str, Any]]) -> dict[str, 
     trade_ids = [str(trade["trade_id"]) for trade in trades]
     if len(set(trade_ids)) != len(trade_ids):
         return {"status": "not_evaluated", "reason": "duplicate_trade_id", "input_sha256": input_hash}
+    sectors = [str(trade.get("sector") or "") for trade in trades]
     return {
         "trade": _kish_cluster_count(
             Counter(
@@ -389,6 +406,12 @@ def compute_effective_samples(trades: Sequence[Mapping[str, Any]]) -> dict[str, 
         ),
         "stock": _kish_cluster_count(Counter(str(trade["stock"]) for trade in trades)),
         "regime": _kish_cluster_count(Counter(str(trade["regime"]) for trade in trades)),
+        "session": _kish_cluster_count(Counter(str(trade["session"]) for trade in trades)),
+        "sector": _kish_cluster_count(Counter(sectors)) if all(sectors) else None,
+        "sector_status": "evaluated" if all(sectors) else "unavailable",
+        "basis": "kish_breadth",
+        "autocorrelation_adjusted": False,
+        "distinct_sessions": len({str(trade["session"]) for trade in trades}),
         "status": "evaluated",
         "input_sha256": input_hash,
     }
@@ -500,83 +523,283 @@ def fdr_benjamini_hochberg(p_values: Mapping[str, float], *, alpha: float) -> di
     }
 
 
+_PBO_TIE_TOLERANCE = 1e-12
+
+
 def probability_of_backtest_overfitting(
-    variant_returns: Mapping[str, Sequence[float]], *, partitions: int
+    variant_returns: Mapping[str, Sequence[float]],
+    *,
+    partitions: int,
+    embargo: int = 0,
 ) -> dict[str, Any]:
-    config = {"partitions": partitions}
+    """CSCV probability of backtest overfitting.
+
+    Selection in-sample and ranking out-of-sample both use the mean return, and
+    the result is invariant to variant naming: ties are resolved by averaging
+    over the tied set rather than by lexical order.  Variants that are numerically
+    indistinguishable are collapsed first, because ``k`` copies of one strategy
+    are one trial, not ``k`` competing ones.
+    """
+
+    config = {"partitions": partitions, "embargo": embargo, "method_version": "cscv-v2"}
+    hashed_config = _canonical_hash(config)
     parsed: dict[str, list[float]] = {}
+    excluded: dict[str, str] = {}
     lengths: set[int] = set()
     for key, values in variant_returns.items():
         numeric = _numeric_series(values, minimum=partitions)
         if numeric is None:
+            excluded[str(key)] = "series_invalid"
             continue
         parsed[str(key)] = numeric[0]
         lengths.add(len(numeric[0]))
+    if len(lengths) > 1:
+        longest = max(lengths)
+        for key, series in list(parsed.items()):
+            if len(series) != longest:
+                excluded[key] = "length_mismatch"
+                parsed.pop(key)
+        lengths = {longest}
+
+    groups_by_series: dict[str, list[str]] = {}
+    for key, series in sorted(parsed.items()):
+        groups_by_series.setdefault(_canonical_hash(series), []).append(key)
+    duplicate_groups = [members for members in groups_by_series.values() if len(members) > 1]
+    distinct = {members[0]: parsed[members[0]] for members in groups_by_series.values()}
+
     if (
-        len(parsed) < 2 or len(lengths) != 1 or partitions < 4 or partitions % 2
+        len(distinct) < 2 or partitions < 4 or partitions % 2 or embargo < 0
         or next(iter(lengths), 0) < partitions * 2
     ):
-        return {"status": "not_evaluated", "reason": "sample_insufficient", "config_sha256": _canonical_hash(config)}
+        reason = (
+            "insufficient_distinct_variants"
+            if len(parsed) >= 2 and len(distinct) < 2
+            else "sample_insufficient"
+        )
+        return {
+            "status": "not_evaluated", "reason": reason,
+            "distinct_variants": sorted(distinct),
+            "duplicate_groups": duplicate_groups,
+            "excluded_variants": dict(sorted(excluded.items())),
+            "config_sha256": hashed_config,
+        }
+
     observation_count = next(iter(lengths))
     groups = _partition_indices(observation_count, partitions)
-    logits: list[float] = []
+    overfit_fractions: list[float] = []
     for train_groups in itertools.combinations(range(partitions), partitions // 2):
         train_indices = [index for group in train_groups for index in groups[group]]
-        test_indices = [
-            index for group in range(partitions) if group not in train_groups for index in groups[group]
-        ]
+        test_indices = _test_indices(groups, train_groups, partitions, embargo)
+        if len(test_indices) < 2:
+            return {
+                "status": "not_evaluated", "reason": "embargo_exhausted_test_fold",
+                "config_sha256": hashed_config,
+            }
         train_means = {
             key: statistics.fmean(values[index] for index in train_indices)
-            for key, values in parsed.items()
+            for key, values in distinct.items()
         }
-        selected = max(train_means, key=lambda key: (train_means[key], key))
-        test_means = sorted(
-            ((statistics.fmean(values[index] for index in test_indices), key) for key, values in parsed.items())
-        )
-        rank = next(index for index, (_, key) in enumerate(test_means, start=1) if key == selected)
-        relative_rank = rank / (len(test_means) + 1)
-        logits.append(math.log(relative_rank / (1 - relative_rank)))
+        test_means = {
+            key: statistics.fmean(values[index] for index in test_indices)
+            for key, values in distinct.items()
+        }
+        best = max(train_means.values())
+        selected = [
+            key for key, value in train_means.items()
+            if math.isclose(value, best, rel_tol=_PBO_TIE_TOLERANCE, abs_tol=_PBO_TIE_TOLERANCE)
+        ]
+        ranks = _mid_ranks(test_means)
+        count = len(test_means)
+        overfit = [
+            math.log((ranks[key] / (count + 1)) / (1 - ranks[key] / (count + 1))) <= 0
+            for key in selected
+        ]
+        overfit_fractions.append(sum(overfit) / len(overfit))
     return {
         "status": "evaluated",
         "method": "combinatorially_symmetric_cross_validation",
-        "pbo": sum(logit <= 0 for logit in logits) / len(logits),
-        "combinations": len(logits),
-        "input_sha256": _canonical_hash(parsed),
-        "config_sha256": _canonical_hash(config),
+        "method_version": "cscv-v2",
+        "pbo": statistics.fmean(overfit_fractions),
+        "combinations": len(overfit_fractions),
+        "resolution": 1 / len(overfit_fractions),
+        "selection_metric": "in_sample_mean_return",
+        "ranking_metric": "out_of_sample_mean_return",
+        "distinct_variants": sorted(distinct),
+        "duplicate_groups": duplicate_groups,
+        "excluded_variants": dict(sorted(excluded.items())),
+        "purge_embargo": {"observations": embargo, "applied": embargo > 0},
+        "input_sha256": _canonical_hash(distinct),
+        "config_sha256": hashed_config,
     }
+
+
+def _test_indices(
+    groups: Sequence[Sequence[int]], train_groups: Sequence[int], partitions: int, embargo: int
+) -> list[int]:
+    """Test-fold indices with ``embargo`` observations purged after each train block."""
+
+    indices: list[int] = []
+    for group in range(partitions):
+        if group in train_groups:
+            continue
+        block = list(groups[group])
+        if embargo and group > 0 and (group - 1) in train_groups:
+            block = block[embargo:]
+        indices.extend(block)
+    return indices
+
+
+def _mid_ranks(values: Mapping[str, float]) -> dict[str, float]:
+    """Ascending ranks starting at 1, ties sharing the average rank."""
+
+    ordered = sorted(values.items(), key=lambda item: item[1])
+    ranks: dict[str, float] = {}
+    position = 0
+    while position < len(ordered):
+        end = position + 1
+        while end < len(ordered) and math.isclose(
+            ordered[end][1], ordered[position][1],
+            rel_tol=_PBO_TIE_TOLERANCE, abs_tol=_PBO_TIE_TOLERANCE,
+        ):
+            end += 1
+        shared = (position + 1 + end) / 2
+        for key, _ in ordered[position:end]:
+            ranks[key] = shared
+        position = end
+    return ranks
 
 
 def _partition_indices(count: int, partitions: int) -> list[list[int]]:
     return [list(range(start * count // partitions, (start + 1) * count // partitions)) for start in range(partitions)]
 
 
-def deflated_sharpe(values: Sequence[float], *, trials: int) -> dict[str, Any]:
+_EULER_MASCHERONI = 0.5772156649015329
+
+
+def expected_maximum_sharpe(*, trials: int, trial_sharpe_variance: float) -> float:
+    """Bailey & Lopez de Prado (2014) expected maximum Sharpe across ``trials``.
+
+    ``E[max SR] = sqrt(V) * [(1 - g) * Z^-1(1 - 1/N) + g * Z^-1(1 - 1/(N*e))]``
+    with ``V`` the cross-trial variance of the observed Sharpe ratios and ``g``
+    the Euler-Mascheroni constant.  The ``sqrt(V)`` scale is what puts the
+    threshold on the same frequency as the candidate Sharpe ratio; dropping it
+    silently compares a per-period Sharpe against a standard-normal quantile.
+    """
+
+    normal = NormalDist()
+    gumbel = (
+        (1 - _EULER_MASCHERONI) * normal.inv_cdf(1 - 1 / trials)
+        + _EULER_MASCHERONI * normal.inv_cdf(1 - 1 / (trials * math.e))
+    )
+    return math.sqrt(trial_sharpe_variance) * gumbel
+
+
+def observed_trial_sharpes(
+    variant_returns: Mapping[str, Sequence[float]], *, minimum_observations: int = 20
+) -> dict[str, Any]:
+    """Per-variant Sharpe ratios, at the frequency of the supplied series.
+
+    Returned separately from :func:`deflated_sharpe` so the caller stays the
+    single owner of "which trials belong to this experiment"; the estimator
+    never invents a trial set it was not given.
+    """
+
+    sharpes: dict[str, float] = {}
+    excluded: dict[str, str] = {}
+    lengths: set[int] = set()
+    for key, values in variant_returns.items():
+        parsed = _numeric_series(values, minimum=minimum_observations)
+        if parsed is None:
+            excluded[str(key)] = "sample_insufficient"
+            continue
+        series = parsed[0]
+        std = statistics.stdev(series)
+        if std <= 0 or not math.isfinite(std):
+            excluded[str(key)] = "degenerate_sample"
+            continue
+        sharpes[str(key)] = statistics.fmean(series) / std
+        lengths.add(len(series))
+    return {
+        "sharpes": dict(sorted(sharpes.items())),
+        "excluded": dict(sorted(excluded.items())),
+        "frequency_consistent": len(lengths) <= 1,
+        "observation_count": next(iter(lengths)) if len(lengths) == 1 else None,
+    }
+
+
+def deflated_sharpe(
+    values: Sequence[float],
+    *,
+    trials: int,
+    trial_sharpes: Sequence[float] | None = None,
+) -> dict[str, Any]:
+    """Deflated Sharpe ratio, or the probabilistic Sharpe ratio when ``trials == 1``.
+
+    ``trial_sharpes`` must carry the Sharpe ratios of the whole trial set at the
+    *same* return frequency as ``values``.  Without it the cross-trial dispersion
+    is unknowable, and the function refuses to evaluate rather than substituting
+    a variance of one (which is what silently turned a per-period Sharpe of 0.12
+    into a "threshold" of 1.07).
+    """
+
     parsed = _numeric_series(values, minimum=20)
-    config = {"trials": trials}
+    config = {"trials": trials, "method_version": "deflated_sharpe-v2"}
+    hashed_config = _canonical_hash(config)
     if parsed is None or trials < 1:
-        return {"status": "not_evaluated", "reason": "sample_insufficient", "config_sha256": _canonical_hash(config)}
+        return {"status": "not_evaluated", "reason": "sample_insufficient", "config_sha256": hashed_config}
     series, input_hash = parsed
     mean = statistics.fmean(series)
     std = statistics.stdev(series)
     if std <= 0:
-        return {"status": "not_evaluated", "reason": "degenerate_sample", "input_sha256": input_hash, "config_sha256": _canonical_hash(config)}
+        return {"status": "not_evaluated", "reason": "degenerate_sample", "input_sha256": input_hash, "config_sha256": hashed_config}
     sharpe = mean / std
     centred = [(value - mean) / std for value in series]
     skew = statistics.fmean(value ** 3 for value in centred)
     kurtosis = statistics.fmean(value ** 4 for value in centred)
-    expected_maximum = NormalDist().inv_cdf(1 - 1 / (trials + 1))
+
+    dispersion: float | None = None
+    if trials == 1:
+        method = "probabilistic_sharpe_ratio"
+        expected_maximum = 0.0
+        threshold_source = "single_trial_no_deflation"
+    else:
+        method = "deflated_sharpe"
+        threshold_source = "observed_trial_sharpe_variance"
+        observed = _numeric_series(list(trial_sharpes or ()), minimum=2)
+        if observed is None:
+            return {
+                "status": "not_evaluated", "reason": "trial_dispersion_unavailable",
+                "input_sha256": input_hash, "config_sha256": hashed_config,
+            }
+        dispersion = statistics.variance(observed[0])
+        if dispersion <= 0 or not math.isfinite(dispersion):
+            return {
+                "status": "not_evaluated", "reason": "trial_dispersion_degenerate",
+                "input_sha256": input_hash, "config_sha256": hashed_config,
+            }
+        expected_maximum = expected_maximum_sharpe(
+            trials=len(observed[0]), trial_sharpe_variance=dispersion
+        )
+        trials = len(observed[0])
+
     variance = (1 - skew * sharpe + ((kurtosis - 1) / 4) * sharpe * sharpe) / (len(series) - 1)
     if variance <= 0 or not math.isfinite(variance):
-        return {"status": "not_evaluated", "reason": "degenerate_sample", "input_sha256": input_hash, "config_sha256": _canonical_hash(config)}
+        return {"status": "not_evaluated", "reason": "degenerate_sample", "input_sha256": input_hash, "config_sha256": hashed_config}
     probability = NormalDist().cdf((sharpe - expected_maximum) / math.sqrt(variance))
     return {
         "status": "evaluated",
-        "method": "deflated_sharpe",
+        "method": method,
+        "method_version": "deflated_sharpe-v2",
         "sharpe": sharpe,
         "expected_maximum_sharpe": expected_maximum,
         "probability": probability,
+        "effective_trials": trials,
+        "trial_sharpe_variance": dispersion,
+        "threshold_source": threshold_source,
+        "observation_count": len(series),
+        "return_frequency": "per_observation_period",
         "input_sha256": input_hash,
-        "config_sha256": _canonical_hash(config),
+        "config_sha256": hashed_config,
     }
 
 
@@ -604,9 +827,22 @@ def compute_statistical_validation(
         hac = hac_mean_uncertainty(primary, lags=int(config["hac_lags"]))
         fdr = fdr_benjamini_hochberg(p_values, alpha=float(config["fdr_alpha"]))
         pbo = probability_of_backtest_overfitting(
-            variant_returns, partitions=int(config["pbo_partitions"])
+            variant_returns,
+            partitions=int(config["pbo_partitions"]),
+            embargo=int(config.get("pbo_embargo") or 0),
         )
-        dsr = deflated_sharpe(primary, trials=len(variant_returns))
+        trials = observed_trial_sharpes(variant_returns, minimum_observations=minimum)
+        if not trials["frequency_consistent"]:
+            dsr = {
+                "status": "not_evaluated", "reason": "trial_frequency_inconsistent",
+                "config_sha256": _canonical_hash({"trials": len(trials["sharpes"])}),
+            }
+        else:
+            dsr = deflated_sharpe(
+                primary,
+                trials=len(trials["sharpes"]) or 1,
+                trial_sharpes=list(trials["sharpes"].values()),
+            )
         maximum_pbo = float(config["maximum_pbo"])
         minimum_dsr = float(config["minimum_deflated_sharpe_probability"])
     except (KeyError, TypeError, ValueError) as exc:
@@ -632,10 +868,16 @@ def compute_statistical_validation(
         reasons = sorted(key for key, passed in checks.items() if not passed)
         status = "passed" if not reasons else "failed"
     core = {
-        "schema_version": "statistical-validation-suite-v1",
-        "computed_by": "validation_program-v1",
+        "schema_version": STATISTICS_SCHEMA_VERSION,
+        "computed_by": STATISTICS_COMPUTED_BY,
         "primary_variant": primary_variant,
         "calculations": calculations,
+        "trial_set": {
+            "included": sorted(trials["sharpes"]),
+            "excluded": trials["excluded"],
+            "frequency_consistent": trials["frequency_consistent"],
+            "observation_count": trials["observation_count"],
+        },
         "decision_thresholds_sha256": _canonical_hash(dict(config)),
         "status": status,
         "reasons": reasons,
@@ -902,21 +1144,21 @@ def verify_oos_precommit_record(record: Mapping[str, Any]) -> bool:
 def _statistics_artifact_valid(record: Mapping[str, Any]) -> bool:
     calculations = record.get("calculations") or {}
     methods = {
-        "block_bootstrap": "moving_block_bootstrap",
-        "hac": "newey_west_hac",
-        "fdr": "benjamini_hochberg",
-        "pbo": "combinatorially_symmetric_cross_validation",
-        "deflated_sharpe": "deflated_sharpe",
+        "block_bootstrap": {"moving_block_bootstrap"},
+        "hac": {"newey_west_hac"},
+        "fdr": {"benjamini_hochberg"},
+        "pbo": {"combinatorially_symmetric_cross_validation"},
+        "deflated_sharpe": {"deflated_sharpe", "probabilistic_sharpe_ratio"},
     }
     return bool(
         _artifact_hash_valid(record)
-        and record.get("schema_version") == "statistical-validation-suite-v1"
-        and record.get("computed_by") == "validation_program-v1"
+        and record.get("schema_version") == STATISTICS_SCHEMA_VERSION
+        and record.get("computed_by") == STATISTICS_COMPUTED_BY
         and all(
             isinstance(calculations.get(name), Mapping)
             and calculations[name].get("status") == "evaluated"
-            and calculations[name].get("method") == method
-            for name, method in methods.items()
+            and calculations[name].get("method") in accepted
+            for name, accepted in methods.items()
         )
     )
 
