@@ -17,6 +17,7 @@ from tail_close_strategy import (
     canonical_hash,
 )
 from validation_program import (
+    STATISTICS_SCHEMA_VERSION,
     ValidationError,
     _locked_jsonl,
     _read_locked_records,
@@ -419,7 +420,7 @@ def _compute_oos_statistics(
     statistics_config = validation_thresholds["statistics"]
     if len(raw_returns) < int(statistics_config["minimum_observations"]):
         statistics_core = {
-            "schema_version": "statistical-validation-suite-v1",
+            "schema_version": STATISTICS_SCHEMA_VERSION,
             "computed_by": "tail-close-validation-v1",
             "primary_variant": primary_variant,
             "calculations": {},
