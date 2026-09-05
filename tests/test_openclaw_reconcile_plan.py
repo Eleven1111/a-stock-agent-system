@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.generate_openclaw_cron import (
     MANAGED_JOB_PREFIX,
     build_openclaw_commands,
@@ -234,3 +236,73 @@ def test_every_enabled_manifest_job_reaches_the_dag_entry_point():
         argv = json.loads(command.split("--command-argv ")[1].split("' --command-cwd")[0].strip("'"))
         assert argv[1].endswith("scripts/run_agent_dag.py")
         assert "--runtime" in argv and argv[argv.index("--runtime") + 1] == "openclaw"
+
+
+def _origin_job(job_id: str) -> dict:
+    job = _job(job_id)
+    job["deliver"] = "origin"
+    return job
+
+
+def test_a_plan_is_still_produced_when_no_delivery_target_is_configured():
+    # 16 of the 64 enabled manifest jobs deliver to origin. Refusing to describe
+    # the other 48 because of them makes the read-only diagnostic unusable on the
+    # very machine that needs it, which is where the target is deliberately absent.
+    plan = _plan([_origin_job("announce"), _job("quiet")], [], delivery_to=None)
+
+    blocked = next(item for item in plan["actions"] if item["logical_id"] == "announce")
+    assert blocked["action"] == "blocked"
+    assert blocked["reason"] == "delivery_target_missing"
+    assert blocked["command"] is None
+
+    described = next(item for item in plan["actions"] if item["logical_id"] == "quiet")
+    assert described["action"] == "create"
+    assert described["command"]
+    # An incomplete plan can never be applied.
+    assert plan["applicable"] is False
+
+
+def test_a_blocked_job_leaks_no_recipient_and_no_configuration_wording():
+    plan = _plan([_origin_job("announce")], [], delivery_to=None)
+    serialised = json.dumps(plan, ensure_ascii=False)
+
+    assert "--to" not in serialised
+    assert "A_STOCK_DELIVERY_TO" not in serialised
+
+
+def test_a_configured_delivery_target_produces_a_normal_action():
+    plan = _plan([_origin_job("announce")], [], delivery_to="user:verified-recipient")
+    action = plan["actions"][0]
+
+    assert action["action"] == "create"
+    assert "--announce" in action["command"]
+    assert plan["applicable"] is True
+
+
+def test_an_unknown_deliver_policy_is_classified_rather_than_crashing_the_plan():
+    broken = _job("weird")
+    broken["deliver"] = "orgin"
+    plan = _plan([broken, _job("quiet")], [], delivery_to=None)
+
+    assert plan["summary"] == {"blocked": 1, "create": 1}
+    assert plan["actions"][1]["reason"] == "deliver_policy_unknown"
+
+
+def test_the_apply_path_still_fails_closed_without_a_target(tmp_path):
+    with pytest.raises(ValueError, match="origin delivery target is required"):
+        build_openclaw_commands(
+            {"jobs": [_origin_job("announce")]},
+            repo_dir=str(tmp_path), python="/venv/bin/python", state_home="/state",
+        )
+
+
+def test_the_repo_manifest_plans_end_to_end_without_a_delivery_target():
+    manifest = json.loads((ROOT / "cron" / "hermes-cron-manifest.json").read_text())
+    plan = build_reconcile_plan(
+        manifest, installed_jobs=[], repo_dir=str(ROOT),
+        python="/venv/bin/python", state_home="/state", delivery_to=None,
+    )
+
+    assert plan["summary"]["create"] + plan["summary"]["blocked"] == 64
+    assert plan["summary"]["blocked"] == 16
+    assert plan["applicable"] is False

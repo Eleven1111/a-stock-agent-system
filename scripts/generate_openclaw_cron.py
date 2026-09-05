@@ -438,14 +438,11 @@ def build_reconcile_plan(
     installed_by_name = _installed_records_by_name(installed_jobs)
     actions: list[dict[str, Any]] = []
     for job_id, job in jobs.items():
-        spec = desired_job_spec(
-            job_id, job, jobs=jobs, repo_dir=repo_dir, python=python,
-            grace_seconds=grace_seconds, command_env=command_env,
-            delivery_channel=channel, delivery_to=target, delivery_account=account,
-        ) if job.get("enabled", True) else None
-        matches = installed_by_name.get(f"{MANAGED_JOB_PREFIX}{job_id}", [])
-        actions.append(_plan_action(
-            job_id, job, spec, matches,
+        actions.append(_planned_job(
+            job_id, job, jobs=jobs,
+            matches=installed_by_name.get(f"{MANAGED_JOB_PREFIX}{job_id}", []),
+            repo_dir=repo_dir, python=python, grace_seconds=grace_seconds,
+            command_env=command_env, channel=channel, target=target, account=account,
             openclaw=openclaw, disable_command_template=disable_command_template,
         ))
     orphans = sorted(
@@ -470,6 +467,69 @@ def build_reconcile_plan(
             for item in actions
         ),
     }
+
+
+def _planned_job(
+    job_id: str,
+    job: Mapping[str, Any],
+    *,
+    jobs: Mapping[str, Mapping[str, Any]],
+    matches: Sequence[Mapping[str, Any]],
+    repo_dir: str,
+    python: str,
+    grace_seconds: int,
+    command_env: Sequence[str],
+    channel: str,
+    target: str | None,
+    account: str,
+    openclaw: str,
+    disable_command_template: str | None,
+) -> dict[str, Any]:
+    """One plan row, degrading to ``blocked`` instead of aborting the whole plan.
+
+    A read-only plan has to be producible on a machine that has no delivery
+    target: refusing to describe the other 48 jobs because 16 of them deliver to
+    origin makes the diagnostic unusable exactly where it is needed.  The job is
+    reported as blocked and ``applicable`` stays false, so nothing can be applied
+    from an incomplete plan.
+    """
+
+    spec: dict[str, Any] | None = None
+    if job.get("enabled", True):
+        try:
+            spec = desired_job_spec(
+                job_id, job, jobs=jobs, repo_dir=repo_dir, python=python,
+                grace_seconds=grace_seconds, command_env=command_env,
+                delivery_channel=channel, delivery_to=target, delivery_account=account,
+            )
+        except ValueError as exc:
+            return {
+                "logical_id": job_id, "action": "blocked", "command": None,
+                "reason": _plan_block_reason(exc),
+                "installed_ids": [
+                    str(item.get("id") or item.get("jobId") or item.get("job_id") or "")
+                    for item in matches
+                ],
+            }
+    return _plan_action(
+        job_id, job, spec, matches,
+        openclaw=openclaw, disable_command_template=disable_command_template,
+    )
+
+
+def _plan_block_reason(exc: ValueError) -> str:
+    """Stable reason code for a job the plan could not describe.
+
+    The exception text can carry the operator's configuration wording; only the
+    classified code goes into the plan, which is a file people share.
+    """
+
+    message = str(exc)
+    if "origin delivery target is required" in message:
+        return "delivery_target_missing"
+    if "unknown deliver policy" in message:
+        return "deliver_policy_unknown"
+    return "job_spec_invalid"
 
 
 def _plan_action(
