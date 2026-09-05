@@ -31,6 +31,7 @@ python scripts/generate_openclaw_cron.py --plan --state-home "$A_STOCK_STATE_HOM
 | `disable` | **manifest 已关闭、宿主仍装着** | 见下 |
 | `skipped` | manifest 已关闭、宿主也没有 | 否 |
 | `conflict` | 同一个受管名字装了多份 | 否，人工处理 |
+| `blocked` | 这条作业的期望参数**算不出来**（最常见：`deliver: origin` 但没有收件人） | 否 |
 
 另外两个字段：
 
@@ -38,6 +39,20 @@ python scripts/generate_openclaw_cron.py --plan --state-home "$A_STOCK_STATE_HOM
   **只报告，永不生成删除命令。**拥有一个名字不等于被授权删掉它。
 - `unverifiable_fields`：宿主的 JSON 没有报告的字段。这些字段记 `unknown`，
   **不记 drift**——审计不能声称一个它观测不到的差异。
+
+## 没有收件人也能出计划
+
+64 个启用作业里有 16 个 `deliver: origin`，需要 `A_STOCK_DELIVERY_TO`。
+部署机上这个值常常**故意不给**（只读诊断不该要生产密钥）。
+
+计划因此**不会整份失败**：那 16 条单独记 `blocked` /
+`delivery_target_missing`，另外 48 条照常给出 create/update/disable 判定，
+`applicable` 保持 `false`（不完整的计划应用不了）。
+
+副作用是好的：`blocked` 条目里**没有任何 `--to` 参数**，
+所以在缺收件人的机器上生成的计划反而更适合贴出来看。
+
+**`--apply` 路径仍然 fail-closed**：真要写注册就必须提供已核实的收件人。
 
 ## disable 动词未核实：刻意留空
 
