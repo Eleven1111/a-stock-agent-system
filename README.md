@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A research-first, multi-agent decision-support system for China's A-share
-market. It combines deterministic market-data pipelines, 15 specialist skills,
+market. It combines deterministic market-data pipelines, 16 specialist skills,
 bounded research agents, risk policy, an append-only signal ledger, and an
 isolated paper account.
 
@@ -48,7 +48,7 @@ cd a-stock-agent-system
 # Replace python3.12 with any installed Python 3.10+ executable.
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[charts,fundamentals,research,dev]"
+python -m pip install -c constraints.txt -e ".[charts,fundamentals,auction,dev]"
 ```
 
 ### Verify the installation
@@ -58,8 +58,8 @@ python scripts/config_doctor.py
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
 
-The current repository manifest, verified on 2026-08-04, contains **56
-registered jobs, 44 enabled**. This describes the committed manifest, not the
+The repository manifest checked on 2026-09-05 contains **77 registered jobs,
+64 enabled**. This describes the committed manifest, not the
 installed state of any particular machine.
 
 ### Run an offline example
@@ -88,10 +88,10 @@ is never converted into a neutral score.
 ## How it works
 
 ```mermaid
-flowchart LR
-    S["Market, policy, news, and portfolio sources"] --> F["Fact plane<br/>snapshots, candidate funnel, signals"]
-    F --> R["Research plane<br/>specialist skills and bounded committee"]
-    R --> D["Decision plane<br/>policy, OOS, tradeability, portfolio risk"]
+flowchart TD
+    S["Market, policy, news, and portfolio sources"] --> F["Fact plane: snapshots, candidate funnel, signals"]
+    F --> R["Research plane: specialist skills and bounded committee"]
+    R --> D["Decision plane: policy, OOS, tradeability, portfolio risk"]
     D --> O["Graded recommendations"]
     D --> P["Isolated paper account"]
     O --> L["Append-only ledger"]
@@ -120,9 +120,10 @@ Compiled research diagnostics cross a separate deterministic execution gate:
 the handoff, catalog, plan, and inputs are revalidated in an isolated child
 process, replayed twice, and persisted only with hash-bound validation evidence.
 
-Every scheduled command re-enters `scripts/run_agent_dag.py`, so launchd,
-Hermes, OpenClaw, system cron, and manual runs share the same dependency,
-snapshot, lease, policy, and ledger rules.
+DAG-managed jobs enter `scripts/run_agent_dag.py` for dependency, snapshot,
+lease, policy, and ledger rules. The manifest also declares direct maintenance
+and research commands; `scripts/cron_dispatch.py` executes their typed argv.
+Use the committed manifest to identify the actual entry point for each job.
 
 ## Core capabilities
 
@@ -130,10 +131,10 @@ snapshot, lease, policy, and ledger rules.
 |---|---|
 | Market intelligence | Multi-timeframe technical analysis, global markets, AH linkage, capital flow, institutions, events, social attention |
 | Candidate discovery | Dynamic A-share universe, natural-language recall, tail-window anomalies, limit-up and trend lanes |
-| Scoring | Four-dimensional S/A/B/C grading: technical 30%, sentiment 15%, catalyst 30%, deep research 25% |
+| Scoring | S/A/B/C/D research grades; default technical/sentiment/catalyst/deep weights 30/15/30/25%; separate daban and trend weights in `config/scoring.yaml` |
 | Research | Serenity fundamental research, Chan-structure research, policy-intent decoding, multi-expert research committee, governed write-back and hybrid retrieval, dual-Agent bounded plan compilation |
 | Sentiment cycle | Daily sentiment dataset, rolling-percentile sentiment score, state attribution, leader and theme scoring — all shadow-only |
-| Strategy research library | Six unregistered short-swing hypotheses (surprise, divergence reseal, assist arbitrage, pre-leader, reverse volume, ice-point reversal), each with its own gate evaluation |
+| Strategy research library | Six research-first short-swing hypotheses (surprise, divergence reseal, assist arbitrage, pre-leader, reverse volume, ice-point reversal), each with its own gate evaluation |
 | Risk and lifecycle | Tradeability, A-share T+1, concentration, stops, candidate FSM, recommendation audit, settlement, ladder position sizing, four-layer exits, R-based circuit breakers |
 | Evaluation | IS/OOS walls, costs, controls, statistical gates, shadow promotion, expert calibration, isolated deterministic replay, execution-constraint backtests, ablation ladder, tail-risk metrics |
 | Operations | Manifest scheduler, resumable DAG, provider health, state recovery, execution traces, delivery telemetry |
@@ -143,12 +144,33 @@ The capability list is intentionally broader than the live decision surface.
 Research-only or explanatory modules cannot affect live ranking until their
 promotion gates pass.
 
-The six strategies in the research library are a concrete example: every one of
-them is absent from `strategy_registry`, so a positive signal is downgraded to
-`watch` with a zero position multiplier. Their gate evaluations report
-`UNVERIFIED` rather than a win rate — the local history window is too short to
-support one, and reporting a hit rate from a handful of samples would be worse
-than reporting nothing.
+The six short-swing strategies are research hypotheses by default. Without valid
+registration and promotion evidence, positive signals are downgraded to `watch`
+with zero live position weight. Gate results depend on samples and evidence in
+the actual state root; repository code cannot establish a deployment's validation
+status or justify a win-rate claim from a handful of observations.
+
+## Current implementation and validation boundaries
+
+Checked against `main` on 2026-09-05. Package version: `1.4.0`; the changelog
+still marks it Unreleased.
+
+| Module | Current implementation | Boundary |
+|---|---|---|
+| Morning research pipeline | Full-universe auction observation pool, batched quote recall, 19:00 market deep review | Out-of-pool auction discoveries are research-only; review aggregates completed artifacts and exposes missing fields |
+| Industry history | Append-only, trading-date industry membership changes | History starts at actual observation; earlier membership is not backfilled |
+| Sector rotation research | Crowding, RS/excess momentum/RS slope/breadth, fake-breakout risk, mainline/watch/avoid pools and multi-label regime | `live_effect=none`; current-membership historical reconstruction is `exploratory_reconstruction` and cannot qualify for research promotion |
+| Sector composite score | Available price/volume components renormalized from original weights | Only 41% of the research specification's weight is covered; 59% missing, low confidence; not a complete RotationStartScore |
+| Four-dimensional weight research | Freeze after 60 fit sessions per lane, then accumulate the earliest 60 unseen OOS sessions | Shadow artifacts only; no automatic production-weight changes |
+| Six-strategy forward research | Shared evidence cohort, canonical forward sample freezing, next-session open entry and T+1/T+3 settlement | Missing and unresolved samples remain in coverage denominators; research records are isolated from the trading ledger |
+| Paper pilot | Nightly runner advances at most one stage per run up to `manual_pilot` after evidence gates pass | `mode=paper_only`, real `runtime_allowed=false`; reconciliation evidence remains required; cannot promote to real live |
+| Operations and delivery | Preopen preflight, daily diagnostic archives, stratified traces, Feishu egress disabled by default | Manifest enablement is not deployment evidence; quiet no-signal runs and data degradation are distinct |
+
+Sector price, fake-breakout, and pool artifacts carry `validated=false` and have
+not completed real-data validation. Existing `sector_momentum` adjustments still
+feed the sentiment dimension; they are separate from the new research factors
+with zero live effect. See [scoring policy](config/scoring.yaml) for parameters
+and missing components, and [operations](AUTOPILOT.md) for artifacts and schedules.
 
 ## Research committee
 
@@ -262,6 +284,11 @@ Deployment, reconciliation, stop/start, and rollback instructions live in
 [AUTOPILOT.md](AUTOPILOT.md). Treat the manifest as the repository job
 definition and verify the installed scheduler separately.
 
+Feishu egress is disabled by default; the current manifest has no `feishu_direct`
+jobs. Relevant delivery paths require both `A_STOCK_FEISHU_EGRESS_ENABLED=true`
+and the corresponding target before calling `lark-cli`. A chat ID alone does
+not restore delivery. See the [deployment runbook](docs/deployment-runbook.md).
+
 ## Configuration and providers
 
 Versioned, non-secret policy lives under [`config/`](config/). Runtime secrets
@@ -311,6 +338,12 @@ returns or open-world prediction accuracy.
 | Research committee | [docs/research-committee-guide.md](docs/research-committee-guide.md) |
 | Stock-intelligence integration | [docs/stock-intelligence-integration.md](docs/stock-intelligence-integration.md) |
 | Installed scheduler | [AUTOPILOT.md](AUTOPILOT.md) |
+| auction-data-provider | [docs/auction-data-provider.md](docs/auction-data-provider.md) |
+| dataset-contract-v1 | [docs/dataset-contract-v1.md](docs/dataset-contract-v1.md) |
+| analysis-plan-v1 | [docs/analysis-plan-v1.md](docs/analysis-plan-v1.md) |
+| learning-eval-factory-v1 | [docs/learning-eval-factory-v1.md](docs/learning-eval-factory-v1.md) |
+| deployment-runbook | [docs/deployment-runbook.md](docs/deployment-runbook.md) |
+| falsified-approaches | [docs/falsified-approaches.md](docs/falsified-approaches.md) |
 | Release history | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Repository layout
@@ -322,7 +355,7 @@ a-stock-agent-system/
 ├── docs/                        # Architecture and operating protocols
 ├── evals/                       # Frozen agent and strategy evaluations
 ├── scripts/                     # Scheduler, DAG, doctors, reports, CLIs
-├── skills/                      # 15 specialist skills plus shared runtime code
+├── skills/                      # 16 specialist skills plus shared runtime code
 ├── tests/                       # Unit, integration, and contract tests
 ├── AGENTS.md                    # Repository operating contract
 ├── AUTOPILOT.md                 # Installed scheduler operations
