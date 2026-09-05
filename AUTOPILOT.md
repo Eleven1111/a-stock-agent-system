@@ -15,7 +15,7 @@
 | 配置 | `~/Library/LaunchAgents/com.a-stock-cc.scheduler.plist` |
 | 心跳 | 每 60 秒（`StartInterval`）唤醒一次 |
 | 执行 | `cd <本仓库> && PYTHONPATH=skills/common .venv/bin/python scripts/cron_dispatch.py` |
-| 作业来源 | `cron/hermes-cron-manifest.json`（73 个作业，当前 60 个 enabled） |
+| 作业来源 | `cron/hermes-cron-manifest.json`（77 个作业，当前 64 个 enabled；2026-09-05 核对） |
 | 状态根 | `A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc` |
 | 运行模式 | `A_STOCK_RUNTIME=hermes` |
 | 调度器日志 | `$A_STOCK_STATE_HOME/cron/scheduler.{out,err}.log` |
@@ -71,7 +71,7 @@ A_STOCK_EXECUTION_TRACE=off
 | id | `auction-chain-watch`（`enabled: true`） |
 | 调度 | `35 9,10 * * 1-5`（09:35 竞价链应已收口，10:35 复查做双保险） |
 | 执行 | `python scripts/cron_failure_watch.py`（只读 artifact，不写业务状态） |
-| 推送 | `deliver: feishu_direct`（2026-08-20 起两个故障告警作业放行回飞书，见下）；全绿时无输出，`silent_when_no_signal` 直接静默 |
+| 推送 | `deliver: local`（当前仅落盘，飞书出口默认关闭，见下）；全绿时无输出，`silent_when_no_signal` 直接静默 |
 | 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
 
 存在理由：本机调度器 `Popen` fire-and-forget 起作业，**没有任何消费者读退出码**，
@@ -104,7 +104,7 @@ issue #239 的验收标准之一：开盘前能自动发现注册漂移、推送
 | id | `preopen-preflight`（`enabled: true`） |
 | 调度 | `5 8 * * 1-5`（早于 08:20 的 `hot-money-context-backfill`） |
 | 执行 | `python scripts/preopen_preflight.py --json`（只读，不写业务状态） |
-| 推送 | `deliver: feishu_direct` + `silent_when_no_signal`：**全绿静默**，有红/黄才推 |
+| 推送 | `deliver: local` + `silent_when_no_signal`：**全绿静默**，红/黄写入本地产物 |
 | 超时 | 60s（`short` 档；本机实测含 easy_tdx 建连探测约 1.2s） |
 | 停止 | manifest 里把该作业 `enabled` 改为 `false`（dispatcher 下一次心跳即生效） |
 
@@ -121,7 +121,7 @@ issue #239 的验收标准之一：开盘前能自动发现注册漂移、推送
 
 **返回码恒为 0**：体检发现问题不等于本次运行失败。返回非 0 会让 DAG 把它当失败
 依赖、反而挡住后面的链 —— 一个用来防止链路停摆的作业自己变成停摆的原因，
-是最糟糕的形态。红项通过 artifact 与推送送出去，不通过退出码。
+是最糟糕的形态。红项通过本地 artifact 披露，不通过退出码。
 
 **模型认证/余额与端口冲突为什么只读日志**：本仓库不直接调用任何模型厂商 API
 （模型回合发生在 OpenClaw 网关侧），401/402/EADDRINUSE 只在网关日志里出现。
@@ -217,7 +217,7 @@ A_STOCK_STATE_HOME=/Users/na/.a-stock-agent-cc PYTHONPATH=skills/common \
 | 产物 | `$A_STOCK_STATE_HOME/skills/stock-triage/data/sector_crowding_latest.json`（拥挤度）<br>`.../sector_price_factors_latest.json`（RS/超额动量/RS斜率/广度）<br>`.../sector_fake_breakout_latest.json`（假突破风险，六个可得子项）<br>`.../sector_rotation_pools_latest.json`（三池 + 合成分，仅覆盖报告权重 41%） |
 | 超时 | 180s（`standard` 档；零取数，只读本地 SQLite 与行业归属缓存） |
 
-**RESEARCH ONLY：** 两份产物都带 `evidence_qualification: exploratory_reconstruction`
+**RESEARCH ONLY：** 四份产物都带 `evidence_qualification: exploratory_reconstruction`
 与 `live_effect: none`。历史分位/因子是用**今天的**行业归属重建过去得到的（归属变更
 日志 2026-09 才开始积累），因此不得进 research gate、不得生成订单、不得改实盘权重。
 
