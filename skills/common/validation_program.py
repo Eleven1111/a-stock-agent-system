@@ -526,23 +526,11 @@ def fdr_benjamini_hochberg(p_values: Mapping[str, float], *, alpha: float) -> di
 _PBO_TIE_TOLERANCE = 1e-12
 
 
-def probability_of_backtest_overfitting(
-    variant_returns: Mapping[str, Sequence[float]],
-    *,
-    partitions: int,
-    embargo: int = 0,
-) -> dict[str, Any]:
-    """CSCV probability of backtest overfitting.
+def _parsed_variant_panel(
+    variant_returns: Mapping[str, Sequence[float]], partitions: int
+) -> tuple[dict[str, list[float]], dict[str, str], set[int]]:
+    """Numeric variant panel of a single common length, plus what was dropped."""
 
-    Selection in-sample and ranking out-of-sample both use the mean return, and
-    the result is invariant to variant naming: ties are resolved by averaging
-    over the tied set rather than by lexical order.  Variants that are numerically
-    indistinguishable are collapsed first, because ``k`` copies of one strategy
-    are one trial, not ``k`` competing ones.
-    """
-
-    config = {"partitions": partitions, "embargo": embargo, "method_version": "cscv-v2"}
-    hashed_config = _canonical_hash(config)
     parsed: dict[str, list[float]] = {}
     excluded: dict[str, str] = {}
     lengths: set[int] = set()
@@ -560,12 +548,41 @@ def probability_of_backtest_overfitting(
                 excluded[key] = "length_mismatch"
                 parsed.pop(key)
         lengths = {longest}
+    return parsed, excluded, lengths
+
+
+def _collapse_indistinguishable(
+    parsed: Mapping[str, list[float]],
+) -> tuple[list[list[str]], dict[str, list[float]]]:
+    """Group byte-identical series; ``k`` copies of one strategy are one trial."""
 
     groups_by_series: dict[str, list[str]] = {}
     for key, series in sorted(parsed.items()):
         groups_by_series.setdefault(_canonical_hash(series), []).append(key)
-    duplicate_groups = [members for members in groups_by_series.values() if len(members) > 1]
+    duplicates = [members for members in groups_by_series.values() if len(members) > 1]
     distinct = {members[0]: parsed[members[0]] for members in groups_by_series.values()}
+    return duplicates, distinct
+
+
+def probability_of_backtest_overfitting(
+    variant_returns: Mapping[str, Sequence[float]],
+    *,
+    partitions: int,
+    embargo: int = 0,
+) -> dict[str, Any]:
+    """CSCV probability of backtest overfitting.
+
+    Selection in-sample and ranking out-of-sample both use the mean return, and
+    the result is invariant to variant naming: ties are resolved by averaging
+    over the tied set rather than by lexical order.  Variants that are numerically
+    indistinguishable are collapsed first, because ``k`` copies of one strategy
+    are one trial, not ``k`` competing ones.
+    """
+
+    config = {"partitions": partitions, "embargo": embargo, "method_version": "cscv-v2"}
+    hashed_config = _canonical_hash(config)
+    parsed, excluded, lengths = _parsed_variant_panel(variant_returns, partitions)
+    duplicate_groups, distinct = _collapse_indistinguishable(parsed)
 
     if (
         len(distinct) < 2 or partitions < 4 or partitions % 2 or embargo < 0
@@ -584,17 +601,45 @@ def probability_of_backtest_overfitting(
             "config_sha256": hashed_config,
         }
 
-    observation_count = next(iter(lengths))
-    groups = _partition_indices(observation_count, partitions)
-    overfit_fractions: list[float] = []
+    groups = _partition_indices(next(iter(lengths)), partitions)
+    overfit_fractions = _cscv_overfit_fractions(distinct, groups, partitions, embargo)
+    if overfit_fractions is None:
+        return {
+            "status": "not_evaluated", "reason": "embargo_exhausted_test_fold",
+            "config_sha256": hashed_config,
+        }
+    return {
+        "status": "evaluated",
+        "method": "combinatorially_symmetric_cross_validation",
+        "method_version": "cscv-v2",
+        "pbo": statistics.fmean(overfit_fractions),
+        "combinations": len(overfit_fractions),
+        "resolution": 1 / len(overfit_fractions),
+        "selection_metric": "in_sample_mean_return",
+        "ranking_metric": "out_of_sample_mean_return",
+        "distinct_variants": sorted(distinct),
+        "duplicate_groups": duplicate_groups,
+        "excluded_variants": dict(sorted(excluded.items())),
+        "purge_embargo": {"observations": embargo, "applied": embargo > 0},
+        "input_sha256": _canonical_hash(distinct),
+        "config_sha256": hashed_config,
+    }
+
+
+def _cscv_overfit_fractions(
+    distinct: Mapping[str, list[float]],
+    groups: Sequence[Sequence[int]],
+    partitions: int,
+    embargo: int,
+) -> list[float] | None:
+    """Per-fold share of the in-sample winners that land in the bottom OOS half."""
+
+    fractions: list[float] = []
     for train_groups in itertools.combinations(range(partitions), partitions // 2):
         train_indices = [index for group in train_groups for index in groups[group]]
         test_indices = _test_indices(groups, train_groups, partitions, embargo)
         if len(test_indices) < 2:
-            return {
-                "status": "not_evaluated", "reason": "embargo_exhausted_test_fold",
-                "config_sha256": hashed_config,
-            }
+            return None
         train_means = {
             key: statistics.fmean(values[index] for index in train_indices)
             for key, values in distinct.items()
@@ -614,23 +659,8 @@ def probability_of_backtest_overfitting(
             math.log((ranks[key] / (count + 1)) / (1 - ranks[key] / (count + 1))) <= 0
             for key in selected
         ]
-        overfit_fractions.append(sum(overfit) / len(overfit))
-    return {
-        "status": "evaluated",
-        "method": "combinatorially_symmetric_cross_validation",
-        "method_version": "cscv-v2",
-        "pbo": statistics.fmean(overfit_fractions),
-        "combinations": len(overfit_fractions),
-        "resolution": 1 / len(overfit_fractions),
-        "selection_metric": "in_sample_mean_return",
-        "ranking_metric": "out_of_sample_mean_return",
-        "distinct_variants": sorted(distinct),
-        "duplicate_groups": duplicate_groups,
-        "excluded_variants": dict(sorted(excluded.items())),
-        "purge_embargo": {"observations": embargo, "applied": embargo > 0},
-        "input_sha256": _canonical_hash(distinct),
-        "config_sha256": hashed_config,
-    }
+        fractions.append(sum(overfit) / len(overfit))
+    return fractions
 
 
 def _test_indices(

@@ -191,6 +191,20 @@ def test_pbo_ties_are_shared_rather_than_broken_by_name():
     assert result["pbo"] == swapped["pbo"]
 
 
+def test_pbo_gives_a_tied_selection_the_shared_rank_not_the_lowest_one():
+    # Trained on the first half, ``winner`` is picked and then ties ``flat`` for
+    # the top out-of-sample rank.  Awarding the tie its shared rank (2.5 of 3)
+    # keeps that fold on the honest side of the logit; awarding the lowest tied
+    # rank (2 of 3) would score the fold as overfit.
+    variants = {
+        "winner": [0.10] * 8 + [0.0] * 8,
+        "flat": [0.0] * 16,
+        "loser": [-0.05] * 16,
+    }
+    result = probability_of_backtest_overfitting(variants, partitions=4)
+    assert result["pbo"] == pytest.approx(1 / 12)
+
+
 def test_pbo_discloses_metrics_resolution_exclusions_and_embargo_state():
     variants = {
         "alpha": _variant_series(41, 0.0008, count=40),
