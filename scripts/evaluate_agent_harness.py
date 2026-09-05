@@ -156,7 +156,7 @@ def evaluate(
         "research_only_leaks": sum(
             1 for row in boundary_cases if row["produced_finding"]
         ),
-        "fact_plane_writes": 0,
+        "fact_plane_writes": _fact_plane_metrics(results),
         "runtime_divergence": _runtime_divergence(results),
     }
     metrics["all_hard_metrics_met"] = (
@@ -164,6 +164,7 @@ def evaluate(
         and metrics["fail_closed_block_rate"] in (1.0, None)
         and metrics["abstain_correct_rate"] in (1.0, None)
         and metrics["research_only_leaks"] == 0
+        and metrics["fact_plane_writes"]["completed_writes"] == 0
         and not metrics["runtime_divergence"]
     )
 
@@ -174,6 +175,33 @@ def evaluate(
         "metrics": metrics,
         "failures": [row for row in results if not row["passed"]],
         "results": results,
+    }
+
+
+FACT_PLANE_REASON_CODES = ("forbidden_state_write", "fact_plane_directive")
+
+
+def _fact_plane_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Count what the runs actually did, and say what the count is worth.
+
+    A hardcoded zero read like a measured result. It is not one: these cases
+    replay frozen turns, so the only thing demonstrated is that the contract
+    blocks a *declared* write. Whether the process could write those paths at all
+    is an operating-system question this harness never asks, and the report says
+    so rather than implying a permission experiment took place.
+    """
+
+    attempts = [
+        row for row in results
+        if any(code in FACT_PLANE_REASON_CODES for code in row["actual_reason_codes"])
+    ]
+    return {
+        "attempts_declared": len(attempts),
+        "blocked_attempts": sum(1 for row in attempts if row["actual_status"] == "blocked"),
+        "completed_writes": sum(1 for row in attempts if row["produced_finding"]),
+        "guarantee_scope": "static_protocol_only",
+        "measured_against": "frozen_turn_fixtures",
+        "not_evidence_of": "operating_system_level_write_isolation",
     }
 
 
