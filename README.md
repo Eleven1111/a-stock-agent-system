@@ -344,6 +344,14 @@ returns or open-world prediction accuracy.
 | learning-eval-factory-v1 | [docs/learning-eval-factory-v1.md](docs/learning-eval-factory-v1.md) |
 | deployment-runbook | [docs/deployment-runbook.md](docs/deployment-runbook.md) |
 | falsified-approaches | [docs/falsified-approaches.md](docs/falsified-approaches.md) |
+| OpenClaw registration reconcile | [docs/openclaw-registration-reconcile.md](docs/openclaw-registration-reconcile.md) |
+| Statistical method migration (v1 -> v2) | [docs/statistical-method-migration.md](docs/statistical-method-migration.md) |
+| Forward label taxonomy | [docs/forward-label-taxonomy.md](docs/forward-label-taxonomy.md) |
+| Exploratory paper experiment | [docs/exploratory-paper-experiment.md](docs/exploratory-paper-experiment.md) |
+| Retention and active experiments | [docs/retention-and-active-experiments.md](docs/retention-and-active-experiments.md) |
+| Gate inventory and usage attribution | [docs/gate-inventory-and-usage-attribution.md](docs/gate-inventory-and-usage-attribution.md) |
+| Delivery status and boundaries | [docs/openclaw-delivery-status.md](docs/openclaw-delivery-status.md) |
+| Canary and rollback | [docs/openclaw-canary-and-rollback.md](docs/openclaw-canary-and-rollback.md) |
 | Release history | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Repository layout
