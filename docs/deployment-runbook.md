@@ -36,7 +36,7 @@ python -c "import json,os;p=os.path.join(os.environ['A_STOCK_STATE_HOME'],'skill
 |---|---|---|
 | ① 代码没到位 | 作业在跑，但跑的是旧代码 | dispatcher **直接从工作区运行、不经构建**，生产跑的是工作区当前 checkout 的分支 |
 | ② 调度器没在跑 | 完全没有产物 | 调度器停摆是**静默**的 |
-| ③ 环境不对 | 作业启动即失败 | `A_STOCK_RUNTIME` 必须为 `hermes`；其他值会让 `run_agent_dag.py` 直接失败 |
+| ③ 环境不对 | 作业启动即失败 | `A_STOCK_RUNTIME` 与调度 owner 不匹配。`run_agent_dag.py --runtime` 合法取值是 `hermes` / `openclaw` / `local`，**三者都被支持**；「必须 hermes」只对仍由 Hermes/system cron 驱动的旧部署成立，不是项目全局规则（2026-09-05 核：仓内无任何代码拒绝非 hermes 取值）|
 
 **① 最常发生。** PR 合并进 GitHub main **不等于**进了生产——曾出现两个修复 PR 都已合并、
 但工作区停在另一个分支，导致事故的 bug 仍在生产运行。
