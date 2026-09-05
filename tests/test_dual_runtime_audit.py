@@ -357,3 +357,51 @@ def test_main_prints_json_report(tmp_path, monkeypatch, capsys):
     assert exit_code == 0
     assert output["schema"] == "a_stock_dual_runtime_audit_v1"
     assert output["state_identity"]["state_root"] == str(state_home)
+
+
+def _stub_installed(monkeypatch, jobs):
+    monkeypatch.setattr(audit.shutil, "which", lambda name: "/usr/local/bin/openclaw")
+
+    class _Completed:
+        returncode = 0
+        stdout = json.dumps({"jobs": jobs})
+        stderr = ""
+
+    monkeypatch.setattr(audit.subprocess, "run", lambda *a, **k: _Completed())
+
+
+def test_an_enabled_silent_job_is_not_mistaken_for_an_orphan(monkeypatch):
+    # The generator installs every enabled job and maps silent/local/feishu_direct
+    # to --no-deliver, so filtering "silent" out of the manifest side would report
+    # a correctly installed job as an orphan. No enabled silent job exists today;
+    # this fixture is what keeps that true when one appears.
+    _stub_installed(monkeypatch, [{"id": "opaque-1", "name": "A-stock: quiet-job"}])
+    manifest = {"jobs": [{"id": "quiet-job", "enabled": True, "deliver": "silent"}]}
+
+    result = audit.openclaw_registration_check(manifest)
+
+    assert result["orphaned_in_openclaw"] == []
+    assert result["missing_from_openclaw"] == []
+    assert result["manifest_enabled_count"] == 1
+
+
+def test_a_job_disabled_in_the_manifest_but_still_installed_is_called_out(monkeypatch):
+    _stub_installed(monkeypatch, [{"id": "opaque-2", "name": "A-stock: retired-job"}])
+    manifest = {"jobs": [{"id": "retired-job", "enabled": False, "deliver": "local"}]}
+
+    result = audit.openclaw_registration_check(manifest)
+
+    assert result["disabled_but_installed"] == ["retired-job"]
+    # It is not an orphan: the repository still owns the name, it just wants it off.
+    assert result["orphaned_in_openclaw"] == []
+
+
+def test_a_still_installed_disabled_job_blocks_the_report(tmp_path, monkeypatch):
+    _write_state_identity(tmp_path)
+    _stub_installed(monkeypatch, [{"id": "opaque-3", "name": "A-stock: retired-job"}])
+    manifest = {"jobs": [{"id": "retired-job", "enabled": False, "deliver": "local"}]}
+
+    report = audit.build_report(manifest, [], state_root=str(tmp_path))
+
+    assert report["status"] == "blocked"
+    assert report["clean"] is False
