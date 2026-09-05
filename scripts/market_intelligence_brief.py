@@ -91,7 +91,8 @@ def _sector_rotation_research_lines(asof: str) -> list[str]:
         from signal_context import read_sector_rotation_research
 
         record = read_sector_rotation_research(asof)
-    except Exception:  # noqa: BLE001 — 研究段缺失不影响简报主链
+    except (ImportError, OSError, ValueError):
+        # 模块缺失 / 文件读不到 / JSON 坏掉——研究段缺失不影响简报主链。
         return []
     if not record:
         return []

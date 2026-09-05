@@ -51,7 +51,6 @@ except ImportError:
 # bootstrap.
 TERMINAL_FAILURE_STATUSES = frozenset({"failed", "timeout", "error", "blocked"})
 
-
 def _is_failure_status(
     status: Any,
     *,
@@ -486,7 +485,7 @@ def execute_dag(
         })
         if _is_failure_status(
             status,
-            returncode=completed.returncode if completed else 1,
+            returncode=0 if reused_concurrent else (completed.returncode if completed else 1),
         ):
             tolerated_by = consumers_tolerating(
                 job_id, status, jobs=jobs, batch_jobs=order
@@ -808,7 +807,7 @@ def main() -> None:
             {},
         )
         sys.stdout.write(target_output(job, artifact or {}, record_telemetry=True))
-    elif result["status"] in {"ok", "ready", "degraded", "partial", "insufficient_data", "unavailable", "skipped_non_trading_day", "blocked"}:
+    elif result["status"] == "blocked" or not _is_failure_status(result["status"]):
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         # 任务失败时输出人类可读的短消息而不是原始 DAG JSON

@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 面向中国 A 股市场的 research-first 多智能体决策支持系统。项目把确定性行情管线、
-15 个专业 Skill、有界研究 Agent、风险 Policy、只追加 Signal Ledger 和独立模拟账户
+16 个专业 Skill、有界研究 Agent、风险 Policy、只追加 Signal Ledger 和独立模拟账户
 组合成一条可审计的投研链路。
 
 > [!IMPORTANT]
@@ -42,7 +42,7 @@ cd a-stock-agent-system
 # 可将 python3.12 替换为任意已安装的 Python 3.10+ 可执行文件。
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e ".[charts,fundamentals,research,dev]"
+python -m pip install -c constraints.txt -e ".[charts,fundamentals,auction,dev]"
 ```
 
 ### 验证安装
@@ -52,7 +52,7 @@ python scripts/config_doctor.py
 python scripts/validate_cron_manifest.py cron/hermes-cron-manifest.json
 ```
 
-截至 2026-08-04，当前仓库 manifest 经验证共登记 **56 个任务，其中 44 个启用**。
+截至 2026-09-05，仓库 manifest 共登记 **77 个任务，其中 64 个启用**。
 这里描述的是 Git 中提交的 manifest，不代表任意一台机器上已经安装的任务状态。
 
 ### 运行离线示例
@@ -80,10 +80,10 @@ python skills/stock-triage/scripts/four_dim_scorer.py 600519 贵州茅台 --json
 ## 工作原理
 
 ```mermaid
-flowchart LR
-    S["行情、政策、资讯与组合数据"] --> F["事实平面<br/>快照、候选漏斗、信号"]
-    F --> R["研究平面<br/>专业 Skill 与有界研究委员会"]
-    R --> D["决策平面<br/>Policy、OOS、可成交性、组合风险"]
+flowchart TD
+    S["行情、政策、资讯与组合数据"] --> F["事实平面：快照、候选漏斗、信号"]
+    F --> R["研究平面：专业 Skill 与有界研究委员会"]
+    R --> D["决策平面：Policy、OOS、可成交性、组合风险"]
     D --> O["分级建议"]
     D --> P["独立模拟账户"]
     O --> L["只追加 Signal Ledger"]
@@ -108,8 +108,9 @@ flowchart LR
 编译后的研究诊断还必须经过独立的确定性执行门：在隔离子进程中重新验证 handoff、目录、
 计划和输入，重复执行两次，并且只以绑定 hash 的 validation evidence 落盘。
 
-所有定时命令最终都进入 `scripts/run_agent_dag.py`，因此 launchd、Hermes、OpenClaw、
-system cron 和人工运行共享同一套依赖、快照、租约、Policy 与 Ledger 规则。
+DAG 管理的任务进入 `scripts/run_agent_dag.py`，统一执行依赖、快照、租约、Policy 与
+Ledger 规则。Manifest 也包含直接调用的维护与研究命令，`scripts/cron_dispatch.py`
+按类型化 argv 执行；每个任务的实际入口以当前 manifest 为准。
 
 ## 核心能力
 
@@ -117,10 +118,10 @@ system cron 和人工运行共享同一套依赖、快照、租约、Policy 与 
 |---|---|
 | 市场情报 | 多周期技术分析、全球市场、AH 联动、资金流、机构事件、社交关注度 |
 | 候选发现 | 动态 A 股股票池、自然语言召回、尾盘异动、涨停与趋势双通道 |
-| 评分 | 技术 30% × 情绪 15% × 催化 30% × 深研 25% 的 S/A/B/C 四维评分 |
+| 评分 | S/A/B/C/D 研究档位；默认技术/情绪/催化/深研权重为 30/15/30/25%；打板与趋势通道使用独立配置 |
 | 研究 | Serenity 基本面深研、Chan 结构研究、政策意图解码、多专家研究委员会、受治理的数据写回与混合检索、双 Agent 受限计划编译 |
 | 情绪周期 | 每日情绪数据集、滚动分位情绪分、状态分阶段归因、龙头与题材评分 —— 全部 shadow-only |
-| 策略研究库 | 六条未注册的短线研究假设（超预期、分歧回封、最强助攻、先于龙头、反量龙回头、冰点反转），各带独立闸门评估 |
+| 策略研究库 | 六条默认仅供研究的短线假设（超预期、分歧回封、最强助攻、先于龙头、反量龙回头、冰点反转），各带独立闸门评估 |
 | 风险与生命周期 | 可成交性、A 股 T+1、集中度、止损止盈、候选 FSM、建议审计、结算、1+1+1 阶梯建仓、四层止损、R 化熔断 |
 | 评估 | IS/OOS 隔离、成本与对照组、统计门、shadow 晋级、专家校准、隔离确定性重放、成交约束回测、消融阶梯、尾部风险指标 |
 | 运维 | Manifest 调度器、可恢复 DAG、Provider Health、状态恢复、执行 Trace、交付遥测 |
@@ -129,9 +130,28 @@ system cron 和人工运行共享同一套依赖、快照、租约、Policy 与 
 能力列表刻意大于实盘决策面。research-only 或纯解释性模块在完成晋级门禁前，不能影响
 实盘排序。
 
-策略研究库里的六条策略就是个具体例子：它们**全部不在 `strategy_registry` 里**，因此正向
-信号会被降级为 `watch`、仓位倍率归零。各自的闸门评估报的是 `UNVERIFIED` 而不是胜率 ——
-本机历史窗口不足以支撑一个胜率结论，而拿个位数样本报命中率比什么都不报更糟。
+六条短线策略默认属于研究假设；没有有效注册和晋级证据时，正向信号降为 `watch`、
+实盘仓位倍率归零。验证结果依赖当前状态根中实际积累的样本与门禁，不能从仓库代码
+推断某台机器已通过验证，也不能用少量样本宣称胜率。
+
+## 当前实现与验证边界
+
+以下内容按 2026-09-05 的 `main` 核对；包版本为 `1.4.0`，CHANGELOG 仍标为 Unreleased。
+
+| 模块 | 当前实现 | 使用边界 |
+|---|---|---|
+| 早盘研究链 | 全市场竞价增强观察池、分批行情召回、19:00 大盘深度复盘 | 池外竞价结果仅供研究；复盘聚合已完成产物并披露缺失字段 |
+| 行业历史 | 按交易日只追加行业归属变更记录 | 历史从首次实际观测开始，不能倒推此前归属 |
+| 板块轮动研究 | 拥挤度、RS/超额动量/RS 斜率/广度、假突破风险、主线/观察/规避三池与多标签 regime | `live_effect=none`；当前归属重建历史为 `exploratory_reconstruction`，不能用于研究晋级 |
+| 板块合成分 | 对可得价量分量按原权重重新归一 | 仅覆盖研究方案权重的 41%，缺失 59%；置信度为 low，并非完整 RotationStartScore |
+| 四维权重研究 | 每通道 60 个拟合交易日后冻结模型，再积累最早 60 个未见 OOS 交易日 | 只写 shadow 产物，不自动修改生产评分配置 |
+| 六策略前向研究 | 统一证据 cohort、规范前向样本冻结、次交易日开盘入场与 T+1/T+3 结算 | 缺失及未解决样本保留在覆盖率分母，研究流水与交易账本隔离 |
+| 模拟试运行 | 夜间晋级器满足证据门禁后，每次最多推进一阶至 `manual_pilot` | 仅 `mode=paper_only`，真实 `runtime_allowed=false`；仍要求对账证据，不能晋级真实 live |
+| 运维与交付 | 盘前体检、每日诊断归档、分层 trace、默认关闭飞书出口 | manifest 启用不等于机器已部署；无信号静默与数据降级分别处理 |
+
+板块价格、假突破和三池产物带 `validated=false`，尚未完成真实数据验证。
+现有 `sector_momentum` 加成仍影响四维情绪面；它与新增的零实盘影响研究因子不同。
+参数与缺失项说明见 [评分配置](config/scoring.yaml)，产物及调度见 [运行登记](AUTOPILOT.md)。
 
 ## 研究委员会
 
@@ -228,6 +248,10 @@ export A_STOCK_RUNTIME="hermes"  # 或 openclaw
 部署、任务对账、启停和回滚说明见 [AUTOPILOT.md](AUTOPILOT.md)。Manifest 是仓库内的任务
 定义；机器上实际安装的调度状态必须单独验证。
 
+飞书出口默认关闭：当前 manifest 没有 `feishu_direct` 作业。只有显式配置
+`A_STOCK_FEISHU_EGRESS_ENABLED=true` 和相应目标，相关出口才允许调用 `lark-cli`；
+仅配置聊天 ID 不会恢复推送。部署核验见 [部署机运维手册](docs/deployment-runbook.md)。
+
 ## 配置与数据源
 
 带版本且不含密钥的 Policy 位于 [`config/`](config/)；运行时密钥应放在环境变量或 Runtime
@@ -275,6 +299,12 @@ CI 覆盖受支持的 Python 矩阵和 CodeQL。固定 Agent Harness 只验证�
 | 研究委员会 | [docs/research-committee-guide.md](docs/research-committee-guide.md) |
 | Stock Intelligence 集成 | [docs/stock-intelligence-integration.md](docs/stock-intelligence-integration.md) |
 | 已安装调度器 | [AUTOPILOT.md](AUTOPILOT.md) |
+| auction-data-provider | [docs/auction-data-provider.md](docs/auction-data-provider.md) |
+| dataset-contract-v1 | [docs/dataset-contract-v1.md](docs/dataset-contract-v1.md) |
+| analysis-plan-v1 | [docs/analysis-plan-v1.md](docs/analysis-plan-v1.md) |
+| learning-eval-factory-v1 | [docs/learning-eval-factory-v1.md](docs/learning-eval-factory-v1.md) |
+| deployment-runbook | [docs/deployment-runbook.md](docs/deployment-runbook.md) |
+| falsified-approaches | [docs/falsified-approaches.md](docs/falsified-approaches.md) |
 | 版本历史 | [CHANGELOG.md](CHANGELOG.md) |
 
 ## 仓库结构
@@ -286,7 +316,7 @@ a-stock-agent-system/
 ├── docs/                        # 架构与运行协议
 ├── evals/                       # 固定 Agent 与策略评测
 ├── scripts/                     # 调度器、DAG、Doctor、报告与 CLI
-├── skills/                      # 15 个专业 Skill 与共享 Runtime 代码
+├── skills/                      # 16 个专业 Skill 与共享 Runtime 代码
 ├── tests/                       # 单元、集成与契约测试
 ├── AGENTS.md                    # 仓库运行契约
 ├── AUTOPILOT.md                 # 已安装调度器操作说明

@@ -988,3 +988,46 @@ def test_target_output_renders_policy_json_before_feishu_fallback(tmp_path, monk
     assert "国务院发布资本市场新政策" in output
     assert "policy_intent_watch_v1" not in output
     assert "\"signals\"" not in output
+
+
+@pytest.mark.parametrize("holder_status", ["ok", "ready", "partial"])
+def test_successful_concurrent_holder_allows_downstream(tmp_path, monkeypatch, holder_status):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"jobs": [
+        _job("upstream", "true"),
+        _job("downstream", "true", ["upstream"]),
+    ]}), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(run_agent_dag, "evaluate_job_trading_day", lambda *_: {"action": "run"})
+    monkeypatch.setattr(run_agent_dag, "_load_artifact", lambda *args, **kwargs: None)
+    monkeypatch.setattr(run_agent_dag, "_wait_for_run_artifact", lambda *args, **kwargs: {
+        "run_id": "holder-run", "status": holder_status, "returncode": 0,
+        "artifact_path": "/tmp/holder.json",
+    })
+
+    def run(command, **kwargs):
+        calls.append(command[2])
+        if command[2] == "upstream":
+            return subprocess.CompletedProcess(
+                command, 76, stdout=json.dumps({"holder": {"run_id": "holder-run"}}), stderr=""
+            )
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(run_agent_dag.subprocess, "run", run)
+    result = run_agent_dag.execute_dag(
+        manifest_path=str(manifest), targets=["downstream"], trading_date="2026-06-12",
+        env={"A_STOCK_STATE_HOME": str(tmp_path / "state")},
+    )
+    assert calls == ["upstream", "downstream"]
+    assert result["status"] == "ok"
+    assert result["runs"][0]["status"] == "reused_concurrent"
+
+
+@pytest.mark.parametrize("status", ["no_signal", "reused", "reused_concurrent"])
+def test_main_business_success_summary_is_json(monkeypatch, capsys, status):
+    monkeypatch.setattr(run_agent_dag, "execute_dag", lambda **kwargs: {"status": status})
+    monkeypatch.setattr(run_agent_dag.sys, "argv", ["run_agent_dag.py", "target"])
+    with pytest.raises(SystemExit) as exc_info:
+        run_agent_dag.main()
+    assert exc_info.value.code == 0
+    assert json.loads(capsys.readouterr().out)["status"] == status

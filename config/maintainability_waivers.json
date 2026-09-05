@@ -998,6 +998,11 @@
     },
     {
       "expires_on": "2026-10-31",
+      "reason": "deliberate: _fetch_quote_batch is the single coercion point that turns any provider failure into DataSourceError; enumerating exception families would drop the one that bypasses the fallback path",
+      "violation_id": "b41d6f539d66c069d855"
+    },
+    {
+      "expires_on": "2026-10-31",
       "reason": "an agent runtime crash must map to a terminal failed state, not propagate out of the adapter",
       "violation_id": "b42a2c325734d2dbdfd3"
     },

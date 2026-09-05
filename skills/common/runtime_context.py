@@ -29,7 +29,6 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 # multi-hundred-KB blob from the surface a model can load.
 DEFAULT_ARTIFACT_STDOUT_LIMIT = 20000
 
-
 def _artifact_stdout_limit() -> int:
     raw = os.environ.get("A_STOCK_MAX_ARTIFACT_STDOUT")
     if raw:
@@ -393,11 +392,11 @@ def build_artifact(
     has_signal = output_has_signal(parsed, stdout)
     status = status_override or ("timeout" if timed_out else ("ok" if returncode == 0 else "failed"))
     # A zero process exit only says that the producer completed.  If its
-    # structured payload says degraded/unavailable, preserve that business
-    # outcome at artifact level too; otherwise the scheduler publishes a
-    # misleading green status beside a red summary.
+    # structured payload reports degradation or failure, preserve it for the
+    # dependency gate. Ready data and a quiet successful run retain the existing
+    # "ok" contract; their business status remains in stdout and summary.
     payload_status = parsed.get("status") if isinstance(parsed, dict) else None
-    if status == "ok" and isinstance(payload_status, str) and payload_status != "ok":
+    if status == "ok" and isinstance(payload_status, str) and payload_status not in {"ok", "ready", "no_signal"}:
         status = payload_status
     stdout_limit = _artifact_stdout_limit()
     if stdout_limit and len(stdout) > stdout_limit:
