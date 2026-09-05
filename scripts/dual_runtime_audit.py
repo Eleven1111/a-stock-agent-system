@@ -244,17 +244,29 @@ def openclaw_registration_check(manifest: dict[str, Any], openclaw: str = "openc
                 str(job.get("id") or job.get("jobId") or job.get("job_id") or "")
             )
     installed_ids = set(managed_names)
+    # Match the generator exactly: it installs every enabled job and maps the
+    # non-origin deliver policies (local/silent/feishu_direct) to --no-deliver.
+    # Filtering "silent" out here would report a correctly installed job as an
+    # orphan the moment one is enabled.
     manifest_ids = {
         str(job.get("id"))
         for job in manifest.get("jobs", [])
-        if job.get("enabled", True) and job.get("deliver") != "silent"
+        if job.get("enabled", True)
+    }
+    manifest_disabled_ids = {
+        str(job.get("id"))
+        for job in manifest.get("jobs", [])
+        if not job.get("enabled", True)
     }
     return {
         "status": "ok",
         "installed_count": len(installed_ids),
         "manifest_enabled_count": len(manifest_ids),
         "missing_from_openclaw": sorted(manifest_ids - installed_ids),
-        "orphaned_in_openclaw": sorted(installed_ids - manifest_ids),
+        "disabled_but_installed": sorted(installed_ids & manifest_disabled_ids),
+        "orphaned_in_openclaw": sorted(
+            installed_ids - manifest_ids - manifest_disabled_ids
+        ),
         "duplicate_managed_names": sorted(
             logical_id for logical_id, ids in managed_names.items() if len(ids) > 1
         ),
@@ -301,6 +313,7 @@ def build_report(
         for key in (
             "missing_from_openclaw",
             "orphaned_in_openclaw",
+            "disabled_but_installed",
             "duplicate_managed_names",
         )
     )
