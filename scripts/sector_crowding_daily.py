@@ -31,7 +31,7 @@ import argparse
 import json
 import os
 from datetime import date
-from typing import Any
+from typing import Any, Mapping
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 try:
@@ -44,12 +44,17 @@ import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 import industry_map  # noqa: E402
 import local_market_history as history  # noqa: E402
+import market_cycle_state  # noqa: E402
 import sector_crowding  # noqa: E402
+import sector_daily_archive  # noqa: E402
 import sector_fake_breakout  # noqa: E402
 import sector_rotation_pools  # noqa: E402
 import sector_price_factors  # noqa: E402
 from paths import data_file  # noqa: E402
+from research_artifact import json_sha256  # noqa: E402
 from state_store import atomic_write_json  # noqa: E402
+
+UNAVAILABLE = sector_rotation_pools.UNAVAILABLE
 
 ARTIFACT_NAME = "sector_crowding_latest.json"
 PRICE_ARTIFACT_NAME = "sector_price_factors_latest.json"
@@ -159,8 +164,10 @@ def run(*, asof: str | None = None, write: bool = True) -> dict[str, Any]:
         for key, value in industry_map.history_asof(trading_date).items()
         if key != "industry_by_code"
     }
+    regime = _same_day_regime(trading_date)
+    payload["regime_source"] = regime
     price_payload, fake_payload, pools_payload = _derived_payloads(
-        payload, series, price_series, trading_date, price_config
+        payload, series, price_series, trading_date, price_config, regime
     )
     for key, derived in (
         ("price_factors", price_payload),
@@ -178,7 +185,84 @@ def run(*, asof: str | None = None, write: bool = True) -> dict[str, Any]:
         payload["price_artifact"] = _price_artifact_path()
         payload["fake_breakout_artifact"] = _fake_breakout_artifact_path()
         payload["pools_artifact"] = _pools_artifact_path()
+        payload["archive"] = _archive_day(
+            payload, price_payload, fake_payload, pools_payload,
+            trading_date=trading_date, membership=membership,
+            config=config, price_config=price_config, regime=regime,
+        )
     return payload
+
+
+def _archive_day(
+    payload: dict[str, Any],
+    price_payload: dict[str, Any],
+    fake_payload: dict[str, Any],
+    pools_payload: dict[str, Any],
+    *,
+    trading_date: str,
+    membership: Mapping[str, str],
+    config: Mapping[str, Any],
+    price_config: Mapping[str, Any],
+    regime: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep the D-day cross-section retrievable.
+
+    The ``*_latest`` files are overwritten the next session and the cron
+    artifact is capped at ``max_output_chars: 1500``, so without this the full
+    cross-section stops existing two sessions later.
+    """
+
+    return sector_daily_archive.archive_day(
+        str(payload.get("asof") or trading_date),
+        {
+            "sector_crowding": payload,
+            "sector_price_factors": price_payload,
+            "sector_fake_breakout": fake_payload,
+            "sector_rotation_pools": pools_payload,
+        },
+        inputs={
+            "requested_asof": trading_date,
+            "membership_codes": len(membership),
+            "membership_sha256": json_sha256(dict(sorted(membership.items()))),
+            "crowding_config_sha256": json_sha256(dict(config)),
+            "price_config_sha256": json_sha256(dict(price_config)),
+            "membership_history": payload.get("membership_history"),
+            "regime_source": dict(regime),
+        },
+    )
+
+
+def _same_day_regime(trading_date: str) -> dict[str, Any]:
+    """Reuse the existing cycle-state artifact, and only when it is same-day.
+
+    There are already three market-state judgements in this repository
+    (``market_cycle_state`` / ``market_temperature`` / ``index_trend_gate``); a
+    fourth would only produce a fourth answer.  A stale memory is reported as
+    unavailable rather than silently folded in as if it described today.
+    """
+
+    memory = market_cycle_state.read_cycle_memory()
+    if not isinstance(memory, dict):
+        return {"status": UNAVAILABLE, "reason": "cycle_memory_missing", "labels": []}
+    memory_asof = str(memory.get("asof") or "")[:10]
+    if memory_asof != trading_date:
+        return {
+            "status": UNAVAILABLE, "reason": "cycle_memory_cutoff_mismatch",
+            "memory_asof": memory_asof or None, "requested_asof": trading_date, "labels": [],
+        }
+    state = str(memory.get("state") or memory.get("market_state") or "").strip()
+    if not state:
+        return {"status": UNAVAILABLE, "reason": "cycle_memory_state_missing", "labels": []}
+    return {
+        "status": "ok",
+        "source": "market_cycle_state.read_cycle_memory",
+        "memory_asof": memory_asof,
+        "labels": [state],
+        # No market-level crowding artifact exists, and inventing one would be a
+        # fourth classifier. It stays unavailable until a producer appears.
+        "market_crowding_score": None,
+        "market_crowding_reason": "no_market_level_crowding_producer",
+    }
 
 
 def _derived_payloads(
@@ -187,6 +271,7 @@ def _derived_payloads(
     price_series: list[dict[str, Any]],
     trading_date: str,
     price_config: dict[str, Any],
+    regime: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """价格因子 / 假突破 / 三池：三份都从同一趟读盘的序列派生，互不重算。
 
@@ -210,7 +295,10 @@ def _derived_payloads(
         price_factors={row["sector"]: row for row in price_payload.get("sectors") or []},
         crowding={row["sector"]: row for row in crowding_payload.get("sectors") or []},
         fake_breakout={row["sector"]: row for row in fake_payload.get("sectors") or []},
+        market_crowding_score=(regime or {}).get("market_crowding_score"),
+        regime_labels=(regime or {}).get("labels") or (),
     )
+    pools_payload["regime_source"] = dict(regime or {"status": UNAVAILABLE})
     return price_payload, fake_payload, pools_payload
 
 
