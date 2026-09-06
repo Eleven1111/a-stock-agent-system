@@ -160,6 +160,12 @@ def _book_fields(
                 "provider_version": snapshot.get("provider_version"),
                 "fetched_at": snapshot.get("fetched_at"),
             },
+            "book_observation_provenance": {
+                "observation_kind": "observed",
+                "observed_at": snapshot.get("fetched_at"),
+                "provider": selected_provider,
+            },
+            "book_is_imputed": False,
         }
     return {
         "bids": [],
@@ -168,6 +174,11 @@ def _book_fields(
         "book_status": "unavailable",
         "book_failure_reason": reason or "腾讯与新浪均缺少有效五档盘口",
         "book_provenance": {"provider_chain": ["tencent", "sina"]},
+        "book_observation_provenance": {
+            "observation_kind": "unavailable",
+            "provider": provider,
+        },
+        "book_is_imputed": None,
     }
 
 
@@ -230,6 +241,7 @@ def _merge_book_into_rows(
         for key in (
             "bids", "asks", "book_provider", "book_status",
             "book_failure_reason", "book_provenance",
+            "book_observation_provenance", "book_is_imputed",
         )
     }
     return [{**dict(row), **fields} for row in rows]
