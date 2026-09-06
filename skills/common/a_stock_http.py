@@ -154,10 +154,9 @@ def parse_tencent_orderbook_line(line: str) -> Optional[Dict[str, Any]]:
 
 def tencent_symbol(code: str) -> str:
     normalized = str(code).strip().lower()
-    if normalized.startswith(("sh", "sz", "bj", "hk")):
+    if normalized.startswith(("sh", "sz", "hk")):
         return normalized
-    market = "sh" if normalized.startswith("6") else "bj" if normalized.startswith(("4", "8")) else "sz"
-    return market + normalized.zfill(6)
+    return ("sh" if normalized.startswith("6") else "sz") + normalized.zfill(6)
 
 
 def fetch_tencent_quotes_result(
@@ -284,8 +283,8 @@ def parse_sina_snapshot_line(line: str) -> Optional[Dict[str, Any]]:
     parts = data.strip().rstrip(";").strip().strip('"').split(",")
     if len(parts) < 32 or not code:
         return None
-    bids = [(_f(parts, 11 + 2 * i), _f(parts, 10 + 2 * i)) for i in range(5)]
-    asks = [(_f(parts, 21 + 2 * i), _f(parts, 20 + 2 * i)) for i in range(5)]
+    bids = [(_f(parts, 11 + 2 * i) / 100.0, _f(parts, 10 + 2 * i)) for i in range(5)]
+    asks = [(_f(parts, 21 + 2 * i) / 100.0, _f(parts, 20 + 2 * i)) for i in range(5)]
     return {
         "code": code,
         "name": parts[0] or None,

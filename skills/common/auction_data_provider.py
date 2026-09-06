@@ -175,7 +175,7 @@ def _book_fields(
         "book_failure_reason": reason or "腾讯与新浪均缺少有效五档盘口",
         "book_provenance": {"provider_chain": ["tencent", "sina"]},
         "book_observation_provenance": {
-            "observation_kind": "unavailable",
+            "observation_kind": "unattempted",
             "provider": provider,
         },
         "book_is_imputed": None,
@@ -204,6 +204,9 @@ def _fetch_order_books(
         except DataSourceError as exc:
             primary = {}
             errors.append(f"腾讯五档不可用: {type(exc).__name__}: {exc}")
+        except Exception as exc:
+            primary = {}
+            errors.append(f"腾讯五档不可用: {type(exc).__name__}: {exc}")
         primary_by_code = {
             _bare_code(raw_code): snapshot
             for raw_code, snapshot in primary.items()
@@ -215,6 +218,9 @@ def _fetch_order_books(
             try:
                 fallback = fetch_sina_snapshot([tencent_symbol(code) for code in missing])
             except DataSourceError as exc:
+                fallback = {}
+                errors.append(f"新浪五档不可用: {type(exc).__name__}: {exc}")
+            except Exception as exc:
                 fallback = {}
                 errors.append(f"新浪五档不可用: {type(exc).__name__}: {exc}")
             fallback_by_code = {

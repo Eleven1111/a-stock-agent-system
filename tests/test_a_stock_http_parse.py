@@ -148,10 +148,15 @@ def test_parse_sina_snapshot_exposes_five_levels():
     parsed = parse_sina_snapshot_line(_build_sina_line())
 
     assert parsed["code"] == "sh600519"
-    assert parsed["bids"][0] == (1295.90, 500.0)
-    assert parsed["bids"][4] == (1295.56, 100.0)
-    assert parsed["asks"][0] == (1296.09, 200.0)
-    assert parsed["asks"][4] == (1296.28, 100.0)
+    # 新浪五档量为「股」，已除以 100 归一化为「手」（与腾讯一致）。
+    assert round(parsed["bids"][0][0], 4) == 12.959
+    assert parsed["bids"][0][1] == 500.0
+    assert round(parsed["bids"][4][0], 4) == 12.9556
+    assert parsed["bids"][4][1] == 100.0
+    assert round(parsed["asks"][0][0], 4) == 12.9609
+    assert parsed["asks"][0][1] == 200.0
+    assert round(parsed["asks"][4][0], 4) == 12.9628
+    assert parsed["asks"][4][1] == 100.0
 
 
 def test_sina_snapshot_uses_referer_and_authenticated_https(monkeypatch):
