@@ -191,35 +191,162 @@ python scripts/evaluate_openclaw_host.py
 
 ---
 
-## 阶段 D：只有拿到批准后才执行
+## 阶段 D：写操作（每一步都需要单独批准）
 
-拿到停用动词后，**先再出一次计划**确认它能解析：
+阶段 D 是这份任务书里**唯一会改动生产的部分**。它被拆成 D0–D4 五步，
+**每一步跑完都要把输出交回来、拿到明确批准，才做下一步**。
+不要把 D0 的批准当成 D2 的批准。
+
+### D0：准入条件（全部满足才允许进入 D1）
+
+七条，缺一条就停在这里报告，**不要自行补齐**：
+
+| # | 条件 | 怎么验 |
+|---|---|---|
+| 1 | 工作区干净 | `git status --short` 输出为空 |
+| 2 | 代码就是目标 commit | `git rev-parse HEAD` == `git rev-parse origin/main` |
+| 3 | 无未推送的本地提交 | `git log --oneline origin/main..HEAD` 输出为空 |
+| 4 | 四道自检全过 | pytest / ruff / validate_cron_manifest / compileall |
+| 5 | 停用动词已核实 | `openclaw cron --help` 原文已贴出，模板已确定 |
+| 6 | 无真正持有的租约 | 审计 `active_leases` 为空（`orphaned_leases` 非空**不阻塞**） |
+| 7 | 注册备份已留 | `cron list --json` 已存进私有诊断目录，旧 SHA 已记下 |
+
+第 3 条尤其要紧：dispatcher **直接从工作区运行、不经构建**，未推送的提交
+就是没过 CI 的生产代码。要么走 PR 进 main，要么丢弃，**不能带着它做 reconcile**。
+
+```bash
+git status --short
+git rev-parse HEAD; git rev-parse origin/main
+git log --oneline origin/main..HEAD
+python -m pytest -q 2>&1 | tail -3
+python -m ruff check .
+python scripts/validate_cron_manifest.py
+python -m compileall -q skills scripts tests
+python scripts/dual_runtime_audit.py > /tmp/audit.json
+python -c "import json;r=json.load(open('/tmp/audit.json'));print('held:',len(r['active_leases']),'orphaned:',len(r['orphaned_leases']),'clean:',r['clean'])"
+openclaw cron list --json > "$HOME/a-stock-diagnostics/cron-before-$(date +%F).json"
+```
+
+**交回来**：七条逐条的实际输出。**然后停下等批准。**
+
+### D1：出最终计划并逐条评审（仍然只读）
 
 ```bash
 python scripts/generate_openclaw_cron.py --plan \
   --state-home "$A_STOCK_STATE_HOME" \
-  --disable-command-template '<把阶段 B 查到的真实动词填进来，形如 {openclaw} cron disable {job_id}>' \
-  | python -c "import json,sys;p=json.load(sys.stdin);print(p['summary'],p['applicable'])"
+  --disable-command-template '{openclaw} cron disable {job_id}' \
+  > "$HOME/a-stock-diagnostics/reconcile-plan-final.json"
 ```
 
-`applicable` 必须是 `true` 才能往下走。然后**再等一次明确批准**，才执行：
+然后逐条打印非 unchanged 的动作（存成一个小脚本再跑，避免引号问题）：
+
+```bash
+python - "$HOME/a-stock-diagnostics/reconcile-plan-final.json" <<'SCRIPT'
+import json, sys
+p = json.load(open(sys.argv[1]))
+print("summary:", p["summary"], "applicable:", p["applicable"])
+print("orphans:", p["orphaned_managed_jobs"])
+for a in p["actions"]:
+    if a["action"] in ("unchanged", "skipped"):
+        continue
+    print(a["action"], a["logical_id"], a.get("reason"),
+          "drift=", a.get("drifted_fields"), "unverifiable=", a.get("unverifiable_fields"))
+SCRIPT
+```
+
+**`applicable` 必须为 `true`。** 为 `false` 时 `--apply` 会直接抛错、一条命令都不发，
+所以不要试图绕过它——先把挡住的动作解决掉。
+
+逐条确认（**交回来的报告要逐条回答，不是一句「看过了」**）：
+
+- `conflict` 必须为 0。有就停下——同名作业装了多份，需要人工判断留哪个。
+- `blocked` 必须为 0。缺收件人的作业要么配好目标，要么把它从本轮范围里拿掉。
+- 每条 `update` 的 `drifted_fields` 逐个念一遍：**这个漂移是预期的吗？**
+  比如 `command_cwd` 漂移可能意味着宿主指向了另一个 checkout —— 那是别的问题，
+  不该靠 reconcile 盖过去。
+- `create` 应该正好是 `news-l1-scan` 和 `official-policy-watch` 两条。
+  多出来的每一条都要能解释。
+- `disable` 的每一条：确认它在 manifest 里确实是 `enabled: false`。
+- `orphaned_managed_jobs` 只报告。**本轮不删任何孤儿。**
+- 全文搜一遍：不得有任何命令作用于非 `A-stock: ` 前缀的作业。
+
+**交回来**：上面每一项的答案。**然后停下等批准。**
+
+### D2：应用（第一次真正的写操作）
 
 ```bash
 python scripts/generate_openclaw_cron.py --reconcile --apply \
   --state-home "$A_STOCK_STATE_HOME" \
-  --disable-command-template '<同上>'
+  --disable-command-template '{openclaw} cron disable {job_id}'
 ```
 
-应用后**立刻**重跑一次 `--plan`：第二次必须全部落在 `unchanged`、零条命令。
-不是的话停下报告。
+`--apply` **执行的就是 D1 打印的那份计划**，一条不多一条不少
+（`unchanged` / `skipped` 不产生命令，`disable` 会真的被执行）。
+输出会打印实际应用了什么：`{"applied": N, "applied_by_action": {...}}`。
 
-### canary
+**`applied` 必须与 D1 里非 unchanged/skipped 的动作数一致。** 不一致就停下报告。
 
-优先挑一个**确定性只读作业**（如 `sector-crowding-daily`），手动触发一次，确认：
+应用后**立刻**重跑 D1 的计划命令：
 
-- 产物按时落盘、内容通过契约
-- 没有重复成交、没有残留租约（重跑 C3 审计，`clean` 应为 true）
-- 首次一律 `--no-deliver`，**真实发送只在明确授权且收件人已核实后才开**
+- 第二次必须**全部落在 `unchanged` / `skipped`，零条命令**。
+- 不是的话停下报告，**不要反复 apply 去「磨平」它**——反复应用说明有东西在对抗，
+  查清楚比磨平重要。
+
+再跑一次审计，确认没有新增重复注册：
+
+```bash
+python scripts/dual_runtime_audit.py > /tmp/audit-after.json
+python -c "import json;r=json.load(open('/tmp/audit-after.json'));print(r['status'], r['openclaw_registration'])"
+```
+
+**交回来**：apply 输出、第二次计划的 summary、审计的 registration 段。**然后停下等批准。**
+
+### D3：canary（一个确定性只读作业）
+
+第一次验证**不要挑会外发的作业**。推荐 `sector-crowding-daily`：零取数、
+只读本地缓存、产物标 `live_effect: none`。
+
+```bash
+python scripts/run_agent_dag.py sector-crowding-daily --runtime openclaw --emit-target
+```
+
+确认四件事：
+
+1. 四份产物落盘，且 `asof` 是今天。
+2. 按日归档产生了一行（`sector_daily_archive.versions_for('<今天>')` 非空）。
+3. `regime_source.status` —— 是 `ok`（同日 cycle memory 可用）还是
+   `cutoff_mismatch` / `cycle_memory_missing`。两种都正常，但要如实报。
+4. 审计 `active_leases` 仍为空（作业跑完应该释放租约）。
+
+**外发一律 `--no-deliver`。真实发送只在拿到明确授权、且收件人已核实之后才开，
+本轮不做。**
+
+**交回来**：上面四项。**然后停下等批准。**
+
+### D4：观察窗口
+
+canary 通过后，观察**一个完整交易日**，不做任何新的写操作。收盘后交回：
+
+- `dual_runtime_audit.py` 的 `status` / `clean` / `concurrent_duplicate_runs` / `active_leases`
+- 计划应发生 vs 实际完成的作业数（缺的逐个列出原因）
+- 有没有作业因为新的 timeout 预算被杀
+- `orphaned_leases` 有没有**新增**（新增说明有作业在崩溃，与历史遗留不是一回事）
+
+一个交易日没有异常，才谈扩大范围。
+
+---
+
+## 三个必须先解决的前置
+
+阶段 D 现在**进不了 D0**：
+
+1. **未推送的本地提交** —— 违反 D0 第 3 条。要么走 PR 进 main，要么丢弃。
+2. **未提交的工作区改动** —— 违反 D0 第 1 条。
+3. **没有 `A_STOCK_STATE_HOME` 的作业** —— split-brain 风险，它们会解析到另一个
+   状态根。不在 D0 表里（不是本轮引入的），但会让 reconcile 在那些作业上结果不可预期，
+   要先查明是哪几个、为什么。
+
+---
 
 ---
 
