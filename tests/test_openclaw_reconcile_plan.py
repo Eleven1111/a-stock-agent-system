@@ -14,6 +14,7 @@ import pytest
 
 from scripts.generate_openclaw_cron import (
     MANAGED_JOB_PREFIX,
+    apply_reconcile_plan,
     build_openclaw_commands,
     build_reconcile_plan,
     command_from_spec,
@@ -306,3 +307,73 @@ def test_the_repo_manifest_plans_end_to_end_without_a_delivery_target():
     assert plan["summary"]["create"] + plan["summary"]["blocked"] == 64
     assert plan["summary"]["blocked"] == 16
     assert plan["applicable"] is False
+
+
+def test_apply_executes_the_disable_the_plan_computed():
+    # #342 shipped the disable action but the apply path rebuilt every enabled
+    # job from the manifest and skipped disabled ones outright, so the command
+    # was computed and then never run. Assert the consumer, not the field.
+    plan = _plan(
+        [_job("live"), _job("gone", enabled=False)],
+        [_installed("live"), _installed("gone")],
+        disable_command_template=DISABLE_TEMPLATE,
+    )
+    executed: list[str] = []
+
+    result = apply_reconcile_plan(plan, runner=executed.extend)
+
+    assert "openclaw cron disable cron-gone" in executed
+    assert result["applied_by_action"] == {"disable": 1}
+
+
+def test_apply_touches_only_what_the_plan_named():
+    plan = _plan(
+        [_job("drifted"), _job("in_sync")],
+        [_installed("drifted", timeoutSeconds=9), _installed("in_sync")],
+    )
+    executed: list[str] = []
+
+    result = apply_reconcile_plan(plan, runner=executed.extend)
+
+    assert len(executed) == 1
+    assert "cron-drifted" in executed[0]
+    assert "in_sync" not in executed[0]
+    assert result["applied"] == 1
+
+
+def test_apply_refuses_an_inapplicable_plan_and_runs_nothing():
+    plan = _plan([_job("gone", enabled=False)], [_installed("gone")])  # no template
+    executed: list[str] = []
+
+    with pytest.raises(ValueError, match="reconcile_plan_not_applicable"):
+        apply_reconcile_plan(plan, runner=executed.extend)
+    assert executed == []
+
+
+def test_apply_refuses_a_plan_blocked_on_a_missing_delivery_target():
+    plan = _plan([_origin_job("announce")], [], delivery_to=None)
+    executed: list[str] = []
+
+    with pytest.raises(ValueError, match="delivery_target_missing"):
+        apply_reconcile_plan(plan, runner=executed.extend)
+    assert executed == []
+
+
+def test_a_host_that_reports_nothing_comparable_is_written_not_assumed_in_sync():
+    # "in sync" would be an assumption; the plan converges by writing instead.
+    action = _plan([_job("target")], [{"id": "cron-target", "name": _installed("target")["name"]}])["actions"][0]
+
+    assert action["action"] == "update"
+    assert action["reason"] == "unverifiable_installed_state"
+    assert action["command"].startswith("openclaw cron edit cron-target")
+
+
+def test_applying_twice_is_a_no_op_on_a_host_that_reports_its_state():
+    manifest = [_job("target")]
+    executed: list[str] = []
+    apply_reconcile_plan(_plan(manifest, []), runner=executed.extend)
+    assert len(executed) == 1
+
+    executed.clear()
+    apply_reconcile_plan(_plan(manifest, [_installed("target")]), runner=executed.extend)
+    assert executed == []

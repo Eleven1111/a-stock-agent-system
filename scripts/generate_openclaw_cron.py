@@ -162,6 +162,36 @@ def validate_installed_job_uniqueness(
         raise ValueError(f"duplicate installed OpenClaw jobs: {detail}")
 
 
+def apply_reconcile_plan(
+    plan: Mapping[str, Any], *, runner: Any = None
+) -> dict[str, Any]:
+    """Execute exactly what the plan describes, or nothing at all.
+
+    The apply path used to rebuild every enabled job from the manifest, which
+    disagreed with the plan twice over: it re-wrote jobs the plan called
+    unchanged, and it skipped disabled jobs entirely, so a ``disable`` action the
+    plan had computed was never executed. Running the plan's own commands keeps
+    the blast radius equal to what the operator reviewed.
+    """
+
+    if not plan.get("applicable"):
+        blocking = sorted({
+            f"{item['action']}:{item.get('reason')}"
+            for item in plan.get("actions") or []
+            if item["action"] not in {"unchanged", "skipped"} and not item.get("command")
+        })
+        raise ValueError(f"reconcile_plan_not_applicable:{','.join(blocking) or 'unknown'}")
+    commands = [
+        item["command"] for item in plan.get("actions") or [] if item.get("command")
+    ]
+    (runner or apply_openclaw_commands)(commands)
+    counts: dict[str, int] = {}
+    for item in plan.get("actions") or []:
+        if item.get("command"):
+            counts[item["action"]] = counts.get(item["action"], 0) + 1
+    return {"applied": len(commands), "applied_by_action": dict(sorted(counts.items()))}
+
+
 def apply_openclaw_commands(commands: Sequence[str]) -> None:
     """Execute generated mutations without invoking a shell."""
     for command in commands:
@@ -576,16 +606,23 @@ def _plan_action(
     comparison = compare_installed_job(spec, installed)
     drifted = sorted(key for key, value in comparison.items() if value["state"] == "drift")
     unknown = sorted(key for key, value in comparison.items() if value["state"] == "unknown")
+    # Nothing comparable came back, so "in sync" would be an assumption rather
+    # than an observation. Converge by writing instead of asserting it is fine.
+    unverifiable = len(unknown) == len(comparison)
     return {
         **base,
-        "action": "update" if drifted else "unchanged",
-        "reason": "parameter_drift" if drifted else "in_sync",
+        "action": "update" if drifted or unverifiable else "unchanged",
+        "reason": (
+            "parameter_drift" if drifted
+            else "unverifiable_installed_state" if unverifiable
+            else "in_sync"
+        ),
         "drifted_fields": drifted,
         "unverifiable_fields": unknown,
         "comparison": comparison,
         "command": (
             command_from_spec(spec, openclaw=openclaw, installed_id=installed_id)
-            if drifted else None
+            if drifted or unverifiable else None
         ),
     }
 
@@ -601,13 +638,13 @@ def _installed_records_by_name(
     return grouped
 
 
-def _print_reconcile_plan(
+def _reconcile_plan(
     args: argparse.Namespace,
     manifest: Mapping[str, Any],
     installed: Sequence[Mapping[str, Any]],
     python: str,
-) -> int:
-    plan = build_reconcile_plan(
+) -> dict[str, Any]:
+    return build_reconcile_plan(
         manifest,
         installed_jobs=installed,
         repo_dir=os.path.abspath(args.repo_dir),
@@ -622,6 +659,15 @@ def _print_reconcile_plan(
         delivery_account=args.delivery_account,
         disable_command_template=args.disable_command_template,
     )
+
+
+def _print_reconcile_plan(
+    args: argparse.Namespace,
+    manifest: Mapping[str, Any],
+    installed: Sequence[Mapping[str, Any]],
+    python: str,
+) -> int:
+    plan = _reconcile_plan(args, manifest, installed, python)
     print(json.dumps(plan, ensure_ascii=False, indent=2))
     return 0 if plan["applicable"] else 1
 
@@ -695,6 +741,12 @@ def main() -> int:
     installed_jobs = installed if args.reconcile else None
     if args.plan:
         return _print_reconcile_plan(args, manifest, installed, python)
+    if args.apply:
+        # Apply what the operator reviewed, not a freshly rebuilt superset of it.
+        plan = _reconcile_plan(args, manifest, installed, python)
+        result = apply_reconcile_plan(plan)
+        print(json.dumps({**result, "summary": plan["summary"]}, ensure_ascii=False, indent=2))
+        return 0
     commands = build_openclaw_commands(
         manifest,
         repo_dir=os.path.abspath(args.repo_dir),
@@ -709,11 +761,8 @@ def main() -> int:
         delivery_to=args.delivery_to,
         delivery_account=args.delivery_account,
     )
-    if args.apply:
-        apply_openclaw_commands(commands)
-    else:
-        for command in commands:
-            print(command)
+    for command in commands:
+        print(command)
     return 0
 
 
