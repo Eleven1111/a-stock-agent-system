@@ -11,7 +11,7 @@ import glob
 import json
 import os
 from datetime import date, datetime
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 from zoneinfo import ZoneInfo
 
 from a_share_rules import latest_trading_day, previous_trading_day
@@ -267,6 +267,24 @@ def _dependency_expected_date(trading_date: str, mode: str) -> Optional[str]:
     raise ValueError(f"unsupported dependency trading_date mode: {mode}")
 
 
+def accepted_dependency_statuses(
+    policy: Optional[Mapping[str, Any]],
+    job_id: str,
+) -> set[str]:
+    """Return the statuses accepted for one dependency.
+
+    ``accepted_statuses`` remains the default for every dependency.  A consumer
+    may narrow or extend that contract for one named upstream through
+    ``accepted_statuses_by_job`` without accidentally accepting the same
+    business status from all of its other required inputs.
+    """
+    resolved = dict(policy or {})
+    default = resolved.get("accepted_statuses") or ["ok"]
+    by_job = resolved.get("accepted_statuses_by_job") or {}
+    selected = by_job.get(job_id, default) if isinstance(by_job, Mapping) else default
+    return {str(item) for item in selected}
+
+
 def evaluate_dependencies(
     job_ids: Iterable[str],
     *,
@@ -281,6 +299,12 @@ def evaluate_dependencies(
     optional_jobs = set(policy.get("optional_jobs") or [])
     max_age = policy.get("max_age_minutes")
     accepted_statuses = set(policy.get("accepted_statuses") or ["ok"])
+    raw_accepted_statuses_by_job = policy.get("accepted_statuses_by_job") or {}
+    accepted_statuses_by_job = (
+        raw_accepted_statuses_by_job
+        if isinstance(raw_accepted_statuses_by_job, Mapping)
+        else {}
+    )
     expected_date = _dependency_expected_date(trading_date, mode)
     current = _parse_datetime(now or now_iso())
     dependencies: List[Dict[str, Any]] = []
@@ -288,6 +312,7 @@ def evaluate_dependencies(
 
     for job_id in job_ids or []:
         required = job_id not in optional_jobs
+        job_accepted_statuses = accepted_dependency_statuses(policy, str(job_id))
         artifact = load_latest_artifact(
             job_id,
             trading_date=expected_date,
@@ -308,7 +333,7 @@ def evaluate_dependencies(
                 "finished_at": artifact.get("finished_at"),
                 "summary": artifact.get("summary", {}),
             }
-            if artifact.get("status") not in accepted_statuses:
+            if artifact.get("status") not in job_accepted_statuses:
                 reasons.append(f"status_{artifact.get('status') or 'missing'}")
             if expected_date is not None and artifact.get("trading_date") != expected_date:
                 reasons.append("trading_date_mismatch")
@@ -326,6 +351,7 @@ def evaluate_dependencies(
                     reasons.append("invalid_finished_at")
 
         entry["required"] = required
+        entry["accepted_statuses"] = sorted(job_accepted_statuses)
         entry["reasons"] = reasons
         entry["gate_status"] = "passed" if not reasons else ("blocked" if required else "optional_failed")
         if required and reasons:
@@ -341,6 +367,10 @@ def evaluate_dependencies(
             "max_age_minutes": max_age,
             "optional_jobs": sorted(optional_jobs),
             "accepted_statuses": sorted(accepted_statuses),
+            "accepted_statuses_by_job": {
+                str(job_id): sorted(str(status) for status in statuses)
+                for job_id, statuses in sorted(accepted_statuses_by_job.items())
+            },
         },
         "dependencies": dependencies,
     }

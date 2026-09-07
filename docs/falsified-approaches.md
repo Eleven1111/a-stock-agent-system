@@ -54,6 +54,7 @@
 | F006 | issue #311 所述的 MFI 门控已存在 | 别按 issue 正文的位置描述直接动手 | 2026-09-01 | #313 |
 | F007 | 「存在第二套超时机制」（由超时点远低于上限推出） | 别拿历史运行去比当前配置，先把配置回滚到运行发生的时点 | 2026-09-01 | #321 |
 | F008 | 北向资金日频净额仍可采集，可作为情绪/退出输入 | 别按行位置从多方向汇总表取数，先用方向字段筛 | 2026-09-02 | #326 |
+| F009 | 给 `candidate-discovery` 全局接受 `partial/degraded` 可绕过北向停披门禁 | 别放宽所有依赖；按依赖覆写状态，并由生产者先验证核心字段的新鲜度 | 2026-09-07 | #351 |
 
 ---
 
@@ -212,3 +213,20 @@
   全零横截面判 `unavailable`，CSV 复活路径删除，采集端 fail-closed。消费端的判定分支
   保留但恒不触发（口径若恢复不必重接线）。守卫在 `tests/test_northbound_retired.py`，
   含正向对照：口径恢复时解析器必须照常给数，避免「永远返回空」冒充「守得住」。
+
+## F009 · 全局接受降级状态会拆掉其他依赖的门禁
+
+- **结论**：为绕过北向日频净额结构性停披，把 `candidate-discovery` 的全局
+  `accepted_statuses` 扩成 `partial` 或 `degraded`，会同时放行
+  `hot-money-context`、`hk-a-linkage` 等其他必需依赖的同名状态，无法证明候选发现拿到的
+  是可用资金事实。
+- **证伪方式**：2026-09-07 的真实链路中，北向确实结构性不可用，但资金核心字段也并非
+  全部有效：14:30 缓存仍是 `sector_flows_asof=2026-08-28`、`stale=true`；修复后的 17:00
+  本地无投递采集得到 2/3 个核心观测，`汽车零部` 板块资金仍 unavailable。若全局放行
+  `degraded`，这两种真实缺口都会被误当成可用。
+- **别再试**：不要把任意 `degraded` 当成 `ok`，也不要用全局 `partial` 为单个依赖开洞。
+  生产者只在「北向停披是唯一缺口且所有候选核心观测同交易日有效」时输出 `partial`；
+  消费者只对 `capital-flow` 接受该状态。
+- **现状**：`dependency_policy.accepted_statuses_by_job` 提供按上游作业的窄覆写；
+  `candidate-discovery` 仍默认只接受 `ok`，仅 `capital-flow` 接受 `ok/partial`。缺失、过期、
+  future、非法或 provider 错误仍输出 `degraded/insufficient_data` 并阻断。

@@ -23,6 +23,7 @@ ensure_repo_importable(ROOT)
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
 
 from runtime_context import (  # noqa: E402
+    accepted_dependency_statuses,
     load_latest_artifact,
     make_batch_id,
     resolve_runtime_name,
@@ -109,11 +110,6 @@ def _load_artifact(
                 os.environ[key] = value
 
 
-def _accepted_dependency_statuses(job: Mapping[str, Any]) -> set[str]:
-    policy = job.get("dependency_policy") or {}
-    return {str(item) for item in (policy.get("accepted_statuses") or ["ok"])}
-
-
 def consumers_tolerating(
     dependency_id: str,
     status: str,
@@ -136,7 +132,9 @@ def consumers_tolerating(
         job = jobs.get(job_id) or {}
         if dependency_id not in (job.get("context_from") or []):
             continue
-        if status in _accepted_dependency_statuses(job):
+        if status in accepted_dependency_statuses(
+            job.get("dependency_policy"), dependency_id
+        ):
             tolerating.append(str(job_id))
     return tolerating
 
