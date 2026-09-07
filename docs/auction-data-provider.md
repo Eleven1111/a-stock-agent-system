@@ -3,7 +3,8 @@
 竞价链现在按字段融合两个实时 provider，并用同一条 easy_tdx 连接补齐昨日量能：
 
 - `easy_tdx.MacClient.get_auction()` 的 MAC `0x123D` 接口，读取 `09:15-09:25` 的 `price`、`matched`、`unmatched`；
-- `a_stock_http.fetch_tencent_snapshot()` 批量读取 `bids`、`asks` 五档盘口；只合并盘口字段，
+- `a_stock_http.fetch_tencent_snapshot()` 批量读取 `bids`、`asks` 五档盘口；逐股缺失或请求失败时，
+  回退到 `a_stock_http.fetch_sina_snapshot()`。两者都只合并盘口字段，
   腾讯实时 `price`、`volume` 不覆盖 easy_tdx 的真实竞价量价；盘口失败会记录
   `book_status=unavailable` 和 `book_failure_reason`，但不丢弃已取得的竞价量价。
 - `easy_tdx.MacClient.get_stock_kline(..., Period.DAILY)` 在本地历史缓存缺失时，

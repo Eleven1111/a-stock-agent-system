@@ -7,12 +7,15 @@ import struct
 
 import auction_data_provider as provider
 import pytest
+from a_stock_http import parse_sina_snapshot_line, parse_tencent_orderbook_line
+from http_client import DataSourceError
 
 
 @pytest.fixture(autouse=True)
 def _disable_live_tencent_book_requests(monkeypatch):
     """Provider contract tests must never depend on the live quote endpoint."""
     monkeypatch.setattr(provider, "fetch_tencent_snapshot", lambda codes: {})
+    monkeypatch.setattr(provider, "fetch_sina_snapshot", lambda codes: {})
 
 
 def test_easy_tdx_rows_are_normalized_from_shares_to_lots_and_windowed():
@@ -383,7 +386,14 @@ def test_tencent_book_failure_degrades_book_only(monkeypatch):
     monkeypatch.setattr(
         provider,
         "fetch_tencent_snapshot",
-        lambda codes: (_ for _ in ()).throw(RuntimeError("quote down")),
+        lambda codes: (_ for _ in ()).throw(
+            RuntimeError("quote down")
+        ),
+    )
+    monkeypatch.setattr(
+        provider,
+        "fetch_sina_snapshot",
+        lambda codes: (_ for _ in ()).throw(RuntimeError("sina quote down")),
     )
 
     snapshots, failures = provider.fetch_real_auction_snapshots(
@@ -403,6 +413,121 @@ def test_tencent_book_failure_degrades_book_only(monkeypatch):
     assert row["asks"] == []
     assert row["book_is_imputed"] is None
     assert row["book_observation_provenance"]["observation_kind"] == "unavailable"
+
+
+def test_budget_exhausted_book_is_unattempted():
+    books = provider._fetch_order_books(
+        ["sh600519"], budget_exhausted=lambda: True, deadline_seconds=30
+    )
+
+    assert books["600519"]["book_status"] == "unavailable"
+    assert books["600519"]["book_observation_provenance"]["observation_kind"] == "unattempted"
+
+
+def test_tencent_data_source_error_degrades_book_only(monkeypatch):
+    _fake_easy_tdx(monkeypatch)
+    monkeypatch.setattr(
+        provider,
+        "fetch_tencent_snapshot",
+        lambda codes: (_ for _ in ()).throw(
+            DataSourceError("tencent", "quote down")
+        ),
+    )
+
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        ["sh600519"],
+        previous_day_metrics={
+            "600519": {"prev_day_volume": 10_000.0, "prev_close": 9.9}
+        },
+    )
+
+    assert failures == {}
+    row = snapshots["600519"][0]
+    assert row["book_status"] == "unavailable"
+    assert "quote down" in row["book_failure_reason"]
+    assert row["book_observation_provenance"]["observation_kind"] == "unavailable"
+
+
+def test_sina_fills_only_the_missing_tencent_book(monkeypatch):
+    _fake_easy_tdx(monkeypatch)
+    monkeypatch.setattr(provider, "fetch_tencent_snapshot", lambda codes: {})
+    monkeypatch.setattr(
+        provider,
+        "fetch_sina_snapshot",
+        lambda codes: {
+            "sh600519": {
+                "bids": [(10.0, 5000.0)],
+                "asks": [(10.01, 3000.0)],
+                "volume": 888_888.0,
+                "provider": "sina",
+                "provider_version": "fixture-v1",
+                "fetched_at": "2026-08-31T09:25:00+08:00",
+            }
+        },
+    )
+
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        ["sh600519"],
+        previous_day_metrics={
+            "600519": {"prev_day_volume": 10_000.0, "prev_close": 9.9}
+        },
+    )
+
+    assert failures == {}
+    row = snapshots["600519"][0]
+    assert row["volume"] == 1.0
+    assert row["matched"] == 100
+    assert row["book_provider"] == "sina"
+    assert row["bids"] == [(10.0, 5000.0)]
+
+
+def test_sina_and_tencent_orderbook_levels_are_same_lot_unit(monkeypatch):
+    _fake_easy_tdx(monkeypatch)
+    sina_parts = [""] * 33
+    sina_parts[10:14] = ["500", "1295.90", "100", "1295.83"]
+    sina_parts[20:24] = ["200", "1296.09", "100", "1296.17"]
+    sina_line = 'var hq_str_sh600519="' + ",".join(sina_parts) + '";'
+    sina_book = parse_sina_snapshot_line(sina_line)
+
+    tencent_parts = [""] * 29
+    tencent_parts[9:13] = ["1295.90", "5", "1295.83", "1"]
+    tencent_parts[19:23] = ["1296.09", "2", "1296.17", "1"]
+    tencent_line = 'v_sh600519="' + "~".join(tencent_parts) + '"'
+    tencent_book = parse_tencent_orderbook_line(tencent_line)
+    assert sina_book is not None
+    assert tencent_book is not None
+    assert sina_book["bids"][:2] == tencent_book["bids"][:2]
+    assert sina_book["asks"][:2] == tencent_book["asks"][:2]
+
+    monkeypatch.setattr(provider, "fetch_tencent_snapshot", lambda codes: {})
+    monkeypatch.setattr(
+        provider,
+        "fetch_sina_snapshot",
+        lambda codes: {
+            "sh600519": {
+                "bids": sina_book["bids"],
+                "asks": sina_book["asks"],
+                "provider": "sina",
+                "provider_version": "fixture-v1",
+                "fetched_at": "2026-08-31T09:25:00+08:00",
+            }
+        },
+    )
+
+    snapshots, failures = provider.fetch_real_auction_snapshots(
+        ["sh600519"],
+        previous_day_metrics={
+            "600519": {"prev_day_volume": 10_000.0, "prev_close": 9.9}
+        },
+    )
+
+    assert failures == {}
+    row = snapshots["600519"][0]
+    assert row["bids"][:2] == [(1295.90, 5.0), (1295.83, 1.0)]
+    assert row["asks"][:2] == [(1296.09, 2.0), (1296.17, 1.0)]
+    # 走新浪成功路径时，book_is_imputed 必须为 False（已观测），不是 None。
+    assert row["book_is_imputed"] is False
+    assert row["book_observation_provenance"]["observation_kind"] == "observed"
 
 
 def test_mootdx_daily_adapter_requests_count_with_offset(monkeypatch):
