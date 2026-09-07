@@ -285,6 +285,29 @@ def accepted_dependency_statuses(
     return {str(item) for item in selected}
 
 
+def _dependency_policy_summary(
+    policy: Mapping[str, Any],
+    *,
+    mode: str,
+    max_age: Any,
+    optional_jobs: set[Any],
+) -> Dict[str, Any]:
+    raw_overrides = policy.get("accepted_statuses_by_job") or {}
+    overrides = raw_overrides if isinstance(raw_overrides, Mapping) else {}
+    return {
+        "trading_date": mode,
+        "max_age_minutes": max_age,
+        "optional_jobs": sorted(optional_jobs),
+        "accepted_statuses": sorted(
+            str(status) for status in (policy.get("accepted_statuses") or ["ok"])
+        ),
+        "accepted_statuses_by_job": {
+            str(job_id): sorted(str(status) for status in statuses)
+            for job_id, statuses in sorted(overrides.items())
+        },
+    }
+
+
 def evaluate_dependencies(
     job_ids: Iterable[str],
     *,
@@ -298,13 +321,6 @@ def evaluate_dependencies(
     mode = policy.get("trading_date", "same_trading_date")
     optional_jobs = set(policy.get("optional_jobs") or [])
     max_age = policy.get("max_age_minutes")
-    accepted_statuses = set(policy.get("accepted_statuses") or ["ok"])
-    raw_accepted_statuses_by_job = policy.get("accepted_statuses_by_job") or {}
-    accepted_statuses_by_job = (
-        raw_accepted_statuses_by_job
-        if isinstance(raw_accepted_statuses_by_job, Mapping)
-        else {}
-    )
     expected_date = _dependency_expected_date(trading_date, mode)
     current = _parse_datetime(now or now_iso())
     dependencies: List[Dict[str, Any]] = []
@@ -362,16 +378,9 @@ def evaluate_dependencies(
         "passed": gate_passed,
         "trading_date": trading_date,
         "batch_id": batch_id,
-        "policy": {
-            "trading_date": mode,
-            "max_age_minutes": max_age,
-            "optional_jobs": sorted(optional_jobs),
-            "accepted_statuses": sorted(accepted_statuses),
-            "accepted_statuses_by_job": {
-                str(job_id): sorted(str(status) for status in statuses)
-                for job_id, statuses in sorted(accepted_statuses_by_job.items())
-            },
-        },
+        "policy": _dependency_policy_summary(
+            policy, mode=mode, max_age=max_age, optional_jobs=optional_jobs
+        ),
         "dependencies": dependencies,
     }
 
