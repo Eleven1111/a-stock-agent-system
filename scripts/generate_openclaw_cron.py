@@ -418,16 +418,29 @@ def compare_installed_job(
 ) -> dict[str, dict[str, Any]]:
     """Field-by-field comparison of a desired spec against an installed job."""
 
+    def equivalent(field: str, value: Any, desired: Any) -> bool:
+        # ``cron list --json`` returns schedule as a structured object while
+        # the manifest deliberately stores the cron expression as a string.
+        # Compare the semantic expression, not Python's container rendering.
+        if field == "schedule" and isinstance(value, Mapping):
+            expression = value.get("expr", value.get("expression"))
+            if expression is None:
+                # An object we cannot read is not an object that matches: report
+                # drift so an unrecognised shape surfaces instead of passing.
+                return False
+            value = expression
+        if field in {"command_argv", "command_env"}:
+            return list(value or []) == list(desired)
+        return str(value) == str(desired)
+
     comparison: dict[str, dict[str, Any]] = {}
     for field in DRIFT_FIELDS:
         value, found = _installed_value(installed, field)
         desired = spec[field]
         if not found:
             state = "unknown"
-        elif field in {"command_argv", "command_env"}:
-            state = "match" if list(value or []) == list(desired) else "drift"
         else:
-            state = "match" if str(value) == str(desired) else "drift"
+            state = "match" if equivalent(field, value, desired) else "drift"
         comparison[field] = {"desired": desired, "installed": value, "state": state}
     return comparison
 
