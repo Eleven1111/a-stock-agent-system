@@ -35,6 +35,10 @@ def test_easy_tdx_rows_are_normalized_from_shares_to_lots_and_windowed():
 
 
 def test_easy_tdx_0x123d_response_parser_exposes_share_units():
+    # Asserts the private package's own wire format, so it can only run where that
+    # package is installed. Skipped loudly elsewhere rather than deleted: the
+    # deployment machine has it and still runs this for real.
+    pytest.importorskip("easy_tdx", reason="private package, absent outside the deployment host")
     from easy_tdx.mac.commands.symbol_auction import SymbolAuctionCmd
 
     header = struct.pack("<H22sI", 1, b"600519", 1) + bytes(8)
@@ -227,6 +231,7 @@ def test_batch_rejects_invalid_supplied_previous_day_volume(monkeypatch):
 
 
 def test_easy_tdx_daily_kline_provides_previous_day_metrics_and_is_cached(tmp_path, monkeypatch):
+    pytest.importorskip("easy_tdx", reason="private package, absent outside the deployment host")
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
 
     class FakeFrame:
