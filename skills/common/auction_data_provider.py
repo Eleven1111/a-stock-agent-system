@@ -22,7 +22,6 @@ from typing import Any, Callable, Iterable, Mapping
 
 from market_adapters import fetch_tencent_kline
 from a_stock_http import fetch_sina_snapshot, fetch_tencent_snapshot, tencent_symbol
-from http_client import DataSourceError
 from mootdx_adapter import fetch_mootdx_bars
 import local_market_history
 
@@ -183,6 +182,28 @@ def _book_fields(
     }
 
 
+def _fetch_book_batch(
+    fetch: Callable[[list[str]], Mapping[str, Any]],
+    symbols: list[str],
+    label: str,
+    errors: list[str],
+) -> Mapping[str, Any]:
+    """Fetch one provider's books, degrading to empty instead of raising.
+
+    The catch stays deliberately broad: this module promises that a book failure
+    degrades on its own without interrupting the auction chain, and a parse error
+    inside a provider adapter is exactly as fatal to that promise as a transport
+    error.  ``DataSourceError`` needs no separate branch -- it is an ``Exception``
+    and the handling is identical.
+    """
+
+    try:
+        return fetch(symbols)
+    except Exception as exc:
+        errors.append(f"{label}五档不可用: {type(exc).__name__}: {exc}")
+        return {}
+
+
 def _fetch_order_books(
     codes: Iterable[str],
     *,
@@ -203,14 +224,7 @@ def _fetch_order_books(
             continue
         symbols = [tencent_symbol(code) for code in batch]
         errors: list[str] = []
-        try:
-            primary = fetch_tencent_snapshot(symbols)
-        except DataSourceError as exc:
-            primary = {}
-            errors.append(f"腾讯五档不可用: {type(exc).__name__}: {exc}")
-        except Exception as exc:
-            primary = {}
-            errors.append(f"腾讯五档不可用: {type(exc).__name__}: {exc}")
+        primary = _fetch_book_batch(fetch_tencent_snapshot, symbols, "腾讯", errors)
         primary_by_code = {
             _bare_code(raw_code): snapshot
             for raw_code, snapshot in primary.items()
@@ -219,14 +233,12 @@ def _fetch_order_books(
         missing = [code for code in batch if not _has_valid_book(primary_by_code.get(code) or {})]
         fallback_by_code: dict[str, Mapping[str, Any]] = {}
         if missing:
-            try:
-                fallback = fetch_sina_snapshot([tencent_symbol(code) for code in missing])
-            except DataSourceError as exc:
-                fallback = {}
-                errors.append(f"新浪五档不可用: {type(exc).__name__}: {exc}")
-            except Exception as exc:
-                fallback = {}
-                errors.append(f"新浪五档不可用: {type(exc).__name__}: {exc}")
+            fallback = _fetch_book_batch(
+                fetch_sina_snapshot,
+                [tencent_symbol(code) for code in missing],
+                "新浪",
+                errors,
+            )
             fallback_by_code = {
                 _bare_code(raw_code): snapshot
                 for raw_code, snapshot in fallback.items()

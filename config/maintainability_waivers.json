@@ -1347,6 +1347,11 @@
       "violation_id": "e4c72bdfbfb1792139d4"
     },
     {
+      "expires_on": "2026-12-31",
+      "reason": "deliberate broad catch in _fetch_book_batch: auction_data_provider promises a book failure degrades on its own without interrupting the auction chain, so a parse error inside a provider adapter must be caught exactly like a transport error. Not new debt -- it replaces four duplicated handlers (two of them dead DataSourceError branches) with one, and the total broad_exception count returns to the 160 baseline.",
+      "violation_id": "e517adaf57b3dc8e1f19"
+    },
+    {
       "expires_on": "2026-10-31",
       "reason": "industry_map._fetch_with_retry: generic retry wrapper over a caller-injected fetcher, so its exception types cannot be enumerated here; a failing unit is recorded in failed_units instead of propagating",
       "violation_id": "e777880ed77f60251ad4"

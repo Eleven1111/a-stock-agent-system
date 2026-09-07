@@ -8,6 +8,7 @@ import struct
 import auction_data_provider as provider
 import pytest
 from a_stock_http import parse_sina_snapshot_line, parse_tencent_orderbook_line
+from http_client import DataSourceError
 
 
 @pytest.fixture(autouse=True)
@@ -429,7 +430,7 @@ def test_tencent_data_source_error_degrades_book_only(monkeypatch):
         provider,
         "fetch_tencent_snapshot",
         lambda codes: (_ for _ in ()).throw(
-            provider.DataSourceError("tencent", "quote down")
+            DataSourceError("tencent", "quote down")
         ),
     )
 
