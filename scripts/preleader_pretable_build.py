@@ -143,6 +143,22 @@ def _degraded(as_of: str, gaps: list[str], **extra: Any) -> dict[str, Any]:
     }
 
 
+def _stale_input(target: str, source_asof: str) -> dict[str, Any]:
+    return {
+        "schema": SCHEMA,
+        "as_of": target,
+        "status": "blocked",
+        "reason_code": "stale-input",
+        "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
+        "evidence_gaps": ["input_asof_mismatch"],
+        "expected_asof": target,
+        "input_asof": source_asof or None,
+        "pretable": None,
+        "research_only": True,
+        "execution_eligible": False,
+    }
+
+
 def build(
     input_path: str, *, as_of: str | None = None,
     max_scan_codes: int = DEFAULT_MAX_SCAN_CODES,
@@ -152,7 +168,7 @@ def build(
         payload = json.load(handle)
     source_asof = str((payload or {}).get("asof") or "")[:10] if isinstance(payload, Mapping) else ""
     if source_asof != target:
-        raise ValueError(f"input asof mismatch: expected {target}, got {source_asof or 'missing'}")
+        return _stale_input(target, source_asof)
 
     rows = _candidates(payload)
     leaders = [
@@ -218,6 +234,10 @@ def build(
 
 def run(input_path: str, *, as_of: str | None = None, **kwargs: Any) -> dict[str, Any]:
     result = build(input_path, as_of=as_of, **kwargs)
+    if result["status"] == "blocked":
+        # The runner artifact is the audit record. A rejected source must not
+        # create a dated pretable that could later be mistaken for D-1 data.
+        return result
     path = preleader_pretable_store.output_path(result["as_of"])
     existing = read_json(path, None)
     if isinstance(existing, Mapping) and existing.get("status") == "ok" and result["status"] != "ok":
@@ -227,7 +247,7 @@ def run(input_path: str, *, as_of: str | None = None, **kwargs: Any) -> dict[str
     return result
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="S4 先于龙头套利 D-1 盘前表构建器")
     parser.add_argument("--input", default=data_file("stock-triage", "candidate_pool_latest.json"))
     parser.add_argument("--asof", default=None)
@@ -240,7 +260,8 @@ def main() -> None:
     else:
         entries = len(((result.get("pretable") or {}).get("entries")) or [])
         print(f"preleader-pretable {result['as_of']}: {result['status']}, {entries} entries")
+    return 75 if result["status"] == "blocked" else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -789,7 +789,10 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
             assert jobs[job_id]["context_from"] == ["sector-crowding-daily"]
         else:
             assert jobs[job_id]["context_from"] == []
-        assert _run_command(jobs[job_id]).endswith(f"--stage {stage}")
+        expected_suffix = f"--stage {stage}"
+        if job_id == "open-intelligence-brief":
+            expected_suffix += " --json"
+        assert _run_command(jobs[job_id]).endswith(expected_suffix)
     auction_brief = jobs["auction-intelligence-brief"]
     assert auction_brief["schedule"] == "27 9 * * 1-5"
     assert auction_brief["deliver"] == "origin"

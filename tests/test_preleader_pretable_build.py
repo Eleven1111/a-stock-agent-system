@@ -1,8 +1,7 @@
 """S4 盘前表构建器的证据纪律：缺证据必须显式退化，不许洗成"干净"。"""
 
 import json
-
-import pytest
+from pathlib import Path
 
 from scripts import preleader_pretable_build as builder
 from skills.common import preleader_pretable_store as store
@@ -24,10 +23,32 @@ def _pool(tmp_path, *, asof="2026-08-07", rows=None):
     return str(path)
 
 
-def test_input_asof_mismatch_fails_closed(tmp_path, monkeypatch):
+def test_input_asof_mismatch_is_auditable_block_and_writes_no_dated_pretable(
+    tmp_path, monkeypatch, capsys
+):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path / "state"))
-    with pytest.raises(ValueError, match="asof mismatch"):
-        builder.build(_pool(tmp_path, asof="2026-08-06"), as_of="2026-08-07")
+    input_path = _pool(tmp_path, asof="2026-08-06")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "preleader_pretable_build.py",
+            "--input",
+            input_path,
+            "--asof",
+            "2026-08-07",
+            "--json",
+        ],
+    )
+
+    assert builder.main() == 75
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "blocked"
+    assert result["reason_code"] == "stale-input"
+    assert result["expected_asof"] == "2026-08-07"
+    assert result["input_asof"] == "2026-08-06"
+    assert result["pretable"] is None
+    assert not Path(store.output_path("2026-08-07")).exists()
+    assert not Path(store.output_path("2026-08-06")).exists()
 
 
 def test_missing_liquidity_source_degrades_instead_of_excluding_everyone(tmp_path, monkeypatch):

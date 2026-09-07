@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -439,15 +440,38 @@ def main() -> int:
     parser.add_argument("--stage", choices=sorted(STAGE_PATHS), required=True)
     parser.add_argument("--asof", default=date.today().isoformat())
     parser.add_argument("--max-chars", type=int, default=2400)
+    parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     result = load_stage(args.stage, asof=args.asof)
     if result:
-        print(format_brief(args.stage, result, max_chars=args.max_chars))
+        message = format_brief(args.stage, result, max_chars=args.max_chars)
+        if args.json:
+            print(json.dumps({
+                "schema": "market_intelligence_brief_v1",
+                "status": "degraded" if result.get("status") == "degraded" else "ready",
+                "stage": args.stage,
+                "asof": args.asof,
+                "message": message,
+            }, ensure_ascii=False))
+        else:
+            print(message)
     else:
-        print(
+        message = (
             f"⚠️ {STAGE_LABELS[args.stage]}未生成 | {args.asof} | "
-            "上游快照缺失或过期，请检查对应采集任务。"
+            "上游快照缺失或过期，摘要未生成；请检查对应采集任务。"
         )
+        if args.json:
+            print(json.dumps({
+                "schema": "market_intelligence_brief_v1",
+                "status": "blocked",
+                "reason_code": "stale-input",
+                "stage": args.stage,
+                "asof": args.asof,
+                "message": message,
+            }, ensure_ascii=False))
+        else:
+            print(message)
+        return 75 if args.stage == "open" else 0
     return 0
 
 

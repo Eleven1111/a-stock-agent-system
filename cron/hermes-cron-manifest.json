@@ -1529,7 +1529,8 @@
           "python",
           "scripts/market_intelligence_brief.py",
           "--stage",
-          "open"
+          "open",
+          "--json"
         ],
         "cwd": ".",
         "timeout_seconds": 15,
