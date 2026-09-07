@@ -173,6 +173,28 @@ def test_render_origin_text_uses_paper_trading_close_summary_message():
     assert "{\"schema\"" not in rendered
 
 
+def test_render_origin_text_uses_open_brief_message_from_status_envelope():
+    message = "上游快照缺失或过期，摘要未生成"
+    rendered = feishu_push.render_origin_text(
+        {
+            "job_id": "open-intelligence-brief",
+            "stdout": json.dumps({
+                "schema": "market_intelligence_brief_v1",
+                "status": "blocked",
+                "message": message,
+            }),
+            "summary": {
+                "schema": "market_intelligence_brief_v1",
+                "status": "blocked",
+                "message": message,
+            },
+        },
+        2400,
+    )
+
+    assert rendered == message
+
+
 def test_reports_failure_without_raising(monkeypatch):
     monkeypatch.setenv(feishu_push.CHAT_ID_ENV, "oc_test123")
 

@@ -1,5 +1,7 @@
 """User-facing morning intelligence brief formatting."""
 
+import json
+
 from scripts import market_intelligence_brief as brief
 
 
@@ -496,3 +498,34 @@ def test_main_reports_missing_or_stale_stage_instead_of_printing_nothing(
     output = capsys.readouterr().out
     assert "集合竞价简报未生成" in output
     assert "上游快照缺失或过期" in output
+
+
+def test_open_main_json_maps_missing_snapshot_to_blocked(monkeypatch, capsys):
+    monkeypatch.setattr(brief, "load_stage", lambda stage, asof: {})
+    monkeypatch.setattr(
+        "sys.argv",
+        ["market_intelligence_brief.py", "--stage", "open", "--asof", "2026-06-23", "--json"],
+    )
+
+    assert brief.main() == 75
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "blocked"
+    assert payload["reason_code"] == "stale-input"
+    assert "上游快照缺失或过期" in payload["message"]
+
+
+def test_open_main_json_preserves_degraded_business_status(monkeypatch, capsys):
+    monkeypatch.setattr(
+        brief,
+        "load_stage",
+        lambda stage, asof: {"status": "degraded", "asof": asof},
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        ["market_intelligence_brief.py", "--stage", "open", "--asof", "2026-06-23", "--json"],
+    )
+
+    assert brief.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "degraded"
+    assert "数据降级" in payload["message"]

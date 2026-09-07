@@ -133,7 +133,7 @@ _HOT_MONEY_CHECKPOINT_LABELS = {
     "hot-money-afternoon-checkpoint": "13:15主线龙头回流确认",
 }
 
-_ORIGIN_SUMMARY_JOBS = {"paper-trading-close"}
+_ORIGIN_SUMMARY_JOBS = {"open-intelligence-brief", "paper-trading-close"}
 
 
 def _render_hot_money_checkpoint(
