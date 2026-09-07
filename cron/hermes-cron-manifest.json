@@ -76,7 +76,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 4000,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
@@ -309,7 +309,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 2400,
       "context_from": ["sector-crowding-daily"],
       "dependency_policy": {
@@ -813,7 +813,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 2000,
       "context_from": [
         "auction-finalize",
@@ -948,7 +948,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 600,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
@@ -1459,7 +1459,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 2500,
       "context_from": [
         "paper-trading-monitor"
@@ -1510,7 +1510,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 2400,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
@@ -1549,7 +1549,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 2200,
       "context_from": [
         "auction-finalize",
@@ -1603,7 +1603,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 2200,
       "context_from": [
         "open-confirmation"
@@ -1653,7 +1653,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 2500,
       "context_from": [
         "open-confirmation"
@@ -1703,7 +1703,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 5000,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
@@ -1839,7 +1839,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 4000,
       "context_from": [
         "candidate-discovery",
@@ -1889,7 +1889,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 3000,
       "context_from": [],
       "dependency_policy": {
@@ -1931,7 +1931,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 3500,
       "context_from": [
         "portfolio-check",
@@ -2461,7 +2461,7 @@
       "silent_when_no_signal": false,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 6000,
       "context_from": [
         "closing-triage",
@@ -2554,7 +2554,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 1000,
       "context_from": [],
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
@@ -2942,7 +2942,7 @@
       "silent_when_no_signal": true,
       "execution_mode": "isolated_subprocess",
       "context_scope": "cron",
-      "deliver": "local",
+      "deliver": "origin",
       "max_output_chars": 2000,
       "context_from": [
         "candidate-discovery"
