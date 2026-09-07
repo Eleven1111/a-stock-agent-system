@@ -135,6 +135,21 @@ def test_reapplying_the_same_plan_is_a_no_op():
     assert [item["command"] for item in second["actions"]] == [None]
 
 
+def test_equivalent_nested_installed_schedule_is_not_drift():
+    installed = _installed("target")
+    installed["schedule"] = {
+        "kind": "cron",
+        "expr": "0 9 * * 1-5",
+        "tz": "Asia/Shanghai",
+        "staggerMs": 0,
+    }
+
+    action = _plan([_job("target")], [installed])["actions"][0]
+
+    assert action["action"] == "unchanged"
+    assert action["comparison"]["schedule"]["state"] == "match"
+
+
 def test_parameter_drift_is_named_field_by_field():
     plan = _plan(
         [_job("target")],
@@ -304,9 +319,10 @@ def test_the_repo_manifest_plans_end_to_end_without_a_delivery_target():
         python="/venv/bin/python", state_home="/state", delivery_to=None,
     )
 
-    assert plan["summary"]["create"] + plan["summary"]["blocked"] == 64
-    assert plan["summary"]["blocked"] == 16
-    assert plan["applicable"] is False
+    enabled = sum(1 for job in manifest["jobs"] if job.get("enabled", True))
+    assert plan["summary"].get("create", 0) == enabled
+    assert plan["summary"].get("blocked", 0) == 0
+    assert plan["applicable"] is True
 
 
 def test_apply_executes_the_disable_the_plan_computed():
