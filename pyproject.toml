@@ -15,8 +15,12 @@ dependencies = [
     "numpy>=1.24.0",
     "pyyaml>=6.0",
     "pypdf>=3.0",   # 公告正文抽取（announcement-radar 第四步深读）——曾是 extra，生产环境缺失导致静默降级
-    "easy-tdx>=1.20.6",  # MAC 0x123D 集合竞价（09:15-09:25）
 ]
+# easy-tdx（MAC 0x123D 集合竞价，09:15-09:25）刻意不在主依赖里：它是私有包，
+# 不在任何 CI 能访问的索引上，留在主依赖会让 `pip install` 在部署机之外一律失败。
+# 这不会造成 pypdf 那种静默降级——`scripts/preopen_preflight.py` 缺它时直接返回
+# status=red / "easy_tdx 未安装：竞价链没有真源，只能整体降级"，是响的。
+# 它仍在 auction / deephistory 两个 extra 里；包重新可获取时应搬回主依赖。
 
 [project.optional-dependencies]
 charts = ["matplotlib>=3.7"]
