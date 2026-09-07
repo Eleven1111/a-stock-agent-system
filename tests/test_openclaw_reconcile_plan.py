@@ -135,19 +135,52 @@ def test_reapplying_the_same_plan_is_a_no_op():
     assert [item["command"] for item in second["actions"]] == [None]
 
 
-def test_equivalent_nested_installed_schedule_is_not_drift():
+def _installed_with_nested_schedule(schedule: dict) -> dict:
+    """An installed record shaped like the host's: schedule nested, no ``cron``.
+
+    ``cron`` is first in the alias list, so leaving it in place means the nested
+    branch never executes and the test passes for the wrong reason.
+    """
     installed = _installed("target")
-    installed["schedule"] = {
+    del installed["cron"]
+    installed["schedule"] = schedule
+    return installed
+
+
+def test_equivalent_nested_installed_schedule_is_not_drift():
+    installed = _installed_with_nested_schedule({
         "kind": "cron",
         "expr": "0 9 * * 1-5",
         "tz": "Asia/Shanghai",
         "staggerMs": 0,
-    }
+    })
 
     action = _plan([_job("target")], [installed])["actions"][0]
 
     assert action["action"] == "unchanged"
     assert action["comparison"]["schedule"]["state"] == "match"
+
+
+def test_a_nested_schedule_that_really_differs_is_still_drift():
+    # Without this, "always match" and "read the wrong key" both pass, and a real
+    # schedule drift on the host becomes invisible -- which is what the plan is for.
+    installed = _installed_with_nested_schedule({
+        "kind": "cron", "expr": "30 14 * * 1-5", "tz": "Asia/Shanghai", "staggerMs": 0,
+    })
+
+    action = _plan([_job("target")], [installed])["actions"][0]
+
+    assert action["action"] == "update"
+    assert action["comparison"]["schedule"]["state"] == "drift"
+    assert action["drifted_fields"] == ["schedule"]
+
+
+def test_a_nested_schedule_without_a_recognisable_expression_fails_closed():
+    installed = _installed_with_nested_schedule({"kind": "cron", "staggerMs": 0})
+
+    action = _plan([_job("target")], [installed])["actions"][0]
+
+    assert action["comparison"]["schedule"]["state"] == "drift"
 
 
 def test_parameter_drift_is_named_field_by_field():
@@ -320,9 +353,16 @@ def test_the_repo_manifest_plans_end_to_end_without_a_delivery_target():
     )
 
     enabled = sum(1 for job in manifest["jobs"] if job.get("enabled", True))
-    assert plan["summary"].get("create", 0) == enabled
-    assert plan["summary"].get("blocked", 0) == 0
-    assert plan["applicable"] is True
+    origin = sum(
+        1 for job in manifest["jobs"]
+        if job.get("enabled", True) and job.get("deliver") == "origin"
+    )
+    # The origin jobs are the one push surface per window and stay origin on
+    # purpose, so a machine with no recipient configured cannot describe them.
+    assert origin == 16
+    assert plan["summary"]["create"] + plan["summary"]["blocked"] == enabled
+    assert plan["summary"]["blocked"] == origin
+    assert plan["applicable"] is False
 
 
 def test_apply_executes_the_disable_the_plan_computed():

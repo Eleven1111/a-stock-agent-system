@@ -423,7 +423,12 @@ def compare_installed_job(
         # the manifest deliberately stores the cron expression as a string.
         # Compare the semantic expression, not Python's container rendering.
         if field == "schedule" and isinstance(value, Mapping):
-            value = value.get("expr", value.get("expression", value))
+            expression = value.get("expr", value.get("expression"))
+            if expression is None:
+                # An object we cannot read is not an object that matches: report
+                # drift so an unrecognised shape surfaces instead of passing.
+                return False
+            value = expression
         if field in {"command_argv", "command_env"}:
             return list(value or []) == list(desired)
         return str(value) == str(desired)
