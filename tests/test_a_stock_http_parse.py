@@ -125,7 +125,7 @@ def test_snapshot_uses_https_and_is_directionally_eligible(monkeypatch):
     assert quote["directional_eligible"] is True
 
 
-def _build_sina_line(code="sh600519"):
+def _build_sina_line(code="sh600519", levels=5):
     parts = [""] * 33
     parts[0:10] = [
         "贵州茅台", "1297.99", "1297.40", "1296.08", "1305.00",
@@ -133,10 +133,10 @@ def _build_sina_line(code="sh600519"):
     ]
     bids = [(1295.90, 500), (1295.83, 100), (1295.80, 100), (1295.57, 2100), (1295.56, 100)]
     asks = [(1296.09, 200), (1296.17, 100), (1296.19, 200), (1296.25, 200), (1296.28, 100)]
-    for index, (price, volume) in enumerate(bids):
+    for index, (price, volume) in enumerate(bids[:levels]):
         parts[10 + index * 2] = str(volume)
         parts[11 + index * 2] = str(price)
-    for index, (price, volume) in enumerate(asks):
+    for index, (price, volume) in enumerate(asks[:levels]):
         parts[20 + index * 2] = str(volume)
         parts[21 + index * 2] = str(price)
     parts[30] = "2026-08-31"
@@ -148,15 +148,20 @@ def test_parse_sina_snapshot_exposes_five_levels():
     parsed = parse_sina_snapshot_line(_build_sina_line())
 
     assert parsed["code"] == "sh600519"
-    # 新浪五档量为「股」，已除以 100 归一化为「手」（与腾讯一致）。
-    assert round(parsed["bids"][0][0], 4) == 12.959
-    assert parsed["bids"][0][1] == 500.0
-    assert round(parsed["bids"][4][0], 4) == 12.9556
-    assert parsed["bids"][4][1] == 100.0
-    assert round(parsed["asks"][0][0], 4) == 12.9609
-    assert parsed["asks"][0][1] == 200.0
-    assert round(parsed["asks"][4][0], 4) == 12.9628
-    assert parsed["asks"][4][1] == 100.0
+    # 新浪五档量为「股」，解析边界归一化为「手」；价格保持原值。
+    assert parsed["bids"][0] == (1295.90, 5.0)
+    assert parsed["bids"][4] == (1295.56, 1.0)
+    assert parsed["asks"][0] == (1296.09, 2.0)
+    assert parsed["asks"][4] == (1296.28, 1.0)
+
+
+def test_parse_sina_snapshot_missing_levels_are_none_pairs():
+    parsed = parse_sina_snapshot_line(_build_sina_line(levels=3))
+
+    assert parsed["bids"][2] == (1295.80, 1.0)
+    assert parsed["bids"][3:] == [(None, None), (None, None)]
+    assert parsed["asks"][2] == (1296.19, 2.0)
+    assert parsed["asks"][3:] == [(None, None), (None, None)]
 
 
 def test_sina_snapshot_uses_referer_and_authenticated_https(monkeypatch):

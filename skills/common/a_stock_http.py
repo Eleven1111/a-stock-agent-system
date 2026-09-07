@@ -283,8 +283,16 @@ def parse_sina_snapshot_line(line: str) -> Optional[Dict[str, Any]]:
     parts = data.strip().rstrip(";").strip().strip('"').split(",")
     if len(parts) < 32 or not code:
         return None
-    bids = [(_f(parts, 11 + 2 * i) / 100.0, _f(parts, 10 + 2 * i)) for i in range(5)]
-    asks = [(_f(parts, 21 + 2 * i) / 100.0, _f(parts, 20 + 2 * i)) for i in range(5)]
+
+    def _level(volume_index: int, price_index: int) -> tuple[Optional[float], Optional[float]]:
+        price = _f(parts, price_index)
+        shares = _f(parts, volume_index)
+        if price is None or shares is None:
+            return (None, None)
+        return (price, shares / 100.0)
+
+    bids = [_level(10 + 2 * i, 11 + 2 * i) for i in range(5)]
+    asks = [_level(20 + 2 * i, 21 + 2 * i) for i in range(5)]
     return {
         "code": code,
         "name": parts[0] or None,

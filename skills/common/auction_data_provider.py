@@ -146,6 +146,7 @@ def _book_fields(
     reason: str | None = None,
     *,
     provider: str = "tencent+sina",
+    observation_kind: str = "unavailable",
 ) -> dict[str, Any]:
     if snapshot is not None and _has_valid_book(snapshot):
         selected_provider = str(snapshot.get("provider") or provider)
@@ -175,7 +176,7 @@ def _book_fields(
         "book_failure_reason": reason or "腾讯与新浪均缺少有效五档盘口",
         "book_provenance": {"provider_chain": ["tencent", "sina"]},
         "book_observation_provenance": {
-            "observation_kind": "unattempted",
+            "observation_kind": observation_kind,
             "provider": provider,
         },
         "book_is_imputed": None,
@@ -195,7 +196,10 @@ def _fetch_order_books(
         batch = normalized[offset:offset + ORDER_BOOK_BATCH_SIZE]
         if budget_exhausted is not None and budget_exhausted():
             reason = _budget_reason(deadline_seconds)
-            books.update({code: _book_fields(None, reason) for code in batch})
+            books.update({
+                code: _book_fields(None, reason, observation_kind="unattempted")
+                for code in batch
+            })
             continue
         symbols = [tencent_symbol(code) for code in batch]
         errors: list[str] = []
