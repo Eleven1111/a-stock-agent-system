@@ -483,6 +483,40 @@ def test_dag_still_blocks_when_the_upstream_failure_is_not_accepted(
     assert result["runs"][0]["reason"] == "upstream_failed"
 
 
+def test_dag_short_circuit_uses_dependency_specific_status_acceptance():
+    jobs = {
+        "candidate-discovery": _job(
+            "candidate-discovery",
+            "true",
+            ["capital-flow", "hot-money-context"],
+            policy={
+                "accepted_statuses_by_job": {
+                    "capital-flow": ["ok", "partial"],
+                },
+            },
+        ),
+    }
+
+    assert run_agent_dag.consumers_tolerating(
+        "capital-flow",
+        "partial",
+        jobs=jobs,
+        batch_jobs=["candidate-discovery"],
+    ) == ["candidate-discovery"]
+    assert run_agent_dag.consumers_tolerating(
+        "hot-money-context",
+        "partial",
+        jobs=jobs,
+        batch_jobs=["candidate-discovery"],
+    ) == []
+    assert run_agent_dag.consumers_tolerating(
+        "capital-flow",
+        "degraded",
+        jobs=jobs,
+        batch_jobs=["candidate-discovery"],
+    ) == []
+
+
 @pytest.mark.parametrize("business_status", [
     "ready",
     "ok",

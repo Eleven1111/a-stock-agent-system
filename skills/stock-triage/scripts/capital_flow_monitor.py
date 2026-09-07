@@ -11,9 +11,10 @@ Usage:
 """
 
 import json
+import math
 import sys
 import os
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, Any, Optional
 
 import skills.common  # noqa: F401,E402  -- puts skills/common on sys.path
@@ -117,6 +118,39 @@ def resolve_sector_code(name: str) -> str | None:
 
 def _market(code: str) -> str:
     return "sh" if code.startswith("6") else "sz"
+
+
+def _expected_trading_date() -> str:
+    """Resolve the run-scoped market date; an invalid override fails closed."""
+    value = os.environ.get("HERMES_TRADING_DATE") or date.today().isoformat()
+    try:
+        return date.fromisoformat(str(value)).isoformat()
+    except (TypeError, ValueError):
+        return "invalid"
+
+
+def _exact_flow_quality(flow: Any, expected_date: str) -> tuple[str, str | None]:
+    """Validate a candidate-relevant exact flow observation and its market date."""
+    if not isinstance(flow, dict) or not flow:
+        return "unavailable", None
+    value = flow.get("main_net_yi")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+    ):
+        return "invalid", "main_net_yi_invalid"
+    asof = str(flow.get("date") or flow.get("asof") or "")[:10]
+    try:
+        parsed_asof = date.fromisoformat(asof)
+        parsed_expected = date.fromisoformat(expected_date)
+    except ValueError:
+        return "invalid", "asof_invalid"
+    if parsed_asof < parsed_expected:
+        return "stale", f"asof_{asof}"
+    if parsed_asof > parsed_expected:
+        return "future", f"asof_{asof}"
+    return "ok", None
 
 
 # 个股资金流每只需一次东财往返（本机实测 1.3~3.5s，生产机曾记录 ~10s）。
@@ -566,6 +600,8 @@ def collect_flow_data(
         sectors, unmapped_sectors = load_runtime_sectors()
     else:
         unmapped_sectors = []
+    expected_trading_date = _expected_trading_date()
+    candidate_core_requested = len(stocks) + len(sectors)
     result = {
         "schema": "capital_flow_v2",
         "status": "ok",
@@ -585,9 +621,24 @@ def collect_flow_data(
             "sector_main_flow": [],
         },
         "directional_ready": False,
+        "candidate_core_ready": False,
+        "candidate_core_requested": candidate_core_requested,
+        "candidate_core_available": 0,
+        "northbound_status": "unknown",
+        "quality_reasons": [],
+        "quality": {
+            "expected_trading_date": expected_trading_date,
+            "northbound": {"status": "unknown"},
+            "candidate_core": {
+                "status": "insufficient_data",
+                "requested": candidate_core_requested,
+                "available": 0,
+            },
+        },
     }
-    exact_requested = 1 + len(stocks) + len(sectors)
+    exact_requested = 1 + candidate_core_requested
     exact_available = 0
+    candidate_core_available = 0
     degraded = False
     # Proxy quotes are intentionally fetched once.  The exact fund-flow
     # adapters below remain unchanged and retain their own bounded timeouts.
@@ -606,6 +657,12 @@ def collect_flow_data(
         )
     else:
         degraded = True
+        result["northbound_status"] = "structurally_unavailable"
+        result["quality"]["northbound"] = {
+            "status": "structurally_unavailable",
+            "reason": "northbound_daily_net_retired_since_2024",
+        }
+        result["quality_reasons"].append("northbound_daily_net_retired_since_2024")
         result["source_health"]["northbound"]["attempts"].append(health_attempt(
             observation_error(
                 "market_adapters",
@@ -623,6 +680,8 @@ def collect_flow_data(
         selected = str(nb_observation["provider"])
         result["source_health"]["northbound"]["selected_provider"] = selected
         result["northbound"] = {**nb_observation["data"], "provider": selected}
+        result["northbound_status"] = "ok"
+        result["quality"]["northbound"] = {"status": "ok", "provider": selected}
         exact_available += 1
         net = result["northbound"]["net_flow_yi"]
         if net > 50:
@@ -659,15 +718,25 @@ def collect_flow_data(
             },
         }
 
-        if ff_observation.get("status") == "ok":
-            exact_flow = dict(ff_observation["data"])
+        observed_flow = (
+            dict(ff_observation["data"])
+            if ff_observation.get("status") == "ok"
+            else {}
+        )
+        flow_quality, flow_reason = _exact_flow_quality(
+            exact_stock_flow, expected_trading_date
+        )
+        if ff_observation.get("status") == "ok" and flow_quality == "ok":
+            exact_flow = observed_flow
             stock_flow.update({
                 "main_net_yi": exact_flow.get("main_net_yi"),
                 "retail_net_yi": exact_flow.get("retail_net_yi"),
             })
             stock_flow["main_flow_status"] = "ok"
             stock_flow["main_flow_provider"] = exact_flow.get("provider")
+            stock_flow["main_flow_asof"] = exact_flow.get("date") or exact_flow.get("asof")
             exact_available += 1
+            candidate_core_available += 1
             main = stock_flow.get("main_net_yi")
             if main is not None and main > 1:
                 stock_flow["signal"] = "主力流入"
@@ -675,16 +744,22 @@ def collect_flow_data(
                 stock_flow["signal"] = "主力流出"
         else:
             exact_flow = {}
+            stock_flow["main_flow_status"] = flow_quality
+            result["quality_reasons"].append(
+                f"stock:{code}:{flow_quality}:{flow_reason or 'observation_unavailable'}"
+            )
         stock_flow.update(_flow_proxies(
             qt_data,
-            exact_flow,
+            observed_flow,
             fallback_asof=result["timestamp"],
         ))
-        if ff_observation.get("status") != "ok":
+        if ff_observation.get("status") != "ok" or flow_quality != "ok":
             degraded = True
         result["source_health"]["stock_main_flow"].append({
             "code": code,
             **health_attempt(ff_observation),
+            "quality_status": flow_quality,
+            "asof": exact_stock_flow.get("date") or exact_stock_flow.get("asof"),
         })
 
         result["stocks"].append(stock_flow)
@@ -714,17 +789,17 @@ def collect_flow_data(
                 name: _proxy_observation() for name in _OBSERVABLE_PROXY_NAMES
             },
         }
-        if bk_observation.get("status") == "ok":
+        flow_quality, flow_reason = _exact_flow_quality(
+            exact_sector_flow, expected_trading_date
+        )
+        if bk_observation.get("status") == "ok" and flow_quality == "ok":
             exact_flow = dict(bk_observation["data"])
             sector["main_net_yi"] = exact_flow.get("main_net_yi")
             sector["main_flow_status"] = "ok"
             sector["main_flow_provider"] = exact_flow.get("provider")
-            sector["main_flow_asof"] = (
-                exact_flow.get("date")
-                or exact_flow.get("asof")
-                or result["timestamp"]
-            )
+            sector["main_flow_asof"] = exact_flow.get("date") or exact_flow.get("asof")
             exact_available += 1
+            candidate_core_available += 1
             if sector["main_net_yi"] is not None and sector["main_net_yi"] > 10:
                 result["alerts"].append({
                     "level": "🟢",
@@ -737,6 +812,10 @@ def collect_flow_data(
                 })
         else:
             exact_flow = {}
+            sector["main_flow_status"] = flow_quality
+            result["quality_reasons"].append(
+                f"sector:{bk_code}:{flow_quality}:{flow_reason or 'observation_unavailable'}"
+            )
         sector_flow = dict(exact_flow)
         if "industry_fund_flow" not in sector_flow and "main_net_yi" in sector_flow:
             sector_flow["industry_fund_flow"] = sector_flow.get("main_net_yi")
@@ -746,11 +825,13 @@ def collect_flow_data(
         # Industry fund flow is the only sector-level proxy available here;
         # do not copy it into a stock's actor-specific fields.
         sector.update(sector_proxies)
-        if bk_observation.get("status") != "ok":
+        if bk_observation.get("status") != "ok" or flow_quality != "ok":
             degraded = True
         result["source_health"]["sector_main_flow"].append({
             "code": bk_code,
             **health_attempt(bk_observation),
+            "quality_status": flow_quality,
+            "asof": exact_sector_flow.get("date") or exact_sector_flow.get("asof"),
         })
         result["sectors"].append(sector)
 
@@ -769,9 +850,31 @@ def collect_flow_data(
         momentum_result["momentum"], momentum_result["rotation"],
     ))
 
+    candidate_core_ready = (
+        candidate_core_requested > 0
+        and candidate_core_available == candidate_core_requested
+    )
+    result["candidate_core_available"] = candidate_core_available
+    result["candidate_core_ready"] = candidate_core_ready
+    result["quality"]["candidate_core"] = {
+        "status": (
+            "ready"
+            if candidate_core_ready
+            else "insufficient_data"
+            if candidate_core_available == 0
+            else "degraded"
+        ),
+        "requested": candidate_core_requested,
+        "available": candidate_core_available,
+    }
     result["directional_ready"] = exact_available == exact_requested
-    if exact_available == 0:
+    if candidate_core_available == 0 and not result["northbound"]:
         result["status"] = "insufficient_data"
+    elif (
+        candidate_core_ready
+        and result["northbound_status"] == "structurally_unavailable"
+    ):
+        result["status"] = "partial"
     elif degraded or exact_available < exact_requested:
         result["status"] = "degraded"
     return result
@@ -859,7 +962,7 @@ def format_report(data: Dict) -> str:
 
 def has_delivery_anomaly(data: Dict[str, Any]) -> bool:
     status = str(data.get("status") or "ready")
-    return status not in {"ready", "degraded"} or bool(data.get("alerts"))
+    return status not in {"ready", "degraded", "partial"} or bool(data.get("alerts"))
 
 
 def delivery_summary_payload(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -870,6 +973,11 @@ def delivery_summary_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         "schema": "delivery_summary_v1",
         "job_id": "capital-flow",
         "status": data.get("status") or "ready",
+        "northbound_status": data.get("northbound_status"),
+        "candidate_core_ready": bool(data.get("candidate_core_ready")),
+        "candidate_core_requested": int(data.get("candidate_core_requested") or 0),
+        "candidate_core_available": int(data.get("candidate_core_available") or 0),
+        "quality_reasons": list(data.get("quality_reasons") or []),
         "summary": (
             f"资金流 {str(data.get('timestamp') or '')[:10]}："
             f"北向{net_text}；跟踪股{len(data.get('stocks') or [])}；"
@@ -886,8 +994,12 @@ def cache_signal_context(data: Dict[str, Any]) -> None:
         from signal_context import update_signal_context
         partial: Dict[str, Any] = {}
         nb = (data.get("northbound") or {}).get("net_flow_yi")
-        if nb is not None:
-            partial["northbound_net_yi"] = nb
+        # F008: retired northbound data must clear any legacy mislabelled value
+        # instead of leaving it fresh-looking after another context writer runs.
+        partial["northbound_net_yi"] = nb if nb is not None else None
+        partial["northbound_status"] = data.get("northbound_status") or (
+            "ok" if nb is not None else "unavailable"
+        )
         sector_flows = {
             s["name"]: s.get("main_net_yi")
             for s in data.get("sectors", [])

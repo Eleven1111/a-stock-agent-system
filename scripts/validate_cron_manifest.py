@@ -281,6 +281,36 @@ def validate(filepath):
                 errors.append(f"job[{i}] ({jid}) dependency optional_jobs must be a string list")
             elif any(x not in job.get("context_from", []) for x in optional):
                 errors.append(f"job[{i}] ({jid}) dependency optional_jobs must exist in context_from")
+            accepted = dependency_policy.get("accepted_statuses")
+            if accepted is not None and (
+                not isinstance(accepted, list)
+                or not accepted
+                or not all(isinstance(x, str) and x for x in accepted)
+            ):
+                errors.append(
+                    f"job[{i}] ({jid}) dependency accepted_statuses must be a non-empty string list"
+                )
+            accepted_by_job = dependency_policy.get("accepted_statuses_by_job", {})
+            if not isinstance(accepted_by_job, dict):
+                errors.append(
+                    f"job[{i}] ({jid}) dependency accepted_statuses_by_job must be object"
+                )
+            else:
+                unknown_overrides = set(accepted_by_job) - set(job.get("context_from", []))
+                if unknown_overrides:
+                    errors.append(
+                        f"job[{i}] ({jid}) dependency accepted_statuses_by_job keys must exist in context_from"
+                    )
+                for dependency_id, statuses in accepted_by_job.items():
+                    if (
+                        not isinstance(statuses, list)
+                        or not statuses
+                        or not all(isinstance(x, str) and x for x in statuses)
+                    ):
+                        errors.append(
+                            f"job[{i}] ({jid}) dependency accepted statuses for {dependency_id} "
+                            "must be a non-empty string list"
+                        )
 
         if job.get("artifact_path_template") != ARTIFACT_TEMPLATE:
             errors.append(f"job[{i}] ({jid}) artifact_path_template must be {ARTIFACT_TEMPLATE}")

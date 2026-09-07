@@ -565,7 +565,13 @@
         "max_age_minutes": 180,
         "optional_jobs": [
           "social-attention-close"
-        ]
+        ],
+        "accepted_statuses_by_job": {
+          "capital-flow": [
+            "ok",
+            "partial"
+          ]
+        }
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [

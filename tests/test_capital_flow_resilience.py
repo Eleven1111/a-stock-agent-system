@@ -133,6 +133,100 @@ def test_provider_failures_are_not_reported_as_legitimate_empty(monkeypatch):
     assert result["source_health"]["northbound"]["attempts"][1]["status"] == "error"
 
 
+def test_retired_northbound_is_partial_only_with_fresh_candidate_core(monkeypatch):
+    module = _load()
+    monkeypatch.setenv("HERMES_TRADING_DATE", "2026-09-07")
+    monkeypatch.setattr(module, "fetch_northbound_flow", lambda: {})
+    monkeypatch.setattr(module, "fetch_sina_northbound_observation", lambda: _failed("sina"))
+    monkeypatch.setattr(module, "fetch_tencent_flows", lambda _stocks: {})
+    monkeypatch.setattr(
+        module,
+        "fetch_stock_fund_flow",
+        lambda *_args, **_kwargs: {
+            "date": "2026-09-07", "main_net_yi": -0.3, "provider": "test",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "fetch_sector_fund_flow",
+        lambda *_args, **_kwargs: {
+            "date": "2026-09-07", "main_net_yi": 2.5, "provider": "test",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "collect_sector_momentum",
+        lambda **_kwargs: {"status": "empty", "momentum": None, "rotation": None},
+    )
+
+    result = module.collect_flow_data(
+        stocks=[("600001", "sh", "demo")],
+        sectors=[("BK0001", "demo-sector")],
+    )
+
+    assert result["status"] == "partial"
+    assert result["northbound"] == {}
+    assert result["northbound_status"] == "structurally_unavailable"
+    assert result["candidate_core_ready"] is True
+    assert result["candidate_core_available"] == 2
+    assert result["directional_ready"] is False
+
+
+def test_stale_candidate_core_never_becomes_accepted_partial(monkeypatch):
+    module = _load()
+    monkeypatch.setenv("HERMES_TRADING_DATE", "2026-09-07")
+    monkeypatch.setattr(module, "fetch_northbound_flow", lambda: {})
+    monkeypatch.setattr(module, "fetch_sina_northbound_observation", lambda: _failed("sina"))
+    monkeypatch.setattr(module, "fetch_tencent_flows", lambda _stocks: {})
+    monkeypatch.setattr(
+        module,
+        "fetch_stock_fund_flow",
+        lambda *_args, **_kwargs: {
+            "date": "2026-09-07", "main_net_yi": -0.3, "provider": "test",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "fetch_sector_fund_flow",
+        lambda *_args, **_kwargs: {
+            "date": "2026-08-28", "main_net_yi": 2.5, "provider": "test",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "collect_sector_momentum",
+        lambda **_kwargs: {"status": "empty", "momentum": None, "rotation": None},
+    )
+
+    result = module.collect_flow_data(
+        stocks=[("600001", "sh", "demo")],
+        sectors=[("BK0001", "demo-sector")],
+    )
+
+    assert result["status"] == "degraded"
+    assert result["candidate_core_ready"] is False
+    assert result["sectors"][0]["main_flow_status"] == "stale"
+    assert "sector:BK0001:stale:asof_2026-08-28" in result["quality_reasons"]
+
+
+def test_retired_northbound_clears_legacy_cached_value(tmp_path, monkeypatch):
+    monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    signal_context.update_signal_context({"northbound_net_yi": 420.0})
+    module = _load()
+
+    module.cache_signal_context({
+        "timestamp": "2026-09-07T14:30:00",
+        "northbound": {},
+        "northbound_status": "structurally_unavailable",
+        "sectors": [],
+        "source_health": {},
+    })
+
+    context = signal_context.read_signal_context()
+    assert context["northbound_net_yi"] is None
+    assert context["northbound_status"] == "structurally_unavailable"
+
+
 def test_failed_sector_flow_cache_preserves_old_value_and_marks_stale(
     tmp_path,
     monkeypatch,
@@ -195,6 +289,7 @@ def test_successful_sector_flow_cache_records_source_asof_and_freshness(
     monkeypatch,
 ):
     monkeypatch.setenv("A_STOCK_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_TRADING_DATE", "2026-08-14")
     module = _load()
     monkeypatch.setattr(
         module,

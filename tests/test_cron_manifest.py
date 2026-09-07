@@ -558,6 +558,32 @@ def test_invalid_dependency_policy_rejected():
         os.unlink(path)
 
 
+def test_invalid_dependency_specific_status_policy_rejected():
+    invalid_policies = [
+        {"accepted_statuses_by_job": {"not-an-upstream": ["partial"]}},
+        {"accepted_statuses_by_job": {"upstream": []}},
+        {"accepted_statuses_by_job": {"upstream": "partial"}},
+    ]
+    for policy in invalid_policies:
+        j = dict(VALID_JOB)
+        j["context_from"] = ["upstream"]
+        j["dependency_policy"] = policy
+        upstream = dict(VALID_JOB)
+        upstream["id"] = "upstream"
+        upstream["name"] = "Upstream"
+        upstream["command_argv"] = [
+            "python", "scripts/run_agent_dag.py", "upstream", "--emit-target",
+        ]
+        manifest = {"jobs": [upstream, j]}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as handle:
+            json.dump(manifest, handle)
+            path = handle.name
+        try:
+            assert validate(path) is False
+        finally:
+            os.unlink(path)
+
+
 def test_unknown_dependency_rejected():
     j = dict(VALID_JOB)
     j["context_from"] = ["does-not-exist"]
@@ -655,6 +681,9 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
     assert jobs["candidate-discovery"]["dependency_policy"]["optional_jobs"] == [
         "social-attention-close",
     ]
+    assert jobs["candidate-discovery"]["dependency_policy"][
+        "accepted_statuses_by_job"
+    ] == {"capital-flow": ["ok", "partial"]}
     assert jobs["candidate-preopen"]["schedule"] == "30 8 * * 1-5"
     assert _run_command(jobs["candidate-preopen"]).endswith(
         "candidate_discovery.py --bootstrap-if-missing --no-settle --json"
