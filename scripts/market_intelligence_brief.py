@@ -465,15 +465,19 @@ def main() -> int:
             f"⚠️ {STAGE_LABELS[args.stage]}未生成：上游快照缺失或过期，"
             "请检查对应采集任务。"
         )
-        if args.json:
-            print(json.dumps({
-                "schema": "market_intelligence_brief_v1",
-                "status": "blocked",
-                "reason_code": "stale-input",
-                "stage": args.stage,
-                "asof": args.asof,
-                "message": message,
-            }, ensure_ascii=False))
+        blocked_payload = {
+            "schema": "market_intelligence_brief_v1",
+            "status": "blocked",
+            "reason_code": "stale-input",
+            "stage": args.stage,
+            "asof": args.asof,
+            "message": message,
+        }
+        # The scheduled pre-open command uses the default CLI mode.  Keep its
+        # failure machine-readable so the runner can persist an auditable
+        # blocked/stale-input envelope instead of an unstructured error string.
+        if args.json or args.stage == "preopen":
+            print(json.dumps(blocked_payload, ensure_ascii=False))
         else:
             print(message)
         # Pre-open and open snapshots feed downstream decision chains, so a

@@ -907,10 +907,15 @@ def test_auction_snapshot_survives_a_dead_candidate_preopen(tmp_path, monkeypatc
 
 
 def test_candidate_preopen_accepts_only_fresh_from_hot_money_backfill(monkeypatch):
-    from runtime_context import evaluate_dependencies
+    from runtime_context import accepted_dependency_statuses, evaluate_dependencies
 
     job = _manifest_job("candidate-preopen")
     policy = job["dependency_policy"]
+    assert accepted_dependency_statuses(policy, "hot-money-context-backfill") == {
+        "ok",
+        "fresh",
+    }
+    assert accepted_dependency_statuses(policy, "social-attention-preopen") == {"ok"}
     artifact = {
         "run_id": "backfill",
         "batch_id": "a-share-20260908",

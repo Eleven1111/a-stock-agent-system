@@ -485,7 +485,6 @@ def test_preopen_main_blocks_stale_pool_without_leaking_candidates(monkeypatch, 
             "preopen",
             "--asof",
             "2026-09-08",
-            "--json",
         ],
     )
 
