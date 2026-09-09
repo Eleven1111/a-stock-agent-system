@@ -1336,6 +1336,7 @@ def run_discovery(
         signal_ctx=signal_ctx,
         selection_state=selection_state,
         mfi_overheat_policy=config.get("mfi_overheat_gate"),
+        position_relay_policy=config.get("position_relay"),
     )
     for item in result.get("candidates", []):
         selected_by = item.get("selected_by") or {}

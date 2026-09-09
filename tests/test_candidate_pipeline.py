@@ -1515,3 +1515,83 @@ def test_ordinary_research_candidate_cannot_bypass_into_conditional_candidates()
     conditional_codes = {cp.naked_code(item["code"]) for item in result["conditional_candidates"]}
     assert cp.naked_code(plain_research["code"]) not in conditional_codes
     assert conditional_codes == {cp.naked_code(m["code"]) for m in members}
+
+
+def test_daban_top_no_longer_saturates_and_seal_quality_differentiates():
+    """回归：强势日大量涨停股并列触顶 100 的问题；缩量板应显著高于烂板。"""
+    quotes = [
+        _quote(f"6001{i:02d}", f"缩量板{i}", 10.0, 900_000_000, turnover=1.0)
+        for i in range(6)
+    ] + [
+        _quote(f"6002{i:02d}", f"烂板{i}", 10.0, 900_000_000, turnover=25.0)
+        for i in range(6)
+    ]
+    kline_by_code = {
+        q["code"]: _klines([10.0] * 55 + [10.2, 10.5, 10.8, 11.0, 11.5])
+        for q in quotes
+    }
+
+    ranked = cp.rank_candidates(quotes, kline_by_code)
+    scores = {item["code"]: item["daban_score"] for item in ranked}
+
+    tight = [scores[f"6001{i:02d}"] for i in range(6)]
+    loose = [scores[f"6002{i:02d}"] for i in range(6)]
+    # 顶部不再全部触顶 100
+    assert max(tight + loose) < 100.0
+    # 缩量板一致性强于烂板，封板质量拉开差距
+    assert min(tight) > max(loose)
+    # 顶部恢复区分度（总极差至少 5 分）
+    assert max(tight + loose) - min(tight + loose) >= 5.0
+
+
+def test_position_relay_assess_tiers_and_fail_closed():
+    hot = {"momentum_20d": 40.0, "change_pct": 10.0}
+    r3 = cp.assess_position_relay(hot, {"lianban": 3}, None)
+    assert r3["penalty"] == 12.0
+    assert r3["reason_codes"] == ["high_relay_3b", "momentum_overheat_stacking"]
+    assert r3["shadow_only"] is True
+
+    r5 = cp.assess_position_relay(hot, {"lianban": 7}, None)
+    assert r5["penalty"] == 20.0  # 5板封顶 16 + 动量过热 4
+    assert "high_relay_7b" in r5["reason_codes"]
+
+    r_low = cp.assess_position_relay(
+        {"momentum_20d": 10.0, "change_pct": 2.0}, {"lianban": 2}, None
+    )
+    assert r_low["penalty"] == 0.0
+    assert r_low["reason_codes"] == []
+    assert r_low["available"] is True
+
+    r_missing = cp.assess_position_relay(
+        {"momentum_20d": None, "change_pct": None}, None, None
+    )
+    assert r_missing["available"] is False
+    assert r_missing["penalty"] == 0.0
+
+
+def test_position_relay_shadow_keeps_score_and_records_adjusted():
+    quote = _quote("600001", "三板股", 10.0, 900_000_000, turnover=18)
+    kline = {"600001": _klines([4 + i * 0.3 for i in range(60)])}
+    ctx = {"lianban_ladder": {"600001": {"lianban": 3, "sector": "食品"}}}
+
+    ranked = cp.rank_candidates([quote], kline, signal_ctx=ctx)
+    relay = ranked[0]["position_relay"]
+    assert relay["enabled"] is False
+    assert relay["shadow_only"] is True
+    assert relay["applied"] is False
+    assert relay["lianban_height"] == 3
+    assert relay["penalty"] == 12.0
+    assert abs(
+        relay["daban_score_shadow_adjusted"] - (ranked[0]["daban_score"] - 12.0)
+    ) <= 0.011
+
+    enabled = cp.rank_candidates(
+        [quote],
+        kline,
+        signal_ctx=ctx,
+        position_relay_policy={**cp.DEFAULT_POSITION_RELAY_POLICY, "enabled": True},
+    )
+    relay_on = enabled[0]["position_relay"]
+    assert relay_on["enabled"] is True
+    assert relay_on["applied"] is True
+    assert enabled[0]["daban_score"] == relay_on["daban_score_shadow_adjusted"]
