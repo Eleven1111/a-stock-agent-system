@@ -454,7 +454,7 @@ def test_open_brief_includes_filtered_high_score_reason():
     assert "涨停或排队不可成交" in text
 
 
-def test_load_stage_rejects_stale_intraday_projection(monkeypatch):
+def test_load_stage_rejects_stale_stage_projection(monkeypatch):
     monkeypatch.setattr(
         brief,
         "read_json",
@@ -462,7 +462,41 @@ def test_load_stage_rejects_stale_intraday_projection(monkeypatch):
     )
 
     assert brief.load_stage("auction", asof="2026-06-23") == {}
-    assert brief.load_stage("preopen", asof="2026-06-23")["status"] == "ready"
+    assert brief.load_stage("preopen", asof="2026-06-23") == {}
+
+
+def test_preopen_main_blocks_stale_pool_without_leaking_candidates(monkeypatch, capsys):
+    monkeypatch.setattr(
+        brief,
+        "read_json",
+        lambda *args, **kwargs: {
+            "status": "ready",
+            "asof": "2026-09-03",
+            "candidates": [
+                {"code": "600001", "name": "陈旧候选", "daban_score": 99},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "market_intelligence_brief.py",
+            "--stage",
+            "preopen",
+            "--asof",
+            "2026-09-08",
+        ],
+    )
+
+    assert brief.main() == 75
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "blocked"
+    assert payload["reason_code"] == "stale-input"
+    assert payload["asof"] == "2026-09-08"
+    assert "早盘情报简报 | 2026-09-08" in payload["message"]
+    assert "2026-09-03" not in payload["message"]
+    assert "陈旧候选" not in payload["message"]
+    assert "600001" not in payload["message"]
 
 
 def test_main_prints_bounded_brief(monkeypatch, capsys):
