@@ -86,7 +86,7 @@ def test_preopen_weak_market_shows_research_top_and_no_execution_candidates():
     assert "研究评分 TOP" in text
     assert "研究候选(600001)" in text
     assert "research_only" in text
-    assert "可执行候选" in text
+    assert "双通道高分预筛" in text
     assert "无" in text
     assert "缺少主线/涨停集群/多源共振" in text
 
@@ -529,3 +529,33 @@ def test_open_main_json_preserves_degraded_business_status(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "degraded"
     assert "数据降级" in payload["message"]
+
+
+def test_preopen_high_score_prescreen_is_not_labeled_executable():
+    """回归：盘前双通道高分是预筛，不是执行信号，标题不得再叫"可执行候选"。"""
+    text = brief.format_brief(
+        "preopen",
+        {
+            "asof": "2026-09-09",
+            "candidate_count": 1,
+            "candidates": [
+                {"code": "600001", "name": "高分股", "daban_score": 100, "trend_score": 90},
+            ],
+        },
+    )
+
+    assert "双通道高分预筛" in text
+    assert "### 可执行候选" not in text
+
+
+def test_preopen_digest_marks_prescreen_lane():
+    digest = brief.stage_intelligence.preopen_digest(
+        {
+            "candidates": [
+                {"code": "600001", "name": "高分股", "daban_score": 100, "trend_score": 90},
+            ],
+            "counts": {"research": 1, "execution": 1},
+        },
+    )
+
+    assert digest["pre_screen"] is True

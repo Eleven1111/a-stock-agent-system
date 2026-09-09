@@ -45,6 +45,16 @@ DEFAULT_MFI_OVERHEAT_POLICY = {
         "bearish_divergence": {"daban": 18.0, "trend": 28.0},
     },
 }
+POSITION_RELAY_POLICY_VERSION = "position-relay-gate-v1"
+DEFAULT_POSITION_RELAY_POLICY = {
+    "enabled": False,
+    "lianban_min_height": 3,
+    "lianban_penalties": {"3": 8.0, "4": 12.0, "5": 16.0},
+    "lianban_penalty_cap": 16.0,
+    "momentum_20d_overheat": 35.0,
+    "momentum_overheat_penalty": 4.0,
+    "limit_up_change_pct": 9.8,
+}
 CANDIDATE_SCORE_SEMANTICS = "heuristic_rank_score_not_probability"
 CANDIDATE_SCORE_LABEL = "候选启发式排序分（0-100，非上涨/涨停/收益概率）"
 
@@ -209,6 +219,74 @@ def assess_mfi_overheat(
                 "minimum_auction_amount",
             )
         },
+    }
+
+
+def _position_relay_policy(config: Mapping[str, Any] | None = None) -> Dict[str, Any]:
+    base = dict(DEFAULT_POSITION_RELAY_POLICY)
+    for key, value in dict(config or {}).items():
+        base[key] = value
+    return base
+
+
+def assess_position_relay(
+    item: Mapping[str, Any],
+    ladder: Mapping[str, Any] | None,
+    policy: Mapping[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """高位接力影子闸门：连板高度 + 20 日动量过热的 daban 降分评估。
+
+    影子先行（默认 enabled=false）：只输出诊断字段与 reason_codes，不改评分；
+    启用前必须完成影子对照校准（config/daban_thresholds.yaml 铁律：阈值变更
+    需 research_gate 通过）。fail-closed：无 K 线特征且无梯队时 available=False。
+    """
+    cfg = _position_relay_policy(policy)
+    height = None
+    if isinstance(ladder, Mapping):
+        raw = ladder.get("lianban")
+        if raw not in (None, "", "-"):
+            parsed = _num(raw)
+            if parsed >= 1:
+                height = int(parsed)
+    momentum_20d = _num(item.get("momentum_20d"))
+    change_pct = _num(item.get("change_pct"))
+    if item.get("momentum_20d") in (None, "", "-") and height is None:
+        return {
+            "schema": POSITION_RELAY_POLICY_VERSION,
+            "enabled": bool(cfg.get("enabled")),
+            "shadow_only": not bool(cfg.get("enabled")),
+            "available": False,
+            "lianban_height": None,
+            "penalty": 0.0,
+            "reason_codes": [],
+        }
+    penalty = 0.0
+    reasons: list[str] = []
+    height_threshold = int(cfg.get("lianban_min_height") or 3)
+    if height is not None and height >= height_threshold:
+        table = cfg.get("lianban_penalties") or {}
+        tier = min(height, 5)
+        penalty += min(
+            float(cfg.get("lianban_penalty_cap") or 16.0),
+            _num(table.get(str(tier)), 0.0),
+        )
+        reasons.append(f"high_relay_{height}b")
+    if (
+        momentum_20d is not None
+        and momentum_20d > float(cfg.get("momentum_20d_overheat") or 35.0)
+        and change_pct is not None
+        and change_pct >= float(cfg.get("limit_up_change_pct") or 9.8)
+    ):
+        penalty += float(cfg.get("momentum_overheat_penalty") or 4.0)
+        reasons.append("momentum_overheat_stacking")
+    return {
+        "schema": POSITION_RELAY_POLICY_VERSION,
+        "enabled": bool(cfg.get("enabled")),
+        "shadow_only": not bool(cfg.get("enabled")),
+        "available": True,
+        "lianban_height": height,
+        "penalty": round(penalty, 2),
+        "reason_codes": reasons,
     }
 
 
@@ -850,6 +928,7 @@ def rank_candidates(
     theme_weighting: Mapping[str, Any] | None = None,
     trend_live_weight: Any = None,
     mfi_overheat_policy: Mapping[str, Any] | None = None,
+    position_relay_policy: Mapping[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     """Produce separate cross-sectional ranks for limit-up and trend strategies."""
     live_trend_weight = resolve_trend_live_weight(trend_live_weight)
@@ -887,6 +966,7 @@ def rank_candidates(
     momentum_60_p = _percentiles(enriched, "momentum_60d")
     volume_p = _percentiles(enriched, "volume_ratio_5d")
     volatility_p = _percentiles(enriched, "volatility_20d")
+    position_relay_cfg = _position_relay_policy(position_relay_policy)
 
     for item in enriched:
         code = item["code"]
@@ -895,14 +975,19 @@ def rank_candidates(
         if change_pct > 11.0:
             limit_proximity = 0.0
         daban_eligible = is_main_board_10cm(code, item.get("name", ""))
+        # 封板质量代理：低换手分位=缩量/一字板（一致性强），高换手分位=烂板
+        # （分歧大）。此前 0.28 权重全给 limit_proximity，强势日涨停股同时
+        # 霸榜其余横截面百分位，大量并列触顶 100，评分顶部无区分度。
+        seal_quality_p = 1.0 - turnover_p.get(code, 0.0)
         daban_score = 100 * (
-            0.28 * limit_proximity
+            0.18 * limit_proximity
             + 0.15 * change_p.get(code, 0.0)
             + 0.15 * amount_p.get(code, 0.0)
-            + 0.12 * turnover_p.get(code, 0.0)
+            + 0.06 * turnover_p.get(code, 0.0)
             + 0.10 * momentum_5_p.get(code, 0.0)
             + 0.10 * volume_p.get(code, 0.0)
             + 0.10 * _num(item.get("breakout_20d"))
+            + 0.16 * seal_quality_p
         )
         hm_bonus, hm_notes = hot_money_bonus(
             code, item, signal_ctx, apply_lianban_gate=True
@@ -938,12 +1023,26 @@ def rank_candidates(
         if not item["feature_ready"]:
             trend_score = 0.0
         overheat = assess_mfi_overheat(item, mfi_overheat_policy)
+        relay = assess_position_relay(item, ladder, position_relay_cfg)
         daban_pre_overheat = max(0.0, min(100.0, daban_score))
         trend_pre_overheat = max(0.0, min(100.0, trend_score))
         if item["feature_ready"]:
             daban_score -= overheat["lane_penalties"]["daban"]
             trend_score -= overheat["lane_penalties"]["trend"]
+            if relay["enabled"] and relay["penalty"] > 0.0:
+                daban_score -= relay["penalty"]
         severe_overheat = bool(overheat["requires_trusted_auction_microstructure"])
+        relay_applied = bool(
+            item["feature_ready"] and relay["enabled"] and relay["penalty"] > 0.0
+        )
+        # 影子对照分：无论是否启用都记录"扣位后分数"，供后续校准回放。
+        daban_shadow_adjusted = round(
+            max(
+                0.0,
+                min(100.0, daban_score - (0.0 if relay_applied else relay["penalty"])),
+            ),
+            2,
+        )
         item.update({
             "daban_eligible": daban_eligible,
             "daban_score": round(max(0.0, min(100.0, daban_score)), 2),
@@ -952,6 +1051,17 @@ def rank_candidates(
             "daban_score_pre_overheat": round(daban_pre_overheat, 2),
             "trend_score_pre_overheat": round(trend_pre_overheat, 2),
             "mfi_overheat": overheat,
+            "position_relay": {
+                "schema": POSITION_RELAY_POLICY_VERSION,
+                "enabled": relay["enabled"],
+                "shadow_only": relay["shadow_only"],
+                "available": relay["available"],
+                "lianban_height": relay["lianban_height"],
+                "penalty": relay["penalty"],
+                "applied": relay_applied,
+                "reason_codes": relay["reason_codes"],
+                "daban_score_shadow_adjusted": daban_shadow_adjusted,
+            },
             "daban_lane_status": (
                 "ineligible"
                 if not daban_eligible or not item["feature_ready"]
@@ -1020,6 +1130,7 @@ def build_watch_pool(
     signal_ctx: Mapping[str, Any] | None = None,
     selection_state: Mapping[str, Any] | None = None,
     mfi_overheat_policy: Mapping[str, Any] | None = None,
+    position_relay_policy: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     eligible, rejected = filter_universe(
         quotes,
@@ -1032,6 +1143,7 @@ def build_watch_pool(
         kline_by_code,
         signal_ctx=signal_ctx,
         mfi_overheat_policy=mfi_overheat_policy,
+        position_relay_policy=position_relay_policy,
     )
     # Recall-monitoring annotations are observational only.  They are carried
     # through the candidate artifacts so a later full-market snapshot can

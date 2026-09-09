@@ -394,7 +394,7 @@ def format_brief(stage: str, result: Mapping[str, Any], *, max_chars: int = 2400
             f"- {_label(item)}：{_score(item, 'trend_score')}｜research_only"
             for item in digest["top_trend"]
         )
-        lines.append("### 可执行候选")
+        lines.append("### 双通道高分预筛（research_only，待竞价/开盘门禁确认）")
         if digest["execution_candidates"]:
             lines.extend(
                 f"- {_label(item)}：打板{_score(item, 'daban_score')}｜"
