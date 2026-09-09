@@ -178,3 +178,46 @@ def test_sina_snapshot_uses_referer_and_authenticated_https(monkeypatch):
     assert requested["kwargs"]["headers"]["Referer"] == "https://finance.sina.com.cn/"
     assert quote["provider"] == "sina"
     assert quote["directional_eligible"] is True
+
+
+def test_fetch_tencent_kline_index_bypasses_local_stock_cache(monkeypatch):
+    """指数取数必须绕过本地股票缓存：裸代码 000001 在缓存里是平安银行。"""
+    local_calls = []
+
+    def fake_local(codes, end_date=None, lookback=None):
+        local_calls.append(list(codes))
+        return [{"date": "2026-09-08", "open": 11.7, "close": 11.78,
+                 "high": 11.9, "low": 11.6, "volume": 90_000_000}]
+
+    def fake_remote(url, timeout=10):
+        assert "param=sh000001," in url
+        return {"data": {"sh000001": {"day": [
+            ["2026-09-08", 3935.0, 3940.55, 3945.0, 3930.0, 300_000_000],
+        ]}}}
+
+    monkeypatch.setattr("local_market_history.get_daily_bars", fake_local)
+    monkeypatch.setattr(a_stock_http, "http_get_json", fake_remote)
+
+    rows = a_stock_http.fetch_tencent_kline(
+        "000001", market="sh", days=40, allow_local_cache=False
+    )
+    assert local_calls == []
+    assert rows[-1]["close"] == 3940.55
+
+
+def test_fetch_tencent_kline_default_still_prefers_local_cache(monkeypatch):
+    """默认路径保持既有行为：本地缓存足够时不发起网络请求。"""
+
+    def fake_remote(url, timeout=10):
+        raise AssertionError("local cache is full; remote must not be called")
+
+    def fake_local(codes, end_date=None, lookback=None):
+        return [{"date": "2026-09-08", "open": 11.7, "close": 11.78,
+                 "high": 11.9, "low": 11.6, "volume": 90_000_000}] * 60
+
+    monkeypatch.setattr("local_market_history.get_daily_bars", fake_local)
+    monkeypatch.setattr(a_stock_http, "http_get_json", fake_remote)
+
+    rows = a_stock_http.fetch_tencent_kline("000001", market="sh", days=40)
+    assert len(rows) == 40
+    assert rows[-1]["close"] == 11.78
