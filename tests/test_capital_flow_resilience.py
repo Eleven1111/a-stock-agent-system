@@ -32,7 +32,7 @@ def _stub_adapters(module, monkeypatch):
     """PR #92 后主路由是 market_adapters 韧性链——单元测试必须全部打桩，
     否则会打真网络（曾在 CI 静默期漏进 main）。"""
     monkeypatch.setattr(module, "fetch_northbound_flow", lambda: {})
-    monkeypatch.setattr(module, "fetch_stock_fund_flow", lambda code, market=None, days=3: {})
+    monkeypatch.setattr(module, "fetch_stock_fund_flow", lambda code, market=None, days=3, expected_date=None: {})
     monkeypatch.setattr(module, "fetch_sector_fund_flow", lambda bk_code, name=None, days=3: {})
 
 
