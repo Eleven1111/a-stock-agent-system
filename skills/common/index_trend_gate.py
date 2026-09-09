@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from functools import partial
 from statistics import mean
 from typing import Any, Callable, Mapping, Optional, Sequence
 
@@ -141,7 +142,10 @@ def fetch_index_trend(
 
     if fetcher is None:
         from a_stock_http import fetch_tencent_kline
-        fetcher = fetch_tencent_kline
+
+        # 指数必须走远端 sh 前缀取数；本地股票缓存按裸代码索引，
+        # ``000001`` 会命中平安银行(sz000001)而非上证指数(sh000001)。
+        fetcher = partial(fetch_tencent_kline, allow_local_cache=False)
     days = max(int(cfg.get("min_bars") or 21) + 10, 40)
     try:
         bars = fetcher(
