@@ -79,6 +79,7 @@ def preopen_digest(result: Mapping[str, Any], *, limit: int = 10) -> dict[str, A
     return {
         "schema": "preopen_intelligence_v1",
         "research_only": True,
+        "pre_screen": True,
         "scanned_count": int(result.get("scanned_count") or 0),
         "eligible_count": int(result.get("eligible_count") or 0),
         "candidate_count": len(execution_candidates),
