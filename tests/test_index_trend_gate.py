@@ -99,3 +99,29 @@ def test_fetch_failure_fails_closed():
     result = itg.fetch_index_trend(config=_CFG, fetcher=boom)
     assert result["available"] is False
     assert "取数失败" in result["reason"]
+
+
+def test_default_fetcher_bypasses_local_stock_cache(monkeypatch):
+    """回归：指数默认取数必须走远端 sh 前缀并禁用本地股票缓存。
+
+    曾发生：本地缓存按裸代码 000001 命中平安银行(sz000001)，个股K线
+    冒充上证指数，趋势闸门据此输出错误的"跌破5日线"。
+    """
+    import a_stock_http
+
+    captured = {}
+
+    def fake_kline(code, market="sz", days=60, ktype="day", **kwargs):
+        captured["code"] = code
+        captured["market"] = market
+        captured["allow_local_cache"] = kwargs.get("allow_local_cache")
+        return _bars([10 + i * 0.1 for i in range(25)], [1_000_000] * 25)
+
+    monkeypatch.setattr(a_stock_http, "fetch_tencent_kline", fake_kline)
+    result = itg.fetch_index_trend(config=_CFG)
+    assert captured == {
+        "code": "000001",
+        "market": "sh",
+        "allow_local_cache": False,
+    }
+    assert result["available"] is True

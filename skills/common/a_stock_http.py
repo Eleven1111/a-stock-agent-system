@@ -411,9 +411,15 @@ def _clean_local_daily_bar(
 
 
 def fetch_tencent_kline(code: str, market: str = "sz", days: int = 60,
-                        ktype: str = "day") -> List[Dict[str, Any]]:
-    """腾讯历史K线"""
-    if ktype == "day":
+                        ktype: str = "day", *,
+                        allow_local_cache: bool = True) -> List[Dict[str, Any]]:
+    """腾讯历史K线
+
+    ``allow_local_cache=False`` 强制走远端：指数代码（如 sh000001）绝不能查
+    本地股票缓存——缓存按裸代码索引，``000001`` 会命中平安银行(sz000001)
+    而不是上证指数，趋势闸门因此差点拿个股K线冒充指数。
+    """
+    if ktype == "day" and allow_local_cache:
         normalized_code = str(code or "").strip().lower()
         if normalized_code.startswith(("sh", "sz", "bj")):
             normalized_code = normalized_code[2:]
