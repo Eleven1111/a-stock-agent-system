@@ -754,6 +754,9 @@ def test_repo_manifest_keeps_runtime_isolation_contract():
         "same_trading_date"
     )
     assert jobs["candidate-preopen"]["dependency_policy"]["max_age_minutes"] == 90
+    assert jobs["candidate-preopen"]["dependency_policy"]["accepted_statuses_by_job"] == {
+        "hot-money-context-backfill": ["ok", "fresh"],
+    }
     assert jobs["auction-snapshot"]["context_from"] == ["candidate-preopen"]
     assert jobs["auction-snapshot"]["dependency_policy"].get("optional_jobs") == [
         "candidate-preopen"
@@ -901,6 +904,54 @@ def test_auction_snapshot_survives_a_dead_candidate_preopen(tmp_path, monkeypatc
         )
         assert preopen["gate_status"] == "optional_failed"
         assert preopen["reasons"] == ["missing"]
+
+
+def test_candidate_preopen_accepts_only_fresh_from_hot_money_backfill(monkeypatch):
+    from runtime_context import accepted_dependency_statuses, evaluate_dependencies
+
+    job = _manifest_job("candidate-preopen")
+    policy = job["dependency_policy"]
+    assert accepted_dependency_statuses(policy, "hot-money-context-backfill") == {
+        "ok",
+        "fresh",
+    }
+    assert accepted_dependency_statuses(policy, "social-attention-preopen") == {"ok"}
+    artifact = {
+        "run_id": "backfill",
+        "batch_id": "a-share-20260908",
+        "trading_date": "2026-09-08",
+        "artifact_path": "/tmp/backfill.json",
+        "status": "fresh",
+        "finished_at": "2026-09-08T08:20:00+08:00",
+    }
+    monkeypatch.setattr(
+        "runtime_context.load_latest_artifact",
+        lambda *_args, **_kwargs: artifact,
+    )
+
+    gate = evaluate_dependencies(
+        ["hot-money-context-backfill"],
+        trading_date="2026-09-08",
+        batch_id="a-share-20260908",
+        policy=policy,
+        now="2026-09-08T08:30:00+08:00",
+    )
+    assert gate["passed"] is True
+    assert gate["dependencies"][0]["accepted_statuses"] == ["fresh", "ok"]
+
+    for rejected_status in ("degraded", "blocked", "stale"):
+        artifact["status"] = rejected_status
+        rejected = evaluate_dependencies(
+            ["hot-money-context-backfill"],
+            trading_date="2026-09-08",
+            batch_id="a-share-20260908",
+            policy=policy,
+            now="2026-09-08T08:30:00+08:00",
+        )
+        assert rejected["passed"] is False
+        assert rejected["dependencies"][0]["reasons"] == [
+            f"status_{rejected_status}"
+        ]
 
 
 def test_candidate_preopen_keeps_its_own_trigger_so_optional_is_not_a_silent_disable():

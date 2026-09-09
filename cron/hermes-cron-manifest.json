@@ -258,7 +258,13 @@
         "max_age_minutes": 90,
         "optional_jobs": [
           "social-attention-preopen"
-        ]
+        ],
+        "accepted_statuses_by_job": {
+          "hot-money-context-backfill": [
+            "ok",
+            "fresh"
+          ]
+        }
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [

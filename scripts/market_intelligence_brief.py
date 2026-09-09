@@ -430,7 +430,11 @@ def load_stage(stage: str, *, asof: str) -> dict[str, Any]:
     accepted = {"ready"} if stage == "preopen" else {"ready", "degraded"}
     if not isinstance(result, dict) or result.get("status") not in accepted:
         return {}
-    if stage in {"auction", "open"} and str(result.get("asof") or "") != asof:
+    # ``*_latest.json`` is a convenience pointer, not proof that the payload
+    # belongs to this run.  A pre-open brief that renders yesterday's pool with
+    # today's delivery timestamp is materially misleading, so every stage must
+    # reject an asof mismatch before formatting candidates.
+    if str(result.get("asof") or "") != asof:
         return {}
     return result
 
@@ -457,21 +461,29 @@ def main() -> int:
             print(message)
     else:
         message = (
-            f"⚠️ {STAGE_LABELS[args.stage]}未生成 | {args.asof} | "
-            "上游快照缺失或过期，摘要未生成；请检查对应采集任务。"
+            f"## {STAGE_LABELS[args.stage]} | {args.asof}\n"
+            f"⚠️ {STAGE_LABELS[args.stage]}未生成：上游快照缺失或过期，"
+            "请检查对应采集任务。"
         )
-        if args.json:
-            print(json.dumps({
-                "schema": "market_intelligence_brief_v1",
-                "status": "blocked",
-                "reason_code": "stale-input",
-                "stage": args.stage,
-                "asof": args.asof,
-                "message": message,
-            }, ensure_ascii=False))
+        blocked_payload = {
+            "schema": "market_intelligence_brief_v1",
+            "status": "blocked",
+            "reason_code": "stale-input",
+            "stage": args.stage,
+            "asof": args.asof,
+            "message": message,
+        }
+        # The scheduled pre-open command uses the default CLI mode.  Keep its
+        # failure machine-readable so the runner can persist an auditable
+        # blocked/stale-input envelope instead of an unstructured error string.
+        if args.json or args.stage == "preopen":
+            print(json.dumps(blocked_payload, ensure_ascii=False))
         else:
             print(message)
-        return 75 if args.stage == "open" else 0
+        # Pre-open and open snapshots feed downstream decision chains, so a
+        # missing/stale input is a business block.  The auction brief remains
+        # an informational summary and keeps its established non-failing exit.
+        return 75 if args.stage in {"preopen", "open"} else 0
     return 0
 
 
