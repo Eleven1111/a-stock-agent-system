@@ -236,12 +236,12 @@ def classify_gap(gap_pct: float) -> str:
 # ======================== IO: 全A扫描 ========================
 
 def _fetch_universe_with_retry() -> List[Dict[str, Any]]:
-    last_error: Optional[BaseException] = None
+    last_error: Optional[DataSourceError] = None
     for attempt in range(SPOT_RETRIES + 1):
         try:
             df = fetch_a_share_spot()
             return df.to_dict("records")
-        except Exception as exc:  # noqa: BLE001 — akshare 直接抛原始异常，非 DataSourceError
+        except DataSourceError as exc:
             last_error = exc
             if attempt < SPOT_RETRIES:
                 time.sleep(0.5 * (2 ** attempt))
@@ -267,7 +267,7 @@ def _fetch_minute_signals(
         for future in as_completed(futures):
             try:
                 code, signal, reached_close = future.result()
-            except Exception:  # noqa: BLE001
+            except DataSourceError:
                 continue
             coverage["fetched"] += 1
             if reached_close:
@@ -288,7 +288,7 @@ def _fetch_60d_positions(codes: Sequence[str]) -> Dict[str, Optional[float]]:
         for future in as_completed(futures):
             try:
                 code, position = future.result()
-            except Exception:  # noqa: BLE001
+            except DataSourceError:
                 continue
             results[code] = position
     return results
