@@ -1,0 +1,18 @@
+# 弱市扭转预警（regime_reversal_watch）阈值 — 影子预警，research_only
+# 独立配置文件：不触碰 daban_thresholds.yaml（铁律文件）。
+# 阈值保守起步，影子校准期 10 个交易日后按误报率调参。
+
+schema: regime_reversal_watch_v1
+
+f1_one_word_min: 5        # 竞价一字板/顶格高开家数阈值
+f1_gap_tolerance: 0.15    # 距涨停价的容差（百分点）
+f2_red_ratio_min: 0.6     # 梯队竞价红盘承接率
+f2_coverage_min: 3        # 梯队样本覆盖下限（不足则因子不可用）
+f3_cluster_limitup_min: 3 # 主线板块昨日涨停家数合计
+f4_gap_up_ratio_min: 0.55 # 全市场竞价高开占比
+f4_min_coverage: 100      # 广度因子样本下限
+
+strong_min_factors: 3     # 强信号：触发因子数
+watch_min_factors: 2      # 观察：触发因子数（低于则静默）
+
+shadow_until: "2026-09-24"  # 校准期截止（投递文本带校准期标注）
