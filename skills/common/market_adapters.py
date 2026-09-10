@@ -1184,12 +1184,25 @@ def fetch_stock_fund_flow(
     return value
 
 
-def fetch_sector_fund_flow(bk_code: str, *, name: str | None = None, days: int = 3) -> dict[str, Any]:
-    """Fetch sector-level fund flow with THS board summary as the first route."""
+def fetch_sector_fund_flow(
+    bk_code: str,
+    *,
+    name: str | None = None,
+    days: int = 3,
+    expected_date: str | None = None,
+) -> dict[str, Any]:
+    """Fetch sector-level fund flow with THS board summary as the first route.
+
+    ``expected_date``（交易日）传入时，每一路返回都必须携带该日的有限
+    main_net_yi，内容非法或日期过期的观测视同该源当日无数据并继续尝试
+    下一路（与 fetch_stock_fund_flow 同一语义；adata 路由不带 main_net_yi
+    时因此得以落到东财兑底腿）。
+    """
     cache_key = f"{bk_code}:{name or ''}:{days}"
     cached = _cache_get("sector_fund_flow", cache_key, max_age_seconds=900)
     if isinstance(cached, dict) and cached:
         return cached
+    expected = (expected_date or "").strip()
 
     def akshare_ths_sector() -> dict[str, Any]:
         import akshare as ak
@@ -1234,6 +1247,12 @@ def fetch_sector_fund_flow(bk_code: str, *, name: str | None = None, days: int =
             ("adata", adata_sector),
             ("eastmoney_push2_degraded", eastmoney_push2_sector),
         ))
+
+    if expected:
+        attempts = [
+            (provider, _require_flow_dated(fetcher, expected))
+            for provider, fetcher in attempts
+        ]
 
     try:
         value = _fallback_chain(

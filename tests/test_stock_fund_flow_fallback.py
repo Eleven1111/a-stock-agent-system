@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from datetime import date
 from pathlib import Path
 
@@ -155,3 +156,167 @@ def test_monitor_passes_expected_trading_date(monkeypatch):
 
     assert captured["expected_date"] is not None
     assert captured["expected_date"] == result["quality"]["expected_trading_date"]
+
+
+# ── 板块资金流：validated 兑底链 + paper-trading-close 放行 no_positions ──
+
+def _manifest_policy(job_id: str) -> dict:
+    manifest = json.load(open(ROOT / "cron" / "hermes-cron-manifest.json"))
+    for job in manifest["jobs"]:
+        if job.get("id") == job_id:
+            return job.get("dependency_policy") or {}
+    raise AssertionError(job_id)
+
+
+def test_paper_trading_close_accepts_no_positions_from_monitor(monkeypatch):
+    """模拟账户无持仓（no_positions）是合法的无事可做状态，不得阻断收盘。"""
+    from runtime_context import evaluate_dependencies
+
+    policy = _manifest_policy("paper-trading-close")
+    artifact = {
+        "run_id": "monitor",
+        "batch_id": "a-share-20260910",
+        "trading_date": "2026-09-10",
+        "artifact_path": "/tmp/monitor.json",
+        "status": "no_positions",
+        "finished_at": "2026-09-10T15:15:00+08:00",
+    }
+    monkeypatch.setattr(
+        "runtime_context.load_latest_artifact", lambda *_a, **_k: artifact
+    )
+
+    gate = evaluate_dependencies(
+        ["paper-trading-monitor"],
+        trading_date="2026-09-10",
+        batch_id="a-share-20260910",
+        policy=policy,
+        now="2026-09-10T15:25:00+08:00",
+    )
+    assert gate["passed"] is True
+    assert "no_positions" in gate["dependencies"][0]["accepted_statuses"]
+
+    for rejected in ("degraded", "blocked"):
+        artifact["status"] = rejected
+        rejected_gate = evaluate_dependencies(
+            ["paper-trading-monitor"],
+            trading_date="2026-09-10",
+            batch_id="a-share-20260910",
+            policy=policy,
+            now="2026-09-10T15:25:00+08:00",
+        )
+        assert rejected_gate["passed"] is False
+
+
+def test_monitor_passes_expected_date_to_sector_fetch(monkeypatch):
+    module = _load_monitor()
+    monkeypatch.delenv("HERMES_TRADING_DATE", raising=False)
+    monkeypatch.setattr(module, "fetch_tencent_flows", lambda stocks: {})
+    monkeypatch.setattr(
+        module,
+        "fetch_northbound_flow",
+        lambda: {"date": "2026-09-09", "net_flow_yi": 0.0, "provider": "fixture"},
+    )
+    captured: dict = {}
+
+    def sector_recorder(bk_code, *, name=None, days=3, expected_date=None):
+        captured["expected_date"] = expected_date
+        return {}
+
+    monkeypatch.setattr(module, "fetch_sector_fund_flow", sector_recorder)
+
+    result = module.collect_flow_data(
+        stocks=[], sectors=[("BK0428", "电力行业")]
+    )
+
+    assert captured["expected_date"] == result["quality"]["expected_trading_date"]
+
+
+def test_sector_chain_skips_mainless_adata_and_lands_on_eastmoney(monkeypatch):
+    """adata 板块路由不带 main_net_yi：必须跳过并落到东财兑底腿（BK 码板块）。"""
+    _disable_cache(monkeypatch)
+    import akshare as ak
+    import pandas as pd
+
+    monkeypatch.setattr(
+        ak,
+        "stock_board_industry_summary_ths",
+        lambda: pd.DataFrame([{"板块": "其他", "净流入": 1.0}]),
+    )
+    import adata as adata_module
+
+    monkeypatch.setattr(
+        adata_module.stock.market,
+        "get_market_concept_current_east",
+        lambda index_code: pd.DataFrame([{"x": 1.0}]),
+    )
+    east: list = []
+    monkeypatch.setattr(
+        ma,
+        "_fetch_eastmoney_push2_flow",
+        lambda secid, days: east.append(secid)
+        or {"data": {"klines": ["2026-09-10,1.0,2.0,-500000000.0,4.0,300000.0"]}},
+    )
+
+    result = ma.fetch_sector_fund_flow(
+        "BK0428", name="电力行业", expected_date="2026-09-10"
+    )
+
+    assert east == ["90.BK0428"]
+    assert result["provider"] == "eastmoney_push2_degraded"
+    assert result["main_net_yi"] == -50000.0
+
+
+def test_sector_chain_fail_closed_when_all_sources_stale(monkeypatch):
+    _disable_cache(monkeypatch)
+    import akshare as ak
+    import pandas as pd
+
+    monkeypatch.setattr(
+        ak,
+        "stock_board_industry_summary_ths",
+        lambda: pd.DataFrame([{"板块": "其他", "净流入": 1.0}]),
+    )
+    import adata as adata_module
+
+    monkeypatch.setattr(
+        adata_module.stock.market,
+        "get_market_concept_current_east",
+        lambda index_code: [],
+    )
+    monkeypatch.setattr(
+        ma,
+        "_fetch_eastmoney_push2_flow",
+        lambda secid, days: {
+            "data": {"klines": ["2026-09-09,1.0,2.0,-500000000.0,4.0,300000.0"]}
+        },
+    )
+
+    result = ma.fetch_sector_fund_flow(
+        "BK0428", name="电力行业", expected_date="2026-09-10"
+    )
+
+    assert result == {}
+
+
+def test_sector_legacy_semantics_without_expected_date(monkeypatch):
+    """不传 expected_date 的调用方保持旧语义：接受最新非空观测。"""
+    _disable_cache(monkeypatch)
+    import akshare as ak
+    import pandas as pd
+
+    monkeypatch.setattr(
+        ak,
+        "stock_board_industry_summary_ths",
+        lambda: pd.DataFrame([{"板块": "其他", "净流入": 1.0}]),
+    )
+    import adata as adata_module
+
+    monkeypatch.setattr(
+        adata_module.stock.market,
+        "get_market_concept_current_east",
+        lambda index_code: pd.DataFrame([{"x": 1.0}]),
+    )
+
+    result = ma.fetch_sector_fund_flow("BK0428", name="电力行业")
+
+    assert result["provider"] == "adata"

@@ -33,7 +33,7 @@ def _stub_adapters(module, monkeypatch):
     否则会打真网络（曾在 CI 静默期漏进 main）。"""
     monkeypatch.setattr(module, "fetch_northbound_flow", lambda: {})
     monkeypatch.setattr(module, "fetch_stock_fund_flow", lambda code, market=None, days=3, expected_date=None: {})
-    monkeypatch.setattr(module, "fetch_sector_fund_flow", lambda bk_code, name=None, days=3: {})
+    monkeypatch.setattr(module, "fetch_sector_fund_flow", lambda bk_code, name=None, days=3, expected_date=None: {})
 
 
 def test_northbound_falls_back_to_sina_with_provenance(monkeypatch):
@@ -304,7 +304,7 @@ def test_successful_sector_flow_cache_records_source_asof_and_freshness(
     monkeypatch.setattr(
         module,
         "fetch_sector_fund_flow",
-        lambda _code, name=None, days=3: {
+        lambda _code, name=None, days=3, expected_date=None: {
             "date": "2026-08-14",
             "main_net_yi": 12.5,
             "provider": "test",
