@@ -691,7 +691,9 @@ def collect_flow_data(
 
     # 2. 个股资金流
     for code, market, name in stocks:
-        exact_stock_flow = fetch_stock_fund_flow(code, market=market, days=3)
+        exact_stock_flow = fetch_stock_fund_flow(
+            code, market=market, days=3, expected_date=expected_trading_date
+        )
         ff_observation = (
             observation_ok(str(exact_stock_flow.get("provider") or "market_adapters"), exact_stock_flow)
             if exact_stock_flow

@@ -1066,14 +1066,63 @@ def fetch_eastmoney_kline(
     return fetch_a_share_daily_kline(code, market=market, days=days)
 
 
-def fetch_stock_fund_flow(code: str, *, market: str | None = None, days: int = 3) -> dict[str, Any]:
-    """Fetch individual stock fund-flow; returns {} when all exact sources fail."""
+def _flow_payload_matches_date(payload: Any, expected_date: str) -> bool:
+    """Fund-flow payload 必须携带 expected_date 当日的有限 main_net_yi。
+
+    2026-09-09 事故：akshare/adata 返回了 main_net_yi=NaN 或旧日期的非空
+    payload，_fallback_chain 只按“空/异常”切换，把内容不合格的观测当成
+    成功返回——东财兑底腿从未被尝试，个股核心观测从 19/23 掉到 12/22。
+    """
+    if not isinstance(payload, dict) or not payload:
+        return False
+    value = payload.get("main_net_yi")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+    ):
+        return False
+    asof = str(payload.get("date") or payload.get("asof") or "")[:10]
+    try:
+        return date.fromisoformat(asof) == date.fromisoformat(expected_date)
+    except ValueError:
+        return False
+
+
+def _require_flow_dated(
+    fetcher: Callable[[], dict[str, Any]], expected_date: str
+) -> Callable[[], dict[str, Any]]:
+    def run() -> dict[str, Any]:
+        payload = fetcher()
+        if payload and not _flow_payload_matches_date(payload, expected_date):
+            # 内容不合格视同该源当日无有效观测，让 fallback chain 继续下一路。
+            return {}
+        return payload
+
+    return run
+
+
+def fetch_stock_fund_flow(
+    code: str,
+    *,
+    market: str | None = None,
+    days: int = 3,
+    expected_date: str | None = None,
+) -> dict[str, Any]:
+    """Fetch individual stock fund-flow; returns {} when all exact sources fail.
+
+    ``expected_date``（交易日）传入时，每一路返回都必须携带该日的有限
+    main_net_yi，内容非法或日期过期的观测视同该源当日无数据，链会继续
+    尝试下一路（含 eastmoney_push2_degraded 兑底腿）。不传则保持旧语义
+    （取最新非空观测），供探针类调用方维持原有行为。
+    """
     normalized = _normal_code(code)
     market = (market or _market(normalized)).lower()
     cache_key = f"{market}{normalized}:{days}"
     cached = _cache_get("stock_fund_flow", cache_key, max_age_seconds=900)
     if isinstance(cached, dict) and cached:
         return cached
+    expected = (expected_date or "").strip()
 
     def akshare_flow() -> dict[str, Any]:
         import akshare as ak
@@ -1116,17 +1165,19 @@ def fetch_stock_fund_flow(code: str, *, market: str | None = None, days: int = 3
         payload = _fetch_eastmoney_push2_flow(_secid(normalized, market), days=days)
         return {**_parse_push2_flow_payload(payload), "provider": "eastmoney_push2_degraded"}
 
-    try:
-        value = _fallback_chain(
-            "stock_fund_flow",
-            (
-                ("akshare", akshare_flow),
-                ("akshare", akshare_ths_rank),
-                ("adata", adata_flow),
-                ("eastmoney_push2_degraded", eastmoney_push2_flow),
-            ),
-            empty={},
+    legs = (
+        ("akshare", akshare_flow),
+        ("akshare", akshare_ths_rank),
+        ("adata", adata_flow),
+        ("eastmoney_push2_degraded", eastmoney_push2_flow),
+    )
+    if expected:
+        legs = tuple(
+            (provider, _require_flow_dated(fetcher, expected))
+            for provider, fetcher in legs
         )
+    try:
+        value = _fallback_chain("stock_fund_flow", legs, empty={})
     except DataSourceError:
         return {}
     _cache_set("stock_fund_flow", cache_key, value)
