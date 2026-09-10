@@ -777,7 +777,9 @@ def collect_flow_data(
 
     # 3. 板块资金流
     for bk_code, bk_name in sectors:
-        exact_sector_flow = fetch_sector_fund_flow(bk_code, name=bk_name, days=3)
+        exact_sector_flow = fetch_sector_fund_flow(
+            bk_code, name=bk_name, days=3, expected_date=expected_trading_date
+        )
         bk_observation = (
             observation_ok(str(exact_sector_flow.get("provider") or "market_adapters"), exact_sector_flow)
             if exact_sector_flow
