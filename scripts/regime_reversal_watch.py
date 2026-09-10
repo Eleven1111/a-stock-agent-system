@@ -55,7 +55,7 @@ def load_config() -> dict:
             for key, value in data.items():
                 if key != "schema" and value is not None:
                     cfg[key] = value
-    except Exception:  # noqa: BLE001 — 配置缺失/损坏回退默认值
+    except (OSError, UnicodeError, yaml.YAMLError):
         pass
     return cfg
 
@@ -69,7 +69,7 @@ def _read_json(path: str):
     try:
         with open(path) as fh:
             return json.load(fh)
-    except Exception:  # noqa: BLE001 — 读取失败按缺数据处理
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return None
 
 
@@ -91,7 +91,7 @@ def _signal_ctx():
 
         ctx = read_signal_context() or {}
         return ctx if isinstance(ctx, dict) else {}
-    except Exception:  # noqa: BLE001 — 简报缺一段不缺整份
+    except (ImportError, OSError, RuntimeError, TimeoutError):
         return {}
 
 
