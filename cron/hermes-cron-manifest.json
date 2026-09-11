@@ -1958,7 +1958,13 @@
       ],
       "dependency_policy": {
         "trading_date": "same_trading_date",
-        "max_age_minutes": 90
+        "max_age_minutes": 90,
+        "accepted_statuses_by_job": {
+          "capital-flow": [
+            "ok",
+            "partial"
+          ]
+        }
       },
       "artifact_path_template": "{cron_output_dir}/{job_id}/{run_id}.json",
       "allowed_state_writes": [
