@@ -207,6 +207,45 @@ def test_paper_trading_close_accepts_no_positions_from_monitor(monkeypatch):
         assert rejected_gate["passed"] is False
 
 
+def test_closing_triage_accepts_partial_from_capital_flow(monkeypatch):
+    """北向结构性停披 + 核心观测齐备 → capital-flow=partial 不得阻断收盘链。"""
+    from runtime_context import evaluate_dependencies
+
+    policy = _manifest_policy("closing-triage")
+    artifact = {
+        "run_id": "capital-flow",
+        "batch_id": "a-share-20260911",
+        "trading_date": "2026-09-11",
+        "artifact_path": "/tmp/capital-flow.json",
+        "status": "partial",
+        "finished_at": "2026-09-11T14:32:00+08:00",
+    }
+    monkeypatch.setattr(
+        "runtime_context.load_latest_artifact", lambda *_a, **_k: artifact
+    )
+
+    gate = evaluate_dependencies(
+        ["capital-flow"],
+        trading_date="2026-09-11",
+        batch_id="a-share-20260911",
+        policy=policy,
+        now="2026-09-11T15:35:00+08:00",
+    )
+    assert gate["passed"] is True
+    assert "partial" in gate["dependencies"][0]["accepted_statuses"]
+
+    for rejected in ("degraded", "blocked"):
+        artifact["status"] = rejected
+        rejected_gate = evaluate_dependencies(
+            ["capital-flow"],
+            trading_date="2026-09-11",
+            batch_id="a-share-20260911",
+            policy=policy,
+            now="2026-09-11T15:35:00+08:00",
+        )
+        assert rejected_gate["passed"] is False
+
+
 def test_monitor_passes_expected_date_to_sector_fetch(monkeypatch):
     module = _load_monitor()
     monkeypatch.delenv("HERMES_TRADING_DATE", raising=False)
