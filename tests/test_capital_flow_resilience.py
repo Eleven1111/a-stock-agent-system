@@ -61,6 +61,8 @@ def test_northbound_falls_back_to_sina_with_provenance(monkeypatch):
     }
     assert result["source_health"]["northbound"]["selected_provider"] == "sina"
     assert result["status"] == "degraded"
+    # 兕底探测拿到真实数据：不算结构性缺口。
+    assert result["known_gaps"] == []
 
 
 def test_tencent_volume_metrics_are_labeled_proxy_not_main_flow(monkeypatch):
@@ -171,6 +173,9 @@ def test_retired_northbound_is_partial_only_with_fresh_candidate_core(monkeypatc
     assert result["candidate_core_ready"] is True
     assert result["candidate_core_available"] == 2
     assert result["directional_ready"] is False
+    # 方案 A：停发只记 known_gaps，不进 quality_reasons、不压 degraded。
+    assert result["known_gaps"] == ["northbound_daily_net_retired_since_2024"]
+    assert "northbound_daily_net_retired_since_2024" not in result["quality_reasons"]
 
 
 def test_stale_candidate_core_never_becomes_accepted_partial(monkeypatch):
@@ -208,6 +213,38 @@ def test_stale_candidate_core_never_becomes_accepted_partial(monkeypatch):
     assert result["candidate_core_ready"] is False
     assert result["sectors"][0]["main_flow_status"] == "stale"
     assert "sector:BK0001:stale:asof_2026-08-28" in result["quality_reasons"]
+
+
+def test_structural_northbound_gap_does_not_mask_core_observation_failure(monkeypatch):
+    """方案 A：北向停发只记 known_gaps；BK 码核心观测缺数仍 fail-closed。"""
+    module = _load()
+    monkeypatch.setenv("HERMES_TRADING_DATE", "2026-09-07")
+    monkeypatch.setattr(module, "fetch_northbound_flow", lambda: {})
+    monkeypatch.setattr(module, "fetch_sina_northbound_observation", lambda: _failed("sina"))
+    monkeypatch.setattr(module, "fetch_tencent_flows", lambda _stocks: {})
+    monkeypatch.setattr(
+        module,
+        "fetch_stock_fund_flow",
+        lambda *_args, **_kwargs: {
+            "date": "2026-09-07", "main_net_yi": -0.3, "provider": "test",
+        },
+    )
+    monkeypatch.setattr(module, "fetch_sector_fund_flow", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        module,
+        "collect_sector_momentum",
+        lambda **_kwargs: {"status": "empty", "momentum": None, "rotation": None},
+    )
+
+    result = module.collect_flow_data(
+        stocks=[("600001", "sh", "demo")],
+        sectors=[("BK0001", "demo-sector")],
+    )
+
+    assert result["status"] == "degraded"
+    assert result["candidate_core_ready"] is False
+    assert result["known_gaps"] == ["northbound_daily_net_retired_since_2024"]
+    assert "sector:BK0001:unavailable:observation_unavailable" in result["quality_reasons"]
 
 
 def test_retired_northbound_clears_legacy_cached_value(tmp_path, monkeypatch):
