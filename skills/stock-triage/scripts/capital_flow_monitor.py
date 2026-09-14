@@ -32,6 +32,7 @@ from provider_contract import health_attempt, observation_error, observation_ok
 import delivery_output
 import runtime_targets
 import sector_momentum as sm
+import hot_money_selection
 
 load_hermes_env()
 
@@ -849,7 +850,16 @@ def collect_flow_data(
     # 4. 全市场板块动量 + 轮动（issue #89：只看个股不看板块的架构补缺）
     try:
         from signal_context import read_signal_context
-        ctx = read_signal_context() or {}
+        # 周末/节假日跨度：上下文由上一交易日收盘后写入，周一盘前墙钟年龄已达 65h，
+        # 默认 24h 窗口会把它误判过期（2026-09-14 事故：择时证据被清空）。
+        # 读取窗口按 allowed_ladder_age_days（到上一交易日的自然日距离）折算；
+        # 梯队 ladder_asof 校验仍是权威新鲜度门。
+        allowed_days = hot_money_selection.allowed_ladder_age_days(expected_trading_date)
+        ctx = (
+            read_signal_context(max_age_hours=allowed_days * 24) or {}
+            if allowed_days is not None
+            else {}
+        )
         limitups = ctx.get("sector_limitups") or {}
     except Exception:  # noqa: BLE001 — 涨停数缺失只影响 limitup_count 字段
         limitups = {}

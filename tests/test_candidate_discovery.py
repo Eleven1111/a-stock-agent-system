@@ -869,7 +869,7 @@ def test_discovery_ignores_stale_hot_money_context(monkeypatch):
     monkeypatch.setattr(
         signal_context,
         "read_signal_context",
-        lambda: {
+        lambda *args, **kwargs: {
             "ladder_asof": "2026-06-01",
             "lianban_ladder": {"600001": {"lianban": 8}},
             "prev_lianban_ladder": {"600001": {"lianban": 7}},
@@ -892,7 +892,7 @@ def test_discovery_accepts_previous_friday_ladder_on_monday(monkeypatch):
     monkeypatch.setattr(
         signal_context,
         "read_signal_context",
-        lambda: {
+        lambda *args, **kwargs: {
             "ladder_asof": "2026-08-28",
             "lianban_ladder": {"600001": {"lianban": 2}},
             "prev_lianban_ladder": {"600001": {"lianban": 1}},
@@ -911,7 +911,7 @@ def test_discovery_accepts_previous_trading_day_ladder_after_long_holiday(monkey
     monkeypatch.setattr(
         signal_context,
         "read_signal_context",
-        lambda: {
+        lambda *args, **kwargs: {
             "ladder_asof": "2026-02-13",
             "lianban_ladder": {"600001": {"lianban": 3}},
             "prev_lianban_ladder": {"600001": {"lianban": 2}},
@@ -930,7 +930,7 @@ def test_discovery_keeps_same_day_social_attention_when_ladder_is_stale(monkeypa
     monkeypatch.setattr(
         signal_context,
         "read_signal_context",
-        lambda: {
+        lambda *args, **kwargs: {
             "ladder_asof": "2026-06-01",
             "lianban_ladder": {"600001": {"lianban": 8}},
             "social_attention_asof": "2026-06-11",
@@ -955,7 +955,7 @@ def test_discovery_drops_stale_social_attention_from_fresh_ladder(monkeypatch):
     monkeypatch.setattr(
         signal_context,
         "read_signal_context",
-        lambda: {
+        lambda *args, **kwargs: {
             "ladder_asof": "2026-06-11",
             "lianban_ladder": {"600001": {"lianban": 2}},
             "social_attention_asof": "2026-06-10",
@@ -978,7 +978,7 @@ def test_discovery_temperature_exception_blocks_new_risk(monkeypatch):
     import market_temperature
     import signal_context
 
-    monkeypatch.setattr(signal_context, "read_signal_context", lambda: {})
+    monkeypatch.setattr(signal_context, "read_signal_context", lambda *args, **kwargs: {})
     monkeypatch.setattr(
         market_temperature,
         "temperature_from_context",
