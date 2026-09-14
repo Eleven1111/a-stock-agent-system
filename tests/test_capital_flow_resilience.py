@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+from datetime import date
 from pathlib import Path
 
 import signal_context
@@ -327,3 +328,90 @@ def test_successful_sector_flow_cache_records_source_asof_and_freshness(
     assert context["sector_flows_asof"] == "2026-08-14"
     assert context["sector_flows_stale"] is False
     assert context["sector_flows_last_attempt_at"] == result["timestamp"]
+
+
+def test_unmapped_theme_sector_failure_does_not_gate_chain(monkeypatch):
+    """无法解析 BK 码的主题板块缺数不阻断链路（2026-09-11 事故回归）。
+
+    空 BK 码主题只能走 THS 名称路由，观测不可靠——缺数仍如实记录，
+    但不再计入核心观测，也不再把整条资金流拖成 degraded。
+    """
+    module = _load()
+    _stub_adapters(module, monkeypatch)
+    monkeypatch.delenv("HERMES_TRADING_DATE", raising=False)
+    monkeypatch.setattr(module, "fetch_tencent_flows", lambda _stocks: {})
+    monkeypatch.setattr(
+        module, "fetch_sina_northbound_observation", lambda: _failed("sina")
+    )
+    monkeypatch.setattr(
+        module,
+        "fetch_stock_fund_flow",
+        lambda code, market=None, days=3, expected_date=None: {
+            "date": date.today().isoformat(),
+            "main_net_yi": 1.0,
+            "retail_net_yi": 0.0,
+            "provider": "test",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "fetch_sector_fund_flow",
+        lambda bk_code, name=None, days=3, expected_date=None: (
+            {}
+            if not bk_code
+            else {
+                "date": date.today().isoformat(),
+                "main_net_yi": 2.0,
+                "retail_net_yi": 0.0,
+                "provider": "test",
+            }
+        ),
+    )
+
+    result = module.collect_flow_data(
+        stocks=[("600519", "sh", "贵州茅台")],
+        sectors=[("", "计算机"), ("BK0428", "电力行业")],
+    )
+
+    assert result["candidate_core_requested"] == 2  # 个股 + BK 码板块
+    assert result["candidate_core_available"] == 2
+    assert result["candidate_core_ready"] is True
+    assert result["status"] != "degraded"
+    # 空码板块的缺数仍如实记录（可见但不阻断）
+    assert any(
+        "sector::unavailable" in reason for reason in result["quality_reasons"]
+    )
+
+
+def test_bkcode_sector_failure_still_degrades(monkeypatch):
+    """BK 码板块是核心观测：缺失仍降级（fail-closed 保持）。"""
+    module = _load()
+    _stub_adapters(module, monkeypatch)
+    monkeypatch.delenv("HERMES_TRADING_DATE", raising=False)
+    monkeypatch.setattr(module, "fetch_tencent_flows", lambda _stocks: {})
+    monkeypatch.setattr(
+        module, "fetch_sina_northbound_observation", lambda: _failed("sina")
+    )
+    monkeypatch.setattr(
+        module,
+        "fetch_stock_fund_flow",
+        lambda code, market=None, days=3, expected_date=None: {
+            "date": date.today().isoformat(),
+            "main_net_yi": 1.0,
+            "retail_net_yi": 0.0,
+            "provider": "test",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "fetch_sector_fund_flow",
+        lambda bk_code, name=None, days=3, expected_date=None: {},
+    )
+
+    result = module.collect_flow_data(
+        stocks=[("600519", "sh", "贵州茅台")],
+        sectors=[("BK0428", "电力行业")],
+    )
+
+    assert result["candidate_core_available"] < result["candidate_core_requested"]
+    assert result["status"] == "degraded"

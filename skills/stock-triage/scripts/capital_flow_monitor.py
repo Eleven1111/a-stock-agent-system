@@ -601,7 +601,11 @@ def collect_flow_data(
     else:
         unmapped_sectors = []
     expected_trading_date = _expected_trading_date()
-    candidate_core_requested = len(stocks) + len(sectors)
+    # 无法解析 BK 代码的自选主题只能走同花顺名称路由，观测不可靠——
+    # 计入核心观测会让这类标识符的日常缺数阻断整条收盘链（2026-09-11）。
+    # 它们仍会被抓取并进入 payload 供研究参考，但不作为核心证据。
+    core_sectors = [(bk_code, bk_name) for bk_code, bk_name in sectors if bk_code]
+    candidate_core_requested = len(stocks) + len(core_sectors)
     result = {
         "schema": "capital_flow_v2",
         "status": "ok",
@@ -803,7 +807,8 @@ def collect_flow_data(
             sector["main_flow_provider"] = exact_flow.get("provider")
             sector["main_flow_asof"] = exact_flow.get("date") or exact_flow.get("asof")
             exact_available += 1
-            candidate_core_available += 1
+            if bk_code:
+                candidate_core_available += 1
             if sector["main_net_yi"] is not None and sector["main_net_yi"] > 10:
                 result["alerts"].append({
                     "level": "🟢",
@@ -829,7 +834,9 @@ def collect_flow_data(
         # Industry fund flow is the only sector-level proxy available here;
         # do not copy it into a stock's actor-specific fields.
         sector.update(sector_proxies)
-        if bk_observation.get("status") != "ok" or flow_quality != "ok":
+        if bk_code and (
+            bk_observation.get("status") != "ok" or flow_quality != "ok"
+        ):
             degraded = True
         result["source_health"]["sector_main_flow"].append({
             "code": bk_code,
