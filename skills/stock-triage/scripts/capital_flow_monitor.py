@@ -631,6 +631,7 @@ def collect_flow_data(
         "candidate_core_available": 0,
         "northbound_status": "unknown",
         "quality_reasons": [],
+        "known_gaps": [],
         "quality": {
             "expected_trading_date": expected_trading_date,
             "northbound": {"status": "unknown"},
@@ -651,23 +652,23 @@ def collect_flow_data(
 
     # 1. Northbound flow: AkShare first, allowed Eastmoney kamt endpoint only as fallback.
     # The blocked stock/board push2 paths are no longer on the primary route.
-    # 每一跳都要留 attempts 溯源记录，回退成功也必须标记 degraded（source_health 契约）。
+    # 每一跳都要留 attempts 溯源记录（source_health 契约）。
     # 北向日频净额自 2024 年披露调整后已停发，所有 provider 现在都只会返回空 ——
-    # 这里保持 fail-closed（见 docs/falsified-approaches.md F008），绝不用南向或
-    # 历史缓存顶替。
+    # 绝不用南向或历史缓存顶替真实数据（见 docs/falsified-approaches.md F008）。
+    # 停发是已知结构性缺口（known_gaps）：不再压低 status —— partial/degraded
+    # 只反映可真实取得的核心观测（2026-09-14 方案 A）；兜底探测成功取到真实
+    # 数据时仍按契约标记 degraded（主路由已死的 fallback 语义）。
     nb_data = fetch_northbound_flow()
     if nb_data:
         nb_observation = observation_ok(
             str(nb_data.get("provider") or "market_adapters"), nb_data
         )
     else:
-        degraded = True
         result["northbound_status"] = "structurally_unavailable"
         result["quality"]["northbound"] = {
             "status": "structurally_unavailable",
             "reason": "northbound_daily_net_retired_since_2024",
         }
-        result["quality_reasons"].append("northbound_daily_net_retired_since_2024")
         result["source_health"]["northbound"]["attempts"].append(health_attempt(
             observation_error(
                 "market_adapters",
@@ -679,9 +680,10 @@ def collect_flow_data(
         ))
         nb_observation = fetch_sina_northbound_observation()
     result["source_health"]["northbound"]["attempts"].append(health_attempt(nb_observation))
-    if nb_observation.get("status") != "ok":
-        degraded = True
     if nb_observation.get("status") == "ok":
+        if not nb_data:
+            # 兜底探测成功：主路由停发的事实仍如实降级（source_health 契约）。
+            degraded = True
         selected = str(nb_observation["provider"])
         result["source_health"]["northbound"]["selected_provider"] = selected
         result["northbound"] = {**nb_observation["data"], "provider": selected}
@@ -693,6 +695,9 @@ def collect_flow_data(
             result["alerts"].append({"level": "🟢", "msg": f"北向大幅净流入{net:.0f}亿，看多信号"})
         elif net < -30:
             result["alerts"].append({"level": "🔴", "msg": f"北向大幅净流出{abs(net):.0f}亿，外资撤离信号"})
+    else:
+        # 停发 + 兜底探测仍不可得：记入已知结构性缺口，不压 degraded（方案 A）。
+        result["known_gaps"].append("northbound_daily_net_retired_since_2024")
 
     # 2. 个股资金流
     for code, market, name in stocks:
@@ -999,6 +1004,7 @@ def delivery_summary_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         "candidate_core_requested": int(data.get("candidate_core_requested") or 0),
         "candidate_core_available": int(data.get("candidate_core_available") or 0),
         "quality_reasons": list(data.get("quality_reasons") or []),
+        "known_gaps": list(data.get("known_gaps") or []),
         "summary": (
             f"资金流 {str(data.get('timestamp') or '')[:10]}："
             f"北向{net_text}；跟踪股{len(data.get('stocks') or [])}；"
