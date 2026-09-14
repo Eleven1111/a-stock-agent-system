@@ -1622,7 +1622,52 @@ def fetch_tencent_minute(code: str, *, market: str) -> list[dict[str, Any]]:
     return _fetch_tencent_minute(code, market=market)
 
 
+def fetch_fuyao_limitup_pool(date: str):
+    """同花顺官方 API 涨停池（fuyao）→ 与 zt_pool_em 同列名的 DataFrame。
+
+    首选数据源：官方结构化字段 + 真实封板资金；akshare 东财路由降为兑底。
+    所属行业经 industry_map 按代码回填（fuyao 契约不含行业字段）。
+    """
+    import pandas as pd
+
+    from fuyao_client import limit_up_pool
+
+    rows = limit_up_pool(date.replace("-", ""))
+    if not rows:
+        return pd.DataFrame()
+    industry_by_code = {}
+    try:
+        from industry_map import load_cached as _im_load
+
+        industry_by_code = _im_load(date) or {}
+    except (ImportError, OSError, ValueError, KeyError):
+        pass
+    records = []
+    for row in rows:
+        ticker = str(row.get("ticker") or "").zfill(6)
+        records.append({
+            "代码": ticker,
+            "名称": row.get("name"),
+            "连板数": int(row.get("continue_day_cnt") or 1),
+            "封板资金": row.get("seal_money"),
+            "首次封板时间": row.get("limit_up_time"),
+            "炸板次数": 0,
+            "所属行业": industry_by_code.get(ticker),
+            "最新价": row.get("last_price"),
+            "涨跌幅": row.get("price_change_ratio_pct"),
+            "涨停原因": row.get("limit_up_reason"),
+        })
+    return pd.DataFrame(records)
+
+
 def fetch_hot_money_limitup_pool(date: str):
+    """涨停池：fuyao 官方 API 首选，akshare 东财路由兑底。"""
+    try:
+        df = fetch_fuyao_limitup_pool(date)
+        if df is not None and not df.empty:
+            return df
+    except (DataSourceError, ImportError, OSError, ValueError):
+        pass
     try:
         import akshare as ak
 
