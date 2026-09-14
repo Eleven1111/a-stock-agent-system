@@ -1640,7 +1640,7 @@ def fetch_fuyao_limitup_pool(date: str):
         from industry_map import load_cached as _im_load
 
         industry_by_code = _im_load(date) or {}
-    except Exception:  # noqa: BLE001 — 行业回填缺失不阻断池数据
+    except (ImportError, OSError, ValueError, KeyError):
         pass
     records = []
     for row in rows:
@@ -1666,7 +1666,7 @@ def fetch_hot_money_limitup_pool(date: str):
         df = fetch_fuyao_limitup_pool(date)
         if df is not None and not df.empty:
             return df
-    except Exception:  # noqa: BLE001 — fuyao 失败落 akshare 兑底
+    except (DataSourceError, ImportError, OSError, ValueError):
         pass
     try:
         import akshare as ak
