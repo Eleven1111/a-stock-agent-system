@@ -889,8 +889,9 @@ def load_signal_context_for_discovery(
             read_signal_context,
         )
 
-        signal_ctx = read_signal_context() or {}
         allowed_age_days = hot_money_selection.allowed_ladder_age_days(asof)
+        max_ctx_age_hours = allowed_age_days * 24 if allowed_age_days is not None else 24
+        signal_ctx = read_signal_context(max_age_hours=max_ctx_age_hours) or {}
         temperature = temperature_from_context(
             signal_ctx,
             event_asof=asof,
